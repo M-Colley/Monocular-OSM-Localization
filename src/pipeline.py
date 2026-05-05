@@ -164,7 +164,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # the same VO parameters can short-circuit straight to step 5.
     vo_cache = cfg.data_dir / (
         f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
-        f"_s{cfg.frame_stride}.npz"
+        f"_s{cfg.frame_stride}_f{cfg.max_frames}.npz"
     )
     if vo_cache.exists():
         print(f"[3/5] Loading cached trajectory: {vo_cache}")
@@ -280,9 +280,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         try:
             h_img, w_img = frames.frames[0].shape[:2]
             K = default_intrinsics(w_img, h_img)
+            # For longer trajectories use a denser keyframe stride so the
+            # stitched canvas covers the full route without large gaps.
+            n_frames = len(frames.frames)
+            ipm_stride = max(4, n_frames // 200)  # ~200 tiles regardless of length
             ipm_canvas = render_ipm_canvas(
                 list(frames.frames), traj.xz, K,
-                keyframe_stride=8,
+                keyframe_stride=ipm_stride,
                 camera_height_m=cfg.ipm_camera_height_m,
                 pitch_deg=cfg.ipm_pitch_deg,
             )
@@ -295,8 +299,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             result["ipm_error"] = str(e)
             ipm_canvas = None
 
-    # 8. Aerial matching channel: prefer IPM (real road texture) when
-    # available, fall back to splat top-down otherwise.
+    # 8. Aerial matching channel.
+    # Primary signal: trajectory-raster IoU (always runs — uses aligned_traj_xy
+    # from each MatchCandidate, no top-down image required).
+    # Supplemental signal: ORB on top-down image vs OSM patch (weak when
+    # image is a photographic IPM vs a schematic OSM render; retained for
+    # completeness and inter-method comparison).
     if cfg.enable_aerial_match and candidates:
         if ipm_canvas is not None:
             aerial_input = cv2.cvtColor(ipm_canvas, cv2.COLOR_BGR2RGB)
@@ -306,54 +314,67 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             aerial_source = "splat_topdown"
         else:
             aerial_input = None
-            aerial_source = None
+            aerial_source = "traj_iou_only"
 
-        if aerial_input is not None:
-            print(f"[8] Aerial feature matching: {aerial_source} vs OSM patches "
-                  f"({len(candidates)} candidates)")
-            aerial_results = match_splat_against_candidates(
-                aerial_input, road, candidates,
-                output_dir=cfg.output_dir / "aerial",
-            )
-            result["aerial_input"] = aerial_source
+        print(f"[8] Aerial matching: traj-IoU + {'ORB on ' + aerial_source if aerial_input is not None else 'IoU only'} "
+              f"({len(candidates)} candidates)")
+        aerial_results = match_splat_against_candidates(
+            aerial_input, road, candidates,
+            output_dir=cfg.output_dir / "aerial",
+        )
+        result["aerial_input"] = aerial_source
 
-            # Aerial rank = position when re-sorted by RANSAC inlier count.
-            order_by_aerial = sorted(
-                range(len(aerial_results)),
-                key=lambda i: -aerial_results[i].n_inliers,
-            )
-            aerial_rank = {idx: r + 1 for r, idx in enumerate(order_by_aerial)}
+        # Aerial rank by combined aerial_score (higher = better → sort descending).
+        order_by_aerial = sorted(
+            range(len(aerial_results)),
+            key=lambda i: -aerial_results[i].aerial_score,
+        )
+        aerial_rank = {idx: r + 1 for r, idx in enumerate(order_by_aerial)}
 
-            print()
-            print("        ===== Method comparison (top-{:d}) =====".format(len(candidates)))
-            print("        shape_rank  shape_RMS  shape_corr  | aerial_rank  ORB  inliers  | streets")
-            print("        " + "-" * 100)
-            for i, ar in enumerate(aerial_results):
-                c = candidates[i]
-                names = ", ".join(
-                    candidate_geographic_summary(c, road.graph)["street_names"][:2]
-                ) or "(unnamed)"
-                print(f"           #{i+1:<2}      {c.score:7.1f} m   {c.bearing_corr:+.3f}     |"
-                      f"     #{aerial_rank[i]:<2}     {ar.n_orb_matches:3d}    {ar.n_inliers:3d}  ({ar.inlier_ratio:.0%}) | {names}")
+        print()
+        print("        ===== Method comparison (top-{:d}) =====".format(len(candidates)))
+        print("        shape_rank  shape_RMS  shape_corr  | aerial_rank  traj_IoU  ORB_inliers | streets")
+        print("        " + "-" * 108)
+        for i, ar in enumerate(aerial_results):
+            c = candidates[i]
+            names = ", ".join(
+                candidate_geographic_summary(c, road.graph)["street_names"][:2]
+            ) or "(unnamed)"
+            print(f"           #{i+1:<2}      {c.score:7.1f} m   {c.bearing_corr:+.3f}     |"
+                  f"     #{aerial_rank[i]:<2}     {ar.traj_iou:.3f}       {ar.n_inliers:3d}        | {names}")
 
-            # Consensus: lower combined rank == agreed-upon by both methods.
-            # We report this in the JSON so a downstream system can pick.
-            for i, ar in enumerate(aerial_results):
-                m = result["matches"][i]
-                m["shape_rank"] = i + 1
-                m["aerial_orb_matches"] = ar.n_orb_matches
-                m["aerial_inliers"] = ar.n_inliers
-                m["aerial_inlier_ratio"] = ar.inlier_ratio
-                m["aerial_rank"] = aerial_rank[i]
-                m["consensus_rank_sum"] = (i + 1) + aerial_rank[i]
+        for i, ar in enumerate(aerial_results):
+            m = result["matches"][i]
+            m["shape_rank"] = i + 1
+            m["traj_iou"] = ar.traj_iou
+            m["aerial_score"] = ar.aerial_score
+            m["aerial_orb_matches"] = ar.n_orb_matches
+            m["aerial_inliers"] = ar.n_inliers
+            m["aerial_inlier_ratio"] = ar.inlier_ratio
+            m["aerial_rank"] = aerial_rank[i]
+            m["consensus_rank_sum"] = (i + 1) + aerial_rank[i]
 
-            consensus_idx = min(
-                range(len(aerial_results)),
-                key=lambda i: ((i + 1) + aerial_rank[i], i),
-            )
-            print()
-            print(f"        Consensus pick: candidate #{consensus_idx + 1} "
-                  f"(shape #{consensus_idx + 1}, aerial #{aerial_rank[consensus_idx]})")
+        # Re-rank candidates by combined score: shape rank + aerial rank
+        # (lower sum = both methods agree this is the best match).
+        consensus_order = sorted(
+            range(len(aerial_results)),
+            key=lambda i: ((i + 1) + aerial_rank[i], i),
+        )
+        consensus_idx = consensus_order[0]
+        print()
+        print(f"        Consensus pick: candidate #{consensus_idx + 1} "
+              f"(shape #{consensus_idx + 1}, aerial #{aerial_rank[consensus_idx]})")
+
+        # Reorder candidates by consensus and update the result JSON.
+        # This ensures result["matches"][0] is the consensus-best answer.
+        reordered_matches = [result["matches"][i] for i in consensus_order]
+        for rank, m in enumerate(reordered_matches):
+            m["final_rank"] = rank + 1
+        result["matches"] = reordered_matches
+        # Mirror the reorder in candidates for downstream (GT eval).
+        candidates = [candidates[i] for i in consensus_order]
+        print(f"        Final #1 after consensus re-rank: "
+              f"{', '.join(result['matches'][0]['street_names'][:3]) or '(unnamed)'}")
 
     # 9. Optional: DA3 dense reconstruction (proper splat replacement).
     if cfg.enable_da3:

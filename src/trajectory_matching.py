@@ -116,15 +116,15 @@ def match_trajectory(
     traj_xz: np.ndarray,
     road: RoadGraph,
     *,
-    n_samples: int = 96,
-    walks_per_node: int = 4,
-    walk_depth: int = 25,
-    bearing_top_k: int = 200,
+    n_samples: int = 128,
+    walks_per_node: int = 8,
+    walk_depth: int = 40,
+    bearing_top_k: int = 500,
     final_top_k: int = 5,
     sample_every: int = 1,
     estimated_length_m: float = 1500.0,
     progress: bool = True,
-    bearing_corr_weight: float = 250.0,
+    bearing_corr_weight: float = 400.0,
 ) -> list[MatchCandidate]:
     """Localize the trajectory: return up to `final_top_k` best walks.
 
