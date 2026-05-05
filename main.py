@@ -29,21 +29,22 @@ def main() -> None:
     p.add_argument("--city", default=DEFAULT_CITY, help="OSM place name for candidate graph")
     p.add_argument("--data-dir", type=Path, default=Path("data"))
     p.add_argument("--output-dir", type=Path, default=Path("output"))
-    p.add_argument("--max-frames", type=int, default=1500)
-    p.add_argument("--frame-stride", type=int, default=6)
+    p.add_argument("--max-frames", type=int, default=4200)
+    p.add_argument("--frame-stride", type=int, default=3)
     p.add_argument(
         "--vo-segment",
-        default="0:300",
-        help="Seconds 'start:end' of video to use for VO (default 0:300). "
-             "Pick a window long enough to contain at least one real turn; "
+        default="0:420",
+        help="Seconds 'start:end' of video to use for VO (default 0:420 = 7 min). "
+             "~400s is the sweet spot before monocular VO drift degrades shape quality; "
              "a straight-line trajectory has no shape and cannot be localized.",
     )
-    p.add_argument("--top-k", type=int, default=5)
+    p.add_argument("--top-k", type=int, default=10)
     p.add_argument(
         "--estimated-length-m",
         type=float,
-        default=4000.0,
-        help="Approximate driven distance in meters; tunes OSM walk enumeration.",
+        default=8000.0,
+        help="Approximate driven distance in meters; tunes OSM walk enumeration. "
+             "Default 8000 generates long walks that span approach roads + city center.",
     )
     p.add_argument(
         "--sample-every",

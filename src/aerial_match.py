@@ -1,28 +1,35 @@
-"""Optional verification channel: feature-match the splat's top-down
-render against rasterized OSM patches around each candidate location.
+"""Aerial / top-down matching channel.
 
-This is *not* the primary localization signal — that's still the
-trajectory/road-graph shape matcher in `trajectory_matching.py`. Two
-reasons it's a useful addition anyway:
+Two complementary sub-channels are combined here:
 
-1.  It demonstrates the conceptually-correct end of the original pipeline
-    spec: take a top-down view of the recovered scene and compare it to
-    a top-down view of the city.
-2.  When the splat captures recognizable structure (e.g., consistent
-    building footprints or road-edge transitions), feature matching can
-    re-rank ties from the shape matcher.
+1.  **Trajectory-raster IoU** (primary, always available)
+    After Procrustes alignment, both the VO trajectory and the OSM walk
+    polyline live in the same metric coordinate system.  We rasterize
+    both as thick lines (road-width tolerance ~12 m) and compute the
+    Jaccard intersection-over-union.  High IoU means the aligned path
+    actually *covers* the road — this complements the Procrustes RMS
+    (which penalises large deviations) with a coverage signal that is
+    robust to end-point mismatch when the walk is longer than the driven
+    segment.
 
-We render the OSM road graph at each candidate location to a raster
-image (matplotlib, no tile fetches → no rate limits, no API keys), run
-ORB on both that image and the splat top-down render, do
-cross-checked Hamming matching, and score the candidate by the number
-of RANSAC homography inliers.
+2.  **ORB feature matching** (supplemental, requires a top-down image)
+    ORB on a rasterised OSM patch vs a rendered top-down image.  In
+    practice this channel is weak when the top-down image is a
+    photographic IPM stitch vs a schematic OSM render (domain gap →
+    ~5 % inlier rate ≈ noise).  It is retained for completeness and to
+    show the inter-method comparison; the trajectory IoU should be
+    preferred for re-ranking.
 
-A real Google-Maps / Earth tile match would substitute the matplotlib
-render for a satellite tile fetch. The matching machinery is identical;
-only the image source changes. We avoid the tile fetch in the PoC to
-keep the run hermetic and avoid TOS issues with Google. OSM tiles via
-`contextily` would also drop in here.
+    A production system would substitute the OSM schematic with real
+    satellite / aerial tiles and use a cross-domain descriptor
+    (e.g. SuperPoint + SuperGlue or DINOv2 features).  The matching
+    machinery below is identical; only the image source changes.
+
+Combined aerial score (normalised to [0, 1], higher = better match):
+
+    aerial_score = 0.7 * traj_iou + 0.3 * clip(n_inliers / 20, 0, 1)
+
+This score is used by pipeline.py to re-rank candidates.
 """
 
 from __future__ import annotations
@@ -44,11 +51,87 @@ from .trajectory_matching import MatchCandidate
 @dataclass
 class AerialMatchResult:
     candidate_index: int          # index into the input candidates list
-    n_orb_matches: int            # raw ORB cross-check matches
-    n_inliers: int                # RANSAC homography inliers
+    traj_iou: float               # Jaccard IoU of trajectory vs OSM walk rasters
+    aerial_score: float           # combined score (higher = better)
+    n_orb_matches: int            # raw ORB cross-check matches (0 if no image)
+    n_inliers: int                # RANSAC homography inliers (0 if no image)
     inlier_ratio: float           # n_inliers / max(1, n_orb_matches)
     osm_render_path: Path | None  # where the OSM patch was written
 
+
+# ---------------------------------------------------------------------------
+# Trajectory-raster IoU
+# ---------------------------------------------------------------------------
+
+def _traj_iou_score(
+    aligned_traj_xy: np.ndarray,
+    walk_xy: np.ndarray,
+    *,
+    resolution: int = 512,
+    road_width_m: float = 12.0,
+) -> float:
+    """Jaccard IoU between rasterised aligned-trajectory and OSM-walk.
+
+    Both polylines are drawn as thick lines at the same pixel scale so
+    that `road_width_m` metres correspond to the line thickness.  A
+    trajectory that follows the road closely produces high overlap;
+    one that drifts or belongs to a different part of the city produces
+    low overlap even if the overall shapes look similar.
+
+    Parameters
+    ----------
+    aligned_traj_xy:
+        VO trajectory after Procrustes similarity transform into the OSM
+        metric coordinate system (``MatchCandidate.aligned_traj_xy``).
+    walk_xy:
+        The OSM road-graph walk as a polyline in metric coordinates
+        (``MatchCandidate.walk_xy``).
+    resolution:
+        Side length (pixels) of the raster canvas.
+    road_width_m:
+        Tolerance radius around each path in metres.  This acts like a
+        "road width" buffer so that trajectories slightly off-centre
+        still count as overlapping.
+    """
+    if len(aligned_traj_xy) < 2 or len(walk_xy) < 2:
+        return 0.0
+
+    all_pts = np.vstack([aligned_traj_xy, walk_xy])
+    mn = all_pts.min(axis=0) - 50.0
+    mx = all_pts.max(axis=0) + 50.0
+    span = (mx - mn).max()
+    if span < 1.0:
+        return 0.0
+
+    scale = (resolution - 1) / span
+    thickness = max(2, int(road_width_m * scale))
+
+    def _rasterise(pts: np.ndarray) -> np.ndarray:
+        img = np.zeros((resolution, resolution), dtype=np.uint8)
+        px = ((pts - mn) * scale).astype(np.int32)
+        px[:, 1] = resolution - 1 - px[:, 1]  # flip y so north-up
+        px = np.clip(px, 0, resolution - 1)
+        for j in range(len(px) - 1):
+            cv2.line(
+                img,
+                (int(px[j, 0]), int(px[j, 1])),
+                (int(px[j + 1, 0]), int(px[j + 1, 1])),
+                255,
+                thickness,
+            )
+        return img
+
+    img_traj = _rasterise(aligned_traj_xy)
+    img_walk = _rasterise(walk_xy)
+
+    inter = int(np.logical_and(img_traj > 0, img_walk > 0).sum())
+    union = int(np.logical_or(img_traj > 0, img_walk > 0).sum())
+    return inter / max(1, union)
+
+
+# ---------------------------------------------------------------------------
+# OSM patch rendering
+# ---------------------------------------------------------------------------
 
 def render_osm_patch(
     road: RoadGraph,
@@ -58,12 +141,10 @@ def render_osm_patch(
     resolution: int = 1024,
     background: str = "white",
 ) -> np.ndarray:
-    """Rasterize the OSM road graph in a square window centered at `center_xy`.
+    """Rasterise the OSM road graph in a square window centred at `center_xy`.
 
-    The output is a grayscale image (uint8, single channel) intended as
-    a stand-in for an aerial / streetmap tile: roads are black on white
-    and ORB will fire on intersection corners and bend points. We don't
-    color-code by road class; the geometry is the only signal anyway.
+    Returns a grayscale uint8 image.  Roads are black on white; ORB fires
+    on intersection corners and bend points.
     """
     cx, cy = center_xy
     fig, ax = plt.subplots(figsize=(6, 6), dpi=resolution / 6)
@@ -74,8 +155,6 @@ def render_osm_patch(
     fig.patch.set_facecolor(background)
     ax.set_facecolor(background)
 
-    # Only plot polylines that intersect the window — much faster on
-    # large city graphs.
     for poly in road.polylines:
         if poly[:, 0].max() < cx - half_extent_m or poly[:, 0].min() > cx + half_extent_m:
             continue
@@ -85,18 +164,18 @@ def render_osm_patch(
 
     fig.tight_layout(pad=0)
     fig.canvas.draw()
-
-    # Pull the canvas as RGBA, convert to gray.
     rgba = np.asarray(fig.canvas.buffer_rgba())
     plt.close(fig)
     gray = cv2.cvtColor(rgba, cv2.COLOR_RGBA2GRAY)
 
-    # Normalize size — matplotlib's actual buffer size is dpi*figsize and
-    # may not exactly equal `resolution`.
     if gray.shape != (resolution, resolution):
         gray = cv2.resize(gray, (resolution, resolution))
     return gray
 
+
+# ---------------------------------------------------------------------------
+# ORB feature matching (supplemental)
+# ---------------------------------------------------------------------------
 
 def feature_match_score(
     img_a: np.ndarray,
@@ -105,18 +184,11 @@ def feature_match_score(
     n_features: int = 2000,
     ransac_threshold: float = 5.0,
 ) -> tuple[int, int]:
-    """Return (n_orb_matches, n_ransac_inliers) for two images.
-
-    Both images are coerced to grayscale. We do crossCheck-matched ORB
-    and then run RANSAC for a homography to count inliers. The matching
-    domain (synthetic top-down render vs. another raster) is the
-    standard ORB use case; we don't get many features when the splat
-    cloud is sparse, but the inlier count is a meaningful score.
-    """
+    """Return (n_orb_matches, n_ransac_inliers) for two images."""
     if img_a.ndim == 3:
-        img_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2GRAY) if img_a.shape[2] == 3 else cv2.cvtColor(img_a, cv2.COLOR_BGRA2GRAY)
+        img_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2GRAY if img_a.shape[2] == 3 else cv2.COLOR_BGRA2GRAY)
     if img_b.ndim == 3:
-        img_b = cv2.cvtColor(img_b, cv2.COLOR_BGR2GRAY) if img_b.shape[2] == 3 else cv2.cvtColor(img_b, cv2.COLOR_BGRA2GRAY)
+        img_b = cv2.cvtColor(img_b, cv2.COLOR_BGR2GRAY if img_b.shape[2] == 3 else cv2.COLOR_BGRA2GRAY)
 
     orb = cv2.ORB_create(nfeatures=n_features)
     kp_a, des_a = orb.detectAndCompute(img_a, None)
@@ -139,8 +211,12 @@ def feature_match_score(
     return len(matches), int(mask.sum())
 
 
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
 def match_splat_against_candidates(
-    splat_topdown_rgb: np.ndarray,
+    splat_topdown_rgb: np.ndarray | None,
     road: RoadGraph,
     candidates: list[MatchCandidate],
     *,
@@ -148,35 +224,60 @@ def match_splat_against_candidates(
     half_extent_m: float = 600.0,
     resolution: int = 1024,
 ) -> list[AerialMatchResult]:
-    """For each candidate, render an OSM patch and feature-match against
-    the splat top-down. Returns one result per candidate, in input order.
+    """Score each candidate by trajectory IoU (primary) + ORB inliers (supplemental).
+
+    Parameters
+    ----------
+    splat_topdown_rgb:
+        Top-down image (IPM BEV, sparse splat render, etc.) used for
+        ORB matching.  Pass ``None`` to skip the ORB channel entirely —
+        the trajectory IoU channel always runs independently.
+    road:
+        Projected OSM road graph (provides polylines for OSM patch render).
+    candidates:
+        Trajectory-match candidates from ``match_trajectory``.  Each
+        candidate carries ``aligned_traj_xy`` and ``walk_xy`` which are
+        the inputs to the IoU scorer.
+    output_dir:
+        Directory where OSM patch PNGs are written (for inspection).
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results: list[AerialMatchResult] = []
     for i, cand in enumerate(candidates):
-        # Center the OSM patch on the centroid of the matched walk so the
-        # comparison is over the same region the shape matcher chose.
-        cxy = cand.walk_xy.mean(axis=0)
-        osm_img = render_osm_patch(
-            road,
-            (float(cxy[0]), float(cxy[1])),
-            half_extent_m=half_extent_m,
-            resolution=resolution,
-        )
+        # --- Trajectory-raster IoU (primary signal) ---
+        iou = _traj_iou_score(cand.aligned_traj_xy, cand.walk_xy)
 
-        osm_path = output_dir / f"osm_candidate_{i + 1}.png"
-        cv2.imwrite(str(osm_path), osm_img)
+        # --- ORB feature matching (supplemental) ---
+        n_match, n_in = 0, 0
+        osm_path: Path | None = None
 
-        n_match, n_in = feature_match_score(splat_topdown_rgb, osm_img)
-        ratio = n_in / max(1, n_match)
+        if splat_topdown_rgb is not None:
+            cxy = cand.walk_xy.mean(axis=0)
+            osm_img = render_osm_patch(
+                road,
+                (float(cxy[0]), float(cxy[1])),
+                half_extent_m=half_extent_m,
+                resolution=resolution,
+            )
+            osm_path = output_dir / f"osm_candidate_{i + 1}.png"
+            cv2.imwrite(str(osm_path), osm_img)
+            n_match, n_in = feature_match_score(splat_topdown_rgb, osm_img)
+
+        # Combined score: IoU dominates; ORB adds a small bonus when available
+        # Clip ORB contribution: 20 inliers → 1.0, typical noise is < 10
+        orb_norm = min(1.0, n_in / 20.0) if n_in > 0 else 0.0
+        aerial_score = 0.7 * iou + 0.3 * orb_norm
+
         results.append(
             AerialMatchResult(
                 candidate_index=i,
+                traj_iou=iou,
+                aerial_score=aerial_score,
                 n_orb_matches=n_match,
                 n_inliers=n_in,
-                inlier_ratio=ratio,
+                inlier_ratio=n_in / max(1, n_match),
                 osm_render_path=osm_path,
             )
         )

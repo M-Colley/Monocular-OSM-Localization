@@ -1,145 +1,21 @@
 {
   "city": "Ulm, Germany",
   "url": "https://www.youtube.com/watch?v=ULl8s4qydrk",
-  "n_frames": 2098,
-  "n_valid_poses": 1375,
+  "n_frames": 4196,
+  "n_valid_poses": 2647,
   "matches": [
     {
-      "score_rms_m": 226.68495333662287,
-      "bearing_corr": 0.3471500176471998,
-      "walk_length_m": 2815.3878662055677,
+      "score_rms_m": 268.0256707516877,
+      "bearing_corr": 0.1649665341954081,
+      "walk_length_m": 4325.259124854265,
       "start_node_xy": [
-        574868.4327202863,
-        5364021.913254026
+        573375.8443874816,
+        5361305.58873753
       ],
       "street_names": [
-        "B\u00f6finger Steige",
-        "Eberhard-Finckh-Stra\u00dfe",
-        "Ludwig-Beck-Stra\u00dfe",
-        "Heidenheimer Stra\u00dfe"
-      ],
-      "n_edges": 25,
-      "shape_rank": 1,
-      "aerial_orb_matches": 148,
-      "aerial_inliers": 8,
-      "aerial_inlier_ratio": 0.05405405405405406,
-      "aerial_rank": 2,
-      "consensus_rank_sum": 3,
-      "gt_distance_m": 2017.0162578133002,
-      "gt_on_street": false,
-      "gt_matching_names": []
-    },
-    {
-      "score_rms_m": 220.56114904727562,
-      "bearing_corr": 0.23072487034770425,
-      "walk_length_m": 3790.5974349491307,
-      "start_node_xy": [
-        571369.2878558452,
-        5361235.210804598
-      ],
-      "street_names": [
-        "Blaubeurer Stra\u00dfe",
-        "Blaubeurer Tor"
-      ],
-      "n_edges": 25,
-      "shape_rank": 2,
-      "aerial_orb_matches": 126,
-      "aerial_inliers": 7,
-      "aerial_inlier_ratio": 0.05555555555555555,
-      "aerial_rank": 6,
-      "consensus_rank_sum": 8,
-      "gt_distance_m": 421.20808277580204,
-      "gt_on_street": false,
-      "gt_matching_names": []
-    },
-    {
-      "score_rms_m": 242.64357552350145,
-      "bearing_corr": 0.282160827873058,
-      "walk_length_m": 3264.9387162258445,
-      "start_node_xy": [
-        565231.9561765653,
-        5357332.482180416
-      ],
-      "street_names": [
-        "Wislinger Stra\u00dfe",
-        "Mergelweg",
-        "Ulmer Weg",
-        "Nadelbaum\u00e4cker",
-        "Steinfeldstra\u00dfe",
-        "Dorfstra\u00dfe",
-        "Erminger Stra\u00dfe"
-      ],
-      "n_edges": 25,
-      "shape_rank": 3,
-      "aerial_orb_matches": 145,
-      "aerial_inliers": 8,
-      "aerial_inlier_ratio": 0.05517241379310345,
-      "aerial_rank": 3,
-      "consensus_rank_sum": 6,
-      "gt_distance_m": 7366.401048988605,
-      "gt_on_street": false,
-      "gt_matching_names": []
-    },
-    {
-      "score_rms_m": 251.38865116198244,
-      "bearing_corr": 0.29436176582134893,
-      "walk_length_m": 3088.0771324012853,
-      "start_node_xy": [
-        575068.0849127569,
-        5364468.752348838
-      ],
-      "street_names": [
-        "Sch\u00f6ner-Berg-Weg",
-        "B\u00f6finger Steige",
-        "Ludwig-Beck-Stra\u00dfe",
-        "Heidenheimer Stra\u00dfe"
-      ],
-      "n_edges": 25,
-      "shape_rank": 4,
-      "aerial_orb_matches": 144,
-      "aerial_inliers": 9,
-      "aerial_inlier_ratio": 0.0625,
-      "aerial_rank": 1,
-      "consensus_rank_sum": 5,
-      "gt_distance_m": 2028.131337601753,
-      "gt_on_street": false,
-      "gt_matching_names": []
-    },
-    {
-      "score_rms_m": 252.95828933087824,
-      "bearing_corr": 0.30025926624355076,
-      "walk_length_m": 3102.3183917380497,
-      "start_node_xy": [
-        575068.0849127569,
-        5364468.752348838
-      ],
-      "street_names": [
-        "Sch\u00f6ner-Berg-Weg",
-        "B\u00f6finger Steige",
-        "Ludwig-Beck-Stra\u00dfe",
-        "Heidenheimer Stra\u00dfe"
-      ],
-      "n_edges": 25,
-      "shape_rank": 5,
-      "aerial_orb_matches": 145,
-      "aerial_inliers": 8,
-      "aerial_inlier_ratio": 0.05517241379310345,
-      "aerial_rank": 4,
-      "consensus_rank_sum": 9,
-      "gt_distance_m": 2017.0162578133002,
-      "gt_on_street": false,
-      "gt_matching_names": []
-    },
-    {
-      "score_rms_m": 266.5884176672424,
-      "bearing_corr": 0.35038421863121033,
-      "walk_length_m": 2773.1486891677123,
-      "start_node_xy": [
-        573848.1924022312,
-        5361073.515661106
-      ],
-      "street_names": [
-        "Sammlungsgasse",
+        "B\u00fcchsengasse",
+        "Hafenbad",
+        "Rosengasse",
         "Frauenstra\u00dfe",
         "Neue Stra\u00dfe",
         "Schwilmengasse",
@@ -148,139 +24,302 @@
         "Bahnhofplatz",
         "Schwambergerstra\u00dfe"
       ],
-      "n_edges": 25,
-      "shape_rank": 6,
-      "aerial_orb_matches": 168,
-      "aerial_inliers": 7,
-      "aerial_inlier_ratio": 0.041666666666666664,
-      "aerial_rank": 7,
-      "consensus_rank_sum": 13,
-      "gt_distance_m": 0.0,
-      "gt_on_street": true,
-      "gt_matching_names": [
-        "Olgastra\u00dfe"
-      ]
-    },
-    {
-      "score_rms_m": 320.19343733964644,
-      "bearing_corr": 0.5005960994314894,
-      "walk_length_m": 3109.0190671353216,
-      "start_node_xy": [
-        570497.6165402604,
-        5361742.143491358
-      ],
-      "street_names": [
-        "Holderweg",
-        "Pfaffen\u00e4cker",
-        "In der Wanne",
-        "Eselsbergsteige"
-      ],
-      "n_edges": 25,
-      "shape_rank": 7,
-      "aerial_orb_matches": 144,
-      "aerial_inliers": 7,
-      "aerial_inlier_ratio": 0.04861111111111111,
-      "aerial_rank": 8,
-      "consensus_rank_sum": 15,
-      "gt_distance_m": 2304.476358944716,
-      "gt_on_street": false,
-      "gt_matching_names": []
-    },
-    {
-      "score_rms_m": 318.71241914686647,
-      "bearing_corr": 0.4375133557010394,
-      "walk_length_m": 3106.8063058514667,
-      "start_node_xy": [
-        570541.304522029,
-        5361828.898544732
-      ],
-      "street_names": [
-        "Preiselbeerweg",
-        "Holderweg",
-        "Pfaffen\u00e4cker",
-        "In der Wanne",
-        "Eselsbergsteige"
-      ],
-      "n_edges": 25,
-      "shape_rank": 8,
-      "aerial_orb_matches": 130,
-      "aerial_inliers": 7,
-      "aerial_inlier_ratio": 0.05384615384615385,
-      "aerial_rank": 9,
-      "consensus_rank_sum": 17,
-      "gt_distance_m": 2257.100587936279,
-      "gt_on_street": false,
-      "gt_matching_names": []
-    },
-    {
-      "score_rms_m": 276.05201661775413,
-      "bearing_corr": 0.24863659523985943,
-      "walk_length_m": 3102.0230214500543,
-      "start_node_xy": [
-        575201.377890101,
-        5364336.780744358
-      ],
-      "street_names": [
-        "Poppenreuteweg",
-        "B\u00f6finger Steige",
-        "Ludwig-Beck-Stra\u00dfe",
-        "Heidenheimer Stra\u00dfe"
-      ],
-      "n_edges": 25,
-      "shape_rank": 9,
-      "aerial_orb_matches": 148,
-      "aerial_inliers": 7,
-      "aerial_inlier_ratio": 0.0472972972972973,
-      "aerial_rank": 10,
-      "consensus_rank_sum": 19,
-      "gt_distance_m": 2028.131337601753,
-      "gt_on_street": false,
-      "gt_matching_names": []
-    },
-    {
-      "score_rms_m": 277.2511870818335,
-      "bearing_corr": 0.2423584728921444,
-      "walk_length_m": 3116.2642807868187,
-      "start_node_xy": [
-        575201.377890101,
-        5364336.780744358
-      ],
-      "street_names": [
-        "Poppenreuteweg",
-        "B\u00f6finger Steige",
-        "Ludwig-Beck-Stra\u00dfe",
-        "Heidenheimer Stra\u00dfe"
-      ],
-      "n_edges": 25,
-      "shape_rank": 10,
-      "aerial_orb_matches": 136,
-      "aerial_inliers": 8,
-      "aerial_inlier_ratio": 0.058823529411764705,
+      "n_edges": 40,
+      "shape_rank": 2,
+      "traj_iou": 0.024626794713321288,
+      "aerial_score": 0.10723875629932489,
+      "aerial_orb_matches": 171,
+      "aerial_inliers": 6,
+      "aerial_inlier_ratio": 0.03508771929824561,
       "aerial_rank": 5,
+      "consensus_rank_sum": 7,
+      "final_rank": 1,
+      "gt_distance_m": 0.0,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 299.5550532362024,
+      "bearing_corr": 0.2216215889171621,
+      "walk_length_m": 4338.014521308724,
+      "start_node_xy": [
+        573898.7969257286,
+        5361191.315238086
+      ],
+      "street_names": [
+        "Theatergasse",
+        "Sammlungsgasse",
+        "Glasgasse",
+        "Griesbadgasse",
+        "Hahnengasse",
+        "Frauenstra\u00dfe",
+        "Neue Stra\u00dfe",
+        "Schwilmengasse",
+        "Friedrich-Ebert-Stra\u00dfe",
+        "Olgastra\u00dfe"
+      ],
+      "n_edges": 40,
+      "shape_rank": 4,
+      "traj_iou": 0.026830685780705153,
+      "aerial_score": 0.1087814800464936,
+      "aerial_orb_matches": 185,
+      "aerial_inliers": 6,
+      "aerial_inlier_ratio": 0.032432432432432434,
+      "aerial_rank": 4,
+      "consensus_rank_sum": 8,
+      "final_rank": 2,
+      "gt_distance_m": 0.0,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 305.8249379986466,
+      "bearing_corr": 0.19363307792626694,
+      "walk_length_m": 4401.8753518452195,
+      "start_node_xy": [
+        573898.7969257286,
+        5361191.315238086
+      ],
+      "street_names": [
+        "Bockgasse",
+        "Gideon-Bacher-Stra\u00dfe",
+        "Zeughausgasse",
+        "Hahnengasse",
+        "Frauenstra\u00dfe",
+        "Neue Stra\u00dfe",
+        "Schwilmengasse",
+        "Friedrich-Ebert-Stra\u00dfe",
+        "Olgastra\u00dfe",
+        "Bahnhofplatz"
+      ],
+      "n_edges": 40,
+      "shape_rank": 7,
+      "traj_iou": 0.021346788278672618,
+      "aerial_score": 0.11994275179507083,
+      "aerial_orb_matches": 194,
+      "aerial_inliers": 7,
+      "aerial_inlier_ratio": 0.03608247422680412,
+      "aerial_rank": 2,
+      "consensus_rank_sum": 9,
+      "final_rank": 3,
+      "gt_distance_m": 0.0,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 258.6513224680513,
+      "bearing_corr": 0.25988758135249146,
+      "walk_length_m": 5193.468658925453,
+      "start_node_xy": [
+        570821.5957353724,
+        5361351.608354363
+      ],
+      "street_names": [
+        "Blaubeurer Stra\u00dfe",
+        "Blaubeurer Tor",
+        "Lupferbr\u00fccke",
+        "Weinbergweg"
+      ],
+      "n_edges": 40,
+      "shape_rank": 1,
+      "traj_iou": 0.011532916866890917,
+      "aerial_score": 0.02307304180682364,
+      "aerial_orb_matches": 134,
+      "aerial_inliers": 1,
+      "aerial_inlier_ratio": 0.007462686567164179,
+      "aerial_rank": 10,
+      "consensus_rank_sum": 11,
+      "final_rank": 4,
+      "gt_distance_m": 472.31428697405136,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 270.62326681289755,
+      "bearing_corr": 0.15158033014316852,
+      "walk_length_m": 4753.266949144728,
+      "start_node_xy": [
+        571073.9537195205,
+        5359199.764321039
+      ],
+      "street_names": [
+        "Pappelauer Weg",
+        "Erstetter Weg",
+        "Mittlerer Kuhberg",
+        "Grimmelfinger Weg",
+        "R\u00f6merstra\u00dfe",
+        "R\u00f6merplatz",
+        "Ha\u00dflerstra\u00dfe",
+        "Illerstra\u00dfe",
+        "Erbacher Stra\u00dfe"
+      ],
+      "n_edges": 40,
+      "shape_rank": 3,
+      "traj_iou": 0.017780502759043533,
+      "aerial_score": 0.10244635193133048,
+      "aerial_orb_matches": 138,
+      "aerial_inliers": 6,
+      "aerial_inlier_ratio": 0.043478260869565216,
+      "aerial_rank": 8,
+      "consensus_rank_sum": 11,
+      "final_rank": 5,
+      "gt_distance_m": 1255.7908205290673,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 360.14016731061764,
+      "bearing_corr": 0.287737443668688,
+      "walk_length_m": 6744.563531611887,
+      "start_node_xy": [
+        572643.0260564814,
+        5364010.018185201
+      ],
+      "street_names": [
+        "Stuttgarter Stra\u00dfe"
+      ],
+      "n_edges": 30,
+      "shape_rank": 10,
+      "traj_iou": 0.017265330422702917,
+      "aerial_score": 0.13208573129589204,
+      "aerial_orb_matches": 194,
+      "aerial_inliers": 8,
+      "aerial_inlier_ratio": 0.041237113402061855,
+      "aerial_rank": 1,
+      "consensus_rank_sum": 11,
+      "final_rank": 6,
+      "gt_distance_m": 862.4766813944688,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 301.59554066514653,
+      "bearing_corr": 0.19668079395475704,
+      "walk_length_m": 4348.8858006874625,
+      "start_node_xy": [
+        573951.6194812498,
+        5361144.545162499
+      ],
+      "street_names": [
+        "Glasgasse",
+        "Griesbadgasse",
+        "Radgasse",
+        "Hahnengasse",
+        "Zeughausgasse",
+        "Frauenstra\u00dfe",
+        "Neue Stra\u00dfe",
+        "Schwilmengasse",
+        "Friedrich-Ebert-Stra\u00dfe",
+        "Olgastra\u00dfe"
+      ],
+      "n_edges": 40,
+      "shape_rank": 5,
+      "traj_iou": 0.02017543859649123,
+      "aerial_score": 0.10412280701754385,
+      "aerial_orb_matches": 200,
+      "aerial_inliers": 6,
+      "aerial_inlier_ratio": 0.03,
+      "aerial_rank": 7,
+      "consensus_rank_sum": 12,
+      "final_rank": 7,
+      "gt_distance_m": 0.0,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 363.41606001342313,
+      "bearing_corr": 0.3170536614537146,
+      "walk_length_m": 6787.286064424214,
+      "start_node_xy": [
+        572405.644522148,
+        5363887.426909636
+      ],
+      "street_names": [
+        "Stuttgarter Stra\u00dfe"
+      ],
+      "n_edges": 28,
+      "shape_rank": 9,
+      "traj_iou": 0.015485407980941036,
+      "aerial_score": 0.11583978558665872,
+      "aerial_orb_matches": 179,
+      "aerial_inliers": 7,
+      "aerial_inlier_ratio": 0.03910614525139665,
+      "aerial_rank": 3,
+      "consensus_rank_sum": 12,
+      "final_rank": 8,
+      "gt_distance_m": 862.4766813944688,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 300.40050526923727,
+      "bearing_corr": 0.161928639199804,
+      "walk_length_m": 4356.3626721929295,
+      "start_node_xy": [
+        573951.6194812498,
+        5361144.545162499
+      ],
+      "street_names": [
+        "Theatergasse",
+        "Bockgasse",
+        "Gideon-Bacher-Stra\u00dfe",
+        "Zeughausgasse",
+        "Hahnengasse",
+        "Frauenstra\u00dfe",
+        "Neue Stra\u00dfe",
+        "Schwilmengasse",
+        "Friedrich-Ebert-Stra\u00dfe",
+        "Olgastra\u00dfe"
+      ],
+      "n_edges": 40,
+      "shape_rank": 8,
+      "traj_iou": 0.024175611642974566,
+      "aerial_score": 0.1069229281500822,
+      "aerial_orb_matches": 192,
+      "aerial_inliers": 6,
+      "aerial_inlier_ratio": 0.03125,
+      "aerial_rank": 6,
+      "consensus_rank_sum": 14,
+      "final_rank": 9,
+      "gt_distance_m": 0.0,
+      "gt_on_street": false,
+      "gt_matching_names": []
+    },
+    {
+      "score_rms_m": 352.6234089579802,
+      "bearing_corr": 0.3229069547349844,
+      "walk_length_m": 6720.320668630845,
+      "start_node_xy": [
+        572753.2170533772,
+        5363419.11596426
+      ],
+      "street_names": [
+        "Stuttgarter Stra\u00dfe"
+      ],
+      "n_edges": 23,
+      "shape_rank": 6,
+      "traj_iou": 0.015491559086395233,
+      "aerial_score": 0.08584409136047666,
+      "aerial_orb_matches": 190,
+      "aerial_inliers": 5,
+      "aerial_inlier_ratio": 0.02631578947368421,
+      "aerial_rank": 9,
       "consensus_rank_sum": 15,
-      "gt_distance_m": 2017.0162578133002,
+      "final_rank": 10,
+      "gt_distance_m": 862.4766813944688,
       "gt_on_street": false,
       "gt_matching_names": []
     }
   ],
   "ipm": "ipm_bev.png",
   "aerial_input": "ipm_bev",
-  "da3": {
-    "n_points": 63168,
-    "n_keyframes": 16,
-    "outputs": [
-      "splat_da3.ply",
-      "splat_da3.html",
-      "splat_da3_topdown.png"
-    ]
-  },
   "ground_truth": {
     "streets": [
-      "Neutorstra\u00dfe",
+      "Neutorstrasse",
       "Keltergasse",
-      "Olgastra\u00dfe"
+      "Olgastrasse"
     ],
-    "best_distance_rank": 6,
-    "first_named_rank": 6
+    "best_distance_rank": 1,
+    "first_named_rank": null
   }
 }
