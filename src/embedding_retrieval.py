@@ -81,7 +81,9 @@ class TorchvisionImageEmbedder:
             ) from exc
 
         if model_name != "resnet18":
-            raise ValueError(f"unsupported embedding model: {model_name}")
+            raise ValueError(
+                f"Only 'resnet18' is currently supported for embedding model, got: {model_name}"
+            )
 
         weights = models.ResNet18_Weights.DEFAULT
         backbone = models.resnet18(weights=weights)
