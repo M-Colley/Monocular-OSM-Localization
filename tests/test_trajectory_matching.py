@@ -12,6 +12,7 @@ from src.osm_data import RoadGraph, _build_polyline_view
 from src.trajectory_matching import (
     match_trajectory,
     procrustes_similarity,
+    score_candidates_with_sliding_windows,
 )
 
 
@@ -209,3 +210,47 @@ def test_match_l_turn_picks_l_turn_over_straight() -> None:
     # And: a straight walk should not be the top result.
     nodes = [best.walk[0][0]] + [v for _, v, _ in best.walk]
     assert nodes != [0, 1, 2], "straight walk ranked above L-walk"
+
+
+def test_sliding_window_support_scores_candidates() -> None:
+    road = _l_shape_graph()
+    near_candidate = match_trajectory(
+        np.array([[0, -i] for i in range(0, 201, 5)], dtype=float),
+        road,
+        n_samples=48,
+        walks_per_node=4,
+        walk_depth=6,
+        bearing_top_k=20,
+        final_top_k=1,
+        estimated_length_m=180.0,
+        progress=False,
+    )[0]
+    far_walk = [("F", "G", 0), ("G", "H", 0)]
+    far_poly = np.array([[10000.0, 0.0], [10100.0, 0.0], [10200.0, 0.0]])
+    full_candidates = [
+        near_candidate,
+        type(near_candidate)(
+            score=20.0,
+            bearing_corr=0.1,
+            start_node="F",
+            walk=far_walk,
+            walk_xy=far_poly,
+            aligned_traj_xy=far_poly.copy(),
+            walk_length_m=200.0,
+        ),
+    ]
+
+    def fake_match(_window: np.ndarray, _road: RoadGraph, **_kwargs: object) -> list:
+        return [full_candidates[0]]
+
+    results = score_candidates_with_sliding_windows(
+        np.array([[0, -i] for i in range(0, 201, 5)], dtype=float),
+        road,
+        full_candidates[:2],
+        window_size=32,
+        step=16,
+        match_fn=fake_match,
+    )
+    assert len(results) == 2
+    assert results[0].support_count == results[0].n_windows
+    assert results[0].sliding_score > results[1].sliding_score

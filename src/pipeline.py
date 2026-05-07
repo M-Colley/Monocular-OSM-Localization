@@ -18,6 +18,7 @@ import numpy as np
 
 from .aerial_match import match_splat_against_candidates
 from .download import download_video
+from .embedding_retrieval import score_candidates_by_embeddings
 from .evaluator import best_rank_for_gt, evaluate_candidates
 from .frame_extraction import extract_frames
 from .ipm import render_ipm_canvas
@@ -33,6 +34,7 @@ from .trajectory_matching import (
     MatchCandidate,
     candidate_geographic_summary,
     match_trajectory,
+    score_candidates_with_sliding_windows,
 )
 from .visual_odometry import Trajectory, default_intrinsics, estimate_trajectory
 
@@ -59,6 +61,12 @@ class PipelineConfig:
     enable_ipm: bool = False
     ipm_camera_height_m: float = 1.4
     ipm_pitch_deg: float = 6.0
+    enable_sliding_window: bool = False
+    sliding_window_size: int = 64
+    sliding_window_step: int = 32
+    embedding_sources: tuple[str, ...] = ()
+    embedding_model: str = "resnet18"
+    geotessera_year: int = 2024
     ground_truth_streets: tuple[str, ...] = ()
 
 
@@ -236,6 +244,43 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             ],
         }
 
+    if cfg.enable_sliding_window and candidates:
+        print(
+            f"[5b] Sliding-window matching "
+            f"(window={cfg.sliding_window_size}, step={cfg.sliding_window_step})"
+        )
+        sliding = score_candidates_with_sliding_windows(
+            traj.xz,
+            road,
+            candidates,
+            window_size=cfg.sliding_window_size,
+            step=cfg.sliding_window_step,
+            window_top_k=max(cfg.top_k, 3),
+            estimated_length_m=cfg.estimated_length_m,
+        )
+        if sliding:
+            rank_order = sorted(
+                range(len(sliding)),
+                key=lambda i: (-sliding[i].sliding_score, sliding[i].mean_rank, i),
+            )
+            rank_map = {idx: rank + 1 for rank, idx in enumerate(rank_order)}
+            result["sliding_window"] = {
+                "window_size": cfg.sliding_window_size,
+                "step": cfg.sliding_window_step,
+                "n_windows": sliding[0].n_windows,
+            }
+            print("      -> sliding-window support:")
+            for i, sw in enumerate(sliding):
+                result["matches"][i]["sliding_window_support_count"] = sw.support_count
+                result["matches"][i]["sliding_window_support_ratio"] = sw.support_ratio
+                result["matches"][i]["sliding_window_mean_rank"] = sw.mean_rank
+                result["matches"][i]["sliding_window_score"] = sw.sliding_score
+                result["matches"][i]["sliding_window_rank"] = rank_map[i]
+                print(
+                    f"        #{i+1}  support={sw.support_count}/{sw.n_windows}  "
+                    f"mean_rank={sw.mean_rank:.2f}  score={sw.sliding_score:.3f}"
+                )
+
     # 6. Splat reconstruction (sparse SfM point cloud) — for the aerial
     # matching channel and for visualization.
     splat_img_rgb = None
@@ -375,6 +420,63 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         candidates = [candidates[i] for i in consensus_order]
         print(f"        Final #1 after consensus re-rank: "
               f"{', '.join(result['matches'][0]['street_names'][:3]) or '(unnamed)'}")
+
+    if cfg.embedding_sources and candidates:
+        if ipm_canvas is not None:
+            embedding_query = cv2.cvtColor(ipm_canvas, cv2.COLOR_BGR2RGB)
+            embedding_query_name = "ipm_bev"
+        elif splat_img_rgb is not None:
+            embedding_query = splat_img_rgb
+            embedding_query_name = "splat_topdown"
+        else:
+            embedding_query = None
+            embedding_query_name = None
+
+        print(
+            f"[8b] Deep embedding retrieval "
+            f"({', '.join(cfg.embedding_sources)} via {cfg.embedding_model})"
+        )
+        if embedding_query is None:
+            print("      -> skipped: no top-down query image available")
+            result["embedding_retrieval_error"] = (
+                "Embedding retrieval needs IPM or splat top-down imagery."
+            )
+        else:
+            embedding_results = score_candidates_by_embeddings(
+                embedding_query,
+                road,
+                candidates,
+                output_dir=cfg.output_dir / "embeddings",
+                sources=cfg.embedding_sources,
+                model_name=cfg.embedding_model,
+                geotessera_year=cfg.geotessera_year,
+            )
+            result["embedding_query"] = embedding_query_name
+            result["embedding_retrieval"] = {
+                "model": cfg.embedding_model,
+                "sources": list(cfg.embedding_sources),
+            }
+            for source, source_results in embedding_results.items():
+                order = sorted(
+                    range(len(source_results)),
+                    key=lambda i: -source_results[i].cosine_similarity,
+                )
+                rank_map = {idx: rank + 1 for rank, idx in enumerate(order)}
+                print(f"      -> {source}:")
+                for i, emb in enumerate(source_results):
+                    result["matches"][i][f"{source}_embedding_score"] = emb.cosine_similarity
+                    result["matches"][i][f"{source}_embedding_rank"] = rank_map[i]
+                    if emb.image_path is not None:
+                        result["matches"][i][f"{source}_embedding_image"] = str(
+                            emb.image_path.relative_to(cfg.output_dir)
+                        )
+                    if emb.error:
+                        result["matches"][i][f"{source}_embedding_error"] = emb.error
+                    print(
+                        f"        #{i+1}  sim={emb.cosine_similarity:+.3f}  "
+                        f"rank=#{rank_map[i]}"
+                        + (f"  error={emb.error}" if emb.error else "")
+                    )
 
     # 9. Optional: DA3 dense reconstruction (proper splat replacement).
     if cfg.enable_da3:

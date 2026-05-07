@@ -19,6 +19,7 @@ do the full Procrustes on every walk in the city.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 import networkx as nx
 import numpy as np
@@ -38,6 +39,17 @@ class MatchCandidate:
     walk_xy: np.ndarray          # the walk as a polyline in metric coords
     aligned_traj_xy: np.ndarray  # the trajectory after similarity alignment
     walk_length_m: float
+
+
+@dataclass
+class SlidingWindowMatchResult:
+    candidate_index: int
+    n_windows: int
+    support_count: int
+    support_ratio: float
+    mean_rank: float
+    mean_score_rms_m: float
+    sliding_score: float
 
 
 def procrustes_similarity(
@@ -258,3 +270,131 @@ def candidate_geographic_summary(
         "street_names": streets[:10],
         "n_edges": len(cand.walk),
     }
+
+
+def _window_slices(n_points: int, window_size: int, step: int) -> list[tuple[int, int]]:
+    if n_points < 2 or window_size < 2 or step < 1:
+        return []
+    if n_points <= window_size:
+        return [(0, n_points)]
+    windows = []
+    start = 0
+    while start + window_size <= n_points:
+        windows.append((start, start + window_size))
+        start += step
+    if windows[-1][1] < n_points:
+        windows.append((n_points - window_size, n_points))
+    return windows
+
+
+def _candidate_street_names(cand: MatchCandidate, graph: nx.MultiDiGraph) -> set[str]:
+    summary = candidate_geographic_summary(cand, graph)
+    return {
+        str(name).casefold()
+        for name in summary.get("street_names", [])
+        if str(name).strip()
+    }
+
+
+def _candidates_overlap(
+    ref: MatchCandidate,
+    other: MatchCandidate,
+    graph: nx.MultiDiGraph,
+    *,
+    support_radius_m: float,
+) -> bool:
+    ref_names = _candidate_street_names(ref, graph)
+    other_names = _candidate_street_names(other, graph)
+    if ref_names and other_names and ref_names.intersection(other_names):
+        return True
+
+    ref_center = ref.walk_xy.mean(axis=0)
+    other_center = other.walk_xy.mean(axis=0)
+    return float(np.linalg.norm(ref_center - other_center)) <= support_radius_m
+
+
+def score_candidates_with_sliding_windows(
+    traj_xz: np.ndarray,
+    road: RoadGraph,
+    candidates: list[MatchCandidate],
+    *,
+    window_size: int = 64,
+    step: int = 32,
+    resample_points: int = 128,
+    window_top_k: int = 5,
+    estimated_length_m: float = 1500.0,
+    support_radius_m: float = 250.0,
+    match_fn: Callable[..., list[MatchCandidate]] | None = None,
+) -> list[SlidingWindowMatchResult]:
+    if not candidates:
+        return []
+    if match_fn is None:
+        match_fn = match_trajectory
+    if len(traj_xz) < 2 or trajectory_arc_length(traj_xz)[-1] <= 0:
+        return []
+
+    n_points = max(resample_points, window_size)
+    traj_resampled = resample_uniform(traj_xz, n_points)
+    windows = _window_slices(len(traj_resampled), window_size, step)
+    if not windows:
+        return []
+
+    full_length = float(trajectory_arc_length(traj_resampled)[-1])
+    ranks: list[list[int]] = [[] for _ in candidates]
+    scores: list[list[float]] = [[] for _ in candidates]
+
+    for start, end in windows:
+        window = traj_resampled[start:end]
+        window_length = float(trajectory_arc_length(window)[-1])
+        if window_length <= 0:
+            continue
+        length_scale = window_length / max(full_length, 1e-9)
+        window_matches = match_fn(
+            window,
+            road,
+            final_top_k=window_top_k,
+            estimated_length_m=max(100.0, estimated_length_m * length_scale),
+            progress=False,
+        )
+        if not window_matches:
+            continue
+        for idx, candidate in enumerate(candidates):
+            best_rank: int | None = None
+            best_score: float | None = None
+            for rank, window_match in enumerate(window_matches, start=1):
+                if not _candidates_overlap(
+                    candidate,
+                    window_match,
+                    road.graph,
+                    support_radius_m=support_radius_m,
+                ):
+                    continue
+                if best_rank is None or rank < best_rank:
+                    best_rank = rank
+                    best_score = window_match.score
+            if best_rank is not None and best_score is not None:
+                ranks[idx].append(best_rank)
+                scores[idx].append(best_score)
+
+    results: list[SlidingWindowMatchResult] = []
+    n_windows = len(windows)
+    for idx, _candidate in enumerate(candidates):
+        support_count = len(ranks[idx])
+        support_ratio = support_count / max(1, n_windows)
+        mean_rank = float(np.mean(ranks[idx])) if ranks[idx] else float("inf")
+        mean_score = float(np.mean(scores[idx])) if scores[idx] else float("inf")
+        rank_bonus = 0.0 if not np.isfinite(mean_rank) else (window_top_k - mean_rank + 1) / max(1, window_top_k)
+        sliding_score = support_ratio + 0.25 * max(0.0, rank_bonus)
+        results.append(
+            SlidingWindowMatchResult(
+                candidate_index=idx,
+                n_windows=n_windows,
+                support_count=support_count,
+                support_ratio=support_ratio,
+                mean_rank=mean_rank,
+                mean_score_rms_m=mean_score,
+                sliding_score=sliding_score,
+            )
+        )
+
+    return results
