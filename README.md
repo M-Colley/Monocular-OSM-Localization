@@ -19,7 +19,7 @@ Reference clip used in the demo:
 
 | Stage | Component                              | What gets produced                                       |
 |-------|----------------------------------------|----------------------------------------------------------|
-| 1     | Video download (`yt-dlp`)              | `data/input.mp4`                                         |
+| 1     | Video download (`yt-dlp`)              | `data/<submission>/input.mp4`                            |
 | 2     | Frame extraction (`opencv-python`)     | sampled BGR frames                                       |
 | 3     | Monocular visual odometry              | scale-free 3-D camera trajectory (and `R`, `t` per frame) |
 | 4     | Sparse splat (ORB + triangulation)     | colored 3-D points exported as PLY + interactive HTML viewer |
@@ -160,12 +160,27 @@ Or specify your own:
 python main.py --url "https://www.youtube.com/watch?v=..." --city "Ulm, Germany"
 ```
 
+You can also submit multiple videos in one run:
+
+```bash
+python main.py \
+    --url "https://www.youtube.com/watch?v=videoA" \
+          "https://www.youtube.com/watch?v=videoB"
+```
+
+Each submission gets its own `data/<submission>/` and `output/<submission>/`
+folder, and multi-video runs also write `output/batch_results.json`.
+
+If `--city` is omitted, the CLI now tries to infer it from the video title
+locally (for example, `Driving in Ulm, Germany` → `Ulm, Germany`). Pass
+`--city` explicitly when the title is ambiguous.
+
 Useful flags:
 
 | Flag                    | Default      | What it does                                              |
 |-------------------------|--------------|-----------------------------------------------------------|
-| `--url`                 | Ulm dashcam  | YouTube URL to localize                                   |
-| `--city`                | Ulm, Germany | OSM lookup for the candidate road graph                   |
+| `--url`                 | Ulm dashcam  | One or more YouTube URLs to localize                      |
+| `--city`                | inferred     | OSM lookup for the candidate graph; guessed from title when omitted |
 | `--max-frames`          | 1500         | Cap on frames sampled from the video                      |
 | `--frame-stride`        | 6            | Take every Nth frame (motion ≈ 0.2 s @ 30 fps)            |
 | `--vo-segment`          | `0:300`      | Seconds of video to use for VO (`start:end`)              |
@@ -186,7 +201,7 @@ Useful flags:
 > it. If you supply a different video, sample a window that includes
 > at least one intersection.
 
-Outputs land in `output/`:
+Outputs land in `output/<submission>/`:
 
 - `trajectory.png` — the recovered top-down driving path (VO output)
 - `match.png` — best-match walks overlaid on the Ulm road graph
@@ -320,6 +335,6 @@ is how we pick out the true match.
 │   ├── test_trajectory_matching.py
 │   ├── test_splat.py
 │   └── test_aerial_match.py
-├── data/                            # downloaded videos + cached OSM + cached VO  (gitignored)
-└── output/                          # plots, splat PLY/HTML, OSM patches, IPM canvas (gitignored)
+├── data/                            # per-submission downloads + cached OSM + cached VO  (gitignored)
+└── output/                          # per-submission plots, splat PLY/HTML, OSM patches, IPM canvas (gitignored)
 ```

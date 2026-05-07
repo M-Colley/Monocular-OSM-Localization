@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import yt_dlp
@@ -9,6 +10,33 @@ import yt_dlp
 
 class DownloadError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class VideoMetadata:
+    url: str
+    title: str | None
+    video_id: str | None
+
+
+def fetch_video_metadata(url: str) -> VideoMetadata:
+    """Fetch lightweight metadata without downloading the video."""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "skip_download": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        return VideoMetadata(
+            url=str(info.get("webpage_url") or info.get("original_url") or url),
+            title=info.get("title"),
+            video_id=str(info["id"]) if info.get("id") else None,
+        )
+    except yt_dlp.utils.DownloadError as e:
+        raise DownloadError(str(e)) from e
 
 
 def download_video(
