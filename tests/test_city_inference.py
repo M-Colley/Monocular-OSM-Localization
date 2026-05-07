@@ -22,4 +22,4 @@ def test_slugify_submission_prefers_human_readable_parts() -> None:
 
 
 def test_slugify_submission_falls_back_to_hash() -> None:
-    assert slugify_submission(None, None, None, fallback_seed="https://example.com") == "video-327c3fda87ce"
+    assert slugify_submission(None, None, None, fallback_seed="https://example.com") == "video-100680ad546c"

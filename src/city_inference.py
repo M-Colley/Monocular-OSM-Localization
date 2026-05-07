@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
-from hashlib import sha1
+from hashlib import sha256
 
 
+# Latin title-case words, including common diacritics found in European city names.
 _TITLE_WORD = r"[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*"
 _TITLE_PHRASE = rf"{_TITLE_WORD}(?:[\s-]+{_TITLE_WORD}){{0,3}}"
 _COUNTRY_HINTS = {
@@ -70,16 +71,19 @@ _REJECT_PHRASE_TOKENS = {
     "ASMR",
 }
 _PREPOSITION_PATTERNS = [
+    # Matches "Driving in Ulm, Germany" / "walk through Paris".
     re.compile(
         rf"\b(?:in|through|around|near|from|to|across|exploring|visiting)\s+"
         rf"(?P<city>{_TITLE_PHRASE})(?:,\s*(?P<country>{_TITLE_PHRASE}))?",
         re.UNICODE,
     ),
+    # Matches "Ulm dashcam" / "Paris drive".
     re.compile(
         rf"\b(?P<city>{_TITLE_PHRASE})(?:,\s*(?P<country>{_TITLE_PHRASE}))?\s+"
         rf"(?:dashcam|drive|driving|walk|walking|tour|trip)\b",
         re.UNICODE,
     ),
+    # Matches "Tokyo night drive" / "Vienna downtown walk".
     re.compile(
         rf"\b(?P<city>{_TITLE_PHRASE})(?:,\s*(?P<country>{_TITLE_PHRASE}))?"
         rf"(?:\s+(?:night|day|morning|evening|downtown|center|centre|city)){{0,2}}\s+"
@@ -91,6 +95,8 @@ _PARENS_PATTERN = re.compile(
     rf"\((?P<city>{_TITLE_PHRASE})(?:,\s*(?P<country>{_TITLE_PHRASE}))?\)",
     re.UNICODE,
 )
+_MAX_SLUG_PARTS = 3
+_MAX_SLUG_LENGTH = 80
 
 
 def _clean_phrase(text: str | None) -> str | None:
@@ -102,9 +108,9 @@ def _clean_phrase(text: str | None) -> str | None:
     tokens = phrase.split()
     if not tokens:
         return None
-    if all(token in _REJECT_PHRASE_TOKENS for token in tokens):
-        return None
     if tokens[0] in _REJECT_PHRASE_TOKENS:
+        return None
+    if all(token in _REJECT_PHRASE_TOKENS for token in tokens):
         return None
     return phrase
 
@@ -146,6 +152,6 @@ def slugify_submission(*parts: str | None, fallback_seed: str) -> str:
         if cleaned:
             chunks.append(cleaned)
     if chunks:
-        return "-".join(chunks[:3])[:80].strip("-")
-    digest = sha1(fallback_seed.encode("utf-8")).hexdigest()[:12]
+        return "-".join(chunks[:_MAX_SLUG_PARTS])[:_MAX_SLUG_LENGTH].strip("-")
+    digest = sha256(fallback_seed.encode("utf-8")).hexdigest()[:12]
     return f"video-{digest}"

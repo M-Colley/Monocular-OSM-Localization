@@ -139,7 +139,9 @@ def main() -> None:
         results.append(result)
 
     if metadata_errors:
-        raise SystemExit("Failed to inspect one or more videos:\n- " + "\n- ".join(metadata_errors))
+        raise SystemExit(
+            "Failed to inspect one or more videos:\n- " + "\n- ".join(metadata_errors)
+        )
 
     if len(results) > 1:
         args.output_dir.mkdir(parents=True, exist_ok=True)

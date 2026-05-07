@@ -30,10 +30,11 @@ def fetch_video_metadata(url: str) -> VideoMetadata:
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
+        raw_id = info.get("id")
         return VideoMetadata(
             url=str(info.get("webpage_url") or info.get("original_url") or url),
             title=info.get("title"),
-            video_id=str(info["id"]) if info.get("id") else None,
+            video_id=str(raw_id) if raw_id is not None else None,
         )
     except yt_dlp.utils.DownloadError as e:
         raise DownloadError(str(e)) from e
