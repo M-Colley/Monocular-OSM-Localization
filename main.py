@@ -39,7 +39,7 @@ def _resolve_city(explicit_city: str | None, url: str, title: str | None) -> str
     )
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--url", nargs="+", default=[DEFAULT_URL], help="One or more YouTube URLs")
     p.add_argument("--city", default=None, help="OSM place name for candidate graph")
@@ -85,8 +85,25 @@ def main() -> None:
                    help="dashcam height above road (meters)")
     p.add_argument("--ipm-pitch", type=float, default=6.0,
                    help="dashcam downward tilt (degrees)")
+    p.add_argument("--enable-sliding-window", action="store_true",
+                   help="re-score full-route candidates by support across trajectory windows")
+    p.add_argument("--sliding-window-size", type=int, default=64,
+                   help="window size in resampled trajectory points for sliding-window matching")
+    p.add_argument("--sliding-window-step", type=int, default=32,
+                   help="step size in resampled trajectory points for sliding-window matching")
+    p.add_argument("--embedding-sources", nargs="*", choices=("osm", "geotessera"), default=[],
+                   help="optional deep embedding retrieval sources to compare against the top-down query")
+    p.add_argument("--embedding-model", default="resnet18",
+                   help="deep image embedding model used for retrieval (default: resnet18)")
+    p.add_argument("--geotessera-year", type=int, default=2024,
+                   help="GeoTessera embedding year when geotessera retrieval is enabled")
     p.add_argument("--ground-truth", nargs="*", default=[],
                    help="known street names traversed by the video (e.g. Neutorstrasse Olgastrasse)")
+    return p
+
+
+def main() -> None:
+    p = build_arg_parser()
     args = p.parse_args()
 
     start, end = _parse_segment(args.vo_segment)
@@ -129,6 +146,12 @@ def main() -> None:
             enable_ipm=args.enable_ipm,
             ipm_camera_height_m=args.ipm_height,
             ipm_pitch_deg=args.ipm_pitch,
+            enable_sliding_window=args.enable_sliding_window,
+            sliding_window_size=args.sliding_window_size,
+            sliding_window_step=args.sliding_window_step,
+            embedding_sources=tuple(args.embedding_sources),
+            embedding_model=args.embedding_model,
+            geotessera_year=args.geotessera_year,
             ground_truth_streets=tuple(args.ground_truth),
         )
         print(f"\n=== Submission: {metadata.title or metadata.url} ===")

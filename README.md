@@ -140,6 +140,13 @@ pip install -r requirements.txt
 first run downloads OSM data for Ulm (~5 MB) and the YouTube video; both
 are cached in `data/`.
 
+Optional comparison extras:
+
+```bash
+pip install torch torchvision      # deep embedding retrieval
+pip install geotessera             # GeoTessera-backed candidate patches
+```
+
 You also need `ffmpeg` on PATH for `yt-dlp` to merge audio/video. On
 Windows: `winget install Gyan.FFmpeg` or download from
 https://ffmpeg.org/.
@@ -192,6 +199,12 @@ Useful flags:
 | `--enable-ipm`          | off          | Render an IPM road-plane BEV (CPU only, no model)        |
 | `--ipm-height`          | 1.4          | Dashcam height above road in meters                       |
 | `--ipm-pitch`           | 6.0          | Dashcam downward tilt in degrees                          |
+| `--enable-sliding-window` | off        | Re-score full-route candidates by support across overlapping trajectory windows |
+| `--sliding-window-size` | `64`         | Sliding-window length in resampled trajectory points      |
+| `--sliding-window-step` | `32`         | Step size between sliding windows                         |
+| `--embedding-sources`   | none         | Optional deep retrieval sources: `osm`, `geotessera`      |
+| `--embedding-model`     | `resnet18`   | Deep image embedding backbone used for retrieval          |
+| `--geotessera-year`     | `2024`       | GeoTessera tile year when `geotessera` retrieval is enabled |
 | `--ground-truth A B C`  | none         | Known street names; the pipeline scores each candidate by distance to nearest GT geometry |
 
 > **Pick a window with at least one turn.** The matcher localizes by
@@ -214,24 +227,27 @@ Outputs land in `output/<submission>/`:
 
 ---
 
-## Quick start with all four channels
+## Quick start with the comparison suite
 
 ```bash
-# 7-min window, dense splat (DA3), IPM, ground-truth scored
+# 7-min window, IPM, sliding-window scoring, deep retrieval on OSM + GeoTessera,
+# plus optional GT scoring for comparing the ranks each method assigns
 python main.py --skip-download \
     --vo-segment 0:420 --max-frames 2100 --estimated-length-m 5500 \
     --top-k 10 \
-    --use-da3 --da3-keyframes 24 \
     --enable-ipm \
+    --enable-sliding-window --sliding-window-size 64 --sliding-window-step 32 \
+    --embedding-sources osm geotessera \
     --ground-truth "Neutorstraße" "Keltergasse" "Olgastraße"
 ```
 
 You'll see, in order:
 1. Top-K shape candidates (Procrustes RMS, bearing correlation)
 2. Aerial ORB-match scores per candidate (re-rank table)
-3. DA3 dense reconstruction summary (`splat_da3.ply` / `splat_da3.html`)
-4. IPM road-plane BEV stitch (`ipm_bev.png`)
-5. Per-candidate distance to the ground-truth streets, plus best-rank summary
+3. Sliding-window support counts / ranks for each full-route candidate
+4. Deep embedding retrieval scores for each enabled source (`osm`, `geotessera`)
+5. IPM road-plane BEV stitch (`ipm_bev.png`)
+6. Per-candidate distance to the ground-truth streets, plus best-rank summary
 
 ## Tests
 
