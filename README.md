@@ -196,6 +196,11 @@ Useful flags:
 | `--skip-download`       | off          | Reuse cached video                                        |
 | `--use-da3`             | off          | Run Depth Anything 3 dense reconstruction (needs CUDA)    |
 | `--da3-keyframes`       | 32           | Number of keyframes fed to DA3                            |
+| `--full-splat`          | off          | Render the splat as anisotropic alpha-blended Gaussians (CPU; see "Splat rendering" below) |
+| `--full-splat-scale`    | `1.4`        | Per-Gaussian size multiplier for the anisotropic render   |
+| `--full-splat-opacity`  | `0.55`       | Per-Gaussian opacity for the anisotropic render           |
+| `--train-3dgs`          | off          | Run a real 3DGS gradient-descent fit on top of DA3 (needs CUDA + `gsplat`) |
+| `--train-3dgs-iters`    | `2000`       | Number of optimization iterations for `--train-3dgs`      |
 | `--enable-ipm`          | off          | Render an IPM road-plane BEV (CPU only, no model)        |
 | `--ipm-height`          | 1.4          | Dashcam height above road in meters                       |
 | `--ipm-pitch`           | 6.0          | Dashcam downward tilt in degrees                          |
@@ -248,6 +253,61 @@ You'll see, in order:
 4. Deep embedding retrieval scores for each enabled source (`osm`, `geotessera`)
 5. IPM road-plane BEV stitch (`ipm_bev.png`)
 6. Per-candidate distance to the ground-truth streets, plus best-rank summary
+
+---
+
+## Splat rendering
+
+There are now **three** levels of splat rendering, each behind its own flag.
+They differ by a factor of ~10× in cost and by a *much* larger factor in
+visual quality. Pick the cheapest one that looks acceptable for your use:
+
+| Level | Flag(s) | Cost | What you get |
+|-------|---------|------|--------------|
+| **1. Sparse disk render** *(default)* | (always on, controlled by `--no-splat` to disable) | seconds, CPU | Each 3-D point drawn as a small isotropic disk + global Gaussian blur. Fastest path; sufficient for the aerial-matching channel but visually crude. Outputs `splat_topdown.png`. |
+| **2. Anisotropic Gaussian render** *(no training)* | `--full-splat` (optionally with `--use-da3`) | a few seconds, CPU | Each point becomes an **anisotropic 3-D Gaussian** whose covariance is fit from its k-NN neighborhood (local PCA), projected to the ground plane, and alpha-composited front-to-back with proper Gaussian falloff. Looks like a soft "real" splat without any GPU training. Outputs `splat_topdown_hq.png` (and `splat_da3_topdown_hq.png` when DA3 is on). |
+| **3. Real 3DGS gradient-descent fit** *(training)* | `--use-da3 --train-3dgs` | minutes on a consumer GPU | Initializes one Gaussian per DA3 dense point, then **trains** position / rotation (quaternion) / per-axis scale / opacity / color against the actual video keyframes via [`gsplat`](https://github.com/nerfstudio-project/gsplat). This is the real 3D Gaussian Splat from the original spec. Outputs `splat_3dgs.ply`, openable in [SuperSplat](https://playcanvas.com/supersplat/editor) or the [antimatter15 viewer](https://antimatter15.com/splat/). |
+
+### Why level 2 exists
+
+The default sparse render was unsatisfying because every Gaussian is an
+isotropic blob — a window edge and a tarmac patch render identically.
+Level 2 fixes the *visual* part of the problem (anisotropy + smooth
+falloff + alpha compositing) without paying the GPU-training cost. It
+needs no extra dependencies; SciPy's KD-tree handles the k-NN search
+and everything else is straight NumPy. Tune `--full-splat-scale` up if
+the cloud is sparse and the Gaussians look too small to fill the
+surface.
+
+### Why level 3 is a separate flag
+
+Real 3DGS training is both slow (minutes per clip) and dependency-heavy
+(needs CUDA + a working `gsplat` install — the latter is non-trivial on
+Windows). It also requires `--use-da3` so we have keyframe poses to
+optimize against. Keep it off unless you specifically want a publishable
+3DGS PLY.
+
+To install the level-3 stack (CUDA 12.1 example):
+
+```bash
+pip install --extra-index-url https://download.pytorch.org/whl/cu121 \
+    torch torchvision
+pip install depth-anything-3 addict gsplat
+```
+
+Then:
+
+```bash
+python main.py --skip-download \
+    --use-da3 --da3-keyframes 48 \
+    --full-splat \
+    --train-3dgs --train-3dgs-iters 3000
+```
+
+You'll get all three renders in one run: the cheap disk PNG, the
+anisotropic HQ PNG, and the trained 3DGS PLY.
+
+---
 
 ## Tests
 
@@ -318,7 +378,7 @@ is how we pick out the true match.
 - **Drift on long sequences.** Cumulative VO error eventually warps the recovered shape. Too short → straight line (no shape signal); too long → drift dominates. ~3–6 minutes is the sweet spot for the Ulm clip; the 7-minute window already shows visible drift.
 - **Featureless scenes.** Tunnels, heavy rain, night driving — ORB starves and the trajectory degenerates to noise.
 - **Geometric ambiguity in dense urban grids.** Many parallel inner-city streets share turn signatures with the trajectory. The matcher recovers the right *area* (top-10) reliably; promoting the correct candidate to #1 needs additional signal (DA3-trajectory-driven matcher, sliding-window segment match, or deep VPR — see "Honest scope limitation" above).
-- **Real 3DGS not trained.** The DA3 reconstruction is the SfM substrate of a 3DGS pipeline (dense colored points + per-frame poses, metric); we don't run a per-Gaussian gradient-descent fit on top. `gsplat` is the next step there and pip-installable, but training takes minutes-to-hours on consumer hardware. See `requirements.txt` for the optional GPU stack.
+- **Real 3DGS is opt-in (slow + heavy deps).** A full per-Gaussian gradient-descent fit is available behind `--train-3dgs` (see "Splat rendering" above), but it needs CUDA + `gsplat` and takes minutes per clip. The default and the `--full-splat` paths skip training and just render the existing point cloud; that's good enough for the localization pipeline, which only consumes the top-down image as one of several aerial-matching signals.
 - **IPM calibration is approximate.** Camera height (1.4 m) and pitch (6°) are reasonable defaults for windshield-mounted dashcams but not measured for this specific clip. Sweeping these parameters would improve the BEV stitch.
 
 ---

@@ -79,6 +79,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="run Depth Anything 3 (CUDA) for a dense reconstruction")
     p.add_argument("--da3-keyframes", type=int, default=32,
                    help="number of keyframes to feed DA3 (must fit in GPU memory)")
+    p.add_argument("--full-splat", action="store_true",
+                   help="render the splat (sparse and/or DA3) as anisotropic "
+                        "alpha-blended Gaussians instead of isotropic disks. "
+                        "Pure CPU; adds a few seconds. Produces *_topdown_hq.png.")
+    p.add_argument("--full-splat-scale", type=float, default=1.4,
+                   help="size multiplier for anisotropic Gaussians (raise for sparse clouds)")
+    p.add_argument("--full-splat-opacity", type=float, default=0.55,
+                   help="per-Gaussian opacity in the anisotropic top-down render")
+    p.add_argument("--train-3dgs", action="store_true",
+                   help="run a full gradient-descent 3DGS fit on top of the "
+                        "DA3 reconstruction (requires --use-da3, CUDA, and "
+                        "`pip install gsplat`). Produces splat_3dgs.ply.")
+    p.add_argument("--train-3dgs-iters", type=int, default=2000,
+                   help="number of optimization iterations for --train-3dgs")
     p.add_argument("--enable-ipm", action="store_true",
                    help="render an inverse-perspective-mapped road-plane BEV")
     p.add_argument("--ipm-height", type=float, default=1.4,
@@ -143,6 +157,11 @@ def main() -> None:
             splat_max_pairs=args.splat_max_pairs,
             enable_da3=args.use_da3,
             da3_keyframes=args.da3_keyframes,
+            enable_full_splat=args.full_splat,
+            full_splat_scale=args.full_splat_scale,
+            full_splat_opacity=args.full_splat_opacity,
+            enable_train_3dgs=args.train_3dgs,
+            train_3dgs_iters=args.train_3dgs_iters,
             enable_ipm=args.enable_ipm,
             ipm_camera_height_m=args.ipm_height,
             ipm_pitch_deg=args.ipm_pitch,
