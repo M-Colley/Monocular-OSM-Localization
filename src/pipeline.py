@@ -58,6 +58,11 @@ class PipelineConfig:
     enable_aerial_match: bool = True
     enable_da3: bool = False
     da3_keyframes: int = 32
+    enable_full_splat: bool = False
+    full_splat_scale: float = 1.4
+    full_splat_opacity: float = 0.55
+    enable_train_3dgs: bool = False
+    train_3dgs_iters: int = 2000
     enable_ipm: bool = False
     ipm_camera_height_m: float = 1.4
     ipm_pitch_deg: float = 6.0
@@ -308,6 +313,22 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             render_topdown_to_file(splat_pts, splat_cols, splat_img_path)
             print(f"      -> wrote {splat_img_path}")
             splat_img_rgb = render_topdown_splat(splat_pts, splat_cols)
+
+            if cfg.enable_full_splat:
+                from .full_splat import render_full_splat_to_file, render_full_splat_topdown
+                hq_path = cfg.output_dir / "splat_topdown_hq.png"
+                render_full_splat_to_file(
+                    splat_pts, splat_cols, hq_path,
+                    scale=cfg.full_splat_scale,
+                    opacity=cfg.full_splat_opacity,
+                    progress=True,
+                )
+                print(f"      -> wrote {hq_path} (anisotropic Gaussian render)")
+                splat_img_rgb = render_full_splat_topdown(
+                    splat_pts, splat_cols,
+                    scale=cfg.full_splat_scale,
+                    opacity=cfg.full_splat_opacity,
+                )
         else:
             print("      -> no triangulated points")
 
@@ -509,6 +530,41 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             render_topdown_to_file(rec.points_world, rec.colors_rgb, top,
                                    resolution=1024, point_radius_px=1)
             print(f"      -> wrote {top}")
+
+            if cfg.enable_full_splat:
+                from .full_splat import render_full_splat_to_file
+                hq = cfg.output_dir / "splat_da3_topdown_hq.png"
+                render_full_splat_to_file(
+                    rec.points_world, rec.colors_rgb, hq,
+                    scale=cfg.full_splat_scale,
+                    opacity=cfg.full_splat_opacity,
+                    progress=True,
+                )
+                print(f"      -> wrote {hq} (anisotropic Gaussian render)")
+
+            if cfg.enable_train_3dgs:
+                print(f"      -> training real 3DGS via gsplat ({cfg.train_3dgs_iters} iters)")
+                try:
+                    from .full_splat import fit_3dgs, save_trained_splat_ply
+                    trained = fit_3dgs(
+                        rec, frames.frames,
+                        n_iters=cfg.train_3dgs_iters,
+                        device="cuda",
+                    )
+                    out_ply = cfg.output_dir / "splat_3dgs.ply"
+                    save_trained_splat_ply(trained, out_ply)
+                    print(f"      -> wrote {out_ply} "
+                          f"(open in SuperSplat / antimatter15 viewer; "
+                          f"final loss={trained.final_loss:.4f})")
+                    result["trained_3dgs"] = {
+                        "n_gaussians": int(len(trained.means)),
+                        "n_iters": int(trained.n_iters),
+                        "final_loss": float(trained.final_loss),
+                        "ply": str(out_ply.relative_to(cfg.output_dir)),
+                    }
+                except Exception as e:
+                    print(f"      -> 3DGS training failed: {e}")
+                    result["trained_3dgs_error"] = str(e)
 
             result["da3"] = {
                 "n_points": int(len(rec.points_world)),
