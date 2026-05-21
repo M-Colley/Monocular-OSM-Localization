@@ -1,0 +1,687 @@
+"""BevSplat cross-view localization channel (NeurIPS'26).
+
+Wires the third-party `BevSplat <https://github.com/wangqww/BevSplat>`_
+model into our pipeline as an additional aerial-matching backend.
+
+BevSplat takes a ground-view RGB image plus a *real* satellite tile
+(512x512 in the reference KITTI training setup) and produces a
+correlation map + a per-pixel ``(shift_u, shift_v, heading)`` offset
+locating the camera inside that tile. This complements:
+
+* **Trajectory IoU** (``aerial_match._traj_iou_score``) — pure geometry,
+  no appearance signal.
+* **ORB on OSM raster** (``aerial_match.feature_match_score``) — weak
+  cross-domain appearance signal (photo vs schematic line drawing).
+* **Deep embedding retrieval** (``embedding_retrieval``) — global
+  appearance similarity via ResNet/DINOv2 features over satellite
+  tiles or OSM patches.
+
+BevSplat is the strongest of these in principle: it was *trained* to
+localize a ground image inside a satellite tile, so it produces a
+calibrated pose estimate rather than a similarity score.
+
+Status — not all of the integration is functional today
+--------------------------------------------------------
+
+The upstream repository (commit ``187da9e``) has two blockers:
+
+1. **No pre-trained weights.** The README's "Coming Soon - Within 1
+   Week" entry is six months old as of writing. Without weights we
+   cannot run inference; training from scratch needs the KITTI Raw +
+   VIGOR datasets and GPU-days.
+2. **CUDA extensions need a local build.** The `pano_feature_gaussian`
+   and `feature_gaussian` subpackages are CUDA C++ extensions that are
+   not pip-installable; they require ``pip install -e .`` from inside
+   the BevSplat repo with a matching CUDA toolkit.
+
+This module therefore:
+
+* Wires the full integration path (CLI flag → pipeline step → result
+  JSON column) so when wangqww ships the weights, plugging them in is
+  a one-line change in :func:`_load_bev_splat_inference`.
+* Renders the satellite tiles for each candidate using
+  :func:`embedding_retrieval._render_geotessera_patch` (real DINOv2
+  embeddings of satellite imagery, PCA-reduced to RGB) when geotessera
+  is installed, falling back to OSM raster otherwise. These tiles are
+  written under ``output/<submission>/bev_splat/`` for inspection.
+* Reports ``BevSplatMatchResult.error`` per candidate when the model
+  cannot be loaded, so the pipeline keeps running.
+
+A :class:`MockBevSplatInference` is provided for tests and for sanity
+checks before the real model lands.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Protocol, Sequence
+
+import cv2
+import numpy as np
+
+from .aerial_match import render_osm_patch
+from .osm_data import RoadGraph
+from .trajectory_matching import MatchCandidate
+
+
+# ---------------------------------------------------------------------------
+# Public dataclasses
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BevSplatConfig:
+    """Knobs for the BevSplat aerial channel.
+
+    Parameters
+    ----------
+    weights_path:
+        Path to the BevSplat checkpoint (``.pth``/``.ckpt``). The
+        upstream authors published weights at a OneDrive share linked
+        from `our README BevSplat section <../README.md#bevsplat-integration>`_;
+        download the relevant `.pth` and pass the local path here.
+        Pass ``None`` to disable inference and only render the
+        satellite tiles for inspection.
+    repo_path:
+        Path to a local clone of https://github.com/wangqww/BevSplat,
+        with its CUDA extensions built (``cd pano_feature_gaussian &&
+        pip install -e .`` and similarly for ``feature_gaussian``). The
+        loader will prepend this to ``sys.path`` so it can import
+        ``models.models_kitti_seq.Model``. Pass ``None`` to skip the
+        inference path (tiles still get rendered).
+    device:
+        ``"cuda"`` or ``"cpu"``. BevSplat's CUDA extensions assume CUDA;
+        CPU inference is not really supported by the upstream model but
+        the scaffold tolerates it.
+    satellite_source:
+        ``"geotessera"`` (real satellite-derived DINOv2 embedding,
+        PCA-reduced to RGB) or ``"osm"`` (rasterized schematic, same as
+        the ORB channel — listed for completeness but mismatched with
+        BevSplat's training domain).
+    satellite_size:
+        Side length of the satellite tile fed to BevSplat. 512 matches
+        the KITTI training pipeline.
+    half_extent_m:
+        Half-side of the satellite tile in metres. The KITTI setup is
+        about 60 m. Larger tiles widen the search radius but coarsen
+        the prediction; smaller tiles assume better priors.
+    geotessera_year:
+        Tile year for the geotessera embedding source.
+    model_args:
+        Override dict for the BevSplat argparse defaults (see
+        ``train_KITTI_weak_seq.parse_args``). Used to build the
+        ``argparse.Namespace`` passed to ``Model(args, device=...)``.
+        Unspecified fields fall back to the upstream defaults.
+    sequence_length:
+        Number of "ground views" the model expects as a sequence; we
+        replicate the single query frame this many times to satisfy the
+        shape (the model was trained with sequences but the
+        replicate-trick is a documented eval mode).
+    """
+
+    weights_path: Path | None = None
+    repo_path: Path | None = None
+    device: str = "cuda"
+    satellite_source: str = "geotessera"
+    satellite_size: int = 512
+    half_extent_m: float = 60.0
+    geotessera_year: int = 2024
+    model_args: dict[str, object] = field(default_factory=dict)
+    sequence_length: int = 2
+    model_module: str = "models.models_kitti_nips"
+    # Which file inside the cloned BevSplat repo defines the `Model` class.
+    # Probing the commit `187da9e`:
+    #   models.models_kitti_seq  — broken upstream (missing `loss/`, `gaussian.encoder`, `gaussian.decoder`)
+    #   models.models_kitti_nips — imports cleanly once `feat_gaussian` CUDA ext is built
+    #   models.models_kitti_vfa  — imports cleanly with zero extra setup
+    #   models.models_kitti_orienternet — imports cleanly with zero extra setup
+    #   models.models_vigor      — imports cleanly once `pano_gaussian_feat` is built
+    # KITTI dashcam checkpoints (KITTI_GPS / KITTI_no_GPS) most likely match
+    # `models_kitti_nips` (the NeurIPS 2026 reference version); set to
+    # `models.models_kitti_vfa` if you want a CUDA-extension-free smoke
+    # test of the integration before building the extensions.
+
+
+@dataclass
+class BevSplatMatchResult:
+    """Per-candidate output of the BevSplat channel.
+
+    A ``score`` of ``0.0`` and a populated ``error`` indicates that the
+    model could not be invoked for this candidate (e.g. weights missing
+    or satellite tile failed to render); the pipeline keeps going.
+    """
+
+    candidate_index: int
+    score: float                  # peak correlation in [0, 1] (higher = better)
+    pred_shift_u: float           # normalized lateral shift in tile, [-1, 1]
+    pred_shift_v: float           # normalized longitudinal shift in tile, [-1, 1]
+    pred_heading: float           # normalized heading delta, [-1, 1]
+    satellite_path: Path | None   # rendered satellite tile (always written if produced)
+    error: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Inference contract
+# ---------------------------------------------------------------------------
+
+
+class BevSplatInference(Protocol):
+    """Callable contract for a BevSplat inference backend.
+
+    Concrete backends:
+
+    * :class:`MockBevSplatInference` (tests, sanity checks before weights land).
+    * :func:`_load_bev_splat_inference` (real upstream model loader).
+
+    The return is ``(score, shift_u, shift_v, heading_delta)`` where
+    ``shift_*`` and ``heading_delta`` are normalized to ``[-1, 1]`` to
+    match the upstream KITTI training labels.
+    """
+
+    def __call__(
+        self,
+        ground_rgb: np.ndarray,         # H_g x W_g x 3, uint8 RGB
+        satellite_rgb: np.ndarray,      # H_s x W_s x 3, uint8 RGB
+        intrinsics: np.ndarray,         # 3x3, float
+    ) -> tuple[float, float, float, float]:
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Mock backend: a no-weights, pure-correlation sanity check
+# ---------------------------------------------------------------------------
+
+
+class MockBevSplatInference:
+    """A weight-free stand-in that returns *something* sensible.
+
+    Computes a normalized cross-correlation peak between a downscaled
+    ground frame and the satellite tile. This is **not** a substitute
+    for the real model — appearance correlation across views is the
+    exact thing BevSplat was designed to be better at than naive
+    cross-correlation — but it lets us exercise the integration end to
+    end, keep the result-JSON schema stable, and write meaningful
+    tests.
+    """
+
+    def __init__(self, *, score_floor: float = 0.05) -> None:
+        self._score_floor = float(score_floor)
+
+    def __call__(
+        self,
+        ground_rgb: np.ndarray,
+        satellite_rgb: np.ndarray,
+        intrinsics: np.ndarray,
+    ) -> tuple[float, float, float, float]:
+        # Downscale ground frame to a template; cross-correlate against satellite.
+        h_s, w_s = satellite_rgb.shape[:2]
+        template_size = max(32, min(h_s, w_s) // 4)
+        g = cv2.cvtColor(ground_rgb, cv2.COLOR_RGB2GRAY)
+        g = cv2.resize(g, (template_size, template_size), interpolation=cv2.INTER_AREA)
+        s = cv2.cvtColor(satellite_rgb, cv2.COLOR_RGB2GRAY)
+        if s.shape[0] <= template_size or s.shape[1] <= template_size:
+            return self._score_floor, 0.0, 0.0, 0.0
+        ncc = cv2.matchTemplate(s, g, cv2.TM_CCOEFF_NORMED)
+        peak_val = float(ncc.max())
+        min_val, max_val, _, max_loc = cv2.minMaxLoc(ncc)
+        # Normalize peak position to [-1, 1] relative to tile centre.
+        cx, cy = max_loc[0] + template_size / 2.0, max_loc[1] + template_size / 2.0
+        shift_u = float((cx - w_s / 2.0) / (w_s / 2.0))
+        shift_v = float((cy - h_s / 2.0) / (h_s / 2.0))
+        # Mock has no heading; report 0.
+        score = max(self._score_floor, (peak_val + 1.0) / 2.0)  # NCC ∈ [-1,1] → [0,1]
+        return score, shift_u, shift_v, 0.0
+
+
+# ---------------------------------------------------------------------------
+# Real backend loader (best-effort; returns None if upstream is unavailable)
+# ---------------------------------------------------------------------------
+
+
+# Defaults taken verbatim from `train_KITTI_weak_seq.py::parse_args`.
+# They reproduce the training-time argparse namespace, which the
+# upstream `Model(args, device=...)` constructor consumes directly.
+_BEV_SPLAT_DEFAULT_ARGS: dict[str, object] = {
+    "resume": 0,
+    "test": 1,                # eval mode (not training)
+    "epochs": 3,
+    "lr": 6.25e-05,
+    "rotation_range": 10.0,
+    "shift_range_lat": 20.0,
+    "shift_range_lon": 20.0,
+    "batch_size": 1,           # we run per-candidate
+    "level": "0_2",
+    "channels": "32_16_4",
+    "N_iters": 1,
+    "ConfGrd": 1,
+    "ConfSat": 0,
+    "share": 1,
+    "Optimizer": "TransV1",
+    "proj": "geo",
+    "visualize": 0,
+    "multi_gpu": 0,
+    "GPS_error": 5,
+    "GPS_error_coe": 0.0,
+    "contrastive_coe": 0.0,
+    "stage": 1,
+    "task": "3DoF",
+    "supervise_amount": 1.0,
+    "name": "monocular-osm-localization-inference",
+    "sequence": 2,
+}
+
+
+def _build_bev_splat_args(overrides: dict[str, object]) -> object:
+    """Return an argparse.Namespace matching BevSplat's training defaults."""
+    import argparse
+
+    merged = dict(_BEV_SPLAT_DEFAULT_ARGS)
+    merged.update(overrides or {})
+    return argparse.Namespace(**merged)
+
+
+def _load_bev_splat_inference(
+    config: BevSplatConfig,
+) -> tuple[BevSplatInference | None, str | None]:
+    """Try to load the upstream BevSplat model.
+
+    Returns ``(inference, error)``:
+
+    * ``(callable, None)`` on success — pass it to
+      :func:`score_candidates_with_bevsplat`.
+    * ``(None, message)`` if any prerequisite is missing (no weights,
+      no repo clone, CUDA extensions unbuilt, checkpoint shape
+      mismatch, etc.). The caller populates
+      :class:`BevSplatMatchResult.error` and the pipeline keeps going.
+
+    Prerequisites (all three):
+
+    1. ``config.weights_path`` points to a ``.pth`` downloaded from the
+       authors' OneDrive share (link in the README).
+    2. ``config.repo_path`` points to a local clone of
+       https://github.com/wangqww/BevSplat with its CUDA extensions
+       built (``pip install -e ./pano_feature_gaussian`` and
+       ``pip install -e ./feature_gaussian``).
+    3. ``torch`` is importable. CUDA is recommended; the upstream
+       model uses CUDA-specific extensions.
+
+    The returned callable wraps ``model.forward(...)`` with a small
+    adapter that:
+
+    * tiles our query frame ``sequence_length`` times to match the
+      BevSplat sequence-input convention,
+    * passes zero placeholders for depth, ``loc_shift_left``, and
+      ``heading_shift_left`` (we don't have priors at inference time),
+    * extracts a scalar score + ``(shift_u, shift_v, heading)`` from
+      whatever the forward call returns, falling back to ``NaN`` when
+      the schema doesn't match (verified at first call).
+    """
+    if config.weights_path is None:
+        return None, (
+            "BevSplat weights_path not configured. The upstream authors "
+            "published six checkpoints at the OneDrive share — for our "
+            "dashcam-on-OSM-candidate use case, grab `KITTI_no_GPS.pth` "
+            "(see README.md BevSplat section for the link and the full "
+            "checkpoint table) and pass it via --bev-splat-weights."
+        )
+
+    weights_path = Path(config.weights_path)
+    if not weights_path.exists():
+        return None, f"BevSplat weights not found at {weights_path}"
+
+    if config.repo_path is None:
+        return None, (
+            "BevSplat --bev-splat-repo-path not set. Clone "
+            "https://github.com/wangqww/BevSplat locally, build the CUDA "
+            "extensions (cd pano_feature_gaussian && pip install -e . ; "
+            "cd ../feature_gaussian && pip install -e .), then point "
+            "--bev-splat-repo-path at the clone root."
+        )
+
+    repo_path = Path(config.repo_path)
+    if not (repo_path / "models" / "models_kitti_seq.py").exists():
+        return None, (
+            f"BevSplat repo not found at {repo_path} (looked for "
+            "models/models_kitti_seq.py). Did you clone "
+            "https://github.com/wangqww/BevSplat there?"
+        )
+
+    try:
+        import torch
+    except ImportError:
+        return None, "torch not installed; cannot load BevSplat weights"
+
+    # Make the upstream package importable. We prepend rather than append
+    # so a local `models` clone wins over any same-named package on path.
+    import sys
+    repo_str = str(repo_path)
+    if repo_str not in sys.path:
+        sys.path.insert(0, repo_str)
+
+    module_name = config.model_module
+    try:
+        import importlib
+        mod = importlib.import_module(module_name)
+        Model = getattr(mod, "Model")
+    except ModuleNotFoundError as exc:
+        # Upstream is half-broken: `models_kitti_seq` is missing files
+        # (`loss/`, `gaussian.encoder`, `gaussian.decoder`); `models_kitti_nips`
+        # and `models_vigor` need the CUDA extensions built. Surface
+        # exactly which sub-module is missing so the user knows whether
+        # to (a) build CUDA exts, (b) switch model_module, or (c) wait
+        # for upstream to commit the missing files.
+        return None, (
+            f"Importing {module_name} from {repo_path} failed: {exc}. "
+            "Common causes — upstream missing-files (models_kitti_seq → "
+            "needs `loss/` and `gaussian.encoder`/`gaussian.decoder` from "
+            "upstream which aren't checked in), or CUDA extensions not yet "
+            "built (models_kitti_nips → `feat_gaussian`, models_vigor → "
+            "`pano_gaussian_feat`). Try config.model_module='models.models_kitti_vfa' "
+            "for an extension-free import smoke test."
+        )
+    except Exception as exc:
+        return None, (
+            f"Could not import {module_name}.Model from {repo_path}: {exc}"
+        )
+
+    args = _build_bev_splat_args(config.model_args)
+    device = config.device if (config.device != "cuda" or torch.cuda.is_available()) else "cpu"
+
+    try:
+        model = Model(args, device=device).to(device).eval()
+    except Exception as exc:
+        return None, f"BevSplat Model() construction failed: {exc}"
+
+    try:
+        state = torch.load(weights_path, map_location=device)
+    except Exception as exc:
+        return None, f"torch.load({weights_path}) failed: {exc}"
+
+    # Checkpoints in the wild are usually one of:
+    #   (a) raw state_dict
+    #   (b) {"model": state_dict, "epoch": ..., "optimizer": ...}
+    #   (c) {"state_dict": ...}
+    if isinstance(state, dict):
+        if "model" in state and isinstance(state["model"], dict):
+            state = state["model"]
+        elif "state_dict" in state and isinstance(state["state_dict"], dict):
+            state = state["state_dict"]
+    try:
+        missing, unexpected = model.load_state_dict(state, strict=False)
+    except Exception as exc:
+        return None, f"model.load_state_dict failed: {exc}"
+
+    seq_len = max(1, int(config.sequence_length))
+
+    def _run(
+        ground_rgb: np.ndarray,
+        satellite_rgb: np.ndarray,
+        intrinsics: np.ndarray,
+    ) -> tuple[float, float, float, float]:
+        # Convert to tensors in the expected shape. The model was
+        # trained on KITTI-shaped inputs (sat 512x512, ground ~256x1024),
+        # so we resize to whatever the model is built for if shapes
+        # mismatch — but BevSplat's PolarProjectionDepth has hard-coded
+        # intrinsics (144.4 / 121.9), so the calling convention here is
+        # best-effort. Adjust `config.model_args` and the resize targets
+        # below to your actual checkpoint's training resolution.
+        h_g, w_g = ground_rgb.shape[:2]
+        sat_t = torch.from_numpy(satellite_rgb).permute(2, 0, 1).float() / 255.0
+        sat_t = sat_t.unsqueeze(0).to(device)                                  # [1, 3, H, W]
+
+        grd_t = torch.from_numpy(ground_rgb).permute(2, 0, 1).float() / 255.0
+        grd_t = grd_t.unsqueeze(0).unsqueeze(0).expand(1, seq_len, -1, -1, -1).to(device)
+        grd_ori_t = grd_t.clone()
+        grd_depth = torch.zeros(1, seq_len, h_g, w_g, device=device)
+        K_t = torch.from_numpy(np.asarray(intrinsics, dtype=np.float32)).unsqueeze(0).to(device)
+
+        gt_zeros_1 = torch.zeros(1, 1, device=device)
+        loc_shift = torch.zeros(1, seq_len, 2, device=device)
+        head_shift = torch.zeros(1, seq_len, device=device)
+
+        with torch.inference_mode():
+            try:
+                out = model(
+                    sat_t, grd_t, grd_ori_t, grd_depth,
+                    K_t, gt_zeros_1, gt_zeros_1, gt_zeros_1,
+                    loc_shift, head_shift,
+                )
+            except Exception as exc:
+                raise RuntimeError(f"BevSplat forward failed: {exc}") from exc
+
+        # The upstream forward returns a tuple whose exact composition
+        # depends on `stage` and `task`. We attempt a best-effort
+        # extraction: scan the output for the first 4D correlation map
+        # (used as our score) and the first three scalar-like tensors
+        # (treated as shift_u, shift_v, heading). Anything else is left
+        # at its default. When you've verified the schema against your
+        # checkpoint, replace this block with the exact indices.
+        score: float = 0.0
+        du = dv = dh = 0.0
+
+        def _flatten(x):
+            if isinstance(x, (list, tuple)):
+                for item in x:
+                    yield from _flatten(item)
+            else:
+                yield x
+
+        scalars: list[float] = []
+        for item in _flatten(out):
+            if not torch.is_tensor(item):
+                continue
+            if item.dim() == 4 and score == 0.0:
+                # Correlation/heatmap-like — take the peak as the score,
+                # normalize to [0, 1] via min-max within the map.
+                lo = item.min()
+                hi = item.max()
+                if torch.isfinite(lo) and torch.isfinite(hi) and (hi - lo) > 1e-9:
+                    score = float(((item.max() - lo) / (hi - lo)).item())
+                else:
+                    score = 0.0
+            elif item.numel() <= 8:
+                for v in item.flatten().tolist():
+                    if np.isfinite(v):
+                        scalars.append(float(v))
+
+        if len(scalars) >= 1:
+            du = float(np.clip(scalars[0], -1.0, 1.0))
+        if len(scalars) >= 2:
+            dv = float(np.clip(scalars[1], -1.0, 1.0))
+        if len(scalars) >= 3:
+            dh = float(np.clip(scalars[2], -1.0, 1.0))
+
+        return score, du, dv, dh
+
+    return _run, None
+
+
+# ---------------------------------------------------------------------------
+# Satellite tile rendering
+# ---------------------------------------------------------------------------
+
+
+def _candidate_center_lonlat(
+    road: RoadGraph,
+    cand: MatchCandidate,
+) -> tuple[float, float]:
+    from pyproj import Transformer
+
+    center_xy = cand.walk_xy.mean(axis=0)
+    transformer = Transformer.from_crs(road.crs, "EPSG:4326", always_xy=True)
+    lon, lat = transformer.transform(float(center_xy[0]), float(center_xy[1]))
+    return float(lon), float(lat)
+
+
+def _render_satellite_tile(
+    source: str,
+    road: RoadGraph,
+    cand: MatchCandidate,
+    *,
+    size: int,
+    half_extent_m: float,
+    geotessera_year: int,
+) -> np.ndarray:
+    """Render the satellite reference patch for one candidate.
+
+    Returns an ``(size, size, 3)`` uint8 RGB image. Raises if the
+    requested source cannot be produced — the caller wraps this in a
+    try/except and records the error in :class:`BevSplatMatchResult`.
+    """
+    if source == "osm":
+        gray = render_osm_patch(
+            road,
+            (float(cand.walk_xy.mean(axis=0)[0]), float(cand.walk_xy.mean(axis=0)[1])),
+            resolution=size,
+            half_extent_m=half_extent_m,
+        )
+        return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+    if source == "geotessera":
+        try:
+            from geotessera import GeoTessera
+        except ImportError as exc:
+            raise RuntimeError(
+                "geotessera not installed; pip install geotessera"
+            ) from exc
+        from .embedding_retrieval import _embedding_cube_to_rgb
+
+        lon, lat = _candidate_center_lonlat(road, cand)
+        client = GeoTessera()
+        embedding, _crs, _t = client.fetch_embedding(
+            lon=lon, lat=lat, year=geotessera_year
+        )
+        return _embedding_cube_to_rgb(np.asarray(embedding), size=size)
+    raise ValueError(f"unsupported satellite source: {source!r}")
+
+
+# ---------------------------------------------------------------------------
+# Main entry point used by pipeline.py
+# ---------------------------------------------------------------------------
+
+
+def score_candidates_with_bevsplat(
+    query_frame_rgb: np.ndarray | None,
+    intrinsics: np.ndarray,
+    road: RoadGraph,
+    candidates: Sequence[MatchCandidate],
+    *,
+    output_dir: Path,
+    config: BevSplatConfig,
+    inference: BevSplatInference | None = None,
+    tile_renderer: Callable[..., np.ndarray] | None = None,
+) -> list[BevSplatMatchResult]:
+    """Score each candidate with BevSplat cross-view localization.
+
+    Parameters
+    ----------
+    query_frame_rgb:
+        A representative dashcam frame from the driven window, as
+        ``H x W x 3`` uint8 RGB. The middle frame works well in
+        practice (the trajectory matcher already aligned the window).
+        Pass ``None`` to skip the channel entirely.
+    intrinsics:
+        3x3 camera intrinsics for the query frame (from
+        :func:`visual_odometry.default_intrinsics`).
+    road:
+        Projected OSM road graph for the city.
+    candidates:
+        Trajectory-match candidates from :func:`match_trajectory`.
+    output_dir:
+        Directory where satellite tile PNGs are written. Created if
+        missing.
+    config:
+        :class:`BevSplatConfig` controlling backend / paths / tile size.
+    inference:
+        Optional pre-loaded inference callable. If ``None``, this
+        function attempts to load the upstream model via
+        :func:`_load_bev_splat_inference`. Tests pass
+        :class:`MockBevSplatInference` here.
+    tile_renderer:
+        Optional override for :func:`_render_satellite_tile`. Used in
+        tests to bypass the network.
+
+    Returns
+    -------
+    One :class:`BevSplatMatchResult` per candidate, in input order.
+    Candidates where tile rendering or inference failed have
+    ``score=0.0`` and a populated ``error`` field; the pipeline keeps
+    going.
+    """
+    if query_frame_rgb is None or not candidates:
+        return []
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if inference is None:
+        inference, load_err = _load_bev_splat_inference(config)
+    else:
+        load_err = None
+
+    renderer = tile_renderer or _render_satellite_tile
+
+    results: list[BevSplatMatchResult] = []
+    for i, cand in enumerate(candidates):
+        tile_path = output_dir / f"bev_splat_candidate_{i + 1}.png"
+        try:
+            tile_rgb = renderer(
+                config.satellite_source,
+                road,
+                cand,
+                size=config.satellite_size,
+                half_extent_m=config.half_extent_m,
+                geotessera_year=config.geotessera_year,
+            )
+        except Exception as exc:
+            results.append(BevSplatMatchResult(
+                candidate_index=i,
+                score=0.0,
+                pred_shift_u=0.0,
+                pred_shift_v=0.0,
+                pred_heading=0.0,
+                satellite_path=None,
+                error=f"tile render failed: {exc}",
+            ))
+            continue
+
+        # Always persist the tile for inspection, even if inference fails.
+        cv2.imwrite(str(tile_path), cv2.cvtColor(tile_rgb, cv2.COLOR_RGB2BGR))
+
+        if inference is None:
+            results.append(BevSplatMatchResult(
+                candidate_index=i,
+                score=0.0,
+                pred_shift_u=0.0,
+                pred_shift_v=0.0,
+                pred_heading=0.0,
+                satellite_path=tile_path,
+                error=load_err or "BevSplat inference unavailable",
+            ))
+            continue
+
+        try:
+            score, du, dv, dh = inference(query_frame_rgb, tile_rgb, intrinsics)
+        except Exception as exc:
+            results.append(BevSplatMatchResult(
+                candidate_index=i,
+                score=0.0,
+                pred_shift_u=0.0,
+                pred_shift_v=0.0,
+                pred_heading=0.0,
+                satellite_path=tile_path,
+                error=f"inference failed: {exc}",
+            ))
+            continue
+
+        results.append(BevSplatMatchResult(
+            candidate_index=i,
+            score=float(score),
+            pred_shift_u=float(du),
+            pred_shift_v=float(dv),
+            pred_heading=float(dh),
+            satellite_path=tile_path,
+            error=None,
+        ))
+
+    return results

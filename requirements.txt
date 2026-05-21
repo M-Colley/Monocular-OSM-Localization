@@ -1,6 +1,6 @@
 yt-dlp>=2026.3.17
 opencv-python>=4.13.0
-numpy>=2.2.0
+numpy>=2.4.6
 scipy>=1.16.3
 scikit-image>=0.21.0
 osmnx>=1.9.0

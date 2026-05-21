@@ -17,6 +17,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .aerial_match import match_splat_against_candidates
+from .bev_splat_match import (
+    BevSplatConfig,
+    score_candidates_with_bevsplat,
+)
 from .download import download_video
 from .embedding_retrieval import score_candidates_by_embeddings
 from .evaluator import best_rank_for_gt, evaluate_candidates
@@ -73,6 +77,14 @@ class PipelineConfig:
     embedding_model: str = "resnet18"
     geotessera_year: int = 2024
     ground_truth_streets: tuple[str, ...] = ()
+    enable_bev_splat: bool = False
+    bev_splat_weights: Path | None = None
+    bev_splat_repo_path: Path | None = None
+    bev_splat_model_module: str = "models.models_kitti_nips"
+    bev_splat_source: str = "geotessera"
+    bev_splat_tile_size: int = 512
+    bev_splat_half_extent_m: float = 60.0
+    vo_workers: int | None = None  # None → auto (min(cpu_count, 12)); 1 → sequential
 
 
 def _plot_trajectory(traj: Trajectory, out_path: Path) -> None:
@@ -171,16 +183,51 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     )
     print(f"      -> {len(frames.frames)} frames @ {frames.fps:.1f} fps")
 
-    # 3. Visual odometry. Cache to disk: VO is the slowest part of the
-    # pipeline (minutes on a 5-minute clip), and the recovered trajectory
-    # is fully determined by (video, segment, stride), so a re-run with
-    # the same VO parameters can short-circuit straight to step 5.
-    vo_cache = cfg.data_dir / (
+    # 3. Visual odometry. Cache to disk: VO is the slowest CPU stage of
+    # the pipeline (minutes on a 7-minute clip), and the recovered
+    # trajectory is fully determined by (video, segment, stride), so a
+    # re-run with the same VO parameters can short-circuit straight to
+    # step 5.
+    #
+    # Cache key formats, newest first:
+    #   v2 with max_frames:  trajectory_v2_<s>-<e>_s<stride>_f<max_frames>.npz
+    #   v2 legacy:           trajectory_v2_<s>-<e>_s<stride>.npz  (max_frames was
+    #                        implicit; loaded if shapes are consistent)
+    # The legacy fallback exists because we have v2-legacy files on disk
+    # from earlier runs (no _fN suffix); without this fallback every run
+    # after the cache key change burns minutes redoing identical work.
+    cache_v2_with_frames = cfg.data_dir / (
         f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
         f"_s{cfg.frame_stride}_f{cfg.max_frames}.npz"
     )
-    if vo_cache.exists():
-        print(f"[3/5] Loading cached trajectory: {vo_cache}")
+    cache_v2_legacy = cfg.data_dir / (
+        f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
+        f"_s{cfg.frame_stride}.npz"
+    )
+    # Older runs predate per-submission slug folders — fall back to a
+    # flat-layout cache at the data-dir parent if nothing is in the slug.
+    cache_v2_flat = cfg.data_dir.parent / cache_v2_legacy.name
+
+    vo_cache = cache_v2_with_frames
+    legacy_used: Path | None = None
+    for candidate in (cache_v2_with_frames, cache_v2_legacy, cache_v2_flat):
+        if candidate.exists():
+            try:
+                z_probe = np.load(candidate)
+                shape_ok = z_probe["valid"].shape[0] == len(frames.frames)
+            except Exception:
+                continue
+            if shape_ok:
+                if candidate is not cache_v2_with_frames:
+                    legacy_used = candidate
+                vo_cache = candidate
+                break
+
+    if vo_cache.exists() and (legacy_used or vo_cache is cache_v2_with_frames):
+        msg = f"[3/5] Loading cached trajectory: {vo_cache}"
+        if legacy_used is not None:
+            msg += "  (legacy cache key)"
+        print(msg)
         z = np.load(vo_cache)
         traj = Trajectory(
             centers=z["centers"],
@@ -193,9 +240,26 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         n_valid = int(traj.valid.sum())
         print(f"      -> {n_valid}/{len(traj.valid)} valid relative poses, "
               f"trajectory shape {traj.xz.shape}")
+        # Promote the legacy cache to the canonical key so subsequent
+        # runs don't pay the lookup cost again.
+        if legacy_used is not None:
+            cache_v2_with_frames.parent.mkdir(parents=True, exist_ok=True)
+            np.savez(
+                cache_v2_with_frames,
+                centers=traj.centers,
+                xz=traj.xz,
+                valid=traj.valid,
+                n_inliers=np.asarray(traj.n_inliers),
+                rotations=traj.rotations,
+                translations=traj.translations,
+            )
+            print(f"      -> promoted legacy cache to {cache_v2_with_frames.name}")
+        vo_cache = cache_v2_with_frames
     else:
-        print(f"[3/5] Running visual odometry on {len(frames.frames)} frames")
-        traj = estimate_trajectory(frames.frames)
+        vo_cache = cache_v2_with_frames
+        print(f"[3/5] Running visual odometry on {len(frames.frames)} frames "
+              f"(n_workers={cfg.vo_workers or 'auto'})")
+        traj = estimate_trajectory(frames.frames, n_workers=cfg.vo_workers)
         n_valid = int(traj.valid.sum())
         print(f"      -> {n_valid}/{len(traj.valid)} valid relative poses, "
               f"trajectory shape {traj.xz.shape}")
@@ -498,6 +562,68 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         f"rank=#{rank_map[i]}"
                         + (f"  error={emb.error}" if emb.error else "")
                     )
+
+    # 8c. Optional: BevSplat cross-view localization channel.
+    if cfg.enable_bev_splat and candidates:
+        print(
+            f"[8c] BevSplat cross-view localization "
+            f"(source={cfg.bev_splat_source}, "
+            f"tile={cfg.bev_splat_tile_size}px / {cfg.bev_splat_half_extent_m}m)"
+        )
+        h_img, w_img = frames.frames[0].shape[:2]
+        K = default_intrinsics(w_img, h_img)
+        # Pick a frame near the middle of the window as the BevSplat query
+        # — the middle is the most "average" view of the whole route and
+        # avoids start-of-clip warmup or end-of-clip drift.
+        mid = len(frames.frames) // 2
+        query_rgb = cv2.cvtColor(frames.frames[mid], cv2.COLOR_BGR2RGB)
+        bev_results = score_candidates_with_bevsplat(
+            query_rgb, K, road, candidates,
+            output_dir=cfg.output_dir / "bev_splat",
+            config=BevSplatConfig(
+                weights_path=cfg.bev_splat_weights,
+                repo_path=cfg.bev_splat_repo_path,
+                model_module=cfg.bev_splat_model_module,
+                satellite_source=cfg.bev_splat_source,
+                satellite_size=cfg.bev_splat_tile_size,
+                half_extent_m=cfg.bev_splat_half_extent_m,
+                geotessera_year=cfg.geotessera_year,
+            ),
+        )
+        if bev_results:
+            n_failed = sum(1 for r in bev_results if r.error)
+            n_ok = len(bev_results) - n_failed
+            if n_ok > 0:
+                order = sorted(
+                    range(len(bev_results)),
+                    key=lambda i: -bev_results[i].score,
+                )
+                bev_rank = {idx: r + 1 for r, idx in enumerate(order)}
+            else:
+                bev_rank = {i: i + 1 for i in range(len(bev_results))}
+            print(f"      -> {n_ok}/{len(bev_results)} candidates scored "
+                  f"({n_failed} skipped — see result.json for per-candidate errors)")
+            for i, bv in enumerate(bev_results):
+                m = result["matches"][i]
+                m["bev_splat_score"] = bv.score
+                m["bev_splat_pred_shift_u"] = bv.pred_shift_u
+                m["bev_splat_pred_shift_v"] = bv.pred_shift_v
+                m["bev_splat_pred_heading"] = bv.pred_heading
+                m["bev_splat_rank"] = bev_rank[i]
+                if bv.satellite_path is not None:
+                    m["bev_splat_tile"] = str(bv.satellite_path.relative_to(cfg.output_dir))
+                if bv.error:
+                    m["bev_splat_error"] = bv.error
+                tag = f" rank=#{bev_rank[i]}" if n_ok > 0 else ""
+                err = f" error={bv.error}" if bv.error else ""
+                print(f"        #{i+1}  score={bv.score:.3f}{tag}{err}")
+            result["bev_splat"] = {
+                "source": cfg.bev_splat_source,
+                "tile_size": cfg.bev_splat_tile_size,
+                "half_extent_m": cfg.bev_splat_half_extent_m,
+                "n_candidates_scored": n_ok,
+                "n_candidates_failed": n_failed,
+            }
 
     # 9. Optional: DA3 dense reconstruction (proper splat replacement).
     if cfg.enable_da3:

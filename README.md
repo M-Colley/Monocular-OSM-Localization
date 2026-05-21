@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
-![Tests](https://img.shields.io/badge/tests-37%2F37-brightgreen)
+![Tests](https://img.shields.io/badge/tests-72%2F72-brightgreen)
 
 Reference clip used in the demo:
 [Driving in Ulm, Germany](https://www.youtube.com/watch?v=ULl8s4qydrk).
@@ -206,11 +206,18 @@ Useful flags:
 | `--ipm-pitch`           | 6.0          | Dashcam downward tilt in degrees                          |
 | `--enable-sliding-window` | off        | Re-score full-route candidates by support across overlapping trajectory windows |
 | `--sliding-window-size` | `64`         | Sliding-window length in resampled trajectory points      |
-| `--sliding-window-step` | `32`         | Step size between sliding windows                         |
+| `--sliding-window-step` | `32`         | Step size between sliding windows. The trajectory is auto-resampled to give ~12 windows by default (was a fixed 128 points → only 3 windows for a 7-min clip) |
+| `--vo-workers`          | auto         | Threads used to fan out per-pair VO pose estimation. Defaults to `min(cpu_count, 12)`; pass `1` to force sequential |
 | `--embedding-sources`   | none         | Optional deep retrieval sources: `osm`, `geotessera`      |
 | `--embedding-model`     | `resnet18`   | Deep image embedding backbone used for retrieval          |
 | `--geotessera-year`     | `2024`       | GeoTessera tile year when `geotessera` retrieval is enabled |
 | `--ground-truth A B C`  | none         | Known street names; the pipeline scores each candidate by distance to nearest GT geometry |
+| `--enable-bev-splat`    | off          | Run the BevSplat (NeurIPS'26) cross-view localization channel as an extra aerial matcher. See *BevSplat integration* below. |
+| `--bev-splat-weights`   | none         | Path to BevSplat checkpoint downloaded from the authors' OneDrive share (link in the BevSplat section below). |
+| `--bev-splat-repo-path` | none         | Path to a local clone of `wangqww/BevSplat` with its CUDA extensions built. Required alongside `--bev-splat-weights` for actual inference. |
+| `--bev-splat-source`    | `geotessera` | Satellite tile source: `geotessera` (real satellite-derived embedding, PCA → RGB) or `osm` (schematic raster). |
+| `--bev-splat-tile-size` | `512`        | Side length of the satellite tile in pixels (KITTI training default). |
+| `--bev-splat-half-extent-m` | `60.0`   | Half-side of the satellite tile in metres. |
 
 > **Pick a window with at least one turn.** The matcher localizes by
 > trajectory shape, so a straight-line VO trajectory has no information
@@ -309,6 +316,157 @@ anisotropic HQ PNG, and the trained 3DGS PLY.
 
 ---
 
+## BevSplat integration (cross-view localization channel, optional)
+
+[BevSplat (NeurIPS'26 Spotlight)](https://github.com/wangqww/BevSplat)
+is a feature-Gaussian model that takes a *ground* RGB frame plus a real
+*satellite* tile and predicts the relative pose of the camera inside
+the tile. Conceptually it's the strongest aerial-matching backend in
+this repo: ORB on OSM line-drawings only scores ~5% inliers because the
+domain gap is huge, and even ResNet/DINOv2 embedding cosine similarity
+is a global signal — BevSplat returns a *calibrated pose offset*
+rather than a similarity score.
+
+It wires into our pipeline as the `[8c]` channel, between the embedding
+retrieval step and the DA3 dense reconstruction:
+
+```bash
+python main.py --skip-download \
+    --enable-bev-splat \
+    --bev-splat-source geotessera \
+    --bev-splat-weights path/to/bevsplat_kitti.pth \
+    --bev-splat-repo-path third_party/BevSplat
+```
+
+For each top-K candidate the channel:
+
+1. Renders a 512x512 satellite tile around the candidate centre (real
+   satellite-derived DINOv2 embedding via [geotessera](https://github.com/ucam-eo/geotessera),
+   PCA-reduced to RGB; or an OSM schematic raster as a fallback).
+2. Runs BevSplat inference on `(query_dashcam_frame, satellite_tile, K)`
+   to get `(score, shift_u, shift_v, heading)`.
+3. Writes the tile to `output/<submission>/bev_splat/bev_splat_candidate_N.png`
+   and the predictions to the result JSON under each match.
+
+### Setup (one-time)
+
+The upstream model ships in source form only — three pieces have to
+land before the channel can run inference:
+
+1. **Pre-trained weights** — the authors published them at this OneDrive
+   share:
+   <https://1drv.ms/f/c/86d953bfc66eb903/IgAP7P2tFzChR7rHeMuXIOq8AakOxR02eKMyI2Z7qsMjLxo?e=zaD0Fb>.
+   Six checkpoints are available (sizes are approximate):
+
+   | File                          | Size    | What it's trained on               |
+   |-------------------------------|---------|------------------------------------|
+   | `KITTI_GPS.pth`               | 1.11 GB | KITTI Raw, with noisy GPS prior    |
+   | `KITTI_no_GPS.pth`            | 1.11 GB | KITTI Raw, pure cross-view         |
+   | `VIGOR_cross_GPS.pth.pth`     | 848 MB  | VIGOR cross-city, GPS prior        |
+   | `VIGOR_cross_no_GPS.pth.pth`  | 856 MB  | VIGOR cross-city, pure cross-view  |
+   | `VIGOR_same_GPS.pth.pth`      | 867 MB  | VIGOR same-city, GPS prior         |
+   | `VIGOR_same_no_GPS.pth.pth`   | 924 MB  | VIGOR same-city, pure cross-view   |
+
+   **For our dashcam-on-OSM-candidate pipeline, grab
+   `KITTI_no_GPS.pth`** — KITTI matches our query domain (forward-facing
+   single camera, not VIGOR's panoramas), and the no-GPS variant is the
+   right one when the satellite-tile location is fixed externally (in
+   our case by the OSM candidate centre) rather than coming from a
+   noisy GPS reading.
+
+   Drop the file anywhere local and pass it via `--bev-splat-weights`.
+2. **Local clone of `wangqww/BevSplat`** — `git clone
+   https://github.com/wangqww/BevSplat third_party/BevSplat` (or
+   wherever). The loader prepends this to `sys.path` and imports
+   `models.models_kitti_seq.Model`. Pass the clone root via
+   `--bev-splat-repo-path`.
+3. **Built CUDA extensions** — inside the clone, run:
+   ```bash
+   cd third_party/BevSplat/pano_feature_gaussian && pip install -e .
+   cd ../feature_gaussian && pip install -e .
+   ```
+   These are CUDA C++ extensions; you need a CUDA toolkit matching
+   your PyTorch build (CUDA 12.x for the `torch==2.11.0+cu128` we use
+   here). On Windows this typically requires Visual Studio C++ Build
+   Tools.
+
+### Render-only fallback
+
+If any of the three prerequisites is missing, the channel falls back to
+**render-only mode**: it produces and persists the satellite tile per
+candidate (so you can inspect what BevSplat *would* have seen) and
+writes a clear `bev_splat_error` field per candidate in `result.json`
+explaining what's missing. The other channels are unaffected.
+
+### Upstream issues encountered (commit `187da9e`, 2025-07)
+
+In practice the prerequisites aren't trivial. While integrating
+`KITTI_no_GPS.pth` from the authors' OneDrive share we hit the
+following upstream issues — none of these are bugs in *our* scaffold,
+they're all in `wangqww/BevSplat`:
+
+| Where | What breaks |
+|---|---|
+| `models/models_kitti_seq.py` | Imports `from loss.lpips import ...` and `from gaussian.encoder import GaussianEncoder` / `from gaussian.decoder import GrdDecoder`. None of these files are checked into the repo (`loss/` doesn't exist at all; `gaussian/` has `encoder_feat*.py` and `encoder_pano.py` but no `encoder.py`/`decoder.py`). |
+| `models/models_kitti_nips.py` | Imports `from feat_gaussian import ...` (CUDA extension). |
+| `models/models_vigor.py` | Imports `from pano_gaussian_feat import ...` (CUDA extension). |
+| `models/models_kitti_vfa.py` | **Imports cleanly**, model constructor reaches `torch.hub.load` of a hardcoded absolute path `C:\\home/qiwei/.cache/torch/hub/ywyue_FiT3D_main` — the author's Linux home directory baked into the source. |
+| `pano_feature_gaussian/cuda_rasterizer/auxiliary.h:142` and `forward.cu:134` | Use `M_PI` / `M_1_PIf32` without `#define _USE_MATH_DEFINES`. `M_1_PIf32` is a glibc-only float32 constant that doesn't exist in MSVC at all. **Patched locally** in `third_party/BevSplat/pano_feature_gaussian/cuda_rasterizer/auxiliary.h` — adds `_USE_MATH_DEFINES` + literal fallback `#define`s. The same patch is the right PR upstream. |
+| `feature_gaussian` build | torch 2.11.0 + MSVC + CUDA 12.8 triggers a known compatibility issue in `torch/csrc/dynamo/compiled_autograd.h:1143` (`error C2872: 'std': ambiguous symbol`). After our `M_PI` patch this is the **only remaining build blocker**. Workarounds: downgrade to torch 2.5/2.6 (which gsplat's 3DGS-training path also prefers), or wait for an upstream torch fix. |
+
+Our loader (`src/bev_splat_match._load_bev_splat_inference`) is built
+to surface each of these distinctly — it sets `BevSplatMatchResult.error`
+per candidate with the specific upstream issue, so when the authors
+ship fixes you can verify progress one issue at a time. The
+`--bev-splat-model-module` flag lets you try alternative model files
+without code changes (e.g. `models.models_kitti_vfa` for a
+CUDA-extension-free import smoke test).
+
+`third_party/build_extensions.bat` activates `vcvars64` + sets `CUDA_HOME`
+and runs `pip install -e .` on both extension directories — reusable
+for future build attempts after the torch issue is sorted upstream.
+
+The integration is complete on our side; live inference is gated on
+upstream cleanup. Of the six upstream issues, **two now have local
+patches** (the `M_PI` / `M_1_PIf32` fixes in `auxiliary.h`), and four
+remain — three are upstream-only (missing files, hardcoded path) and
+one is the torch 2.11 + MSVC `std` ambiguity which needs either a
+torch downgrade or an upstream torch fix.
+
+### Loader implementation notes
+
+`src/bev_splat_match._load_bev_splat_inference` constructs the model
+with the same `argparse.Namespace` that `train_KITTI_weak_seq.py` uses
+(level=`"0_2"`, channels=`"32_16_4"`, sequence=2, etc., all from the
+upstream training defaults — see `_BEV_SPLAT_DEFAULT_ARGS`). The
+checkpoint loader tolerates the three common state-dict wrappings
+(raw, `{"model": ...}`, `{"state_dict": ...}`) and uses
+`strict=False`.
+
+The inference wrapper converts our `(ground_rgb, satellite_rgb, K)`
+inputs to BevSplat's 10-tensor `forward(...)` signature by:
+
+* tiling the single query frame `sequence_length` times to match the
+  sequence-input convention,
+* passing zero placeholders for `grd_depth`, `loc_shift_left`, and
+  `heading_shift_left` (no priors at inference time),
+* passing zeros for `gt_shift_u/v` and `gt_heading` (we're predicting
+  these, not supervising).
+
+Output decoding is **best-effort**: the wrapper scans the forward
+return for the first 4D correlation map (used as the score, min-max
+normalised to `[0, 1]`) and the first three small scalar tensors
+(treated as `shift_u`, `shift_v`, `heading`). When you've verified the
+exact return schema against your downloaded checkpoint, replace the
+heuristic in `_load_bev_splat_inference._run` with explicit indices
+and the wrapper will report calibrated values.
+
+For tests and offline sanity checks, `MockBevSplatInference` is a
+weight-free NCC-based stand-in that exercises the integration end to
+end (see `tests/test_bev_splat_match.py`).
+
+---
+
 ## Tests
 
 ```bash
@@ -400,6 +558,7 @@ is how we pick out the true match.
 │   ├── trajectory_matching.py       # SHAPE channel — Procrustes via scikit-image
 │   ├── splat.py                     # sparse splat (triangulation + Open3D PLY + Plotly HTML)
 │   ├── aerial_match.py              # AERIAL channel — ORB+RANSAC homography vs OSM patches
+│   ├── bev_splat_match.py           # OPTIONAL cross-view channel — BevSplat (NeurIPS'26), pending upstream weights
 │   ├── da3_reconstruction.py        # OPTIONAL DENSE channel — Depth Anything 3 (GPU)
 │   ├── ipm.py                       # OPTIONAL BEV — Inverse Perspective Mapping
 │   ├── evaluator.py                 # Ground-truth distance scoring

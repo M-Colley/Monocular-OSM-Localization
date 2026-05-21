@@ -20,6 +20,7 @@ shape/aerial comparison.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 
 import networkx as nx
@@ -27,6 +28,37 @@ import numpy as np
 
 from .osm_data import RoadGraph
 from .trajectory_matching import MatchCandidate
+
+
+# German ß ↔ ss is one of the few mappings ASCII folding doesn't handle
+# (NFKD leaves ß intact). Most other Latin-1 diacritics fold cleanly
+# via NFKD + ASCII-encode, so this short translation table is the only
+# special case we need for the OSM street names we'll see in practice.
+_ASCII_FOLD_MAP = str.maketrans({
+    "ß": "ss", "ẞ": "SS",
+    "œ": "oe", "Œ": "OE",
+    "æ": "ae", "Æ": "AE",
+    "ø": "o",  "Ø": "O",
+    "ł": "l",  "Ł": "L",
+})
+
+
+def _normalize_street_name(name: str) -> str:
+    """Casefold + strip diacritics + ASCII-fold so 'Olgastrasse' matches
+    'Olgastraße', 'Cœur' matches 'Coeur', etc.
+
+    Without this, ``--ground-truth Olgastrasse`` does not match an OSM
+    edge named 'Olgastraße' and the entire ``on_gt_street`` flag is
+    always False — yielding the misleading "first_named_rank=None" we
+    saw on the Ulm run even though six of ten candidates physically
+    traversed Olgastraße (distance = 0 m).
+    """
+    if not name:
+        return ""
+    folded = name.translate(_ASCII_FOLD_MAP)
+    nfkd = unicodedata.normalize("NFKD", folded)
+    ascii_only = nfkd.encode("ascii", "ignore").decode("ascii")
+    return ascii_only.casefold()
 
 
 @dataclass
@@ -39,20 +71,25 @@ class GroundTruthEval:
 
 
 def _gt_polylines(road: RoadGraph, gt_streets: list[str]) -> list[np.ndarray]:
-    """Collect every edge geometry whose `name` matches any GT entry."""
-    gt_lower = [s.lower() for s in gt_streets]
+    """Collect every edge geometry whose `name` matches any GT entry.
+
+    Name matching uses :func:`_normalize_street_name` so the user can
+    pass ASCII transliterations (``Olgastrasse``) and still hit OSM
+    edges named with the original diacritics (``Olgastraße``).
+    """
+    gt_normalized = [_normalize_street_name(s) for s in gt_streets]
     polys: list[np.ndarray] = []
     for (u, v, k), poly in zip(road.edge_keys, road.polylines):
         d = road.graph.edges[u, v, k]
         name = d.get("name")
         if isinstance(name, list):
-            names = [str(n).lower() for n in name]
+            names = [_normalize_street_name(str(n)) for n in name]
         elif name:
-            names = [str(name).lower()]
+            names = [_normalize_street_name(str(name))]
         else:
             continue
-        for gt in gt_lower:
-            if any(gt in n for n in names):
+        for gt in gt_normalized:
+            if gt and any(gt in n for n in names):
                 polys.append(poly)
                 break
     return polys
@@ -86,7 +123,10 @@ def _polyline_to_polyline_distance(a: np.ndarray, b: np.ndarray) -> float:
 def _candidate_gt_names(
     cand: MatchCandidate, road: RoadGraph, gt_streets: list[str]
 ) -> list[str]:
-    gt_lower = [s.lower() for s in gt_streets]
+    """Return the GT street names (in the user's exact spelling) that
+    appear in the candidate's walk, matched via normalized comparison.
+    """
+    gt_normalized = [_normalize_street_name(s) for s in gt_streets]
     hits: set[str] = set()
     for (u, v, k) in cand.walk:
         d = road.graph.edges[u, v, k]
@@ -98,9 +138,9 @@ def _candidate_gt_names(
         else:
             continue
         for n in names:
-            ln = n.lower()
-            for gt, raw in zip(gt_lower, gt_streets):
-                if gt in ln:
+            ln = _normalize_street_name(n)
+            for gt, raw in zip(gt_normalized, gt_streets):
+                if gt and gt in ln:
                     hits.add(raw)
     return sorted(hits)
 

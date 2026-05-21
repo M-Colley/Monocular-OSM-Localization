@@ -320,12 +320,34 @@ def score_candidates_with_sliding_windows(
     *,
     window_size: int = 64,
     step: int = 32,
-    resample_points: int = 128,
+    resample_points: int | None = None,
     window_top_k: int = 5,
     estimated_length_m: float = 1500.0,
     support_radius_m: float = 250.0,
     match_fn: Callable[..., list[MatchCandidate]] | None = None,
+    target_n_windows: int = 12,
 ) -> list[SlidingWindowMatchResult]:
+    """Re-score full-route candidates by their support across trajectory windows.
+
+    Parameters
+    ----------
+    resample_points:
+        Number of points the trajectory is resampled to before slicing
+        into windows. ``None`` (default) auto-sizes so we get roughly
+        ``target_n_windows`` windows of length ``window_size``. The
+        previous fixed default of 128 produced only 3 windows for a
+        7-minute trajectory (``(128 - 64) / 32 + 1 = 3``), which can't
+        discriminate between candidates that pass through one part of
+        the city vs another. Auto-sizing keeps short trajectories
+        cheap while letting long trajectories actually use sliding
+        windows for what they're for.
+    target_n_windows:
+        When ``resample_points`` is ``None``, pick a resample size that
+        yields about this many windows. Per-window matching is
+        expensive (one full city scan), so this caps the cost; 12
+        windows ≈ one per 35 s of a 7-minute clip, comparable to the
+        natural rate of intersections in a driven route.
+    """
     if not candidates:
         return []
     if match_fn is None:
@@ -333,7 +355,13 @@ def score_candidates_with_sliding_windows(
     if len(traj_xz) < 2 or trajectory_arc_length(traj_xz)[-1] <= 0:
         return []
 
-    n_points = max(resample_points, window_size)
+    if resample_points is None:
+        # Solve (n_points - window_size) / step + 1 ≈ target_n_windows for n_points.
+        auto = window_size + max(0, target_n_windows - 1) * step
+        # Don't oversample a tiny trajectory.
+        n_points = max(window_size, min(auto, len(traj_xz)))
+    else:
+        n_points = max(resample_points, window_size)
     traj_resampled = resample_uniform(traj_xz, n_points)
     windows = _window_slices(len(traj_resampled), window_size, step)
     if not windows:

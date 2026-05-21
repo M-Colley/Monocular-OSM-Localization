@@ -222,3 +222,22 @@ __marimo__/
 cache
 
 .claude
+
+# Per-submission run artefacts (downloads + outputs). The original repo
+# committed a single reference run under data/ and output/; new
+# submissions live under data/<slug>/ and output/<slug>/ and should
+# stay local.
+/data/*/
+/output/*/
+
+# geotessera dumps its global tile/embedding caches into the cwd by
+# default. Keep them out of the repo.
+/global_0.1_degree_representation/
+/global_0.1_degree_tiff_all/
+
+# External research repos + downloaded model weights live under
+# third_party/. They are not part of this project's source.
+/third_party/
+
+# Pipeline-run logs (the full-splat run dumps a tee'd log).
+/output/full_splat_run.log

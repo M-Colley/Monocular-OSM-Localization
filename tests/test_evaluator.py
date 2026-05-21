@@ -8,6 +8,7 @@ import pytest
 from shapely.geometry import LineString
 
 from src.evaluator import (
+    _normalize_street_name,
     _polyline_to_polyline_distance,
     _segment_to_polyline_distance,
     best_rank_for_gt,
@@ -99,3 +100,35 @@ def test_best_rank_for_gt_picks_closest_and_first_named() -> None:
     best_dist_rank, name_rank = best_rank_for_gt(results)
     assert best_dist_rank == 2  # NorthRoad walk is at index 1 → rank 2
     assert name_rank == 2
+
+
+def test_normalize_street_name_handles_german_eszett() -> None:
+    # The case that bit us on the live Ulm run: --ground-truth Olgastrasse
+    # was being compared against OSM's 'Olgastraße' and failing.
+    assert _normalize_street_name("Olgastraße") == _normalize_street_name("Olgastrasse")
+    assert _normalize_street_name("STRAẞE") == _normalize_street_name("Strasse")
+
+
+def test_normalize_street_name_handles_diacritics() -> None:
+    assert _normalize_street_name("Café") == _normalize_street_name("Cafe")
+    assert _normalize_street_name("Bülowstraße") == _normalize_street_name("Bulowstrasse")
+    assert _normalize_street_name("Champs-Élysées") == _normalize_street_name("Champs-Elysees")
+
+
+def test_evaluate_candidates_matches_eszett_with_ascii_groundtruth() -> None:
+    """A walk along an OSM-named 'Olgastraße' must be detected when the
+    user supplies the ASCII transliteration 'Olgastrasse' on the CLI."""
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    g.add_node("A", x=0.0, y=0.0)
+    g.add_node("B", x=100.0, y=0.0)
+    geom = LineString([(0.0, 0.0), (100.0, 0.0)])
+    g.add_edge("A", "B", length=100.0, geometry=geom, name="Olgastraße")
+    g.add_edge("B", "A", length=100.0, geometry=LineString([(100.0, 0.0), (0.0, 0.0)]), name="Olgastraße")
+    road = _build_polyline_view(g)
+
+    cand = _candidate_for_walk(road, [("A", "B", 0)])
+    results = evaluate_candidates([cand], road, ["Olgastrasse"])  # ASCII spelling
+    assert results[0].on_gt_street is True
+    assert results[0].matching_gt_names == ["Olgastrasse"]
+    assert results[0].nearest_distance_m == pytest.approx(0.0)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from main import DEFAULT_CITY, DEFAULT_URL, _resolve_city, build_arg_parser
@@ -39,3 +41,37 @@ def test_arg_parser_accepts_comparison_options() -> None:
     assert args.embedding_sources == ["osm", "geotessera"]
     assert args.embedding_model == "resnet18"
     assert args.geotessera_year == 2025
+
+
+def test_arg_parser_accepts_bev_splat_options() -> None:
+    args = build_arg_parser().parse_args(
+        [
+            "--enable-bev-splat",
+            "--bev-splat-weights", "checkpoints/bevsplat_kitti.pth",
+            "--bev-splat-repo-path", "third_party/BevSplat",
+            "--bev-splat-model-module", "models.models_kitti_vfa",
+            "--bev-splat-source", "osm",
+            "--bev-splat-tile-size", "384",
+            "--bev-splat-half-extent-m", "80.0",
+        ]
+    )
+    assert args.enable_bev_splat is True
+    assert args.bev_splat_weights == Path("checkpoints/bevsplat_kitti.pth")
+    assert args.bev_splat_repo_path == Path("third_party/BevSplat")
+    assert args.bev_splat_model_module == "models.models_kitti_vfa"
+    assert args.bev_splat_source == "osm"
+    assert args.bev_splat_tile_size == 384
+    assert args.bev_splat_half_extent_m == 80.0
+
+
+def test_arg_parser_bev_splat_defaults_are_safe() -> None:
+    """Defaults must keep BevSplat disabled so a vanilla `python main.py` doesn't try
+    to load weights or import the upstream repo."""
+    args = build_arg_parser().parse_args([])
+    assert args.enable_bev_splat is False
+    assert args.bev_splat_weights is None
+    assert args.bev_splat_repo_path is None
+    assert args.bev_splat_model_module == "models.models_kitti_nips"
+    assert args.bev_splat_source == "geotessera"
+    assert args.bev_splat_tile_size == 512
+    assert args.bev_splat_half_extent_m == 60.0

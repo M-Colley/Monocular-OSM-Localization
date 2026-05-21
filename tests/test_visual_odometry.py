@@ -148,3 +148,31 @@ def test_visual_odometry_recovers_forward_motion_direction() -> None:
     assert np.linalg.norm(delta) == pytest.approx(1.0, rel=0.05)
     # And the dominant component should be along z.
     assert abs(delta[2]) > 0.85, f"expected forward motion, got {delta}"
+
+
+def test_visual_odometry_parallel_matches_sequential() -> None:
+    """The parallel-VO path must produce identical trajectory shape and
+    valid-mask to the sequential path on the same input frames.
+
+    Pose chaining is deterministic and only fans out per-pair computation
+    across threads, so the output of n_workers=1 and n_workers=8 should
+    be byte-for-byte equal.
+    """
+    w, h = 320, 240
+    K = default_intrinsics(w, h)
+    pts3d, colors = _render_textured_scene(w, h, seed=3)
+
+    # Build a short walking-camera sequence so we have multiple consecutive pairs.
+    frames = []
+    for i in range(6):
+        R = np.eye(3)
+        t = np.array([0.0, 0.0, -float(i) * 0.5])
+        frames.append(_render_view(pts3d, colors, K, R, t, w, h))
+
+    seq = estimate_trajectory(frames, K, enforce_planar=False, n_workers=1)
+    par = estimate_trajectory(frames, K, enforce_planar=False, n_workers=8)
+
+    assert seq.valid.tolist() == par.valid.tolist()
+    np.testing.assert_allclose(seq.centers, par.centers, atol=1e-9)
+    np.testing.assert_allclose(seq.rotations, par.rotations, atol=1e-9)
+    np.testing.assert_allclose(seq.translations, par.translations, atol=1e-9)

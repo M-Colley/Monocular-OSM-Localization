@@ -113,6 +113,34 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="GeoTessera embedding year when geotessera retrieval is enabled")
     p.add_argument("--ground-truth", nargs="*", default=[],
                    help="known street names traversed by the video (e.g. Neutorstrasse Olgastrasse)")
+    p.add_argument("--vo-workers", type=int, default=None,
+                   help="Threads for parallel VO pose estimation. Defaults to "
+                        "min(cpu_count, 12). Pass 1 to force sequential.")
+    p.add_argument("--enable-bev-splat", action="store_true",
+                   help="run the BevSplat (NeurIPS'26) cross-view localization channel "
+                        "as an additional aerial matcher. Requires the upstream package "
+                        "+ weights from https://github.com/wangqww/BevSplat (not yet released); "
+                        "without them the channel renders the satellite tiles only.")
+    p.add_argument("--bev-splat-weights", type=Path, default=None,
+                   help="Path to BevSplat checkpoint (.pth). Weights live at the "
+                        "authors' OneDrive share — see README BevSplat section.")
+    p.add_argument("--bev-splat-repo-path", type=Path, default=None,
+                   help="Path to a local clone of https://github.com/wangqww/BevSplat "
+                        "with its CUDA extensions built (pano_feature_gaussian/ and "
+                        "feature_gaussian/ both pip install -e .).")
+    p.add_argument("--bev-splat-model-module", default="models.models_kitti_nips",
+                   help="Which Python module inside the BevSplat repo provides the "
+                        "`Model` class. Default models.models_kitti_nips matches the "
+                        "KITTI_*.pth checkpoints; use models.models_kitti_vfa for an "
+                        "extension-free import smoke test.")
+    p.add_argument("--bev-splat-source", choices=("geotessera", "osm"), default="geotessera",
+                   help="Satellite tile source for BevSplat. Defaults to geotessera "
+                        "(real satellite-derived embedding); 'osm' uses the schematic "
+                        "raster (domain-mismatched but offline).")
+    p.add_argument("--bev-splat-tile-size", type=int, default=512,
+                   help="BevSplat satellite tile side length in pixels (KITTI default: 512).")
+    p.add_argument("--bev-splat-half-extent-m", type=float, default=60.0,
+                   help="BevSplat satellite tile half-side in metres.")
     return p
 
 
@@ -172,6 +200,14 @@ def main() -> None:
             embedding_model=args.embedding_model,
             geotessera_year=args.geotessera_year,
             ground_truth_streets=tuple(args.ground_truth),
+            enable_bev_splat=args.enable_bev_splat,
+            bev_splat_weights=args.bev_splat_weights,
+            bev_splat_repo_path=args.bev_splat_repo_path,
+            bev_splat_model_module=args.bev_splat_model_module,
+            bev_splat_source=args.bev_splat_source,
+            bev_splat_tile_size=args.bev_splat_tile_size,
+            bev_splat_half_extent_m=args.bev_splat_half_extent_m,
+            vo_workers=args.vo_workers,
         )
         print(f"\n=== Submission: {metadata.title or metadata.url} ===")
         print(f"    city={city!r}  data_dir={cfg.data_dir}  output_dir={cfg.output_dir}")

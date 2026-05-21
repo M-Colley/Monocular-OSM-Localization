@@ -22,6 +22,8 @@ at frame 0 and z runs forward.
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -115,8 +117,24 @@ def estimate_trajectory(
     K: np.ndarray | None = None,
     *,
     enforce_planar: bool = True,
+    n_workers: int | None = None,
 ) -> Trajectory:
-    """Compute camera centers in a world frame anchored at frame 0."""
+    """Compute camera centers in a world frame anchored at frame 0.
+
+    Parameters
+    ----------
+    n_workers:
+        Number of threads used to compute per-pair relative poses in
+        parallel. OpenCV's ORB + matching + essential-matrix paths
+        release the GIL, so threading gives a near-linear speedup on
+        multi-core CPUs. ``None`` (default) auto-picks
+        ``min(os.cpu_count(), 12)``; pass ``1`` to force the sequential
+        path.
+
+    The relative poses (frame i-1 → i) are mutually independent, so we
+    fan them out across a thread pool, then chain the results
+    sequentially in frame order to recover absolute camera poses.
+    """
     if len(frames) < 2:
         raise ValueError("need at least 2 frames")
 
@@ -124,9 +142,25 @@ def estimate_trajectory(
     if K is None:
         K = default_intrinsics(w, h)
 
-    orb = cv2.ORB_create(nfeatures=2500)
-    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    if n_workers is None:
+        n_workers = max(1, min(os.cpu_count() or 1, 12))
 
+    # Step 1: compute all (i-1 → i) relative poses in parallel. Each
+    # worker holds its own ORB detector + BFMatcher (cv2 detector objects
+    # aren't documented as thread-safe across simultaneous detect calls).
+    local = _ThreadLocalDetectors()
+
+    def _work(i: int) -> tuple[np.ndarray, np.ndarray, int] | None:
+        orb, matcher = local.get()
+        return _estimate_relative_pose(frames[i - 1], frames[i], K, orb, matcher)
+
+    if n_workers > 1:
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            relatives = list(pool.map(_work, range(1, len(frames))))
+    else:
+        relatives = [_work(i) for i in range(1, len(frames))]
+
+    # Step 2: chain sequentially in frame order. Cheap, ~O(N) matrix mul.
     R_w2c = np.eye(3)
     t_w2c = np.zeros(3)
 
@@ -136,8 +170,7 @@ def estimate_trajectory(
     rotations = [R_w2c.copy()]
     translations = [t_w2c.copy()]
 
-    for i in range(1, len(frames)):
-        rel = _estimate_relative_pose(frames[i - 1], frames[i], K, orb, matcher)
+    for rel in relatives:
         if rel is None:
             # Hold previous pose; downstream matcher can interpolate.
             centers.append(centers[-1].copy())
@@ -179,6 +212,26 @@ def estimate_trajectory(
         rotations=rotations_arr,
         translations=translations_arr,
     )
+
+
+class _ThreadLocalDetectors:
+    """Per-thread cv2.ORB + BFMatcher (creation is expensive; reuse them).
+
+    ``cv2.ORB.detectAndCompute`` is documented as thread-safe in the sense
+    that multiple ORB instances can run concurrently; what's not safe is
+    sharing a single instance. So we keep one detector per worker
+    thread, created lazily on first access.
+    """
+
+    def __init__(self) -> None:
+        import threading
+        self._tl = threading.local()
+
+    def get(self) -> tuple[cv2.ORB, cv2.BFMatcher]:
+        if not hasattr(self._tl, "orb"):
+            self._tl.orb = cv2.ORB_create(nfeatures=2500)
+            self._tl.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        return self._tl.orb, self._tl.matcher
 
 
 def _fit_plane_projection(centers: np.ndarray) -> np.ndarray:
