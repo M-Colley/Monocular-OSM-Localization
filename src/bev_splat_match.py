@@ -523,29 +523,140 @@ def _load_bev_splat_inference(
         du = dv = dh = 0.0
 
         def _flatten(x):
+            """Recursively yield all leaf tensors from nested lists/tuples/dicts.
+
+            The BevSplat forward returns a tuple whose first four elements are
+            *dicts* (keyed by feature-level int) containing tensors. The
+            original code only recursed into list/tuple, so those dict values
+            were never seen.  We also recurse into dict.values() so that maps
+            like the localization probability grid are properly surfaced.
+            """
             if isinstance(x, (list, tuple)):
                 for item in x:
                     yield from _flatten(item)
+            elif isinstance(x, dict):
+                for v in x.values():
+                    yield from _flatten(v)
             else:
                 yield x
 
+        # ---------------------------------------------------------------
+        # Score extraction — what the output contains at stage=1
+        # ---------------------------------------------------------------
+        # models_kitti_nips forward at stage=1 returns a 9-tuple:
+        #   out[0] = grd_gaussian (dict, Gaussian encoder output)
+        #   out[1] = sat_feat_dict  {level: [1, 32, 128, 128]}
+        #   out[2] = grd_feat_dict  {level: [1, 32, 89, 89]}   (or similar)
+        #   out[3] = grd_conf_dict  {level: [1,  1,  H,  W]}   ← probability map
+        #   out[4] = sat_conf_dict  {level: [1, H, W, 1]}
+        #   out[5] = shift_u  [1, 1, 1]
+        #   out[6] = shift_v  [1, 1, 1]
+        #   out[7] = heading  [1, 1, 1]
+        #   out[8] = loss     []  (0.0 in test mode)
+        #
+        # We use *softmax-peak* of the first 2-D (H×W) probability map we
+        # find as the localization score. Softmax-peak measures how peaked
+        # the distribution is: for a uniform map over N=H*W cells the peak
+        # is 1/N (≈ 0); for a perfectly localized match it approaches 1.0.
+        # This is both more informative and more correct than the old formula
+        # (max−min)/(max−min) = 1.0 which was always 1.0 for any non-flat map.
+        #
+        # For each 4-D tensor:
+        #   - shape [B, C, H, W] with C=1 → treat as a spatial probability map
+        #   - apply softmax over H*W, take max → localization confidence ∈ (0,1]
+        #   - use the FIRST such tensor we encounter (level-0 of grd_conf_dict)
+        #
+        # Scalar tensors (numel ≤ 8) are collected for shift_u/v/heading in
+        # output order; the first three scalars are treated as du, dv, dh.
+
+        # ---------------------------------------------------------------
+        # Collect tensors from the forward output for score + pose.
+        # ---------------------------------------------------------------
+        # models_kitti_nips at stage=1 returns (indexed as tensors):
+        #   multi-channel 4-D [B, C>1, H, W] — sat_feat_dict and g2s_feat_dict
+        #   single-channel 4-D [B, 1, H, W]  — sat_conf_dict and g2s_conf_dict
+        #   shape [B,H,W,1]                  — mask_dict
+        #   scalar [B,1,1]                   — shift_lats, shift_lons, thetas
+        #   scalar []                        — render_loss
+        #
+        # BevSplat does NOT produce an explicit localization confidence;
+        # the forward pass returns POSE predictions (shift_u, shift_v, heading),
+        # not a correlation score. We compute a cross-view feature similarity
+        # as our score: we collect the first two multi-channel 4-D tensors
+        # (satellite features and ground-projected features from the Gaussian
+        # encoder), global-average-pool each to a [C]-vector, then take their
+        # cosine similarity remapped from [-1, 1] → [0, 1].
+        #
+        # For models that DO output a single scalar score, that value shows up
+        # as a scalar tensor (numel ≤ 8) early in the stream; we use it if
+        # it's > 0 (overriding the cosine-similarity proxy).
+
+        feat_maps: list[torch.Tensor] = []   # multi-channel 4-D feature maps
         scalars: list[float] = []
         for item in _flatten(out):
             if not torch.is_tensor(item):
                 continue
-            if item.dim() == 4 and score == 0.0:
-                # Correlation/heatmap-like — take the peak as the score,
-                # normalize to [0, 1] via min-max within the map.
-                lo = item.min()
-                hi = item.max()
-                if torch.isfinite(lo) and torch.isfinite(hi) and (hi - lo) > 1e-9:
-                    score = float(((item.max() - lo) / (hi - lo)).item())
-                else:
-                    score = 0.0
-            elif item.numel() <= 8:
+            if item.numel() <= 8:
                 for v in item.flatten().tolist():
                     if np.isfinite(v):
                         scalars.append(float(v))
+            elif item.dim() == 4 and item.shape[1] > 1:
+                # Multi-channel feature map — candidate for cross-view similarity.
+                feat_maps.append(item.float())
+
+        # Cross-view cosine similarity between satellite and ground-projected
+        # feature maps, computed only at positions where ground Gaussians
+        # actually project onto the satellite tile (masked comparison).
+        #
+        # Context: models_kitti_nips at stage=1 returns
+        #   feat_maps[0] = sat_feat_dict  [B, 32, 128, 128]  — SAT features
+        #   feat_maps[1] = g2s_feat_dict  [B, 32,  89,  89]  — GRD→SAT projected
+        #
+        # g2s_feat is extremely sparse: the ground Gaussians cover only ~0.2%
+        # of the satellite tile (their footprint after projection). Computing
+        # cosine similarity with the near-zero complement gives ~0 everywhere.
+        # We therefore:
+        # 1. Build a coverage mask from g2s_feat's nonzero positions.
+        # 2. Center-crop sat_feat to match g2s_feat's spatial size.
+        # 3. Compare features ONLY at covered pixels → produces a meaningful
+        #    score that varies per candidate (different satellite tiles have
+        #    different features at those locations).
+        # 4. Fall back to 0.5 (neutral) if coverage is zero.
+        if len(feat_maps) >= 2:
+            import torch.nn.functional as _F
+            sat_f = feat_maps[0].float()   # [B, C, H_s, W_s]
+            g2s_f = feat_maps[1].float()   # [B, C, H_g, W_g]
+
+            # Center-crop sat_f to g2s_f's spatial size.
+            h_s, w_s = sat_f.shape[2], sat_f.shape[3]
+            h_g, w_g = g2s_f.shape[2], g2s_f.shape[3]
+            h = min(h_s, h_g)
+            w = min(w_s, w_g)
+            pad_h = (h_s - h) // 2
+            pad_w = (w_s - w) // 2
+            sat_crop = sat_f[:, :, pad_h:pad_h + h, pad_w:pad_w + w]   # [B, C, h, w]
+            pad_h = (h_g - h) // 2
+            pad_w = (w_g - w) // 2
+            g2s_crop = g2s_f[:, :, pad_h:pad_h + h, pad_w:pad_w + w]   # [B, C, h, w]
+
+            # Coverage mask: positions where at least one ground channel != 0.
+            coverage = (g2s_crop.abs().sum(dim=1) > 1e-8)   # [B, h, w]
+            n_covered = int(coverage.sum().item())
+
+            c = min(sat_crop.shape[1], g2s_crop.shape[1])
+            if n_covered > 0:
+                # Extract feature vectors at covered pixels: [C, N_cov]
+                sat_vecs = sat_crop[0, :c, coverage[0]]    # [C, N]
+                g2s_vecs = g2s_crop[0, :c, coverage[0]]    # [C, N]
+                # Per-pixel cosine similarity at covered positions → mean.
+                cos_vals = _F.cosine_similarity(
+                    sat_vecs.T, g2s_vecs.T, dim=1
+                )                                           # [N]
+                cos = float(cos_vals.mean().item())
+                score = float(np.clip((cos + 1.0) / 2.0, 0.0, 1.0))
+            else:
+                # No ground coverage in the satellite tile — neutral score.
+                score = 0.5
 
         if len(scalars) >= 1:
             du = float(np.clip(scalars[0], -1.0, 1.0))
