@@ -231,7 +231,64 @@ class TrainedSplat:
     final_loss: float
 
 
+def _ensure_msvc_on_path() -> None:
+    """On Windows, gsplat JIT-compiles its CUDA extension using MSVC's cl.exe.
+    PyTorch's cpp_extension calls ``subprocess(['where', 'cl'])`` to locate
+    the linker; if cl.exe is not on PATH the call fails with exit-status 1.
+
+    This function probes common VS 2022 Build Tools / Community install
+    paths and prepends the x64 compiler bin dir to os.environ['PATH'] so
+    that 'where cl' succeeds.  It is a no-op on non-Windows platforms and
+    when cl.exe is already on PATH.
+    """
+    import os
+    import platform
+    import shutil
+
+    if platform.system() != "Windows":
+        return
+    if shutil.which("cl"):
+        return  # already on PATH
+
+    # Common MSVC x64 host/x64 target toolchain directories.
+    _vs_roots = [
+        r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools",
+        r"C:\Program Files\Microsoft Visual Studio\2022\BuildTools",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Community",
+        r"C:\Program Files\Microsoft Visual Studio\2022\Community",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Professional",
+        r"C:\Program Files\Microsoft Visual Studio\2022\Professional",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise",
+        r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise",
+    ]
+    msvc_base = r"VC\Tools\MSVC"
+    bin_suffix = r"bin\Hostx64\x64"
+
+    for root in _vs_roots:
+        msvc_dir = os.path.join(root, msvc_base)
+        if not os.path.isdir(msvc_dir):
+            continue
+        # Pick the highest version present.
+        try:
+            versions = sorted(os.listdir(msvc_dir), reverse=True)
+        except OSError:
+            continue
+        for ver in versions:
+            candidate = os.path.join(msvc_dir, ver, bin_suffix)
+            cl_candidate = os.path.join(candidate, "cl.exe")
+            if os.path.isfile(cl_candidate):
+                os.environ["PATH"] = candidate + os.pathsep + os.environ.get("PATH", "")
+                print(f"[full_splat] Injected MSVC cl.exe path: {candidate}")
+                return
+
+    # If we get here, MSVC isn't installed in any expected location.
+    # Don't raise — let gsplat's own error surface the problem.
+
+
 def _import_gsplat():
+    # Ensure MSVC cl.exe is on PATH before gsplat JIT-compiles its CUDA
+    # extension; on Windows PyTorch's cpp_extension calls `where cl`.
+    _ensure_msvc_on_path()
     try:
         import gsplat  # noqa: F401
         import torch

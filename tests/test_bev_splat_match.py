@@ -281,13 +281,16 @@ def test_load_bev_splat_inference_bad_repo_path_returns_clear_error(tmp_path: Pa
 
 
 def test_build_bev_splat_args_reproduces_upstream_defaults() -> None:
-    """The argparse defaults baked into _BEV_SPLAT_DEFAULT_ARGS must match
+    """Most argparse defaults baked into _BEV_SPLAT_DEFAULT_ARGS must match
     what wangqww/BevSplat's train_KITTI_weak_seq.parse_args() produces, so
     the model is constructed against the same hyperparameters it was
-    trained with."""
+    trained with. The one inference-time override is `level`."""
     ns = _build_bev_splat_args({})
     # Spot-check the load-bearing fields the Model.__init__ reads.
-    assert ns.level == "0_2"
+    # `level` is overridden from train-time "0_2" to "0" because the
+    # stage=1 forward path populates only one feature dict slot — see
+    # comment on _BEV_SPLAT_DEFAULT_ARGS.
+    assert ns.level == "0"
     assert ns.channels == "32_16_4"
     assert ns.N_iters == 1
     assert ns.share == 1
@@ -303,4 +306,4 @@ def test_build_bev_splat_args_applies_overrides() -> None:
     assert ns.sequence == 4
     assert ns.rotation_range == 5.0
     # Untouched defaults survive.
-    assert ns.level == "0_2"
+    assert ns.level == "0"

@@ -239,9 +239,14 @@ class MockBevSplatInference:
 # ---------------------------------------------------------------------------
 
 
-# Defaults taken verbatim from `train_KITTI_weak_seq.py::parse_args`.
-# They reproduce the training-time argparse namespace, which the
-# upstream `Model(args, device=...)` constructor consumes directly.
+# Defaults taken from `train_KITTI_weak_seq.py::parse_args`, with one
+# inference-friendly override: `level="0"` instead of the training
+# default `"0_2"`. In `models_kitti_nips.py` the `stage=1` forward path
+# populates only `sat_feat_dict_forT[self.level[0]]` but the post-loop
+# iterates over all of `self.level`, raising KeyError on level=2.
+# Restricting to one level keeps inference numerically valid against
+# the released checkpoints; users who fix the upstream loop can pass
+# `model_args={"level": "0_2"}` to use both feature levels.
 _BEV_SPLAT_DEFAULT_ARGS: dict[str, object] = {
     "resume": 0,
     "test": 1,                # eval mode (not training)
@@ -251,7 +256,7 @@ _BEV_SPLAT_DEFAULT_ARGS: dict[str, object] = {
     "shift_range_lat": 20.0,
     "shift_range_lon": 20.0,
     "batch_size": 1,           # we run per-candidate
-    "level": "0_2",
+    "level": "0",              # inference override; train default was "0_2"
     "channels": "32_16_4",
     "N_iters": 1,
     "ConfGrd": 1,
@@ -414,39 +419,96 @@ def _load_bev_splat_inference(
 
     seq_len = max(1, int(config.sequence_length))
 
+    # The two main KITTI model variants take different positional args:
+    #   models_kitti_seq.Model.forward(sat_map, grd_img_left, grd_img_left_ori,
+    #                                  grd_depth, left_camera_k, gt_shift_u,
+    #                                  gt_shift_v, gt_heading, loc_shift_left,
+    #                                  heading_shift_left)         — 10 args, 5D
+    #   models_kitti_nips.Model.forward(sat_align_cam, sat_map, grd_img_left,
+    #                                   grd_depth, grd_ori, left_camera_k,
+    #                                   gt_heading=None, gt_shift_u=None,
+    #                                   gt_shift_v=None)            —  9 args, 4D
+    # We introspect the signature and dispatch accordingly so the user
+    # doesn't have to. Other variants (vfa, orienternet, vigor) follow
+    # one of these two shapes — fall back to a best-effort kwarg call.
+    import inspect
+    forward_sig = inspect.signature(model.forward)
+    forward_params = list(forward_sig.parameters)
+    forward_is_seq = "loc_shift_left" in forward_params  # only _seq has this
+    forward_is_nips = "sat_align_cam" in forward_params and "grd_ori" in forward_params
+
+    # ---------------------------------------------------------------------------
+    # Ground-image target resolution (H × W).
+    #
+    # The BevSplat KITTI checkpoints (KITTI_GPS.pth, KITTI_no_GPS.pth)
+    # were trained with ground images at **256 × 1024** — the standard
+    # KITTI Raw camera crop.  This is NOT the satellite tile size.
+    #
+    # The magic number 16384 (= 128 × 128) does NOT describe a 128 × 128
+    # ground crop.  It is the DPT encoder's spatial output for the 256 × 1024
+    # KITTI ground image, derived as follows:
+    #
+    #   1. ViT-B/14 patches: center-pad 256→266 (19 patches), 1024→1036
+    #      (74 patches).  DINO output: 19 × 74 per level.
+    #   2. dino_fit.py correction: shape[2]==19 → resize to (16, 64).
+    #   3. DPT (dpt_single.py): 2× upsample → 32 × 128; FeatureFusion
+    #      blocks → 32 × 128; 2× upsample → 64 × 256.
+    #   4. 64 × 256 = 16384. ✓
+    #
+    # For a 128 × 128 ground image the same pipeline gives 40 × 40 = 1600,
+    # which mismatches and triggers the "expanded size (16384) must match
+    # existing size (1600)" error seen in the first full-pipeline run.
+    #
+    # We therefore resize every ground image to (256, 1024) before passing
+    # it to the model.  The depth placeholder is created at the same spatial
+    # size.  Intrinsics are NOT updated here — the model internally rescales
+    # them at line 535–536 of models_kitti_nips.py based on grd_depth.shape.
+    _GRD_H, _GRD_W = 256, 1024
+
+    def _to_4d(rgb: np.ndarray, target_hw: tuple[int, int] | None = None) -> "torch.Tensor":
+        if target_hw is not None:
+            rgb = cv2.resize(rgb, (target_hw[1], target_hw[0]), interpolation=cv2.INTER_AREA)
+        t = torch.from_numpy(rgb).permute(2, 0, 1).float() / 255.0
+        return t.unsqueeze(0).to(device)   # [1, 3, H, W]
+
     def _run(
         ground_rgb: np.ndarray,
         satellite_rgb: np.ndarray,
         intrinsics: np.ndarray,
     ) -> tuple[float, float, float, float]:
         # Convert to tensors in the expected shape. The model was
-        # trained on KITTI-shaped inputs (sat 512x512, ground ~256x1024),
-        # so we resize to whatever the model is built for if shapes
-        # mismatch — but BevSplat's PolarProjectionDepth has hard-coded
-        # intrinsics (144.4 / 121.9), so the calling convention here is
-        # best-effort. Adjust `config.model_args` and the resize targets
-        # below to your actual checkpoint's training resolution.
-        h_g, w_g = ground_rgb.shape[:2]
-        sat_t = torch.from_numpy(satellite_rgb).permute(2, 0, 1).float() / 255.0
-        sat_t = sat_t.unsqueeze(0).to(device)                                  # [1, 3, H, W]
-
-        grd_t = torch.from_numpy(ground_rgb).permute(2, 0, 1).float() / 255.0
-        grd_t = grd_t.unsqueeze(0).unsqueeze(0).expand(1, seq_len, -1, -1, -1).to(device)
-        grd_ori_t = grd_t.clone()
-        grd_depth = torch.zeros(1, seq_len, h_g, w_g, device=device)
+        # trained on KITTI-shaped inputs (sat 512×512, ground 128×128).
+        # We always resize the ground image to (_GRD_H, _GRD_W) — see the
+        # constant definition above for the detailed rationale.
+        sat_t = _to_4d(satellite_rgb)                                    # [1, 3, H_s, W_s]
         K_t = torch.from_numpy(np.asarray(intrinsics, dtype=np.float32)).unsqueeze(0).to(device)
-
         gt_zeros_1 = torch.zeros(1, 1, device=device)
-        loc_shift = torch.zeros(1, seq_len, 2, device=device)
-        head_shift = torch.zeros(1, seq_len, device=device)
 
         with torch.inference_mode():
             try:
-                out = model(
-                    sat_t, grd_t, grd_ori_t, grd_depth,
-                    K_t, gt_zeros_1, gt_zeros_1, gt_zeros_1,
-                    loc_shift, head_shift,
-                )
+                if forward_is_nips:
+                    grd_t = _to_4d(ground_rgb, target_hw=(_GRD_H, _GRD_W))  # [1, 3, 128, 128]
+                    grd_depth = torch.zeros(1, _GRD_H, _GRD_W, device=device)  # [1, 128, 128]
+                    out = model(
+                        sat_t, sat_t, grd_t, grd_depth, grd_t, K_t,
+                        gt_zeros_1, gt_zeros_1, gt_zeros_1,
+                    )
+                elif forward_is_seq:
+                    grd_t = _to_4d(ground_rgb, target_hw=(_GRD_H, _GRD_W))
+                    grd_t = grd_t.unsqueeze(1).expand(1, seq_len, -1, -1, -1)
+                    grd_ori_t = grd_t.clone()
+                    grd_depth = torch.zeros(1, seq_len, _GRD_H, _GRD_W, device=device)
+                    loc_shift = torch.zeros(1, seq_len, 2, device=device)
+                    head_shift = torch.zeros(1, seq_len, device=device)
+                    out = model(
+                        sat_t, grd_t, grd_ori_t, grd_depth,
+                        K_t, gt_zeros_1, gt_zeros_1, gt_zeros_1,
+                        loc_shift, head_shift,
+                    )
+                else:
+                    # Unknown variant — try the simplest plausible call.
+                    grd_t = _to_4d(ground_rgb, target_hw=(_GRD_H, _GRD_W))
+                    out = model(sat_t, grd_t, K_t)
             except Exception as exc:
                 raise RuntimeError(f"BevSplat forward failed: {exc}") from exc
 

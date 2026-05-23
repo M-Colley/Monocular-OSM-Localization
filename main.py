@@ -8,7 +8,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Ensure stdout/stderr use UTF-8 on Windows (avoids cp1252 crash on emoji/umlauts)
+# and line-buffering so every print() is immediately visible in log files.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 from src.city_inference import guess_city_from_title, slugify_submission
 from src.download import DownloadError, fetch_video_metadata

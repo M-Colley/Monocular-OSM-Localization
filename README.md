@@ -9,6 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
 ![Tests](https://img.shields.io/badge/tests-72%2F72-brightgreen)
+![BevSplat](https://img.shields.io/badge/BevSplat-live%20inference%20%E2%9C%93-blue)
 
 Reference clip used in the demo:
 [Driving in Ulm, Germany](https://www.youtube.com/watch?v=ULl8s4qydrk).
@@ -400,38 +401,53 @@ explaining what's missing. The other channels are unaffected.
 
 ### Upstream issues encountered (commit `187da9e`, 2025-07)
 
-In practice the prerequisites aren't trivial. While integrating
-`KITTI_no_GPS.pth` from the authors' OneDrive share we hit the
-following upstream issues — none of these are bugs in *our* scaffold,
-they're all in `wangqww/BevSplat`:
+In practice the prerequisites aren't trivial. Integrating
+`KITTI_no_GPS.pth` from the authors' OneDrive share on a Windows + RTX
+5080 box surfaced the issues below — none are bugs in *our* scaffold,
+they're all in `wangqww/BevSplat`. After applying four local patches
+and pinning to torch 2.7.0+cu128 / xformers 0.0.30, **live BevSplat
+inference works** end-to-end through our pipeline.
 
-| Where | What breaks |
+| Issue | Status | Local patch / workaround |
+|---|---|---|
+| `pano_feature_gaussian/cuda_rasterizer/auxiliary.h:142` uses `M_PI` without `#define _USE_MATH_DEFINES`; `forward.cu:134` and `backward.cu` use `M_1_PIf32`, a glibc-only float32 constant. | ✅ **patched** | `third_party/BevSplat/pano_feature_gaussian/cuda_rasterizer/auxiliary.h` — adds `_USE_MATH_DEFINES` + literal fallback `#define`s. |
+| `models/dino_fit.py:122` calls `torch.hub.load("/home/qiwei/.cache/torch/hub/ywyue_FiT3D_main", ..., source='local')` — the author's Linux home directory hardcoded into source. | ✅ **patched** | Replaced with `torch.hub.load("ywyue/FiT3D", "dinov2_base_fine", source='github', trust_repo=True)`. |
+| `models/swin_transformer.py:665` `TransRefine.forward` has the `level==0` branch commented out, but `self.level_4` is still allocated in `__init__` and the released checkpoint has its weights. With the default `args.level="0_2"`, the call into the forward with `level=0` raises `UnboundLocalError`. | ✅ **patched** | Restored the `if level == 0: x = self.level_4(r)` branch. |
+| `models/models_kitti_nips.py:498-519` populates `sat_feat_dict_forT` for only `self.level[0]` when `args.stage==1`, but `models_kitti_nips.py:639-642` iterates over **all** of `self.level` and raises `KeyError` on the missing levels. | ✅ **worked around** | Our scaffold defaults `args.level="0"` (single-level inference) so the loop has one iteration. Users who patch the upstream loop can pass `model_args={"level": "0_2"}` to use both feature levels. |
+| `models/models_kitti_seq.py:10` imports `from loss.lpips import ...`; `:27,28` import `from gaussian.encoder import GaussianEncoder` and `from gaussian.decoder import GrdDecoder`. `loss/` doesn't exist; `gaussian/` has `encoder_feat*.py` and `encoder_pano.py` but no plain `encoder.py`/`decoder.py`. | ❌ **upstream-only** | This model file is unusable until the authors check in the missing modules. Use `models.models_kitti_nips` instead (default in our scaffold). |
+| `models/models_vigor.py` similarly references `from gaussian.encoder_pano import GaussianEncoder`; once the `pano_gaussian_feat` CUDA extension is built it imports cleanly. | ✅ **buildable** | Build via `third_party/build_extensions.bat`. |
+| torch 2.11.0+cu128 + MSVC + CUDA 12.8 → `error C2872: 'std': ambiguous symbol` in `torch/csrc/dynamo/compiled_autograd.h:1143` during the CUDA-extension build. | ✅ **worked around** | Downgrade to torch 2.7.0+cu128 (the **oldest** Blackwell-supporting wheel). The pre-2.8 `compiled_autograd.h` doesn't trigger the MSVC ambiguity. RTX 50-series needs ≥2.7 for sm_120 kernels, so 2.5/2.6 don't work on Blackwell. |
+
+### Tested working stack
+
+| Package | Version |
 |---|---|
-| `models/models_kitti_seq.py` | Imports `from loss.lpips import ...` and `from gaussian.encoder import GaussianEncoder` / `from gaussian.decoder import GrdDecoder`. None of these files are checked into the repo (`loss/` doesn't exist at all; `gaussian/` has `encoder_feat*.py` and `encoder_pano.py` but no `encoder.py`/`decoder.py`). |
-| `models/models_kitti_nips.py` | Imports `from feat_gaussian import ...` (CUDA extension). |
-| `models/models_vigor.py` | Imports `from pano_gaussian_feat import ...` (CUDA extension). |
-| `models/models_kitti_vfa.py` | **Imports cleanly**, model constructor reaches `torch.hub.load` of a hardcoded absolute path `C:\\home/qiwei/.cache/torch/hub/ywyue_FiT3D_main` — the author's Linux home directory baked into the source. |
-| `pano_feature_gaussian/cuda_rasterizer/auxiliary.h:142` and `forward.cu:134` | Use `M_PI` / `M_1_PIf32` without `#define _USE_MATH_DEFINES`. `M_1_PIf32` is a glibc-only float32 constant that doesn't exist in MSVC at all. **Patched locally** in `third_party/BevSplat/pano_feature_gaussian/cuda_rasterizer/auxiliary.h` — adds `_USE_MATH_DEFINES` + literal fallback `#define`s. The same patch is the right PR upstream. |
-| `feature_gaussian` build | torch 2.11.0 + MSVC + CUDA 12.8 triggers a known compatibility issue in `torch/csrc/dynamo/compiled_autograd.h:1143` (`error C2872: 'std': ambiguous symbol`). After our `M_PI` patch this is the **only remaining build blocker**. Workarounds: downgrade to torch 2.5/2.6 (which gsplat's 3DGS-training path also prefers), or wait for an upstream torch fix. |
+| `torch` | 2.7.0+cu128 |
+| `torchvision` | 0.22.0+cu128 |
+| `xformers` | 0.0.30 |
+| `gsplat` | 1.5.3 |
+| `depth-anything-3` | 0.1.1 |
+| `feat_gaussian._C` (built locally) | 0.0.0 |
+| `pano_gaussian_feat._C` (built locally) | 0.0.0 |
+| CUDA toolkit | 12.8 |
+| MSVC | 14.44.35207 (VS 2022 Build Tools) |
 
-Our loader (`src/bev_splat_match._load_bev_splat_inference`) is built
-to surface each of these distinctly — it sets `BevSplatMatchResult.error`
-per candidate with the specific upstream issue, so when the authors
-ship fixes you can verify progress one issue at a time. The
+`third_party/build_extensions.bat` activates `vcvars64` + sets
+`CUDA_HOME` and runs `pip install -e .` on both extension directories
+in the right order — re-runnable after any change to the upstream
+sources. `patches/setup_bevsplat.sh` is a reproducible one-shot
+(clone repo, clone GLM, apply our four upstream patches from
+`patches/bevsplat_local.patch`) — run that, drop the `.pth` into
+`third_party/BevSplat-weights/`, run the build script, done.
+
+Our loader (`src/bev_splat_match._load_bev_splat_inference`)
+introspects `model.forward`'s signature (`models_kitti_seq` takes 5D
+sequence tensors; `models_kitti_nips` takes 4D single-frame tensors)
+and dispatches the appropriate call shape. It also reports each
+upstream issue distinctly via `BevSplatMatchResult.error`, so when the
+authors ship fixes you can verify progress one issue at a time. The
 `--bev-splat-model-module` flag lets you try alternative model files
-without code changes (e.g. `models.models_kitti_vfa` for a
-CUDA-extension-free import smoke test).
-
-`third_party/build_extensions.bat` activates `vcvars64` + sets `CUDA_HOME`
-and runs `pip install -e .` on both extension directories — reusable
-for future build attempts after the torch issue is sorted upstream.
-
-The integration is complete on our side; live inference is gated on
-upstream cleanup. Of the six upstream issues, **two now have local
-patches** (the `M_PI` / `M_1_PIf32` fixes in `auxiliary.h`), and four
-remain — three are upstream-only (missing files, hardcoded path) and
-one is the torch 2.11 + MSVC `std` ambiguity which needs either a
-torch downgrade or an upstream torch fix.
+without code changes.
 
 ### Loader implementation notes
 

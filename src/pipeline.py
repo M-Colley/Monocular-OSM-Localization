@@ -6,8 +6,15 @@ The CLI in `main.py` is a thin wrapper around `run_pipeline` here.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+# When stdout is redirected to a file Python uses block-buffering, which
+# causes progress lines to be held in a buffer for minutes. Force
+# line-buffering so every print() call is visible in the log immediately.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
 
 import cv2
 import matplotlib
