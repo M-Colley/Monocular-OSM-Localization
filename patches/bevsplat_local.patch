@@ -1,0 +1,77 @@
+diff --git a/models/dino_fit.py b/models/dino_fit.py
+index 96542fb..a61a01f 100644
+--- a/models/dino_fit.py
++++ b/models/dino_fit.py
+@@ -119,7 +119,10 @@ class DINO(torch.nn.Module):
+         self.model_name = dino_name
+         self.checkpoint_name = f"{dino_name}_{model_name}"
+         
+-        dino_vit = torch.hub.load("/home/qiwei/.cache/torch/hub/ywyue_FiT3D_main", "dinov2_base_fine", source='local')
++        # Upstream hardcoded an absolute Linux path. Use the canonical
++        # `<owner>/<repo>` form so torch.hub fetches via github on first
++        # use and caches locally under ~/.cache/torch/hub.
++        dino_vit = torch.hub.load("ywyue/FiT3D", "dinov2_base_fine", source='github', trust_repo=True)
+         dino_ori = timm.create_model("vit_base_patch14_dinov2.lvd142m", 
+                                      pretrained=True, 
+                                      dynamic_img_size=True, 
+diff --git a/models/swin_transformer.py b/models/swin_transformer.py
+index e8373a4..170dc6e 100644
+--- a/models/swin_transformer.py
++++ b/models/swin_transformer.py
+@@ -666,15 +666,21 @@ class TransOptimizerG2SP_V1(nn.Module):
+         r = pred_feat - ref_feat  # [B, C, H, W]
+         B, C, _, _ = r.shape
+ 
+-        # if level == 0:
+-        #     x = self.level_4(r)
+-        if level == 1:
++        # Upstream commented out the level==0 branch but the default
++        # args.level="0_2" still requests it — and self.level_4 is
++        # allocated in __init__ and present in the released checkpoint.
++        # Restore the branch so level=0 works.
++        if level == 0:
++            x = self.level_4(r)
++        elif level == 1:
+             x = self.level_2(r)
+         elif level == 2:
+             x = self.level_1(r)
+         elif level == 3:
+             x = self.level_0(r)
+-       
++        else:
++            raise ValueError(f"unsupported level: {level}")
++
+         return x # [B, 3]
+ 
+ 
+diff --git a/pano_feature_gaussian/cuda_rasterizer/auxiliary.h b/pano_feature_gaussian/cuda_rasterizer/auxiliary.h
+index e7dcbc4..6eb0cd3 100644
+--- a/pano_feature_gaussian/cuda_rasterizer/auxiliary.h
++++ b/pano_feature_gaussian/cuda_rasterizer/auxiliary.h
+@@ -12,6 +12,26 @@
+ #ifndef CUDA_RASTERIZER_AUXILIARY_H_INCLUDED
+ #define CUDA_RASTERIZER_AUXILIARY_H_INCLUDED
+ 
++// MSVC's <math.h> hides M_PI/M_1_PI unless _USE_MATH_DEFINES is set
++// before the first include of any math header. The CUDA toolchain
++// pulls math.h transitively from cuda_runtime.h, so the macro has to
++// be visible before *anything* else.
++#ifndef _USE_MATH_DEFINES
++#define _USE_MATH_DEFINES
++#endif
++#include <cmath>
++#ifndef M_PI
++#define M_PI 3.14159265358979323846
++#endif
++#ifndef M_1_PI
++#define M_1_PI 0.318309886183790671538
++#endif
++// M_1_PIf32 is a glibc-only float32 spelling of 1/pi. MSVC has no
++// equivalent macro; define it explicitly.
++#ifndef M_1_PIf32
++#define M_1_PIf32 0.31830988618379067f
++#endif
++
+ #include "config.h"
+ #include "stdio.h"
+ 
