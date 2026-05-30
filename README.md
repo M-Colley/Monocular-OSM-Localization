@@ -25,7 +25,7 @@ Reference clip used in the demo:
 | 3     | Monocular visual odometry              | scale-free 3-D camera trajectory (and `R`, `t` per frame) |
 | 4     | Sparse splat (ORB + triangulation)     | colored 3-D points exported as PLY + interactive HTML viewer |
 | 5a    | **Shape matching** — trajectory vs. OSM road graph (`osmnx`) | top-K candidate streets, ranked by Procrustes residual + bearing-correlation |
-| 5b    | **Aerial feature matching** — splat top-down vs OSM patches  | each candidate scored by RANSAC ORB-homography inliers   |
+| 5b    | **Aerial feature matching** — aligned trajectory vs OSM walk  | each candidate scored by raster **coverage** (overlap coefficient); ORB inliers reported but excluded from the score (noise) |
 | 5c    | **Dense reconstruction** (optional, GPU) — Depth Anything 3 | proper dense colored point cloud + per-frame poses (replacement for sparse SfM)|
 | 5d    | **Inverse Perspective Mapping** (optional) — road-plane BEV stitch | "synthetic satellite" of the route, directly comparable to OSM tiles |
 | 6     | Consensus over methods                  | `output/result.json` with shape rank, aerial rank, GT distance |
@@ -68,6 +68,7 @@ This codebase deliberately leans on standard libraries instead of reimplementing
 | Graph algorithms                      | `networkx`                       |
 | Polyline geometry                     | `shapely`                        |
 | Coordinate reprojection (UTM ↔ lat/lon) | `pyproj`                       |
+| Real RGB satellite basemap tiles      | `contextily` (Esri World Imagery) |
 | Procrustes / similarity-transform fit | `scikit-image` `SimilarityTransform.from_estimate` |
 | Point-cloud I/O (PLY)                 | `open3d`                         |
 | Interactive 3-D splat viewer (HTML)   | `plotly`                         |
@@ -196,6 +197,7 @@ Useful flags:
 | `--top-k`               | 5            | How many candidate matches to keep                        |
 | `--skip-download`       | off          | Reuse cached video                                        |
 | `--use-da3`             | off          | Run Depth Anything 3 dense reconstruction (needs CUDA)    |
+| `--use-da3-trajectory`  | off          | Feed DA3's globally-consistent camera path into the shape matcher instead of monocular VO (needs CUDA; far less drift on long clips). Reuses one DA3 run when combined with `--use-da3`. |
 | `--da3-keyframes`       | 32           | Number of keyframes fed to DA3                            |
 | `--full-splat`          | off          | Render the splat as anisotropic alpha-blended Gaussians (CPU; see "Splat rendering" below) |
 | `--full-splat-scale`    | `1.4`        | Per-Gaussian size multiplier for the anisotropic render   |
@@ -209,14 +211,14 @@ Useful flags:
 | `--sliding-window-size` | `64`         | Sliding-window length in resampled trajectory points      |
 | `--sliding-window-step` | `32`         | Step size between sliding windows. The trajectory is auto-resampled to give ~12 windows by default (was a fixed 128 points → only 3 windows for a 7-min clip) |
 | `--vo-workers`          | auto         | Threads used to fan out per-pair VO pose estimation. Defaults to `min(cpu_count, 12)`; pass `1` to force sequential |
-| `--embedding-sources`   | none         | Optional deep retrieval sources: `osm`, `geotessera`      |
-| `--embedding-model`     | `resnet18`   | Deep image embedding backbone used for retrieval          |
+| `--embedding-sources`   | none         | Optional deep retrieval sources: `esri`/`satellite` (real RGB orthoimagery, recommended), `geotessera`, `osm` |
+| `--embedding-model`     | `resnet18`   | Embedding backbone: `resnet18` (offline) or `dinov2_vits14`/`dinov2_vitb14`/`dinov2_vitl14` (cross-domain VPR, downloads weights on first use) |
 | `--geotessera-year`     | `2024`       | GeoTessera tile year when `geotessera` retrieval is enabled |
 | `--ground-truth A B C`  | none         | Known street names; the pipeline scores each candidate by distance to nearest GT geometry |
 | `--enable-bev-splat`    | off          | Run the BevSplat (NeurIPS'26) cross-view localization channel as an extra aerial matcher. See *BevSplat integration* below. |
 | `--bev-splat-weights`   | none         | Path to BevSplat checkpoint downloaded from the authors' OneDrive share (link in the BevSplat section below). |
 | `--bev-splat-repo-path` | none         | Path to a local clone of `wangqww/BevSplat` with its CUDA extensions built. Required alongside `--bev-splat-weights` for actual inference. |
-| `--bev-splat-source`    | `geotessera` | Satellite tile source: `geotessera` (real satellite-derived embedding, PCA → RGB) or `osm` (schematic raster). |
+| `--bev-splat-source`    | `esri`       | Satellite tile source: `esri`/`satellite` (real RGB orthoimagery — matches BevSplat's KITTI training domain, recommended), `geotessera` (satellite-derived PCA false-colour — non-discriminative across inner-city tiles), or `osm` (schematic raster). |
 | `--bev-splat-tile-size` | `512`        | Side length of the satellite tile in pixels (KITTI training default). |
 | `--bev-splat-half-extent-m` | `60.0`   | Half-side of the satellite tile in metres. |
 
@@ -523,13 +525,13 @@ across multiple VO windows:
 
 For the 7-minute GT-evaluated run, the actual route covers **Neutorstraße → Keltergasse → Olgastraße** (central Ulm). The pipeline's top-10 contains the correct candidate at rank #6 (the walk through Sammlungsgasse / Frauenstraße / Neue Straße that physically traverses **Olgastraße** — distance to GT geometry: **0 m**). The shape matcher cannot reliably promote this candidate to #1 because, with 7 minutes of accumulated VO drift, the warped trajectory has similarly-good Procrustes fits to several parallel streets across Ulm.
 
-**Honest scope limitation.** The PoC reliably *recovers the right area* (top-10 always contains the correct walk) but the final #1 ranking is unstable when many streets fit the drifted trajectory shape. Three things would close that gap:
+**Honest scope limitation.** The PoC reliably *recovers the right area* (top-10 always contains the correct walk) but the final #1 ranking is unstable when many streets fit the drifted trajectory shape. The three levers that close that gap are now all wired in:
 
-1. Use Depth Anything 3's globally-consistent multi-frame poses *as the trajectory* (instead of monocular VO), which would shrink drift dramatically. The pipeline already runs DA3 — we just don't yet feed its trajectory back into the shape matcher.
-2. Match each *segment* of the trajectory against the OSM graph (sliding window) instead of one global Procrustes fit. A turn pattern matches one specific intersection; many turns chained together identify a route uniquely.
-3. Replace ORB-on-OSM-line-drawing with deep visual place recognition (NetVLAD, AnyLoc) on the IPM stitch vs. real satellite tiles — far stronger appearance signal than ORB on synthetic line drawings.
+1. **DA3 poses as the matching trajectory** *(implemented: `--use-da3-trajectory`)*. Depth Anything 3's globally-consistent multi-frame poses replace monocular VO as the shape-matcher input, shrinking the accumulated drift that let parallel streets compete. VO is still used for the splat/IPM renders; one DA3 run is shared when `--use-da3` is also set.
+2. **Sliding-window segment matching folded into the consensus** *(implemented)*. Each trajectory segment is matched independently; the per-candidate sliding-window rank — the strongest secondary signal on GT runs — is now part of the final rank fusion (previously computed but unused). The aerial geometry score also switched from raw Jaccard IoU (≈0.02 → noise) to the **overlap coefficient** (coverage), which actually discriminates, and ORB was dropped from the score. *(Now partially done: the sliding-window rank is fused into the final consensus alongside shape and aerial-coverage rank — it was previously computed but unused. On GT-evaluated runs it is the strongest secondary signal.)*
+3. **Deep cross-domain appearance** *(implemented)*. The embedding and BevSplat channels can now compare against **real RGB satellite imagery** (`--embedding-sources esri`, `--bev-splat-source esri`, via `contextily` Esri World Imagery) using a **DINOv2** backbone (`--embedding-model dinov2_vits14`) — the AnyLoc-style VPR setup, far stronger than ORB on synthetic line drawings or GeoTessera PCA false-colour.
 
-These are genuinely the next steps, not just window dressing — and they fit the same module boundaries in this repo. The shape matcher already has a `bearing_corr_weight` parameter for tuning composite-score behavior.
+All three are opt-in flags so the default offline run is unchanged. The shape matcher also exposes `bearing_corr_weight` for tuning composite-score behavior.
 
 Three independent VO windows converging on the same street is
 considerably stronger evidence than any one of them alone. Bearing

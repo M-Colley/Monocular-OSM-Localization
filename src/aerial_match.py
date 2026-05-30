@@ -27,7 +27,20 @@ Two complementary sub-channels are combined here:
 
 Combined aerial score (normalised to [0, 1], higher = better match):
 
-    aerial_score = 0.7 * traj_iou + 0.3 * clip(n_inliers / 20, 0, 1)
+    aerial_score = 0.8 * traj_coverage + 0.2 * traj_iou
+
+`traj_coverage` (overlap coefficient: intersection / min-area) is the
+primary signal because raw Jaccard IoU of two thin polylines is
+structurally tiny (~0.02 even for a good match) and therefore noisy —
+the union is dominated by the non-overlapping tails when one path is
+longer than the other.  Coverage answers the more useful question "does
+the driven path *lie on* this road?" and separates true from false
+candidates far more cleanly.
+
+The ORB sub-channel is still computed and reported (`n_inliers`,
+`inlier_ratio`) for inspection but is **deliberately excluded from the
+score**: on real runs it scores ~3 % inliers (noise) and was actively
+ranking wrong candidates to the top.
 
 This score is used by pipeline.py to re-rank candidates.
 """
@@ -52,6 +65,7 @@ from .trajectory_matching import MatchCandidate
 class AerialMatchResult:
     candidate_index: int          # index into the input candidates list
     traj_iou: float               # Jaccard IoU of trajectory vs OSM walk rasters
+    traj_coverage: float          # overlap coefficient (inter / min-area), primary signal
     aerial_score: float           # combined score (higher = better)
     n_orb_matches: int            # raw ORB cross-check matches (0 if no image)
     n_inliers: int                # RANSAC homography inliers (0 if no image)
@@ -127,6 +141,65 @@ def _traj_iou_score(
     inter = int(np.logical_and(img_traj > 0, img_walk > 0).sum())
     union = int(np.logical_or(img_traj > 0, img_walk > 0).sum())
     return inter / max(1, union)
+
+
+def _traj_coverage_score(
+    aligned_traj_xy: np.ndarray,
+    walk_xy: np.ndarray,
+    *,
+    resolution: int = 512,
+    road_width_m: float = 12.0,
+) -> float:
+    """Overlap coefficient between the aligned-trajectory and OSM-walk rasters.
+
+    Identical to :func:`_traj_iou_score` except the denominator is the
+    *smaller* of the two rasterised areas rather than their union::
+
+        coverage = |traj ∩ walk| / min(|traj|, |walk|)
+
+    This is the Szymkiewicz–Simpson overlap coefficient.  For two thin
+    polylines the union is dominated by whichever path is longer, so
+    Jaccard IoU stays tiny (~0.02) and barely discriminates true from
+    false matches.  The overlap coefficient instead measures "what
+    fraction of the shorter path lies on the longer one", which is
+    exactly the localization question and is an order of magnitude more
+    discriminative in practice.  Identical paths → ~1.0; disjoint → ~0.0.
+    """
+    if len(aligned_traj_xy) < 2 or len(walk_xy) < 2:
+        return 0.0
+
+    all_pts = np.vstack([aligned_traj_xy, walk_xy])
+    mn = all_pts.min(axis=0) - 50.0
+    mx = all_pts.max(axis=0) + 50.0
+    span = (mx - mn).max()
+    if span < 1.0:
+        return 0.0
+
+    scale = (resolution - 1) / span
+    thickness = max(2, int(road_width_m * scale))
+
+    def _rasterise(pts: np.ndarray) -> np.ndarray:
+        img = np.zeros((resolution, resolution), dtype=np.uint8)
+        px = ((pts - mn) * scale).astype(np.int32)
+        px[:, 1] = resolution - 1 - px[:, 1]  # flip y so north-up
+        px = np.clip(px, 0, resolution - 1)
+        for j in range(len(px) - 1):
+            cv2.line(
+                img,
+                (int(px[j, 0]), int(px[j, 1])),
+                (int(px[j + 1, 0]), int(px[j + 1, 1])),
+                255,
+                thickness,
+            )
+        return img
+
+    img_traj = _rasterise(aligned_traj_xy)
+    img_walk = _rasterise(walk_xy)
+
+    area_traj = int((img_traj > 0).sum())
+    area_walk = int((img_walk > 0).sum())
+    inter = int(np.logical_and(img_traj > 0, img_walk > 0).sum())
+    return inter / max(1, min(area_traj, area_walk))
 
 
 # ---------------------------------------------------------------------------
@@ -246,8 +319,11 @@ def match_splat_against_candidates(
 
     results: list[AerialMatchResult] = []
     for i, cand in enumerate(candidates):
-        # --- Trajectory-raster IoU (primary signal) ---
+        # --- Trajectory-raster overlap (primary signal) ---
+        # Coverage (overlap coefficient) drives the score; IoU is kept for
+        # reporting/back-compat but is too small to rank well on its own.
         iou = _traj_iou_score(cand.aligned_traj_xy, cand.walk_xy)
+        coverage = _traj_coverage_score(cand.aligned_traj_xy, cand.walk_xy)
 
         # --- ORB feature matching (supplemental) ---
         n_match, n_in = 0, 0
@@ -265,15 +341,16 @@ def match_splat_against_candidates(
             cv2.imwrite(str(osm_path), osm_img)
             n_match, n_in = feature_match_score(splat_topdown_rgb, osm_img)
 
-        # Combined score: IoU dominates; ORB adds a small bonus when available
-        # Clip ORB contribution: 20 inliers → 1.0, typical noise is < 10
-        orb_norm = min(1.0, n_in / 20.0) if n_in > 0 else 0.0
-        aerial_score = 0.7 * iou + 0.3 * orb_norm
+        # Combined score: coverage dominates, IoU is a secondary tie-break.
+        # ORB is intentionally NOT in the score (≈3 % inliers = noise on
+        # real IPM-vs-OSM-schematic runs); it is reported only.
+        aerial_score = 0.8 * coverage + 0.2 * iou
 
         results.append(
             AerialMatchResult(
                 candidate_index=i,
                 traj_iou=iou,
+                traj_coverage=coverage,
                 aerial_score=aerial_score,
                 n_orb_matches=n_match,
                 n_inliers=n_in,

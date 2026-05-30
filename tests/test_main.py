@@ -72,6 +72,6 @@ def test_arg_parser_bev_splat_defaults_are_safe() -> None:
     assert args.bev_splat_weights is None
     assert args.bev_splat_repo_path is None
     assert args.bev_splat_model_module == "models.models_kitti_nips"
-    assert args.bev_splat_source == "geotessera"
+    assert args.bev_splat_source == "esri"
     assert args.bev_splat_tile_size == 512
     assert args.bev_splat_half_extent_m == 60.0

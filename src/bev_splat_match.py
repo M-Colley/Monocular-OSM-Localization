@@ -95,10 +95,13 @@ class BevSplatConfig:
         CPU inference is not really supported by the upstream model but
         the scaffold tolerates it.
     satellite_source:
-        ``"geotessera"`` (real satellite-derived DINOv2 embedding,
-        PCA-reduced to RGB) or ``"osm"`` (rasterized schematic, same as
-        the ORB channel — listed for completeness but mismatched with
-        BevSplat's training domain).
+        ``"esri"`` / ``"satellite"`` (real RGB orthoimagery via
+        ``contextily`` — **recommended**, matches BevSplat's KITTI
+        training domain), ``"geotessera"`` (real satellite-derived
+        DINOv2 embedding, PCA-reduced to false-colour RGB — visually
+        near-identical across inner-city tiles, so non-discriminative),
+        or ``"osm"`` (rasterized schematic — domain-mismatched, listed
+        for completeness).
     satellite_size:
         Side length of the satellite tile fed to BevSplat. 512 matches
         the KITTI training pipeline.
@@ -725,6 +728,17 @@ def _render_satellite_tile(
             lon=lon, lat=lat, year=geotessera_year
         )
         return _embedding_cube_to_rgb(np.asarray(embedding), size=size)
+    if source in ("esri", "satellite"):
+        # Real RGB orthoimagery — the domain BevSplat's KITTI checkpoints
+        # were actually trained on. Unlike the GeoTessera PCA false-colour
+        # tiles (visually near-identical across inner-city candidates →
+        # non-discriminative), real satellite RGB gives the model the
+        # appearance signal it needs to separate candidates.
+        from .satellite import satellite_tile_for_candidate
+
+        return satellite_tile_for_candidate(
+            road, cand, half_extent_m=half_extent_m, size=size, provider=source,
+        )
     raise ValueError(f"unsupported satellite source: {source!r}")
 
 

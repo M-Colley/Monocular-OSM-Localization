@@ -85,6 +85,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="cap on frame pairs used to triangulate the splat")
     p.add_argument("--use-da3", action="store_true",
                    help="run Depth Anything 3 (CUDA) for a dense reconstruction")
+    p.add_argument("--use-da3-trajectory", action="store_true",
+                   help="use Depth Anything 3's globally-consistent camera path as the "
+                        "trajectory fed to the shape matcher, instead of monocular VO "
+                        "(needs CUDA). DA3 is metric and multi-frame-consistent, so it "
+                        "has far less accumulated drift than frame-to-frame VO — the "
+                        "dominant error source on long clips. VO is still used for the "
+                        "splat/IPM renders.")
     p.add_argument("--da3-keyframes", type=int, default=32,
                    help="number of keyframes to feed DA3 (must fit in GPU memory)")
     p.add_argument("--full-splat", action="store_true",
@@ -113,10 +120,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="window size in resampled trajectory points for sliding-window matching")
     p.add_argument("--sliding-window-step", type=int, default=32,
                    help="step size in resampled trajectory points for sliding-window matching")
-    p.add_argument("--embedding-sources", nargs="*", choices=("osm", "geotessera"), default=[],
-                   help="optional deep embedding retrieval sources to compare against the top-down query")
+    p.add_argument("--embedding-sources", nargs="*",
+                   choices=("osm", "geotessera", "esri", "satellite"), default=[],
+                   help="optional deep embedding retrieval sources to compare against the "
+                        "top-down query. 'esri'/'satellite' = real RGB orthoimagery "
+                        "(recommended for IPM↔satellite comparison).")
     p.add_argument("--embedding-model", default="resnet18",
-                   help="deep image embedding model used for retrieval (default: resnet18)")
+                   help="deep image embedding model used for retrieval: 'resnet18' (offline, "
+                        "ImageNet) or 'dinov2_vits14'/'dinov2_vitb14'/'dinov2_vitl14' "
+                        "(cross-domain VPR backbone, downloads weights on first use).")
     p.add_argument("--geotessera-year", type=int, default=2024,
                    help="GeoTessera embedding year when geotessera retrieval is enabled")
     p.add_argument("--ground-truth", nargs="*", default=[],
@@ -141,10 +153,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "`Model` class. Default models.models_kitti_nips matches the "
                         "KITTI_*.pth checkpoints; use models.models_kitti_vfa for an "
                         "extension-free import smoke test.")
-    p.add_argument("--bev-splat-source", choices=("geotessera", "osm"), default="geotessera",
-                   help="Satellite tile source for BevSplat. Defaults to geotessera "
-                        "(real satellite-derived embedding); 'osm' uses the schematic "
-                        "raster (domain-mismatched but offline).")
+    p.add_argument("--bev-splat-source", choices=("esri", "satellite", "geotessera", "osm"),
+                   default="esri",
+                   help="Satellite tile source for BevSplat. Defaults to 'esri' "
+                        "(real RGB orthoimagery — matches BevSplat's KITTI training "
+                        "domain). 'geotessera' uses satellite-derived PCA false-colour "
+                        "(non-discriminative across inner-city tiles); 'osm' uses the "
+                        "schematic raster (domain-mismatched but offline).")
     p.add_argument("--bev-splat-tile-size", type=int, default=512,
                    help="BevSplat satellite tile side length in pixels (KITTI default: 512).")
     p.add_argument("--bev-splat-half-extent-m", type=float, default=60.0,
@@ -192,6 +207,7 @@ def main() -> None:
             enable_aerial_match=not args.no_aerial,
             splat_max_pairs=args.splat_max_pairs,
             enable_da3=args.use_da3,
+            use_da3_trajectory=args.use_da3_trajectory,
             da3_keyframes=args.da3_keyframes,
             enable_full_splat=args.full_splat,
             full_splat_scale=args.full_splat_scale,

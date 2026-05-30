@@ -68,6 +68,7 @@ class PipelineConfig:
     splat_max_pairs: int = 80
     enable_aerial_match: bool = True
     enable_da3: bool = False
+    use_da3_trajectory: bool = False
     da3_keyframes: int = 32
     enable_full_splat: bool = False
     full_splat_scale: float = 1.4
@@ -88,7 +89,7 @@ class PipelineConfig:
     bev_splat_weights: Path | None = None
     bev_splat_repo_path: Path | None = None
     bev_splat_model_module: str = "models.models_kitti_nips"
-    bev_splat_source: str = "geotessera"
+    bev_splat_source: str = "esri"
     bev_splat_tile_size: int = 512
     bev_splat_half_extent_m: float = 60.0
     vo_workers: int | None = None  # None → auto (min(cpu_count, 12)); 1 → sequential
@@ -103,6 +104,21 @@ def _plot_trajectory(traj: Trajectory, out_path: Path) -> None:
     ax.set_title("Recovered top-down trajectory (VO, scale-free)")
     ax.set_xlabel("x (arbitrary units)")
     ax.set_ylabel("y (arbitrary units)")
+    ax.grid(alpha=0.3)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+
+
+def _plot_xy(xy: np.ndarray, out_path: Path, title: str) -> None:
+    """Minimal top-down polyline plot (used for the DA3 trajectory)."""
+    fig, ax = plt.subplots(figsize=(7, 7))
+    ax.plot(xy[:, 0], xy[:, 1], "-", color="C2", linewidth=1.4)
+    ax.scatter(xy[0, 0], xy[0, 1], color="green", s=60, label="start", zorder=5)
+    ax.scatter(xy[-1, 0], xy[-1, 1], color="red", s=60, label="end", zorder=5)
+    ax.set_aspect("equal")
+    ax.set_title(title)
     ax.grid(alpha=0.3)
     ax.legend(loc="best")
     fig.tight_layout()
@@ -288,10 +304,49 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     print(f"      -> {road.graph.number_of_nodes()} nodes, "
           f"{road.graph.number_of_edges()} edges, CRS={road.crs}")
 
+    # 4b. Optional: use Depth Anything 3's globally-consistent camera path
+    # as the trajectory the shape matcher consumes. Monocular VO drifts
+    # over long clips (the true Olgastraße route's bearing correlation was
+    # only 0.16 vs 0.29–0.32 for *wrong* parallel streets — pure drift),
+    # which lets several parallel streets fit equally well. DA3 is metric
+    # and multi-frame-consistent, so its trajectory has far less drift.
+    # We keep the VO `traj` for the splat/IPM renders (those are tied to
+    # the per-frame VO poses) and only swap the matcher's input here.
+    match_xz = traj.xz
+    da3_rec = None
+    if cfg.use_da3_trajectory:
+        print("[4b] Depth Anything 3 trajectory (drift-free matcher input)")
+        from .da3_reconstruction import da3_trajectory_xy, reconstruct_with_da3
+        try:
+            da3_rec = reconstruct_with_da3(
+                frames.frames,
+                n_keyframes=cfg.da3_keyframes,
+                valid_mask=traj.valid,
+                device="cuda",
+            )
+            da3_xy = da3_trajectory_xy(da3_rec)
+            if len(da3_xy) >= 2 and bool(np.isfinite(da3_xy).all()):
+                match_xz = da3_xy
+                _plot_xy(
+                    da3_xy, cfg.output_dir / "trajectory_da3.png",
+                    "DA3 globally-consistent trajectory (matcher input)",
+                )
+                print(f"      -> using DA3 trajectory: {len(da3_xy)} keyframe poses")
+                result_traj_source = "da3"
+            else:
+                print("      -> DA3 trajectory invalid; falling back to VO path")
+                result_traj_source = "vo"
+        except Exception as e:
+            print(f"      -> DA3 trajectory failed ({e}); falling back to VO path")
+            da3_rec = None
+            result_traj_source = "vo"
+    else:
+        result_traj_source = "vo"
+
     # 5. Match.
     print(f"[5/5] Matching trajectory against {road.graph.number_of_nodes()} candidate starts")
     candidates = match_trajectory(
-        traj.xz,
+        match_xz,
         road,
         final_top_k=cfg.top_k,
         sample_every=cfg.sample_every,
@@ -315,6 +370,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             "url": cfg.url,
             "n_frames": len(frames.frames),
             "n_valid_poses": n_valid,
+            "trajectory_source": result_traj_source,
             "matches": [
                 candidate_geographic_summary(c, road.graph) for c in candidates
             ],
@@ -326,7 +382,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             f"(window={cfg.sliding_window_size}, step={cfg.sliding_window_step})"
         )
         sliding = score_candidates_with_sliding_windows(
-            traj.xz,
+            match_xz,
             road,
             candidates,
             window_size=cfg.sliding_window_size,
@@ -470,37 +526,64 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
 
         print()
         print("        ===== Method comparison (top-{:d}) =====".format(len(candidates)))
-        print("        shape_rank  shape_RMS  shape_corr  | aerial_rank  traj_IoU  ORB_inliers | streets")
-        print("        " + "-" * 108)
+        print("        shape_rank  shape_RMS  shape_corr  | aerial_rank  coverage  traj_IoU  ORB_inliers | streets")
+        print("        " + "-" * 120)
         for i, ar in enumerate(aerial_results):
             c = candidates[i]
             names = ", ".join(
                 candidate_geographic_summary(c, road.graph)["street_names"][:2]
             ) or "(unnamed)"
             print(f"           #{i+1:<2}      {c.score:7.1f} m   {c.bearing_corr:+.3f}     |"
-                  f"     #{aerial_rank[i]:<2}     {ar.traj_iou:.3f}       {ar.n_inliers:3d}        | {names}")
+                  f"     #{aerial_rank[i]:<2}     {ar.traj_coverage:.3f}    {ar.traj_iou:.3f}       {ar.n_inliers:3d}        | {names}")
 
         for i, ar in enumerate(aerial_results):
             m = result["matches"][i]
             m["shape_rank"] = i + 1
             m["traj_iou"] = ar.traj_iou
+            m["traj_coverage"] = ar.traj_coverage
             m["aerial_score"] = ar.aerial_score
             m["aerial_orb_matches"] = ar.n_orb_matches
             m["aerial_inliers"] = ar.n_inliers
             m["aerial_inlier_ratio"] = ar.inlier_ratio
             m["aerial_rank"] = aerial_rank[i]
-            m["consensus_rank_sum"] = (i + 1) + aerial_rank[i]
 
-        # Re-rank candidates by combined score: shape rank + aerial rank
-        # (lower sum = both methods agree this is the best match).
+        # Weighted rank-fusion consensus. Channels are weighted by how
+        # well they track ground truth on GT-evaluated runs:
+        #   * shape rank  — primary geometric fit (weight 1.0)
+        #   * sliding-window rank — the strongest *secondary* signal: a
+        #     candidate supported across many trajectory windows is hard
+        #     to fool (weight 1.0). Falls back to shape rank when the
+        #     sliding-window channel is disabled.
+        #   * aerial (coverage) rank — useful but weaker; ORB already
+        #     dropped from its score, so it is the trajectory-coverage
+        #     signal only (weight 0.5).
+        # Lower fused score = stronger multi-channel agreement.
+        W_SHAPE, W_SLIDING, W_AERIAL = 1.0, 1.0, 0.5
+
+        def _sliding_rank(i: int) -> int:
+            return int(result["matches"][i].get("sliding_window_rank", i + 1))
+
+        def _fused(i: int) -> float:
+            return (
+                W_SHAPE * (i + 1)
+                + W_SLIDING * _sliding_rank(i)
+                + W_AERIAL * aerial_rank[i]
+            )
+
+        for i in range(len(aerial_results)):
+            result["matches"][i]["consensus_score"] = _fused(i)
+
         consensus_order = sorted(
             range(len(aerial_results)),
-            key=lambda i: ((i + 1) + aerial_rank[i], i),
+            key=lambda i: (_fused(i), i),
         )
         consensus_idx = consensus_order[0]
         print()
         print(f"        Consensus pick: candidate #{consensus_idx + 1} "
-              f"(shape #{consensus_idx + 1}, aerial #{aerial_rank[consensus_idx]})")
+              f"(shape #{consensus_idx + 1}, "
+              f"sliding #{_sliding_rank(consensus_idx)}, "
+              f"aerial #{aerial_rank[consensus_idx]}, "
+              f"fused={_fused(consensus_idx):.1f})")
 
         # Reorder candidates by consensus and update the result JSON.
         # This ensures result["matches"][0] is the consensus-best answer.
@@ -641,12 +724,18 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             da3_trajectory_xy,
         )
         try:
-            rec = reconstruct_with_da3(
-                frames.frames,
-                n_keyframes=cfg.da3_keyframes,
-                valid_mask=traj.valid,
-                device="cuda",
-            )
+            # Reuse the reconstruction already computed for the matcher
+            # trajectory (step 4b) instead of running DA3 twice.
+            if da3_rec is not None:
+                rec = da3_rec
+                print("      -> reusing DA3 reconstruction from step [4b]")
+            else:
+                rec = reconstruct_with_da3(
+                    frames.frames,
+                    n_keyframes=cfg.da3_keyframes,
+                    valid_mask=traj.valid,
+                    device="cuda",
+                )
             print(f"      -> {len(rec.points_world)} dense points; "
                   f"{rec.extrinsics_w2c.shape[0]} keyframe poses")
 

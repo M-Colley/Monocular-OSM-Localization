@@ -69,7 +69,27 @@ def _embedding_cube_to_rgb(embedding: np.ndarray, *, size: int = 224) -> np.ndar
 
 
 class TorchvisionImageEmbedder:
-    def __init__(self, *, model_name: str = "resnet18", device: str = "cpu") -> None:
+    """Deep image embedder for retrieval.
+
+    Two backbone families are supported:
+
+    * ``"resnet18"`` — ImageNet-pretrained ResNet18 (penultimate 512-d
+      features). Cheap and offline-friendly, but ImageNet features carry
+      a large domain gap when comparing a photographic IPM stitch to an
+      OSM line-drawing — empirically it ranked wrong candidates to the
+      top on GT-evaluated runs.
+    * ``"dinov2_vits14"`` / ``"dinov2_vitb14"`` / ``"dinov2_vitl14"`` —
+      self-supervised DINOv2 ViT features loaded via ``torch.hub``
+      (``facebookresearch/dinov2``). DINOv2 is the backbone behind
+      modern visual-place-recognition stacks (AnyLoc) precisely because
+      its features are far more robust *across domains* — the right
+      choice for cross-view (ground/IPM ↔ satellite) similarity. First
+      use downloads the weights (~90 MB for ViT-S).
+    """
+
+    def __init__(self, *, model_name: str = "resnet18", device: str | None = None) -> None:
+        import os
+
         try:
             import torch
             from torchvision import models
@@ -80,27 +100,61 @@ class TorchvisionImageEmbedder:
                 "pip install torch torchvision"
             ) from exc
 
-        if model_name != "resnet18":
-            raise ValueError(
-                f"Only 'resnet18' is currently supported for embedding model, got: {model_name}"
-            )
-
-        weights = models.ResNet18_Weights.DEFAULT
-        backbone = models.resnet18(weights=weights)
-        model = torch.nn.Sequential(*(list(backbone.children())[:-1]))
-        model.eval()
+        # Auto-pick the device when not specified. DINOv2's attention uses
+        # xformers' memory_efficient_attention, which only supports CUDA +
+        # fp16/bf16 — on CPU/fp32 it raises NotImplementedError. So DINOv2
+        # must run on CUDA; ResNet18 is fine on either.
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self._torch = torch
         self._F = F
-        self._model = model.to(device)
         self._device = device
+        self._model_name = model_name
+
+        if model_name == "resnet18":
+            weights = models.ResNet18_Weights.DEFAULT
+            backbone = models.resnet18(weights=weights)
+            model = torch.nn.Sequential(*(list(backbone.children())[:-1]))
+            self._is_dinov2 = False
+            self._feat_dim = 512
+        elif model_name.startswith("dinov2"):
+            # DINOv2 ViT loaded from torch.hub; calling model(x) returns the
+            # [B, embed_dim] CLS embedding. Robust cross-domain features.
+            #
+            # Disable xformers' memory_efficient_attention so DINOv2 falls
+            # back to torch's built-in scaled_dot_product_attention. The
+            # xformers kernel rejects CPU/fp32 and is fragile across
+            # torch/xformers version pairs; the math fallback is portable
+            # and plenty fast for 224px tiles. Must be set before hub load.
+            os.environ.setdefault("XFORMERS_DISABLED", "1")
+            try:
+                model = torch.hub.load(
+                    "facebookresearch/dinov2", model_name, trust_repo=True
+                )
+            except Exception as exc:  # pragma: no cover - network/hub path
+                raise RuntimeError(
+                    f"Failed to load DINOv2 backbone {model_name!r} via torch.hub: {exc}"
+                ) from exc
+            self._is_dinov2 = True
+            self._feat_dim = int(getattr(model, "embed_dim", 384))
+        else:
+            raise ValueError(
+                "Supported embedding models: 'resnet18' or 'dinov2_vits14' / "
+                f"'dinov2_vitb14' / 'dinov2_vitl14'. Got: {model_name}"
+            )
+
+        model.eval()
+        self._model = model.to(device)
 
     def encode(self, images: Sequence[np.ndarray]) -> np.ndarray:
         if not images:
-            return np.zeros((0, 512), dtype=np.float32)
+            return np.zeros((0, self._feat_dim), dtype=np.float32)
+        # DINOv2 ViT-/14 needs side lengths that are multiples of 14; 224 works.
+        size = 224
         batch = []
         for image in images:
-            rgb = _normalize_rgb_image(image)
+            rgb = _normalize_rgb_image(image, size=size)
             tensor = self._F.to_tensor(rgb)
             tensor = self._F.normalize(
                 tensor,
@@ -110,7 +164,8 @@ class TorchvisionImageEmbedder:
             batch.append(tensor)
         stacked = self._torch.stack(batch).to(self._device)
         with self._torch.inference_mode():
-            feats = self._model(stacked).flatten(1)
+            out = self._model(stacked)
+            feats = out.flatten(1)
             feats = self._torch.nn.functional.normalize(feats, dim=1)
         return feats.cpu().numpy().astype(np.float32)
 
@@ -160,6 +215,15 @@ def _render_source_image(
         return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
     if source == "geotessera":
         return _render_geotessera_patch(road, cand, year=geotessera_year, size=size)
+    if source in ("esri", "satellite"):
+        # Real RGB orthoimagery — the right domain to compare a photographic
+        # IPM/ground query against (vs the OSM line-drawing or GeoTessera
+        # PCA false-colour, both of which carry a large domain gap).
+        from .satellite import satellite_tile_for_candidate
+
+        return satellite_tile_for_candidate(
+            road, cand, half_extent_m=600.0, size=size, provider=source,
+        )
     raise ValueError(f"unsupported embedding source: {source}")
 
 
