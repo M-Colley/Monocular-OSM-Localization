@@ -20,25 +20,40 @@ BevSplat is the strongest of these in principle: it was *trained* to
 localize a ground image inside a satellite tile, so it produces a
 calibrated pose estimate rather than a similarity score.
 
-Status — not all of the integration is functional today
---------------------------------------------------------
+Status — functional (verified on Windows, 2026-06-09)
+-----------------------------------------------------
 
-The upstream repository (commit ``187da9e``) has two blockers:
+The integration runs end-to-end: the model constructs, the published
+``KITTI_no_GPS.pth`` checkpoint loads, and a forward pass returns a
+score + ``(shift_u, shift_v, heading)``. Both historic blockers are
+resolved:
 
-1. **No pre-trained weights.** The README's "Coming Soon - Within 1
-   Week" entry is six months old as of writing. Without weights we
-   cannot run inference; training from scratch needs the KITTI Raw +
-   VIGOR datasets and GPU-days.
-2. **CUDA extensions need a local build.** The `pano_feature_gaussian`
-   and `feature_gaussian` subpackages are CUDA C++ extensions that are
-   not pip-installable; they require ``pip install -e .`` from inside
-   the BevSplat repo with a matching CUDA toolkit.
+1. **Pre-trained weights are published.** wangqww shipped six
+   checkpoints on OneDrive (KITTI_GPS/KITTI_no_GPS + four VIGOR
+   variants); see the BevSplat section of ``README.md`` for the link
+   and the table. For our dashcam-on-OSM use case grab
+   ``KITTI_no_GPS.pth`` and pass it via ``--bev-splat-weights``.
+2. **CUDA extensions build locally.** The ``feature_gaussian`` and
+   ``pano_feature_gaussian`` subpackages are CUDA C++ extensions (not
+   on PyPI); build them once with ``third_party/build_extensions.bat``
+   on Windows (it self-activates vcvars64 + CUDA 12.8) or ``pip install
+   -e .`` in each on Linux. See ``patches/setup_bevsplat.sh``.
 
-This module therefore:
+Two Windows-specific notes worth knowing:
 
-* Wires the full integration path (CLI flag → pipeline step → result
-  JSON column) so when wangqww ships the weights, plugging them in is
-  a one-line change in :func:`_load_bev_splat_inference`.
+* **Run env:** the model + CUDA extensions require the Python that built
+  them — on this machine that is the Python 3.12 install
+  (``…\\Programs\\Python\\Python312\\python.exe``, torch 2.7.0+cu128),
+  *not* base conda. The ``_C.cp312-win_amd64.pyd`` extensions won't load
+  under a different Python minor version.
+* **dino_fit/dino_Fit case collision:** upstream tracks two files
+  differing only in case; on Windows they share one physical file.
+  ``patches/setup_bevsplat.sh`` patches and verifies it. Do **not** run
+  ``git stash``/``reset``/``checkout`` inside ``third_party/BevSplat`` —
+  it silently reverts the patch; re-run the setup script to recover.
+
+Beyond the inference path this module also:
+
 * Renders the satellite tiles for each candidate using
   :func:`embedding_retrieval._render_geotessera_patch` (real DINOv2
   embeddings of satellite imagery, PCA-reduced to RGB) when geotessera
@@ -47,8 +62,8 @@ This module therefore:
 * Reports ``BevSplatMatchResult.error`` per candidate when the model
   cannot be loaded, so the pipeline keeps running.
 
-A :class:`MockBevSplatInference` is provided for tests and for sanity
-checks before the real model lands.
+A :class:`MockBevSplatInference` is provided for tests and weight-free
+sanity checks.
 """
 
 from __future__ import annotations
