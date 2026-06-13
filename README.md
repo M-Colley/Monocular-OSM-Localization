@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
-![Tests](https://img.shields.io/badge/tests-72%2F72-brightgreen)
+![Tests](https://img.shields.io/badge/tests-282%2F282-brightgreen)
 ![BevSplat](https://img.shields.io/badge/BevSplat-live%20inference%20%E2%9C%93-blue)
 
 Reference clip used in the demo:
@@ -608,6 +608,68 @@ that segment is mostly straight — a straight line aligns perfectly to
 longer windows have more shape information but accumulate VO drift, so
 RMS goes up while correlation stays high. Triangulating across windows
 is how we pick out the true match.
+
+## Final results — multi-clip ground-truth benchmark
+
+Beyond the single Ulm reference clip, the pipeline is validated against **four
+ground-truth datasets** spanning three cities and three independent GPS sources,
+all reproducible with one command (`python scripts/run_all_gt.py`):
+
+- **Ulm** — YouTube dashcam, hand-labelled GPS waypoints (`ground_truth/ulm_ULl8s4qydrk.json`).
+- **KITTI raw** — cvlibs.net, OXTS INS/GNSS lat/lon. Adapter `src/kitti_raw.py`;
+  Karlsruhe drives `0009` (46 s) and `0033` (165 s, a 1.7 km loop).
+- **comma2k19** — comma.ai, a tightly-coupled INS/GNSS/Vision global pose (the
+  highest-quality GT here). Adapter `src/comma2k19.py`; a Daly City surface-street
+  stretch.
+- **London** — YouTube dashcam, hand-labelled (`ground_truth/london_T4wTL3LpLqU.json`),
+  Bloomsbury / Fitzrovia.
+
+Each dataset's GPS is converted to the project's `ground_truth/*.json` schema by
+its adapter, the front-camera frames feed the standard pipeline, and per-waypoint
+metric errors are reported.
+
+### Accuracy (current pipeline)
+
+| Clip | Config | Mean route err | Start err | Calibrated confidence (spread) |
+|---|---|---|---|---|
+| **Ulm**, Germany | OCR-anchor (4K) + scale-lock | **160 m** | 450 m | medium (368 m) |
+| **KITTI drive_0033**, Karlsruhe (1.7 km loop) | shape + scale-lock | **144 m** | 517 m | low (706 m) |
+| **KITTI drive_0009**, Karlsruhe (46 s) | shape + scale-lock | 565 m | 482 m | medium (706 m) |
+| **comma2k19**, Daly City | shape + scale-lock | 761 m | 1118 m | low (1400 m) |
+| **London**, Bloomsbury | shape + scale-lock | 770 m | 1324 m | low (1433 m) |
+
+### Calibrated multi-hypothesis output
+
+Trajectory-shape fit is provably *uncorrelated* with geographic correctness in
+dense road networks (`corr(shape-RMS, GT-error) ≈ 0`, measured in
+`scripts/bench_matching.py`) — a walk can match the VO shape perfectly and sit on
+the wrong parallel street. So the pipeline no longer reports a single
+over-confident pick. It collapses the candidate pool into **distinct location
+hypotheses** (`src/hypotheses.py`) with a **confidence derived from the spatial
+agreement** of the top candidates, not the winner's RMS. The true neighbourhood is
+reliably *in the top-5 shortlist* even when shape mis-ranks the headline pick:
+
+| Clip | #1 pick start err | Best of top-5 hypotheses |
+|---|---|---|
+| KITTI drive_0033 | 516 m | **140 m** |
+| comma2k19 | 1118 m | **512 m** |
+| KITTI drive_0009 | 482 m | **327 m** |
+
+### What this shows
+
+- **Localizes well where there is distinctive signal.** Ulm (legible signage →
+  OCR **street-name** anchors fed into the scale-lock pin — this cut the 4K-OCR
+  path from 412 m to **160 m** mean and the start error by 37 %) and the KITTI
+  loop (a distinctive multi-turn closed path → 144 m, correct neighbourhood from
+  shape *alone*).
+- **The recurring ceiling is the environment, not the algorithm.** Shape *and*
+  cross-view appearance (BevSplat) are both non-discriminative on self-similar
+  suburban grids (comma2k19's Daly City) and on shape-only highway/grid clips with
+  no legible plates (London). More OCR or a better shape cost cannot break a tie
+  the environment doesn't provide.
+- **The output is now honest.** Tight spatial spread (Ulm, 368 m) → trustworthy;
+  large spread (comma/London, 1400 m+) → reported as **low** confidence with a
+  top-N shortlist, instead of a confident wrong answer.
 
 ## Known limitations of the PoC
 
