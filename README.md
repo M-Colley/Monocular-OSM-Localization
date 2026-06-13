@@ -16,6 +16,40 @@ Reference clip used in the demo:
 
 ---
 
+## In plain English (the "what does this actually do" version)
+
+Hand it a **dashcam video and the name of the city** it was filmed in, and it
+figures out **where in that city the drive happened** — drawing the route on a
+map — *without any GPS in the video*.
+
+How? It watches how the car moves — every turn, curve, and straight — and
+reconstructs the **shape** of the path the car drove (think of tracing the route
+on paper, but with no idea of north, scale, or starting point). Then it slides
+that shape around the city's real street map (from OpenStreetMap) until it finds
+where it fits. If the video happens to show readable **street signs or landmarks**,
+it also reads them and uses them to pin the location down further.
+
+What you get back is a **best-guess location** (latitude/longitude + the street
+names), a **short list of other likely spots**, and an **honest confidence score**.
+
+How well does it work right now? When the drive has a distinctive shape (a loop, a
+sequence of unusual turns) or readable signage, it lands in the **right
+neighbourhood — within ~150 m** on our test clips. When the drive is through a
+repetitive suburban grid where every block looks identical, or a featureless
+highway, it *can't* pin the exact street — and crucially, **it says so** (low
+confidence + a shortlist) instead of confidently guessing wrong. The honest
+takeaway: it reliably narrows "where is this?" down to a small area, and is candid
+about how sure it is.
+
+We didn't just test this on one video — it's checked against **real driving
+datasets from three cities** (Ulm and Karlsruhe in Germany, San Francisco in the
+US) that ship with real GPS, so every answer can be scored against the truth. See
+[Final results](#final-results--multi-clip-ground-truth-benchmark) below.
+
+The rest of this README is the engineering detail behind each of those steps.
+
+---
+
 ## What this does
 
 | Stage | Component                              | What gets produced                                       |
