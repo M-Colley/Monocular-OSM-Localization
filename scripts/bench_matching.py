@@ -136,6 +136,7 @@ VARIANTS = ["baseline", "turn_weighted", "endpoint", "turn+endpoint", "consensus
 
 
 args_diag = False
+args_hyp = False
 
 
 def run_clip(clip: Clip, variants: list[str]) -> None:
@@ -170,6 +171,23 @@ def run_clip(clip: Clip, variants: list[str]) -> None:
         # how good is the *best RMS* candidate, geographically?
         print(f"  [diag] lowest-RMS cand: GTerr {gt_err[int(np.argmin(rms))]:.0f}m; "
               f"highest-corr cand: GTerr {gt_err[int(np.argmax(corr))]:.0f}m")
+    if args_hyp:
+        from src.hypotheses import (cluster_candidates, distinct_hypotheses,
+                                     hypothesis_confidence)
+        hyps = distinct_hypotheses(pool, road, top_n=8)
+        conf = hypothesis_confidence(pool, hyps)
+        clusters = cluster_candidates(pool)
+        # distinct-hypothesis rank of the cluster containing the GT-best candidate
+        best_hyp_rank = next((r for r, cl in enumerate(clusters, 1) if best_i in cl), -1)
+        in_top5 = best_hyp_rank != -1 and best_hyp_rank <= 5
+        print(f"  [hyp] {len(clusters)} distinct places; GT-best's place ranks "
+              f"#{best_hyp_rank} -> in top-5? {in_top5}")
+        print(f"  [hyp] confidence={conf['level']} "
+              f"(concentration {conf['concentration']}, spread {conf['spread_m']} m, "
+              f"support {conf['support']})")
+        for h in hyps[:5]:
+            print(f"        hyp#{h.rank} GTerr {gt_err[h.candidate_index]:5.0f} m  "
+                  f"support {h.support:3d}  {', '.join(h.street_names) or '(unnamed)'}")
     for v in variants:
         cost = make_cost(v, pool)
         order = np.argsort(cost)
@@ -184,9 +202,11 @@ def main() -> None:
     p.add_argument("--variant", default=None, help="run one variant (default: all)")
     p.add_argument("--clip", default=None, help="run one clip by name")
     p.add_argument("--diag", action="store_true", help="print cost-vs-GT diagnostics")
+    p.add_argument("--hyp", action="store_true", help="print top-N hypothesis report")
     args = p.parse_args()
-    global args_diag
+    global args_diag, args_hyp
     args_diag = args.diag
+    args_hyp = args.hyp
     variants = [args.variant] if args.variant else VARIANTS
     clips = [c for c in CLIPS if (not args.clip or c.name == args.clip)]
     for clip in clips:

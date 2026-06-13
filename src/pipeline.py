@@ -41,10 +41,12 @@ from .evaluator import (
 from .frame_extraction import extract_frames
 from .ipm import render_ipm_canvas
 from .osm_data import RoadGraph, fetch_city_graph
+from .hypotheses import distinct_hypotheses, hypothesis_confidence
 from .position import (
     build_position_report,
     candidate_center_latlon,
     format_position_summary,
+    google_maps_url,
 )
 from .splat import (
     build_splat_points,
@@ -268,6 +270,14 @@ _W_BEV = 0.75
 # alone. Capping means appearance refines the geometric shortlist but
 # can't promote a long-shot to #1.
 _BEV_FUSION_CAP = 5
+
+# Size of the geometric candidate pool kept for the calibrated
+# multi-hypothesis output. The matcher already scores ~500 walks in
+# stage 2, so returning 50 instead of top_k is free; we collapse them
+# into distinct location hypotheses (src/hypotheses.py). The heavy
+# channels (BevSplat, sliding window) and the headline pick still run on
+# the top_k slice — only the hypotheses shortlist uses the wider pool.
+_HYP_POOL = 50
 
 
 def _fuse_bev_rank(
@@ -697,6 +707,17 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 detections, cfg.city, road,
                 geocode_fn=default_geocode_fn(cfg.data_dir / "geocode_cache.json"),
                 min_confidence=cfg.ocr_min_confidence,
+                # Temporal stratification (geocode_texts time_buckets) is
+                # available but OFF by default: on the Ulm 4K run it
+                # surfaced *direction-sign* POIs (e.g. "Handwerkskammer"
+                # read at t=77 s while the car reaches it at t=245 s) —
+                # right place, wrong time, and spatially consistent so the
+                # cluster filter can't reject them, which corrupts the
+                # anchor-pin (POI-only mean 146 -> 412 m). Temporal anchor
+                # coverage is instead provided by the *street-name*
+                # anchors fed into the pin below, which carry a valid
+                # "you are here" timestamp.
+                time_buckets=0,
             )
             for a in ocr_anchors:
                 print(f"        poi:    {a.name!r} @ ({a.lat:.5f},{a.lon:.5f}) "
@@ -826,10 +847,11 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
               f"near {len(ocr_anchors)} OCR anchor(s))")
     else:
         print(f"[5/5] Matching trajectory against {road.graph.number_of_nodes()} candidate starts")
+    _pool_k = max(cfg.top_k, _HYP_POOL)
     candidates = match_trajectory(
         match_xz,
         road,
-        final_top_k=cfg.top_k,
+        final_top_k=_pool_k,
         sample_every=cfg.sample_every,
         estimated_length_m=estimated_length_m,
         extra_start_nodes=anchor_seed,
@@ -839,9 +861,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     if anchor_gated and not candidates:
         print("      -> anchor-gated match found nothing; falling back to full scan")
         candidates = match_trajectory(
-            match_xz, road, final_top_k=cfg.top_k, sample_every=cfg.sample_every,
+            match_xz, road, final_top_k=_pool_k, sample_every=cfg.sample_every,
             estimated_length_m=estimated_length_m, locked_scale=locked_scale,
         )
+    # Keep the wider geometric pool for the calibrated multi-hypothesis
+    # output, but run the rest of the pipeline (heavy channels, headline
+    # pick, GT eval) on the top_k slice exactly as before.
+    geom_pool = list(candidates)
+    candidates = candidates[:cfg.top_k]
 
     if not candidates:
         print("      -> no matches!")
@@ -1491,24 +1518,48 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # apart (both 1.00). Down-weighting by distance-to-walk
                 # lets the on-route anchors dominate. (Naive equal/conf
                 # weighting over all anchors was worse: 307 vs 146 m.)
-                t_secs = np.array([a.t_sec for a in ocr_anchors])
-                a_world = _a2xy(ocr_anchors, road.crs)
-                a_vo = vo_positions_at_times(match_xz, frames.timestamps, t_secs)
                 walk = np.asarray(candidates[0].walk_xy, dtype=np.float64)
+                # POI anchors: geocoded landmark points.
+                names = [a.name for a in ocr_anchors]
+                a_world = list(_a2xy(ocr_anchors, road.crs))
+                a_t = [a.t_sec for a in ocr_anchors]
+                a_conf = [a.confidence for a in ocr_anchors]
+                # Street-name anchors: temporally-valid "you are here"
+                # points (the car is ON the street when its plate is read),
+                # often earlier on the route than the POI signs. Each
+                # street's pin point is the node where the chosen route
+                # meets that street. The residual-cluster pin drops any
+                # that are temporally inconsistent, so this is safe.
+                for sa in street_anchors:
+                    if not sa.node_ids:
+                        continue
+                    pts = np.array([[road.graph.nodes[n]["x"], road.graph.nodes[n]["y"]]
+                                    for n in sa.node_ids], dtype=np.float64)
+                    d = np.array([np.linalg.norm(walk - p, axis=1).min() for p in pts])
+                    a_world.append(pts[int(np.argmin(d))])
+                    a_t.append(sa.t_sec)
+                    a_conf.append(sa.confidence)
+                    names.append(sa.name)
+                a_world = np.asarray(a_world, dtype=np.float64)
+                a_vo = vo_positions_at_times(
+                    match_xz, frames.timestamps, np.asarray(a_t))
                 dist_to_walk = np.array([
                     np.linalg.norm(walk - w, axis=1).min() for w in a_world])
-                wts = np.array([a.confidence for a in ocr_anchors]) / (
-                    1.0 + dist_to_walk / 50.0)
+                wts = np.asarray(a_conf) / (1.0 + dist_to_walk / 50.0)
                 route_xy = anchor_pinned_route(
                     match_xz, candidates[0].walk_xy, locked_scale,
                     a_vo, a_world, weights=wts,
                 )
                 world_route_latlon = _xy2ll(route_xy, road.crs)
-                pos_ranking = ranking_mode + f"+scalelock+anchor-pin({len(ocr_anchors)})"
-                lead = ocr_anchors[int(np.argmax(wts))]
+                n_poi = len(ocr_anchors)
+                n_st = len(a_world) - n_poi
+                pos_ranking = (ranking_mode
+                               + f"+scalelock+anchor-pin({n_poi}poi+{n_st}street)")
+                lead_i = int(np.argmax(wts))
                 print(f"      -> route pinned (proximity-weighted LS) over "
-                      f"{len(ocr_anchors)} anchor(s); lead={lead.name!r} "
-                      f"(d_to_walk={dist_to_walk[int(np.argmax(wts))]:.0f} m)")
+                      f"{len(a_world)} anchor(s): {n_poi} POI + {n_st} street; "
+                      f"lead={names[lead_i]!r} "
+                      f"(t={a_t[lead_i]:.0f}s, d_to_walk={dist_to_walk[lead_i]:.0f} m)")
             except Exception as e:
                 print(f"      -> anchor-pin failed: {e}")
                 world_route_latlon = None
@@ -1555,9 +1606,43 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 result["scale_recovery"] = result_scale_recovery
             if result_ipm_scale is not None:
                 result["ipm_scale"] = result_ipm_scale
+
+            # Calibrated multi-hypothesis output. Collapse the candidate
+            # pool (final-ranked top_k + geometric tail) into distinct
+            # location hypotheses and attach a confidence derived from
+            # their spatial AGREEMENT — honest where the winner's own
+            # shape score is not (see src/hypotheses.py).
+            ranked_pool = candidates + geom_pool[cfg.top_k:]
+            hyps = distinct_hypotheses(ranked_pool, road, top_n=5)
+            if hyps:
+                spatial_conf = hypothesis_confidence(ranked_pool, hyps)
+                position["spatial_confidence"] = spatial_conf
+                position["hypotheses"] = [
+                    {
+                        "rank": h.rank,
+                        "latitude": round(h.lat, 6),
+                        "longitude": round(h.lon, 6),
+                        "street_names": h.street_names,
+                        "support": h.support,
+                        "google_maps_url": google_maps_url(h.lat, h.lon),
+                    }
+                    for h in hyps
+                ]
+
             result["position"] = position
             print()
             print(format_position_summary(position))
+            if hyps and len(hyps) > 1:
+                sc = position.get("spatial_confidence", {})
+                print(f"  Spatial confidence: {sc.get('level', '?')} "
+                      f"(candidates {'agree on' if sc.get('level') == 'high' else 'are spread across'} "
+                      f"{len(hyps)} place(s); concentration {sc.get('concentration')}, "
+                      f"spread {sc.get('spread_m')} m)")
+                print("  Top location hypotheses (the true route is most likely one of these):")
+                for h in hyps:
+                    print(f"    {h.rank}. {h.lat:.5f}, {h.lon:.5f}  "
+                          f"[support {h.support}]  "
+                          f"{', '.join(h.street_names) or '(unnamed)'}")
         else:
             result["position_error"] = (
                 "could not convert the matched route to WGS84 "

@@ -120,6 +120,35 @@ def test_geocode_dedups_repeated_text() -> None:
     assert anchors[0].confidence == 0.99  # kept the most confident
 
 
+def test_geocode_time_buckets_surface_early_anchor() -> None:
+    # Three prominent LATE signs + one lower-confidence EARLY sign. With a
+    # tight budget, global-confidence selection crowds the early sign out
+    # (the Ulm start weakness); temporal stratification reserves the early
+    # bucket a query so the start of the route gets an anchor.
+    road = _ulm_graph()
+    detections = [
+        SceneText("Muensterplatz", 0.99, 300.0),
+        SceneText("Hauptbahnhof", 0.98, 310.0),
+        SceneText("Rathausplatz", 0.97, 320.0),
+        SceneText("Sedelhoefe", 0.80, 20.0),     # early, lower confidence
+    ]
+    db = {
+        "Muensterplatz, Ulm, Germany": (48.398, 9.991),
+        "Hauptbahnhof, Ulm, Germany": (48.399, 9.982),
+        "Rathausplatz, Ulm, Germany": (48.398, 9.992),
+        "Sedelhoefe, Ulm, Germany": (48.400, 9.986),
+    }
+    gc = lambda q: db.get(q)  # noqa: E731
+
+    glob = geocode_texts(detections, "Ulm, Germany", road, geocode_fn=gc,
+                         min_confidence=0.5, max_queries=2, time_buckets=0)
+    assert "Sedelhoefe" not in [a.name for a in glob]   # crowded out
+
+    strat = geocode_texts(detections, "Ulm, Germany", road, geocode_fn=gc,
+                          min_confidence=0.5, max_queries=2, time_buckets=2)
+    assert "Sedelhoefe" in [a.name for a in strat]      # early bucket reserved
+
+
 # ---------------------------------------------------------------------------
 # geometry: scoring + seed nodes
 # ---------------------------------------------------------------------------

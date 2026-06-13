@@ -58,6 +58,8 @@ class StreetAnchor:
     confidence: float  # OCR confidence
     match_ratio: float # fuzzy-match similarity to the OSM name
     node_ids: tuple    # graph nodes on this street
+    t_sec: float = 0.0 # when the plate was read — a temporally-valid
+                       # "you are here" time (car is ON this street then)
 
 
 _NON_ALNUM = re.compile(r"[^0-9A-Za-zÀ-ÿ]+")
@@ -138,6 +140,42 @@ def _graph_bbox_latlon(road: RoadGraph) -> tuple[float, float, float, float]:
             max(lat) + margin, max(lon) + margin)
 
 
+def _select_by_time_strata(
+    dets: list[SceneText], max_queries: int, n_buckets: int
+) -> list[SceneText]:
+    """Pick up to ``max_queries`` detections with temporal COVERAGE.
+
+    Pure global confidence sorting starves the start/end of the clip: a
+    prominent sign read repeatedly mid-route crowds the query budget,
+    leaving the early route with no geocoded anchor and forcing the
+    position to be extrapolated back from a late anchor (the Ulm start
+    weakness). Round-robin across equal-time buckets instead, taking the
+    most confident still-unused detection from each bucket per round, so
+    every part of the route gets a geocode attempt within the budget.
+    """
+    if n_buckets <= 1 or len(dets) <= max_queries:
+        return sorted(dets, key=lambda d: -d.confidence)[:max_queries]
+    ts = [d.t_sec for d in dets]
+    tmin, tmax = min(ts), max(ts)
+    span = max(tmax - tmin, 1e-6)
+    buckets: dict[int, list[SceneText]] = {}
+    for d in dets:
+        b = min(n_buckets - 1, int((d.t_sec - tmin) / span * n_buckets))
+        buckets.setdefault(b, []).append(d)
+    for b in buckets:
+        buckets[b].sort(key=lambda d: -d.confidence)
+    idx = {b: 0 for b in buckets}
+    out: list[SceneText] = []
+    while len(out) < max_queries and any(idx[b] < len(buckets[b]) for b in buckets):
+        for b in sorted(buckets):
+            if len(out) >= max_queries:
+                break
+            if idx[b] < len(buckets[b]):
+                out.append(buckets[b][idx[b]])
+                idx[b] += 1
+    return out
+
+
 def geocode_texts(
     detections: list[SceneText],
     city: str,
@@ -146,6 +184,7 @@ def geocode_texts(
     geocode_fn: GeocodeFn,
     min_confidence: float = 0.5,
     max_queries: int = 25,
+    time_buckets: int = 0,
 ) -> list[PoiAnchor]:
     """Geocode the most confident, plausible detections into anchors.
 
@@ -154,6 +193,14 @@ def geocode_texts(
     key noise filter: a stray brand name that geocodes to another country
     is dropped. Returns anchors sorted by OCR confidence (best first),
     deduplicated by name.
+
+    ``time_buckets`` > 1 spreads the query budget across that many equal
+    time slices of the clip (round-robin by confidence within each), so
+    the start/end of the route get anchors instead of being crowded out
+    by a prominent mid-route sign. 0/1 keeps the historic global-confidence
+    behaviour. Downstream cluster/temporal filtering still rejects any bad
+    anchor the wider net pulls in, so coverage is gained without losing
+    robustness.
     """
     bbox = _graph_bbox_latlon(road)
     min_lat, min_lon, max_lat, max_lon = bbox
@@ -170,7 +217,7 @@ def geocode_texts(
         if prev is None or d.confidence > prev.confidence:
             best[cleaned.casefold()] = SceneText(cleaned, d.confidence, d.t_sec)
 
-    ordered = sorted(best.values(), key=lambda d: -d.confidence)[:max_queries]
+    ordered = _select_by_time_strata(list(best.values()), max_queries, time_buckets)
     anchors: list[PoiAnchor] = []
     seen: set[str] = set()
     for d in ordered:
@@ -371,6 +418,7 @@ def match_text_to_streets(
             best[canonical] = StreetAnchor(
                 name=canonical, ocr_text=d.text, confidence=d.confidence,
                 match_ratio=ratio, node_ids=_nodes_for_street(road, canonical),
+                t_sec=float(d.t_sec),
             )
     return sorted(best.values(), key=lambda a: -a.confidence)
 
