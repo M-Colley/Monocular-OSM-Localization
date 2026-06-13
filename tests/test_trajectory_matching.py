@@ -254,3 +254,39 @@ def test_sliding_window_support_scores_candidates() -> None:
     assert len(results) == 2
     assert results[0].support_count == results[0].n_windows
     assert results[0].sliding_score > results[1].sliding_score
+
+
+def test_restrict_to_start_nodes_gates_enumeration() -> None:
+    """With restrict_to_start_nodes, only walks rooted at the given nodes
+    are considered — the anchor-gate behavior. A trajectory shaped like
+    the far decoy F-G-H must still be matched there when F is the only
+    seed, proving enumeration was confined to the seed vicinity."""
+    road = _l_shape_graph()
+    # Straight east trajectory matching the decoy F->G->H.
+    traj = np.array([[i, 0.0] for i in range(0, 201, 5)], dtype=float)
+
+    gated = match_trajectory(
+        traj, road, n_samples=48, walks_per_node=4, walk_depth=6,
+        bearing_top_k=20, final_top_k=5, estimated_length_m=180.0,
+        progress=False, extra_start_nodes=["F"], restrict_to_start_nodes=True,
+    )
+    assert gated, "gated match returned nothing"
+    # Every returned candidate must start within the seeded component
+    # (F/G/H), never from the A/B/C/D/E component.
+    allowed = {"F", "G", "H"}
+    for c in gated:
+        nodes = {c.walk[0][0]} | {v for _, v, _ in c.walk}
+        assert nodes <= allowed, f"gate leaked to non-seed nodes: {nodes}"
+
+
+def test_restrict_to_start_nodes_noop_without_seeds() -> None:
+    """restrict_to_start_nodes with no seeds must fall back to a full scan,
+    not return empty."""
+    road = _l_shape_graph()
+    traj = np.array([[0, -i] for i in range(0, 201, 5)], dtype=float)
+    cands = match_trajectory(
+        traj, road, n_samples=48, walks_per_node=4, walk_depth=6,
+        bearing_top_k=20, final_top_k=5, estimated_length_m=180.0,
+        progress=False, extra_start_nodes=None, restrict_to_start_nodes=True,
+    )
+    assert cands, "fallback to full scan should still produce candidates"

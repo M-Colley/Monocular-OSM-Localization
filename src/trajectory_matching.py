@@ -141,6 +141,8 @@ def match_trajectory(
     estimated_length_m: float = 1500.0,
     progress: bool = True,
     bearing_corr_weight: float = 400.0,
+    extra_start_nodes: list | None = None,
+    restrict_to_start_nodes: bool = False,
 ) -> list[MatchCandidate]:
     """Localize the trajectory: return up to `final_top_k` best walks.
 
@@ -157,6 +159,19 @@ def match_trajectory(
         long or short still scores correctly because Procrustes
         rescales — this is mainly a knob to keep walk enumeration
         bounded.
+    extra_start_nodes:
+        Additional walk-root nodes to enumerate from, on top of the
+        graph-wide candidate starts. Used to *seed* enumeration around
+        absolute anchors (e.g. OCR-geocoded POIs) so the anchored area
+        is in the pool even when trajectory drift would exclude it.
+    restrict_to_start_nodes:
+        When True, enumerate *only* from ``extra_start_nodes`` (the
+        anchor vicinity) instead of unioning them into the graph-wide
+        scan. This turns a trustworthy absolute anchor into a hard
+        spatial gate: the wrong-district walks that drift makes
+        shape-match better are excluded from the pool entirely, so shape
+        ranks only *within* the anchored area. No-op (falls back to the
+        full scan) if no start nodes are supplied.
     """
     if len(traj_xz) < n_samples:
         # Resample anyway: if traj has fewer points we still want to
@@ -167,7 +182,15 @@ def match_trajectory(
     traj_resampled = resample_uniform(traj_xz, n_samples)
     traj_sig = bearing_signature(traj_xz, n_samples=n_samples)
 
-    starts = _candidate_starts(road, every=sample_every)
+    seed = [n for n in (extra_start_nodes or []) if n in road.graph]
+    if restrict_to_start_nodes and seed:
+        # Hard spatial gate: enumerate only from the anchor vicinity.
+        starts = list(dict.fromkeys(seed))
+    elif seed:
+        # Union in the seed nodes (dedup, keep graph nodes only).
+        starts = list(dict.fromkeys(list(_candidate_starts(road, every=sample_every)) + seed))
+    else:
+        starts = _candidate_starts(road, every=sample_every)
     if progress:
         starts_iter = tqdm(starts, desc="enumerating walks", unit="node")
     else:

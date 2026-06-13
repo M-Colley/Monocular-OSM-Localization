@@ -206,6 +206,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "(cross-domain VPR backbone, downloads weights on first use).")
     p.add_argument("--geotessera-year", type=int, default=2024,
                    help="GeoTessera embedding year when geotessera retrieval is enabled")
+    p.add_argument("--enable-ocr-anchor", action="store_true",
+                   help="OCR scene text (signs/POIs) and geocode it into absolute "
+                        "position anchors that seed enumeration and re-rank "
+                        "candidates. The one channel that injects absolute "
+                        "geographic info from the video. Needs easyocr + network "
+                        "geocoding (both cached after first run).")
+    p.add_argument("--ocr-sample-interval-sec", type=float, default=6.0,
+                   help="Seconds between frames sampled for OCR (default 6).")
+    p.add_argument("--ocr-min-confidence", type=float, default=0.5,
+                   help="Min OCR confidence for a detection to be geocoded (default 0.5).")
+    p.add_argument("--ocr-video", type=Path, default=None,
+                   help="Separate (higher-res, e.g. 4K) video used for OCR only; "
+                        "VO/matching stay on the main video. Lets a 4K source feed "
+                        "street-plate OCR without re-running VO at 4K.")
     p.add_argument("--ground-truth", nargs="*", default=[],
                    help="known street names traversed by the video (e.g. Neutorstrasse Olgastrasse)")
     p.add_argument("--ground-truth-waypoints", type=Path, default=None,
@@ -327,6 +341,10 @@ def main() -> None:
             embedding_sources=tuple(args.embedding_sources),
             embedding_model=args.embedding_model,
             geotessera_year=args.geotessera_year,
+            enable_ocr_anchor=args.enable_ocr_anchor,
+            ocr_sample_interval_sec=args.ocr_sample_interval_sec,
+            ocr_min_confidence=args.ocr_min_confidence,
+            ocr_video_path=args.ocr_video,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,
             enable_bev_splat=args.enable_bev_splat,

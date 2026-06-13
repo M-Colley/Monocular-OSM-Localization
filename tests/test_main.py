@@ -137,6 +137,20 @@ def test_arg_parser_ground_truth_waypoints() -> None:
     assert build_arg_parser().parse_args([]).ground_truth_waypoints is None
 
 
+def test_arg_parser_ocr_anchor_flags() -> None:
+    args = build_arg_parser().parse_args(
+        ["--enable-ocr-anchor", "--ocr-sample-interval-sec", "10",
+         "--ocr-min-confidence", "0.6"]
+    )
+    assert args.enable_ocr_anchor is True
+    assert args.ocr_sample_interval_sec == 10.0
+    assert args.ocr_min_confidence == 0.6
+    # Safe defaults: OCR anchor off so a vanilla run needs no easyocr/network.
+    defaults = build_arg_parser().parse_args([])
+    assert defaults.enable_ocr_anchor is False
+    assert defaults.ocr_sample_interval_sec == 6.0
+
+
 def test_arg_parser_estimated_length_defaults_to_auto() -> None:
     args = build_arg_parser().parse_args([])
     assert args.estimated_length_m is None

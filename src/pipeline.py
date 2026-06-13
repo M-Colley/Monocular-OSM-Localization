@@ -104,6 +104,17 @@ class PipelineConfig:
     embedding_sources: tuple[str, ...] = ()
     embedding_model: str = "resnet18"
     geotessera_year: int = 2024
+    # OCR scene-text → geocoded POI anchor channel. The only channel that
+    # injects absolute geographic info from the video; seeds enumeration
+    # near anchors and re-ranks by anchor proximity. Needs easyocr +
+    # network geocoding (both cached after first run).
+    enable_ocr_anchor: bool = False
+    ocr_sample_interval_sec: float = 6.0
+    ocr_min_confidence: float = 0.5
+    # Optional separate (higher-res) video for OCR only. VO/matching stay
+    # on the main video; OCR reads frames from here when set. Lets a 4K
+    # source feed street-plate OCR without re-running VO at 4K.
+    ocr_video_path: Path | None = None
     ground_truth_streets: tuple[str, ...] = ()
     # JSON file of timestamped GPS fixes along the true route — see
     # evaluator.load_gt_waypoints for the schema and ground_truth/ for
@@ -218,16 +229,41 @@ _URBAN_AVG_SPEED_MPS = 5.5
 # until it's validated on more than one GT clip.
 _W_BEV = 0.75
 
+# Rank cap for BevSplat fusion. Appearance may only reorder candidates
+# already in the top-N by geometric (base) consensus; candidates ranked
+# worse than this by geometry keep their order below the reordered group.
+# This is a guardrail: on the 10-min Ulm run, unconstrained fusion let a
+# geometrically-implausible candidate (2.3 km from GT) win on appearance
+# alone. Capping means appearance refines the geometric shortlist but
+# can't promote a long-shot to #1.
+_BEV_FUSION_CAP = 5
+
 
 def _fuse_bev_rank(
-    base_scores: list[float], bev_ranks: list[int], w_bev: float = _W_BEV
+    base_scores: list[float],
+    bev_ranks: list[int],
+    w_bev: float = _W_BEV,
+    cap: int = _BEV_FUSION_CAP,
 ) -> list[int]:
     """New candidate order after folding the BevSplat appearance rank
-    into the existing fused consensus scores (lower = better). Ties are
-    broken by the incoming order, which already encodes the geometric
-    ranking."""
-    fused = [base_scores[i] + w_bev * bev_ranks[i] for i in range(len(base_scores))]
-    return sorted(range(len(fused)), key=lambda i: (fused[i], i))
+    into the geometric (base) consensus scores (lower = better).
+
+    Only the top-``cap`` candidates by base score are reorderable by
+    appearance; the rest keep their base order appended after the
+    reordered group. This prevents appearance from promoting a
+    geometrically-implausible candidate to the top (the 10-min Ulm
+    backfire). ``cap >= len`` reproduces unconstrained fusion. Ties are
+    broken by base order, which already encodes the geometric ranking.
+    """
+    n = len(base_scores)
+    by_base = sorted(range(n), key=lambda i: (base_scores[i], i))
+    cap = max(1, min(cap, n))
+    shortlist, tail = by_base[:cap], by_base[cap:]
+    reordered = sorted(
+        shortlist,
+        key=lambda i: (base_scores[i] + w_bev * bev_ranks[i], base_scores[i], i),
+    )
+    return reordered + tail
 
 
 def _auto_estimated_length_m(duration_sec: float) -> float:
@@ -503,15 +539,114 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     else:
         result_traj_source = "vo"
 
-    # 5. Match.
-    print(f"[5/5] Matching trajectory against {road.graph.number_of_nodes()} candidate starts")
+    # 4c. Optional: OCR scene-text → geocoded POI anchors. Computed before
+    # the match so the anchors can *seed* enumeration (add walk roots near
+    # each anchor), guaranteeing the anchored area is in the candidate
+    # pool even when drift would exclude it — the fix for the enumeration
+    # failure that pure re-ranking can't address.
+    ocr_anchors: list = []
+    street_anchors: list = []
+    anchor_xy = np.zeros((0, 2))
+    anchor_seed: list | None = None
+    ocr_anchor_error: str | None = None
+    if cfg.enable_ocr_anchor:
+        ocr_source = cfg.ocr_video_path or video_path
+        tag = " (4K OCR source)" if cfg.ocr_video_path else ""
+        print(f"[4c] OCR scene-text → anchors{tag}")
+        try:
+            from .scene_text import extract_scene_text
+            from .text_anchor import (
+                anchor_seed_nodes,
+                anchors_to_xy,
+                cluster_filter_anchors,
+                default_geocode_fn,
+                geocode_texts,
+                match_text_to_streets,
+                street_anchor_seed_nodes,
+                street_anchor_xy,
+            )
+            # Cache key includes the source name so 720p and 4K OCR don't
+            # collide.
+            cache_tag = "_4k" if cfg.ocr_video_path else ""
+            detections = extract_scene_text(
+                ocr_source,
+                sample_interval_sec=cfg.ocr_sample_interval_sec,
+                start_sec=cfg.vo_start_sec,
+                end_sec=cfg.vo_end_sec,
+                min_confidence=0.3,
+                cache_path=cfg.data_dir / f"scene_text_cache{cache_tag}.json",
+            )
+            print(f"      -> {len(detections)} text detections")
+            # (a) Street-name plates → OSM graph geometry (route-relevant,
+            # strongest anchor; needs legible plates → true-4K).
+            street_anchors = match_text_to_streets(
+                detections, road, min_confidence=cfg.ocr_min_confidence,
+            )
+            for s in street_anchors:
+                print(f"        street: OCR {s.ocr_text!r} -> {s.name!r} "
+                      f"(conf {s.confidence:.2f}, ratio {s.match_ratio:.2f}, "
+                      f"{len(s.node_ids)} nodes)")
+            # (b) POI/landmark names → geocoded points (works at 720p too).
+            ocr_anchors = geocode_texts(
+                detections, cfg.city, road,
+                geocode_fn=default_geocode_fn(cfg.data_dir / "geocode_cache.json"),
+                min_confidence=cfg.ocr_min_confidence,
+            )
+            for a in ocr_anchors:
+                print(f"        poi:    {a.name!r} @ ({a.lat:.5f},{a.lon:.5f}) "
+                      f"conf={a.confidence:.2f}")
+            # Reject spatial-outlier anchors (a far-off shop sign or a
+            # fuzzy-matched wrong street) — keep only the corroborated
+            # cluster, so one bad anchor can't hijack the gate.
+            n_poi0, n_st0 = len(ocr_anchors), len(street_anchors)
+            ocr_anchors, street_anchors = cluster_filter_anchors(
+                ocr_anchors, street_anchors, road,
+            )
+            dropped = (n_poi0 - len(ocr_anchors)) + (n_st0 - len(street_anchors))
+            if dropped:
+                print(f"        cluster filter: kept {len(ocr_anchors)} POI + "
+                      f"{len(street_anchors)} street, dropped {dropped} outlier(s)")
+            # Merge both anchor kinds for scoring + seeding.
+            anchor_xy = np.vstack([
+                x for x in (anchors_to_xy(ocr_anchors, road.crs),
+                            street_anchor_xy(street_anchors, road))
+                if len(x) > 0
+            ]) if (ocr_anchors or street_anchors) else np.zeros((0, 2))
+            anchor_seed = list(dict.fromkeys(
+                anchor_seed_nodes(road, anchors_to_xy(ocr_anchors, road.crs))
+                + street_anchor_seed_nodes(street_anchors)
+            ))
+            print(f"      -> {len(street_anchors)} street + {len(ocr_anchors)} POI "
+                  f"anchor(s); {len(anchor_seed)} enumeration seed node(s)")
+        except Exception as e:
+            print(f"      -> OCR-anchor channel failed: {e}")
+            ocr_anchor_error = str(e)
+
+    # 5. Match. When confident OCR anchors exist, gate enumeration to the
+    # anchor vicinity (a trustworthy absolute prior beats the drift-prone
+    # global shape for *where* to look) and let shape rank within it. Fall
+    # back to the full-city scan if the gate yields nothing.
+    anchor_gated = bool(cfg.enable_ocr_anchor and anchor_seed)
+    if anchor_gated:
+        print(f"[5/5] Matching (anchor-gated to {len(anchor_seed)} seed nodes "
+              f"near {len(ocr_anchors)} OCR anchor(s))")
+    else:
+        print(f"[5/5] Matching trajectory against {road.graph.number_of_nodes()} candidate starts")
     candidates = match_trajectory(
         match_xz,
         road,
         final_top_k=cfg.top_k,
         sample_every=cfg.sample_every,
         estimated_length_m=estimated_length_m,
+        extra_start_nodes=anchor_seed,
+        restrict_to_start_nodes=anchor_gated,
     )
+    if anchor_gated and not candidates:
+        print("      -> anchor-gated match found nothing; falling back to full scan")
+        candidates = match_trajectory(
+            match_xz, road, final_top_k=cfg.top_k, sample_every=cfg.sample_every,
+            estimated_length_m=estimated_length_m,
+        )
 
     if not candidates:
         print("      -> no matches!")
@@ -536,6 +671,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 candidate_geographic_summary(c, road.graph) for c in candidates
             ],
         }
+        if cfg.enable_ocr_anchor:
+            from .text_anchor import anchors_to_json, street_anchors_to_json
+            result["ocr_anchors"] = anchors_to_json(ocr_anchors)
+            result["ocr_street_anchors"] = street_anchors_to_json(street_anchors)
+            if ocr_anchor_error:
+                result["ocr_anchor_error"] = ocr_anchor_error
 
     if cfg.enable_sliding_window and candidates:
         print(
@@ -709,18 +850,92 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             m["aerial_inlier_ratio"] = ar.inlier_ratio
             m["aerial_rank"] = aerial_rank[i]
 
+        # Turn-sequence channel: a drift-robust topological descriptor.
+        # Cheap (signature compare over candidate polylines, no city
+        # scan), so it always runs here. Lower distance = better; rank
+        # ascending. See turn_matching for why it survives the VO drift
+        # that degrades the dense shape/bearing comparison.
+        from .turn_matching import score_candidates_by_turns
+        turn_dists, query_turns = score_candidates_by_turns(
+            match_xz, [c.walk_xy for c in candidates]
+        )
+        turn_order = sorted(range(len(candidates)),
+                            key=lambda i: (turn_dists[i], i))
+        turn_rank = {idx: r + 1 for r, idx in enumerate(turn_order)}
+        for i in range(len(candidates)):
+            result["matches"][i]["turn_match_distance"] = (
+                round(turn_dists[i], 4) if np.isfinite(turn_dists[i]) else None
+            )
+            result["matches"][i]["turn_match_rank"] = turn_rank[i]
+        print(f"        turn-sequence channel: query has {len(query_turns)} "
+              f"significant turn(s); best turn-match = candidate "
+              f"#{turn_order[0] + 1}")
+
+        # OCR-anchor channel: distance from each candidate walk to the
+        # nearest geocoded POI anchor. The one *absolute* signal — when
+        # present it's the most trustworthy, so it earns a strong fusion
+        # weight. Inactive (all-inf → uniform rank, weight 0) when the
+        # OCR-anchor channel is disabled or found no in-city anchors.
+        from .text_anchor import score_candidates_by_anchors
+        anchor_dists = score_candidates_by_anchors(
+            [c.walk_xy for c in candidates], anchor_xy
+        )
+        have_anchors = len(anchor_xy) > 0 and any(
+            np.isfinite(d) for d in anchor_dists
+        )
+        if have_anchors:
+            anchor_order = sorted(range(len(candidates)),
+                                  key=lambda i: (anchor_dists[i], i))
+            anchor_rank = {idx: r + 1 for r, idx in enumerate(anchor_order)}
+            for i in range(len(candidates)):
+                result["matches"][i]["anchor_distance_m"] = (
+                    round(anchor_dists[i], 1) if np.isfinite(anchor_dists[i])
+                    else None
+                )
+                result["matches"][i]["anchor_rank"] = anchor_rank[i]
+            print(f"        OCR-anchor channel: nearest candidate to an anchor "
+                  f"= #{anchor_order[0] + 1} ({anchor_dists[anchor_order[0]]:.0f} m)")
+        else:
+            anchor_rank = {i: i + 1 for i in range(len(candidates))}
+
         # Weighted rank-fusion consensus. Channels are weighted by how
         # well they track ground truth on GT-evaluated runs:
         #   * shape rank  — primary geometric fit (weight 1.0)
-        #   * sliding-window rank — the strongest *secondary* signal: a
-        #     candidate supported across many trajectory windows is hard
-        #     to fool (weight 1.0). Falls back to shape rank when the
-        #     sliding-window channel is disabled.
+        #   * sliding-window rank — a candidate supported across many
+        #     trajectory windows is hard to fool (weight 1.0). Falls back
+        #     to shape rank when the sliding-window channel is disabled.
         #   * aerial (coverage) rank — useful but weaker; ORB already
         #     dropped from its score, so it is the trajectory-coverage
         #     signal only (weight 0.5).
         # Lower fused score = stronger multi-channel agreement.
-        W_SHAPE, W_SLIDING, W_AERIAL = 1.0, 1.0, 0.5
+        #
+        # The turn-sequence rank is computed and stored above for
+        # diagnostics but deliberately NOT fused (W_TURN = 0): on the Ulm
+        # GT runs it didn't improve ranking and once promoted a 2.2 km-off
+        # candidate, because a turn *count/pattern* isn't unique in a
+        # dense city grid. Its real value is drift-robust *enumeration*
+        # (the pre-filter that decides which walks to score), not
+        # re-ranking an already-wrong pool — see turn_matching's
+        # docstring. Kept at hand so that move is a one-line re-enable.
+        #
+        # OCR-anchor weight depends on how the anchor was already used:
+        #   * gated enumeration (the normal case): the anchor's spatial
+        #     info is *already spent* confining the pool to its vicinity,
+        #     so inside that pool let shape lead — a strong anchor re-rank
+        #     just chases whichever candidate (incl. a noise anchor like a
+        #     shop sign) sits closest, demoting the true shape match.
+        #     A small weight (0.25) only breaks near-ties. (GT-confirmed:
+        #     at 7 min the gated shape #1 IS the true route.)
+        #   * un-gated (anchors present but enumeration not restricted):
+        #     strong weight (2.0) to pull toward the anchored area.
+        #   * no anchors: 0 (clean no-op).
+        W_SHAPE, W_SLIDING, W_TURN, W_AERIAL = 1.0, 1.0, 0.0, 0.5
+        if not have_anchors:
+            W_ANCHOR = 0.0
+        elif anchor_gated:
+            W_ANCHOR = 0.25
+        else:
+            W_ANCHOR = 2.0
 
         def _sliding_rank(i: int) -> int:
             return int(result["matches"][i].get("sliding_window_rank", i + 1))
@@ -729,6 +944,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             return (
                 W_SHAPE * (i + 1)
                 + W_SLIDING * _sliding_rank(i)
+                + W_TURN * turn_rank[i]
+                + W_ANCHOR * anchor_rank[i]
                 + W_AERIAL * aerial_rank[i]
             )
 
@@ -744,6 +961,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         print(f"        Consensus pick: candidate #{consensus_idx + 1} "
               f"(shape #{consensus_idx + 1}, "
               f"sliding #{_sliding_rank(consensus_idx)}, "
+              f"turn #{turn_rank[consensus_idx]}, "
+              f"anchor #{anchor_rank[consensus_idx]}, "
               f"aerial #{aerial_rank[consensus_idx]}, "
               f"fused={_fused(consensus_idx):.1f})")
 

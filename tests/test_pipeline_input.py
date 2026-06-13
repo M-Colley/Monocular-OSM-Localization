@@ -243,3 +243,39 @@ def test_fuse_bev_ties_break_by_incoming_order() -> None:
     base = [5.0, 5.0]
     bev_ranks = [1, 1]
     assert _fuse_bev_rank(base, bev_ranks) == [0, 1]
+
+
+def test_fuse_bev_cap_blocks_longshot_promotion() -> None:
+    """The 10-min Ulm backfire: a geometrically-implausible candidate
+    (base rank 6) that BevSplat loves (rank 1) must NOT reach #1 — the
+    cap keeps it out of the reorderable shortlist."""
+    from src.pipeline import _fuse_bev_rank
+
+    # 6 candidates; index 5 is geometrically worst (base 12) but bev #1.
+    base = [1.0, 2.0, 3.0, 4.0, 5.0, 12.0]
+    bev_ranks = [6, 5, 4, 3, 2, 1]
+    order = _fuse_bev_rank(base, bev_ranks, w_bev=0.75, cap=5)
+    assert order[-1] == 5            # long-shot stays in the tail
+    assert 5 not in order[:5]        # never enters the reordered shortlist
+
+
+def test_fuse_bev_cap_still_reorders_within_shortlist() -> None:
+    """Within the geometric top-cap, appearance still reorders."""
+    from src.pipeline import _fuse_bev_rank
+
+    base = [3.5, 4.0, 9.0, 10.0, 11.0, 12.0]
+    bev_ranks = [3, 1, 2, 4, 5, 6]
+    order = _fuse_bev_rank(base, bev_ranks, w_bev=0.75, cap=5)
+    assert order[0] == 1             # near-tie flipped by appearance
+    assert order[-1] == 5            # worst geometry stays last
+
+
+def test_fuse_bev_cap_at_full_length_is_unconstrained() -> None:
+    from src.pipeline import _fuse_bev_rank
+
+    base = [2.0, 12.0, 13.0]
+    bev_ranks = [3, 1, 2]
+    # cap >= len reproduces plain fusion (here geometry still wins).
+    assert _fuse_bev_rank(base, bev_ranks, cap=99) == _fuse_bev_rank(
+        base, bev_ranks, cap=3
+    )
