@@ -129,7 +129,11 @@ def match_trajectory(
     road: RoadGraph,
     *,
     n_samples: int = 128,
-    walks_per_node: int = 8,
+    # Walk budget per start node. The enumeration generates greedy +
+    # one-turn + two-turn walks (~29 per first edge); a budget much
+    # smaller than that silently discards the multi-turn walks that real
+    # urban routes need (the Ulm GT route is a two-turn walk).
+    walks_per_node: int = 40,
     walk_depth: int = 40,
     bearing_top_k: int = 500,
     final_top_k: int = 5,

@@ -108,17 +108,19 @@ def _build_walk(
     target_length_m: float,
     max_depth: int,
     *,
-    turn_at: int | None = None,
-    turn_rank: int = 0,
+    turns: dict[int, int] | None = None,
 ) -> tuple[list[tuple], float]:
     """Build a walk starting from `first_edge`, extending by smallest
     heading-deviation choice at each intersection.
 
-    If `turn_at` is set, at that walk index (1-based: 1 = right after
-    the first edge, 2 = after two edges, ...) we pick the `turn_rank`-th
-    sorted option instead of the greedy zero-th. This lets the caller
-    deliberately introduce a single turn at a known walk depth — which
-    is what gives the matcher diversity in turn positions.
+    `turns` maps walk indices (1-based: 1 = right after the first edge,
+    2 = after two edges, ...) to the rank of the sorted out-edge to take
+    there instead of the greedy zero-th. This lets the caller introduce
+    deliberate turns at known walk depths — which is what gives the
+    matcher diversity in turn positions. Multiple entries produce walks
+    with multiple turns; real urban routes routinely contain two or more
+    non-greedy turns, and a route with more turns than the enumeration
+    allows is simply unmatchable.
     """
     walk: list[tuple] = [first_edge]
     length = _edge_length(graph, *first_edge)
@@ -139,10 +141,8 @@ def _build_walk(
         if not out:
             break
         out.sort(key=lambda e: _heading_dev(_edge_start_heading(graph, *e), heading))
-        if turn_at is not None and len(walk) == turn_at and turn_rank < len(out):
-            choice = out[turn_rank]
-        else:
-            choice = out[0]
+        rank = turns.get(len(walk), 0) if turns else 0
+        choice = out[rank] if rank < len(out) else out[0]
         walk.append(choice)
         length += _edge_length(graph, *choice)
         heading = _edge_end_heading(graph, *choice)
@@ -180,11 +180,10 @@ def walks_from_node(
 
     seen: set[tuple] = set()
 
-    def try_walk(first: tuple, *, turn_at: int | None, turn_rank: int) -> bool:
+    def try_walk(first: tuple, turns: dict[int, int] | None) -> bool:
         """Build a walk and append it if it's new and long enough."""
         walk, length = _build_walk(
-            graph, first, target_length_m, max_depth,
-            turn_at=turn_at, turn_rank=turn_rank,
+            graph, first, target_length_m, max_depth, turns=turns,
         )
         if length < 0.5 * target_length_m:
             return False
@@ -195,21 +194,36 @@ def walks_from_node(
         walks.append(walk)
         return True
 
-    # Per first edge, generate one greedy walk plus a few "branching"
-    # walks that turn off the greedy continuation at successively deeper
-    # intersections. The branching walks are what let us match
-    # trajectories that contain real turns.
+    # Per first edge, generate:
+    #   1. the greedy walk (no deliberate turns),
+    #   2. single-turn walks at successively deeper intersections — at
+    #      ranks 1 AND 2, because at a 4-way intersection rank 1 is only
+    #      one of left/right; without rank 2 the other direction is
+    #      unreachable,
+    #   3. two-turn walks over a bounded set of index pairs.
+    # The multi-turn walks are what let us match real urban routes: the
+    # Ulm GT route (Neutorstrasse south, then left onto Olgastrasse)
+    # needs two non-greedy turns and was structurally impossible to
+    # enumerate under the previous single-turn scheme — the matcher
+    # could only ever offer parallel-street approximations.
     branch_indices = (1, 2, 3, 4, 6, 8)
+    pair_indices = (
+        (1, 3), (1, 4), (1, 6), (2, 4), (2, 6), (3, 6), (3, 8), (4, 8),
+    )
     for first in out0_sorted[:3]:
         if len(walks) >= max_walks:
             break
-        try_walk(first, turn_at=None, turn_rank=0)
+        try_walk(first, None)
         for bi in branch_indices:
             if len(walks) >= max_walks:
                 break
-            # Take the second-best option (rank=1) — i.e., a real turn
-            # away from the greedy path at intersection `bi`.
-            try_walk(first, turn_at=bi, turn_rank=1)
+            for rank in (1, 2):
+                try_walk(first, {bi: rank})
+        for bi, bj in pair_indices:
+            if len(walks) >= max_walks:
+                break
+            try_walk(first, {bi: 1, bj: 1})
+            try_walk(first, {bi: 1, bj: 2})
 
     return walks
 

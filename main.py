@@ -1,7 +1,12 @@
-"""CLI entrypoint for the video → place mapping PoC.
+"""CLI entrypoint: video + city -> WGS84 position of the video.
 
-    python main.py                         # use the default Ulm dashcam clip
-    python main.py --url ... --city ...    # any other ego-driving clip
+    python main.py --video clip.mp4 --city "Ulm, Germany"   # local video file
+    python main.py --url ... --city ...                     # YouTube clip
+    python main.py                                          # default Ulm demo clip
+
+The estimated position (lat/lon, route, street names, map links) is
+printed at the end of the run and written to output/<slug>/result.json
+under the "position" key.
 """
 
 from __future__ import annotations
@@ -19,7 +24,12 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 from src.city_inference import guess_city_from_title, slugify_submission
-from src.download import DownloadError, fetch_video_metadata
+from src.download import (
+    DownloadError,
+    VideoMetadata,
+    fetch_video_metadata,
+    local_video_metadata,
+)
 from src.pipeline import PipelineConfig, run_pipeline
 
 
@@ -32,6 +42,28 @@ def _parse_segment(s: str) -> tuple[float, float | None]:
     start = float(a) if a else 0.0
     end = float(b) if b else None
     return start, end
+
+
+# Frame budget that auto-stride aims for. ~4800 frames of 720p BGR is
+# ~13 GB resident — comfortable on this 64 GB machine, and a frame count
+# the VO stage is known to handle. Auto-stride scales the temporal
+# sampling with the analyzed duration instead of silently truncating it.
+_TARGET_FRAME_BUDGET = 4800
+_NOMINAL_FPS = 30.0
+
+
+def _auto_frame_stride(duration_sec: float | None) -> int:
+    """Pick a frame stride that keeps ~_TARGET_FRAME_BUDGET frames.
+
+    7 min -> 3 (the historical default), 10 min -> 4, 15 min -> 6.
+    Open-ended segments (duration None) fall back to the historical 3.
+    Never below 3: smaller strides give a too-short VO baseline at urban
+    speed and triple memory for no shape benefit.
+    """
+    if duration_sec is None or duration_sec <= 0:
+        return 3
+    import math
+    return max(3, math.ceil(duration_sec * _NOMINAL_FPS / _TARGET_FRAME_BUDGET))
 
 
 def _resolve_city(explicit_city: str | None, url: str, title: str | None) -> str:
@@ -47,14 +79,54 @@ def _resolve_city(explicit_city: str | None, url: str, title: str | None) -> str
     )
 
 
+def _validate_input_args(
+    videos: list[Path] | None,
+    urls: list[str] | None,
+    city: str | None,
+) -> None:
+    """Reject invalid --video / --url / --city combinations.
+
+    Local files have no title metadata worth trusting for city
+    inference, so --video makes --city mandatory: the contract is
+    "video + city in, position out".
+    """
+    if videos and urls:
+        raise ValueError("Pass either --video or --url, not both.")
+    if videos and not city:
+        raise ValueError(
+            "--city is required when using --video "
+            "(e.g. --city 'Ulm, Germany')."
+        )
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--url", nargs="+", default=[DEFAULT_URL], help="One or more YouTube URLs")
-    p.add_argument("--city", default=None, help="OSM place name for candidate graph")
+    p.add_argument("--video", nargs="+", type=Path, default=None,
+                   help="One or more local video files (mutually exclusive with "
+                        "--url; requires --city)")
+    p.add_argument("--url", nargs="+", default=None,
+                   help="One or more YouTube URLs (default: the Ulm demo clip)")
+    p.add_argument("--city", default=None,
+                   help="City the video was filmed in, as 'City, Country' "
+                        "(e.g. 'Ulm, Germany'). Required with --video; inferred "
+                        "from the video title for URLs when omitted.")
     p.add_argument("--data-dir", type=Path, default=Path("data"))
     p.add_argument("--output-dir", type=Path, default=Path("output"))
-    p.add_argument("--max-frames", type=int, default=4200)
-    p.add_argument("--frame-stride", type=int, default=3)
+    p.add_argument("--max-frames", type=int, default=None,
+                   help="Cap on frames sampled from the video. Default: no cap — "
+                        "the analyzed segment bounds the count.")
+    p.add_argument("--frame-stride", type=int, default=None,
+                   help="Take every Nth frame. Default: auto — picked so the "
+                        "analyzed segment yields ~4800 frames (7 min -> 3, "
+                        "10 min -> 4, 15 min -> 6).")
+    p.add_argument(
+        "--analyze-minutes",
+        type=float,
+        default=None,
+        help="Analyze the first N minutes of the video (shorthand for "
+             "--vo-segment 0:N*60; takes precedence over it). Longer windows "
+             "cover more turns but accumulate more monocular VO drift.",
+    )
     p.add_argument(
         "--vo-segment",
         default="0:420",
@@ -66,9 +138,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--estimated-length-m",
         type=float,
-        default=8000.0,
+        default=None,
         help="Approximate driven distance in meters; tunes OSM walk enumeration. "
-             "Default 8000 generates long walks that span approach roads + city center.",
+             "Default: derived from the analyzed segment duration at urban "
+             "average speed (~20 km/h). A prior far from the true route length "
+             "badly distorts the shape match — only override when you know "
+             "the actual distance.",
     )
     p.add_argument(
         "--sample-every",
@@ -133,14 +208,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="GeoTessera embedding year when geotessera retrieval is enabled")
     p.add_argument("--ground-truth", nargs="*", default=[],
                    help="known street names traversed by the video (e.g. Neutorstrasse Olgastrasse)")
+    p.add_argument("--ground-truth-waypoints", type=Path, default=None,
+                   help="JSON file with timestamped GPS fixes along the true route "
+                        "(see ground_truth/ for the schema). Enables metric "
+                        "start/route error reporting per candidate.")
     p.add_argument("--vo-workers", type=int, default=None,
                    help="Threads for parallel VO pose estimation. Defaults to "
                         "min(cpu_count, 12). Pass 1 to force sequential.")
     p.add_argument("--enable-bev-splat", action="store_true",
-                   help="run the BevSplat (NeurIPS'26) cross-view localization channel "
-                        "as an additional aerial matcher. Requires the upstream package "
-                        "+ weights from https://github.com/wangqww/BevSplat (not yet released); "
-                        "without them the channel renders the satellite tiles only.")
+                   help="run the BevSplat (NeurIPS'25) cross-view localization channel "
+                        "as an additional aerial matcher. Requires a local clone of "
+                        "https://github.com/wangqww/BevSplat with built CUDA extensions "
+                        "plus the published checkpoints; without them the channel "
+                        "renders the satellite tiles only.")
     p.add_argument("--bev-splat-weights", type=Path, default=None,
                    help="Path to BevSplat checkpoint (.pth). Weights live at the "
                         "authors' OneDrive share — see README BevSplat section.")
@@ -170,19 +250,43 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     p = build_arg_parser()
     args = p.parse_args()
+    try:
+        _validate_input_args(args.video, args.url, args.city)
+    except ValueError as e:
+        p.error(str(e))
 
-    start, end = _parse_segment(args.vo_segment)
+    if args.analyze_minutes is not None:
+        start, end = 0.0, args.analyze_minutes * 60.0
+    else:
+        start, end = _parse_segment(args.vo_segment)
+    frame_stride = args.frame_stride
+    if frame_stride is None:
+        duration = (end - start) if end is not None else None
+        frame_stride = _auto_frame_stride(duration)
     results = []
     metadata_errors: list[str] = []
 
-    for url in args.url:
-        try:
-            metadata = fetch_video_metadata(url)
-        except DownloadError as e:
-            metadata_errors.append(f"{url}: {e}")
-            continue
+    # Build the submission list from either local files or URLs. Each
+    # entry is (metadata, local_path); local_path is None for URLs.
+    submissions: list[tuple[VideoMetadata, Path | None]] = []
+    if args.video:
+        for path in args.video:
+            try:
+                submissions.append((local_video_metadata(path), Path(path)))
+            except DownloadError as e:
+                metadata_errors.append(f"{path}: {e}")
+    else:
+        for url in (args.url or [DEFAULT_URL]):
+            try:
+                submissions.append((fetch_video_metadata(url), None))
+            except DownloadError as e:
+                metadata_errors.append(f"{url}: {e}")
 
-        city = _resolve_city(args.city, metadata.url, metadata.title)
+    for metadata, local_path in submissions:
+        if local_path is not None:
+            city = args.city  # guaranteed by _validate_input_args
+        else:
+            city = _resolve_city(args.city, metadata.url, metadata.title)
         submission_slug = slugify_submission(
             metadata.video_id,
             metadata.title,
@@ -196,7 +300,7 @@ def main() -> None:
             data_dir=args.data_dir / submission_slug,
             output_dir=args.output_dir / submission_slug,
             max_frames=args.max_frames,
-            frame_stride=args.frame_stride,
+            frame_stride=frame_stride,
             vo_start_sec=start,
             vo_end_sec=end,
             top_k=args.top_k,
@@ -224,6 +328,7 @@ def main() -> None:
             embedding_model=args.embedding_model,
             geotessera_year=args.geotessera_year,
             ground_truth_streets=tuple(args.ground_truth),
+            ground_truth_waypoints=args.ground_truth_waypoints,
             enable_bev_splat=args.enable_bev_splat,
             bev_splat_weights=args.bev_splat_weights,
             bev_splat_repo_path=args.bev_splat_repo_path,
@@ -232,6 +337,7 @@ def main() -> None:
             bev_splat_tile_size=args.bev_splat_tile_size,
             bev_splat_half_extent_m=args.bev_splat_half_extent_m,
             vo_workers=args.vo_workers,
+            video_path=local_path,
         )
         print(f"\n=== Submission: {metadata.title or metadata.url} ===")
         print(f"    city={city!r}  data_dir={cfg.data_dir}  output_dir={cfg.output_dir}")

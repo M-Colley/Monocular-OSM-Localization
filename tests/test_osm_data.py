@@ -122,3 +122,58 @@ def test_walk_to_polyline_dedupes_join_points() -> None:
     assert poly[0].tolist() == [0.0, 0.0]
     assert poly[1].tolist() == [100.0, 0.0]
     assert poly[2].tolist() == [200.0, 0.0]
+
+
+def test_walks_include_two_turn_routes() -> None:
+    """Real urban routes routinely need two non-greedy turns (the Ulm GT
+    route does). The enumeration must produce at least one walk whose
+    geometry contains two real turns; the previous single-turn scheme
+    structurally could not."""
+    g = _grid_graph(size=6, spacing=100.0)
+    # Start at the SW corner (node 0). With enough budget, some walk must
+    # turn twice — detectable as a polyline whose heading changes by
+    # ~90 deg at two separate interior vertices.
+    walks = walks_from_node(g, start=0, target_length_m=400.0, max_walks=60, max_depth=8)
+    assert walks
+
+    def n_turns(poly: np.ndarray) -> int:
+        d = np.diff(poly, axis=0)
+        d = d / np.linalg.norm(d, axis=1, keepdims=True)
+        cos = (d[:-1] * d[1:]).sum(axis=1)
+        return int((cos < 0.5).sum())  # heading change > 60 deg
+
+    turn_counts = [n_turns(walk_to_polyline(g, w)) for w in walks]
+    assert max(turn_counts) >= 2, (
+        f"no two-turn walk enumerated (turn counts: {sorted(set(turn_counts))})"
+    )
+
+
+def test_walks_single_turn_both_directions_reachable() -> None:
+    """At a 4-way crossing, single-turn walks must include BOTH left and
+    right turns (rank 1 alone only covers one of them)."""
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    nodes = {
+        "W": (0, 0), "M": (200, 0), "E": (500, 0),
+        "N": (200, 300), "S": (200, -300),
+    }
+    for k, (x, y) in nodes.items():
+        g.add_node(k, x=float(x), y=float(y))
+
+    def add(a: str, b: str) -> None:
+        ax, ay = g.nodes[a]["x"], g.nodes[a]["y"]
+        bx, by = g.nodes[b]["x"], g.nodes[b]["y"]
+        L = float(np.hypot(bx - ax, by - ay))
+        g.add_edge(a, b, length=L, geometry=LineString([(ax, ay), (bx, by)]))
+        g.add_edge(b, a, length=L, geometry=LineString([(bx, by), (ax, ay)]))
+
+    add("W", "M")
+    add("M", "E")
+    add("M", "N")
+    add("M", "S")
+
+    walks = walks_from_node(g, start="W", target_length_m=400.0, max_walks=30, max_depth=4)
+    end_nodes = {w[-1][1] for w in walks}
+    assert "N" in end_nodes and "S" in end_nodes, (
+        f"single-turn enumeration missed a turn direction; walks end at {end_nodes}"
+    )

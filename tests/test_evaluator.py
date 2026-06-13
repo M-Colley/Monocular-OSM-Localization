@@ -132,3 +132,118 @@ def test_evaluate_candidates_matches_eszett_with_ascii_groundtruth() -> None:
     assert results[0].on_gt_street is True
     assert results[0].matching_gt_names == ["Olgastrasse"]
     assert results[0].nearest_distance_m == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# GPS-waypoint ground truth
+# ---------------------------------------------------------------------------
+
+
+def test_load_gt_waypoints_valid_file(tmp_path) -> None:
+    import json
+
+    from src.evaluator import load_gt_waypoints
+
+    path = tmp_path / "gt.json"
+    path.write_text(json.dumps({
+        "city": "Ulm, Germany",
+        "waypoints": [
+            {"t_sec": 0, "lat": 48.405933, "lon": 9.983683},
+            {"t_sec": 415, "lat": 48.400353, "lon": 10.002622},
+        ],
+    }), encoding="utf-8")
+    wps = load_gt_waypoints(path)
+    assert wps.shape == (2, 2)
+    assert wps[0, 0] == pytest.approx(48.405933)
+    assert wps[1, 1] == pytest.approx(10.002622)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},                                            # no waypoints key
+        {"waypoints": []},                             # empty
+        {"waypoints": [{"lat": 48.0}]},                # missing lon
+        {"waypoints": [{"lat": "x", "lon": 9.0}]},     # non-numeric
+        {"waypoints": [{"lat": 95.0, "lon": 9.0}]},    # out of range
+    ],
+)
+def test_load_gt_waypoints_rejects_malformed(tmp_path, payload) -> None:
+    import json
+
+    from src.evaluator import load_gt_waypoints
+
+    path = tmp_path / "gt.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_gt_waypoints(path)
+
+
+def _waypoints_on_polyline(road, poly: np.ndarray) -> np.ndarray:
+    """GT lat/lon fixes lying exactly on a projected polyline."""
+    from src.position import xy_to_latlon
+
+    return xy_to_latlon(poly, road.crs)
+
+
+def test_waypoint_eval_zero_for_exact_route() -> None:
+    from src.evaluator import evaluate_candidates_against_waypoints
+
+    road = _named_graph()
+    cand = _candidate_for_walk(road, [("A", "B", 0), ("B", "C", 0)])
+    gt = _waypoints_on_polyline(road, cand.aligned_traj_xy)
+
+    evals = evaluate_candidates_against_waypoints([cand], road, gt)
+    assert len(evals) == 1
+    assert evals[0].start_error_m == pytest.approx(0.0, abs=0.01)
+    assert evals[0].mean_route_error_m == pytest.approx(0.0, abs=0.01)
+    assert evals[0].max_route_error_m == pytest.approx(0.0, abs=0.01)
+
+
+def test_waypoint_eval_measures_known_offset() -> None:
+    from src.evaluator import evaluate_candidates_against_waypoints
+
+    road = _named_graph()
+    cand = _candidate_for_walk(road, [("A", "B", 0), ("B", "C", 0)])
+    # Shift the GT 100 m north of the candidate's path (which runs along y=0).
+    shifted = cand.aligned_traj_xy + np.array([0.0, 100.0])
+    gt = _waypoints_on_polyline(road, shifted)
+
+    evals = evaluate_candidates_against_waypoints([cand], road, gt)
+    assert evals[0].start_error_m == pytest.approx(100.0, abs=0.5)
+    assert evals[0].mean_route_error_m == pytest.approx(100.0, abs=0.5)
+    assert evals[0].max_route_error_m == pytest.approx(100.0, abs=0.5)
+
+
+def test_waypoint_eval_ranks_closer_candidate_first() -> None:
+    from src.evaluator import (
+        best_rank_for_waypoints,
+        evaluate_candidates_against_waypoints,
+    )
+
+    road = _named_graph()
+    near = _candidate_for_walk(road, [("A", "B", 0), ("B", "C", 0)])   # y=0
+    far = _candidate_for_walk(road, [("D", "E", 0)])                   # y=-100
+    gt = _waypoints_on_polyline(road, near.aligned_traj_xy)
+
+    evals = evaluate_candidates_against_waypoints([far, near], road, gt)
+    assert evals[1].mean_route_error_m < evals[0].mean_route_error_m
+    assert best_rank_for_waypoints(evals) == 2  # 1-based: 'near' is second
+
+
+def test_waypoint_eval_empty_trajectory_is_inf() -> None:
+    from src.evaluator import evaluate_candidates_against_waypoints
+
+    road = _named_graph()
+    cand = _candidate_for_walk(road, [("A", "B", 0)])
+    cand.aligned_traj_xy = np.zeros((0, 2))
+    gt = _waypoints_on_polyline(road, np.array([[50.0, 0.0]]))
+
+    evals = evaluate_candidates_against_waypoints([cand], road, gt)
+    assert not np.isfinite(evals[0].mean_route_error_m)
+
+
+def test_best_rank_for_waypoints_empty() -> None:
+    from src.evaluator import best_rank_for_waypoints
+
+    assert best_rank_for_waypoints([]) is None

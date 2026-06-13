@@ -1,4 +1,5 @@
-"""End-to-end pipeline: YouTube URL -> matched street(s) in target city.
+"""End-to-end pipeline: video (local file or YouTube URL) + city name
+-> WGS84 position of the video.
 
 The CLI in `main.py` is a thin wrapper around `run_pipeline` here.
 """
@@ -30,10 +31,21 @@ from .bev_splat_match import (
 )
 from .download import download_video
 from .embedding_retrieval import score_candidates_by_embeddings
-from .evaluator import best_rank_for_gt, evaluate_candidates
+from .evaluator import (
+    best_rank_for_gt,
+    best_rank_for_waypoints,
+    evaluate_candidates,
+    evaluate_candidates_against_waypoints,
+    load_gt_waypoints,
+)
 from .frame_extraction import extract_frames
 from .ipm import render_ipm_canvas
 from .osm_data import RoadGraph, fetch_city_graph
+from .position import (
+    build_position_report,
+    candidate_center_latlon,
+    format_position_summary,
+)
 from .splat import (
     build_splat_points,
     render_topdown_splat,
@@ -56,12 +68,20 @@ class PipelineConfig:
     city: str
     data_dir: Path
     output_dir: Path
-    max_frames: int = 1500
+    # None = no cap; the [vo_start_sec, vo_end_sec] segment bounds the
+    # frame count. A fixed cap silently truncates longer segments.
+    max_frames: int | None = None
     frame_stride: int = 6
     vo_start_sec: float = 0.0
     vo_end_sec: float | None = 300.0
     top_k: int = 5
-    estimated_length_m: float = 4000.0
+    # Route-length prior for OSM walk enumeration. None (default) derives
+    # it from the analyzed duration at urban average speed — see
+    # _auto_estimated_length_m. A wrong prior is costly: walks much longer
+    # than the true route make Procrustes stretch the trajectory onto
+    # roads the car never drove (the Ulm GT run with the old fixed 8000 m
+    # default vs a true ~2.1 km route had a 878 m start error).
+    estimated_length_m: float | None = None
     skip_download: bool = False
     sample_every: int = 1
     enable_splat: bool = True
@@ -85,6 +105,10 @@ class PipelineConfig:
     embedding_model: str = "resnet18"
     geotessera_year: int = 2024
     ground_truth_streets: tuple[str, ...] = ()
+    # JSON file of timestamped GPS fixes along the true route — see
+    # evaluator.load_gt_waypoints for the schema and ground_truth/ for
+    # examples. Enables metric error reporting per candidate.
+    ground_truth_waypoints: Path | None = None
     enable_bev_splat: bool = False
     bev_splat_weights: Path | None = None
     bev_splat_repo_path: Path | None = None
@@ -93,6 +117,9 @@ class PipelineConfig:
     bev_splat_tile_size: int = 512
     bev_splat_half_extent_m: float = 60.0
     vo_workers: int | None = None  # None → auto (min(cpu_count, 12)); 1 → sequential
+    # When set, use this local video file directly: no download, `url` is
+    # informational only (recorded in the result JSON).
+    video_path: Path | None = None
 
 
 def _plot_trajectory(traj: Trajectory, out_path: Path) -> None:
@@ -178,21 +205,118 @@ def _plot_match(
     plt.close(fig)
 
 
-def run_pipeline(cfg: PipelineConfig) -> dict:
-    cfg.data_dir.mkdir(parents=True, exist_ok=True)
-    cfg.output_dir.mkdir(parents=True, exist_ok=True)
+# Urban average driving speed including traffic-light stops. The Ulm GT
+# track averaged 5.0 m/s point-to-point; the driven path is a bit longer
+# than the straight segments between fixes, so 5.5 m/s is a reasonable
+# city-wide prior.
+_URBAN_AVG_SPEED_MPS = 5.5
 
-    # 1. Download.
+# Weight of the BevSplat appearance rank in the consensus fusion. On the
+# Ulm GT run the channel decisively down-ranked the wrong geometric
+# winner (rank 9/10) while top-scoring the best-corridor candidate, so
+# it earns a strong weight — but below the geometric channels (1.0)
+# until it's validated on more than one GT clip.
+_W_BEV = 0.75
+
+
+def _fuse_bev_rank(
+    base_scores: list[float], bev_ranks: list[int], w_bev: float = _W_BEV
+) -> list[int]:
+    """New candidate order after folding the BevSplat appearance rank
+    into the existing fused consensus scores (lower = better). Ties are
+    broken by the incoming order, which already encodes the geometric
+    ranking."""
+    fused = [base_scores[i] + w_bev * bev_ranks[i] for i in range(len(base_scores))]
+    return sorted(range(len(fused)), key=lambda i: (fused[i], i))
+
+
+def _auto_estimated_length_m(duration_sec: float) -> float:
+    """Route-length prior from the analyzed duration at urban speed.
+
+    Clamped to [500, 12000]: below 500 m walk enumeration degenerates
+    (every micro-walk matches anything), above 12 km the walk depth cap
+    truncates walks anyway.
+    """
+    return float(np.clip(duration_sec * _URBAN_AVG_SPEED_MPS, 500.0, 12000.0))
+
+
+def _da3_trajectory_plausible(xy: np.ndarray) -> bool:
+    """Reject DA3 camera paths that look like pose-estimation failures.
+
+    DA3 needs visually-overlapping keyframes; on sparse keyframes (long
+    clips) its solver can return near-random poses. A real driven path
+    almost never reverses heading by >120° between consecutive keyframe
+    segments, while a failed solve zigzags constantly — on the Ulm clip
+    a failed 48-keyframe solve had ~40% reversals and silently produced
+    a 2.3 km localization error. Threshold 0.15 leaves room for genuine
+    U-turns and noisy stationary segments.
+    """
+    xy = np.asarray(xy, dtype=np.float64)
+    if len(xy) < 3:
+        return False
+    seg = np.diff(xy, axis=0)
+    norms = np.linalg.norm(seg, axis=1)
+    moving = norms > 1e-9
+    if moving.sum() < 2:
+        return False
+    d = seg[moving] / norms[moving][:, None]
+    cos_between = (d[:-1] * d[1:]).sum(axis=1)
+    reversal_ratio = float((cos_between < -0.5).mean())
+    return reversal_ratio <= 0.15
+
+
+def _resolve_input_video(cfg: PipelineConfig) -> Path:
+    """Return the path of the video to analyze.
+
+    Resolution order:
+    1. ``cfg.video_path`` — a local file supplied by the user. Used as-is
+       (never copied; multi-GB dashcam files shouldn't be duplicated).
+    2. ``cfg.skip_download`` — a previously-downloaded ``input.*`` in
+       ``cfg.data_dir``.
+    3. Otherwise download ``cfg.url`` with yt-dlp.
+    """
+    if cfg.video_path is not None:
+        video_path = Path(cfg.video_path)
+        if not video_path.exists():
+            raise FileNotFoundError(f"local video not found: {video_path}")
+        print(f"[1/5] Using local video: {video_path}")
+        return video_path
     if cfg.skip_download:
         existing = list(cfg.data_dir.glob("input.*"))
         if not existing:
             raise FileNotFoundError("--skip-download but no cached video in data/")
-        video_path = existing[0]
-        print(f"[1/5] Using cached video: {video_path}")
-    else:
-        print(f"[1/5] Downloading video from {cfg.url}")
-        video_path = download_video(cfg.url, cfg.data_dir)
-        print(f"      -> {video_path}")
+        print(f"[1/5] Using cached video: {existing[0]}")
+        return existing[0]
+    print(f"[1/5] Downloading video from {cfg.url}")
+    video_path = download_video(cfg.url, cfg.data_dir)
+    print(f"      -> {video_path}")
+    return video_path
+
+
+def _fetch_road_graph(city: str, cache_path: Path) -> RoadGraph:
+    """Fetch the OSM graph with a user-actionable error on geocode failure.
+
+    osmnx raises a grab-bag of exceptions (InsufficientResponseError,
+    ValueError, network errors) whose messages don't tell a CLI user
+    what to fix. Re-raise as a ValueError that names the city and the
+    expected format, keeping the original as __cause__.
+    """
+    try:
+        return fetch_city_graph(city, cache_path=cache_path)
+    except Exception as e:
+        raise ValueError(
+            f"Could not fetch an OSM road graph for {city!r}. Check the "
+            f"spelling and use the form 'City, Country' (e.g. 'Ulm, "
+            f"Germany'). Original error: {e}"
+        ) from e
+
+
+def run_pipeline(cfg: PipelineConfig) -> dict:
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    cfg.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Acquire the input video (local file / cache / download).
+    video_path = _resolve_input_video(cfg)
 
     # 2. Frames.
     print(f"[2/5] Extracting frames (stride={cfg.frame_stride}, "
@@ -205,6 +329,19 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         end_sec=cfg.vo_end_sec,
     )
     print(f"      -> {len(frames.frames)} frames @ {frames.fps:.1f} fps")
+
+    # 2b. Route-length prior for OSM walk enumeration.
+    if cfg.estimated_length_m is not None:
+        estimated_length_m = float(cfg.estimated_length_m)
+    else:
+        analyzed_sec = (
+            frames.timestamps[-1] - frames.timestamps[0]
+            if len(frames.timestamps) >= 2 else 0.0
+        )
+        estimated_length_m = _auto_estimated_length_m(analyzed_sec)
+        print(f"      -> estimated route length: {estimated_length_m:.0f} m "
+              f"(auto: {analyzed_sec:.0f} s at urban avg speed; "
+              f"override with --estimated-length-m)")
 
     # 3. Visual odometry. Cache to disk: VO is the slowest CPU stage of
     # the pipeline (minutes on a 7-minute clip), and the recovered
@@ -221,7 +358,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # after the cache key change burns minutes redoing identical work.
     cache_v2_with_frames = cfg.data_dir / (
         f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
-        f"_s{cfg.frame_stride}_f{cfg.max_frames}.npz"
+        f"_s{cfg.frame_stride}_f{cfg.max_frames or 'auto'}.npz"
     )
     cache_v2_legacy = cfg.data_dir / (
         f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
@@ -230,10 +367,20 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # Older runs predate per-submission slug folders — fall back to a
     # flat-layout cache at the data-dir parent if nothing is in the slug.
     cache_v2_flat = cfg.data_dir.parent / cache_v2_legacy.name
+    # Any cache for this (segment, stride) with a different max_frames
+    # suffix is still usable when the frame count matches (the shape
+    # check below verifies) — e.g. an old `_f4200` cache after the
+    # default became uncapped.
+    sibling_caches = sorted(cfg.data_dir.glob(
+        f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
+        f"_s{cfg.frame_stride}_f*.npz"
+    ))
 
     vo_cache = cache_v2_with_frames
     legacy_used: Path | None = None
-    for candidate in (cache_v2_with_frames, cache_v2_legacy, cache_v2_flat):
+    for candidate in (
+        cache_v2_with_frames, cache_v2_legacy, cache_v2_flat, *sibling_caches,
+    ):
         if candidate.exists():
             try:
                 z_probe = np.load(candidate)
@@ -300,7 +447,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # 4. OSM road graph for the city.
     print(f"[4/5] Fetching OSM driving graph for {cfg.city!r}")
     cache_path = cfg.data_dir / f"{cfg.city.replace(',', '').replace(' ', '_')}.graphml"
-    road = fetch_city_graph(cfg.city, cache_path=cache_path)
+    road = _fetch_road_graph(cfg.city, cache_path)
     print(f"      -> {road.graph.number_of_nodes()} nodes, "
           f"{road.graph.number_of_edges()} edges, CRS={road.crs}")
 
@@ -325,7 +472,19 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 device="cuda",
             )
             da3_xy = da3_trajectory_xy(da3_rec)
-            if len(da3_xy) >= 2 and bool(np.isfinite(da3_xy).all()):
+            da3_valid = len(da3_xy) >= 2 and bool(np.isfinite(da3_xy).all())
+            if da3_valid and not _da3_trajectory_plausible(da3_xy):
+                # A garbage path scores walks all over the city and is
+                # strictly worse than drifty-but-coherent VO.
+                print("      -> DA3 trajectory implausible (heading reverses "
+                      "constantly — pose solve likely failed on sparse "
+                      "keyframes); falling back to VO path")
+                _plot_xy(
+                    da3_xy, cfg.output_dir / "trajectory_da3_rejected.png",
+                    "DA3 trajectory (REJECTED: implausible)",
+                )
+                da3_valid = False
+            if da3_valid:
                 match_xz = da3_xy
                 _plot_xy(
                     da3_xy, cfg.output_dir / "trajectory_da3.png",
@@ -334,7 +493,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print(f"      -> using DA3 trajectory: {len(da3_xy)} keyframe poses")
                 result_traj_source = "da3"
             else:
-                print("      -> DA3 trajectory invalid; falling back to VO path")
+                if len(da3_xy) < 2 or not bool(np.isfinite(da3_xy).all()):
+                    print("      -> DA3 trajectory invalid; falling back to VO path")
                 result_traj_source = "vo"
         except Exception as e:
             print(f"      -> DA3 trajectory failed ({e}); falling back to VO path")
@@ -350,7 +510,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         road,
         final_top_k=cfg.top_k,
         sample_every=cfg.sample_every,
-        estimated_length_m=cfg.estimated_length_m,
+        estimated_length_m=estimated_length_m,
     )
 
     if not candidates:
@@ -370,6 +530,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             "url": cfg.url,
             "n_frames": len(frames.frames),
             "n_valid_poses": n_valid,
+            "estimated_length_m": estimated_length_m,
             "trajectory_source": result_traj_source,
             "matches": [
                 candidate_geographic_summary(c, road.graph) for c in candidates
@@ -388,7 +549,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             window_size=cfg.sliding_window_size,
             step=cfg.sliding_window_step,
             window_top_k=max(cfg.top_k, 3),
-            estimated_length_m=cfg.estimated_length_m,
+            estimated_length_m=estimated_length_m,
         )
         if sliding:
             rank_order = sorted(
@@ -498,6 +659,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # Supplemental signal: ORB on top-down image vs OSM patch (weak when
     # image is a photographic IPM vs a schematic OSM render; retained for
     # completeness and inter-method comparison).
+    ranking_mode = "shape"
     if cfg.enable_aerial_match and candidates:
         if ipm_canvas is not None:
             aerial_input = cv2.cvtColor(ipm_canvas, cv2.COLOR_BGR2RGB)
@@ -591,6 +753,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         for rank, m in enumerate(reordered_matches):
             m["final_rank"] = rank + 1
         result["matches"] = reordered_matches
+        ranking_mode = "consensus"
         # Mirror the reorder in candidates for downstream (GT eval).
         candidates = [candidates[i] for i in consensus_order]
         print(f"        Final #1 after consensus re-rank: "
@@ -715,6 +878,30 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 "n_candidates_failed": n_failed,
             }
 
+            # Fuse the appearance rank into the consensus. Only when
+            # scoring succeeded broadly — with many failed tiles the
+            # surviving ranks are not comparable across candidates.
+            if n_ok >= max(2, int(0.8 * len(bev_results))) and len(candidates) >= 2:
+                base = [
+                    float(result["matches"][i].get("consensus_score", i + 1.0))
+                    for i in range(len(bev_results))
+                ]
+                ranks = [bev_rank[i] for i in range(len(bev_results))]
+                order = _fuse_bev_rank(base, ranks)
+                for new_pos, i in enumerate(order):
+                    m = result["matches"][i]
+                    m["consensus_score"] = base[i] + _W_BEV * ranks[i]
+                    m["final_rank"] = new_pos + 1
+                result["matches"] = [result["matches"][i] for i in order]
+                candidates = [candidates[i] for i in order]
+                ranking_mode = "consensus+bev"
+                result["bev_splat"]["fused"] = True
+                result["bev_splat"]["weight"] = _W_BEV
+                print(f"        BevSplat fused into consensus (w={_W_BEV}); new #1: "
+                      f"{', '.join(result['matches'][0]['street_names'][:3]) or '(unnamed)'}")
+            else:
+                result["bev_splat"]["fused"] = False
+
     # 9. Optional: DA3 dense reconstruction (proper splat replacement).
     if cfg.enable_da3:
         print(f"[9] Depth Anything 3 dense reconstruction "
@@ -820,6 +1007,74 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             "best_distance_rank": best_dist_rank,
             "first_named_rank": name_rank,
         }
+
+    # 10b. Optional: metric evaluation against GPS waypoint ground truth.
+    waypoint_evals = None
+    if cfg.ground_truth_waypoints and candidates:
+        print(f"[10b] Evaluating against GT waypoints: {cfg.ground_truth_waypoints}")
+        try:
+            waypoints = load_gt_waypoints(cfg.ground_truth_waypoints)
+            waypoint_evals = evaluate_candidates_against_waypoints(
+                candidates, road, waypoints
+            )
+        except (OSError, ValueError) as e:
+            print(f"      -> waypoint evaluation failed: {e}")
+            result["ground_truth_waypoints_error"] = str(e)
+        if waypoint_evals:
+            wp_best_rank = best_rank_for_waypoints(waypoint_evals)
+            print(f"      -> best candidate by mean route error: #{wp_best_rank}")
+            for i, ev in enumerate(waypoint_evals):
+                m = result["matches"][i]
+                m["gt_waypoint_start_error_m"] = round(ev.start_error_m, 1)
+                m["gt_waypoint_mean_route_error_m"] = round(ev.mean_route_error_m, 1)
+                m["gt_waypoint_max_route_error_m"] = round(ev.max_route_error_m, 1)
+                print(f"        #{i+1}  start={ev.start_error_m:7.1f} m  "
+                      f"mean={ev.mean_route_error_m:7.1f} m  "
+                      f"max={ev.max_route_error_m:7.1f} m")
+            result["ground_truth_waypoints"] = {
+                "file": str(cfg.ground_truth_waypoints),
+                "n_waypoints": int(len(waypoints)),
+                "best_mean_error_rank": wp_best_rank,
+                "final_pick_start_error_m": round(waypoint_evals[0].start_error_m, 1),
+                "final_pick_mean_route_error_m": round(
+                    waypoint_evals[0].mean_route_error_m, 1
+                ),
+            }
+
+    # 11. Final position report — the single answer to "where is this
+    # video?". candidates[0] is consensus-best when the aerial channel
+    # ran (the reorder above keeps candidates and result["matches"]
+    # parallel), shape-best otherwise.
+    if candidates:
+        for i, cand in enumerate(candidates):
+            latlon = candidate_center_latlon(cand, road)
+            if latlon is not None:
+                result["matches"][i]["center_latlon"] = [
+                    round(latlon[0], 6), round(latlon[1], 6),
+                ]
+        position = build_position_report(
+            candidates[0],
+            road,
+            matches=result["matches"],
+            ranking=ranking_mode,
+        )
+        if position is not None:
+            if waypoint_evals:
+                position["gt_start_error_m"] = round(
+                    waypoint_evals[0].start_error_m, 1
+                )
+                position["gt_mean_route_error_m"] = round(
+                    waypoint_evals[0].mean_route_error_m, 1
+                )
+            result["position"] = position
+            print()
+            print(format_position_summary(position))
+        else:
+            result["position_error"] = (
+                "could not convert the matched route to WGS84 "
+                f"(road graph CRS: {road.crs!r})"
+            )
+            print(f"      -> position unavailable: {result['position_error']}")
 
     out_json = cfg.output_dir / "result.json"
     with out_json.open("w", encoding="utf-8") as f:

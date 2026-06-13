@@ -29,7 +29,7 @@ def extract_frames(
     video_path: Path,
     *,
     stride: int = 6,
-    max_frames: int = 400,
+    max_frames: int | None = 400,
     start_sec: float = 0.0,
     end_sec: float | None = None,
 ) -> ExtractedFrames:
@@ -38,6 +38,12 @@ def extract_frames(
 
     `stride=6` at 30 fps gives one frame every 0.2 s, which is a reasonable
     inter-frame baseline for monocular VO on a vehicle moving at urban speed.
+
+    `max_frames=None` removes the cap — the segment bounds the count. A
+    fixed cap smaller than the segment silently truncates the analyzed
+    window (a 10-minute `--vo-segment` with the old 4200-frame default
+    only actually analyzed the first 7 minutes), so callers that honor a
+    user-specified segment should pass None.
     """
     video_path = Path(video_path)
     if not video_path.exists():
@@ -60,7 +66,7 @@ def extract_frames(
     timestamps: list[float] = []
     idx = start_frame
     try:
-        while idx < end_frame and len(frames) < max_frames:
+        while idx < end_frame and (max_frames is None or len(frames) < max_frames):
             ok, frame = cap.read()
             if not ok:
                 break

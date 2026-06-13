@@ -1,32 +1,41 @@
-"""Quantitative evaluation of localization candidates against ground
-truth — a list of street names that the video is known to traverse.
+"""Quantitative evaluation of localization candidates against ground truth.
 
-We define the "ground-truth distance" of a candidate walk as the
-minimum Euclidean distance (in projected meters) from any point on the
-candidate's polyline to any edge geometry of any ground-truth street
-in the OSM road graph. A candidate that traverses one of the
-ground-truth streets gets a distance of ~0; one that's a few hundred
-meters off gets a proportional distance.
+Two ground-truth flavors are supported:
 
-We also report whether the candidate's named edges *overlap* the GT
-street name list — name-overlap is a stricter test that rewards
-walks that explicitly include any of the GT streets, even if the
-geometric distance happens to be similar.
+1. **Street names** (`--ground-truth Neutorstrasse Olgastrasse`): the
+   "ground-truth distance" of a candidate walk is the minimum Euclidean
+   distance (in projected meters) from any point on the candidate's
+   polyline to any edge geometry of any ground-truth street in the OSM
+   road graph. We also report whether the candidate's named edges
+   *overlap* the GT street name list.
 
-This module is consumed by the pipeline when `--ground-truth` is
-provided, and prints a per-candidate evaluation table after the
-shape/aerial comparison.
+2. **GPS waypoints** (`--ground-truth-waypoints file.json`): a JSON file
+   of timestamped (lat, lon) fixes along the true route. Far stronger
+   than street names — it yields metric errors: the start-position
+   error and the mean/max distance from each GT waypoint to the
+   candidate's aligned camera path. The JSON schema is::
+
+       {"waypoints": [{"t_sec": 0, "lat": 48.4059, "lon": 9.9837}, ...]}
+
+   (Extra keys are allowed and ignored. See ground_truth/ for examples.)
+
+This module is consumed by the pipeline when either flag is provided,
+and prints a per-candidate evaluation table after the shape/aerial
+comparison.
 """
 
 from __future__ import annotations
 
+import json
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 
 import networkx as nx
 import numpy as np
 
 from .osm_data import RoadGraph
+from .position import latlon_to_xy
 from .trajectory_matching import MatchCandidate
 
 
@@ -195,3 +204,86 @@ def best_rank_for_gt(
             name_rank = i + 1
             break
     return best_dist_rank, name_rank
+
+
+# ---------------------------------------------------------------------------
+# GPS-waypoint ground truth
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class WaypointEval:
+    """Metric errors of one candidate against the GT waypoint track."""
+    candidate_index: int
+    start_error_m: float        # |aligned-trajectory start - first GT waypoint|
+    mean_route_error_m: float   # mean over GT waypoints of dist(wp, aligned path)
+    max_route_error_m: float
+
+
+def load_gt_waypoints(path: Path) -> np.ndarray:
+    """Load a waypoint ground-truth JSON; returns an Nx2 (lat, lon) array.
+
+    Validates the schema up front so a malformed file fails with a clear
+    message before the pipeline spends minutes on matching.
+    """
+    path = Path(path)
+    with path.open(encoding="utf-8") as f:
+        data = json.load(f)
+    waypoints = data.get("waypoints")
+    if not isinstance(waypoints, list) or not waypoints:
+        raise ValueError(f"{path}: expected a non-empty 'waypoints' list")
+    latlons: list[tuple[float, float]] = []
+    for i, wp in enumerate(waypoints):
+        try:
+            lat, lon = float(wp["lat"]), float(wp["lon"])
+        except (KeyError, TypeError, ValueError) as e:
+            raise ValueError(
+                f"{path}: waypoint #{i} must have numeric 'lat' and 'lon': {e}"
+            ) from e
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            raise ValueError(f"{path}: waypoint #{i} out of WGS84 range: {lat}, {lon}")
+        latlons.append((lat, lon))
+    return np.asarray(latlons, dtype=np.float64)
+
+
+def evaluate_candidates_against_waypoints(
+    candidates: list[MatchCandidate],
+    road: RoadGraph,
+    waypoints_latlon: np.ndarray,
+) -> list[WaypointEval]:
+    """Metric errors of each candidate's aligned camera path vs GT fixes.
+
+    The comparison runs in the road graph's projected CRS (meters). The
+    *aligned* trajectory is used — that's what the position report is
+    built from, so these numbers measure exactly the answer we give the
+    user. Index 0 of the aligned path corresponds to the start of the
+    analyzed segment, hence the dedicated start error vs waypoint #0.
+    """
+    wp_xy = latlon_to_xy(np.asarray(waypoints_latlon, dtype=np.float64), road.crs)
+    results: list[WaypointEval] = []
+    for i, cand in enumerate(candidates):
+        traj = np.asarray(cand.aligned_traj_xy, dtype=np.float64)
+        if traj.ndim != 2 or len(traj) == 0:
+            results.append(WaypointEval(i, float("inf"), float("inf"), float("inf")))
+            continue
+        start_error = float(np.linalg.norm(traj[0] - wp_xy[0]))
+        dists = [
+            _segment_to_polyline_distance(wp, traj) for wp in wp_xy
+        ]
+        results.append(WaypointEval(
+            candidate_index=i,
+            start_error_m=start_error,
+            mean_route_error_m=float(np.mean(dists)),
+            max_route_error_m=float(np.max(dists)),
+        ))
+    return results
+
+
+def best_rank_for_waypoints(results: list[WaypointEval]) -> int | None:
+    """1-based rank of the candidate with the lowest mean route error."""
+    if not results:
+        return None
+    finite = [i for i, r in enumerate(results) if np.isfinite(r.mean_route_error_m)]
+    if not finite:
+        return None
+    return min(finite, key=lambda i: results[i].mean_route_error_m) + 1

@@ -157,19 +157,44 @@ https://ffmpeg.org/.
 
 ## Run
 
-End-to-end on the reference Ulm video:
+The core contract: **video + city in, position out.** Point the CLI at a
+local video file (or a YouTube URL) and name the city it was filmed in;
+the run ends with an estimated WGS84 position — printed to the console
+and written to `result.json` under the `"position"` key:
+
+```
+================================================================
+ESTIMATED POSITION  (ranking=consensus, 10 candidates considered)
+================================================================
+  Video starts at:  48.401130, 9.987610
+  Route center:     48.399870, 9.991020
+  Streets:          Neutorstraße, Olgastraße, ...
+  Confidence:       medium (RMS 142.3 m, bearing corr 0.41)
+  Google Maps:      https://www.google.com/maps?q=48.401130,9.987610
+  OpenStreetMap:    https://www.openstreetmap.org/?mlat=48.401130&...
+================================================================
+```
+
+Localize a local video file (`--city` is required, as `City, Country`):
+
+```bash
+python main.py --video path/to/dashcam.mp4 --city "Ulm, Germany"
+```
+
+End-to-end on the reference Ulm YouTube video:
 
 ```bash
 python main.py
 ```
 
-Or specify your own:
+Or any other YouTube clip:
 
 ```bash
 python main.py --url "https://www.youtube.com/watch?v=..." --city "Ulm, Germany"
 ```
 
-You can also submit multiple videos in one run:
+You can also submit multiple videos in one run (one source kind at a
+time — `--video` and `--url` are mutually exclusive):
 
 ```bash
 python main.py \
@@ -188,12 +213,14 @@ Useful flags:
 
 | Flag                    | Default      | What it does                                              |
 |-------------------------|--------------|-----------------------------------------------------------|
+| `--video`               | none         | One or more local video files to localize (requires `--city`; mutually exclusive with `--url`) |
 | `--url`                 | Ulm dashcam  | One or more YouTube URLs to localize                      |
-| `--city`                | inferred     | OSM lookup for the candidate graph; guessed from title when omitted |
-| `--max-frames`          | 1500         | Cap on frames sampled from the video                      |
-| `--frame-stride`        | 6            | Take every Nth frame (motion ≈ 0.2 s @ 30 fps)            |
-| `--vo-segment`          | `0:300`      | Seconds of video to use for VO (`start:end`)              |
-| `--estimated-length-m`  | 4000         | Approx. driven distance — tunes OSM walk depth            |
+| `--city`                | inferred     | City the video was filmed in, as `City, Country`. Required with `--video`; guessed from the title for URLs when omitted |
+| `--analyze-minutes`     | none         | Analyze the first N minutes (shorthand for `--vo-segment 0:N*60`; auto-picks `--frame-stride` to stay within the frame budget) |
+| `--max-frames`          | no cap       | Cap on frames sampled from the video; the analyzed segment bounds the count by default |
+| `--frame-stride`        | auto         | Take every Nth frame. Auto keeps ~4800 frames for the segment (7 min → 3, 10 min → 4, 15 min → 6) |
+| `--vo-segment`          | `0:420`      | Seconds of video to use for VO (`start:end`)              |
+| `--estimated-length-m`  | auto         | Approx. driven distance — tunes OSM walk depth. Defaults to segment duration × ~20 km/h urban average; a prior far from the true length badly distorts the shape match |
 | `--top-k`               | 5            | How many candidate matches to keep                        |
 | `--skip-download`       | off          | Reuse cached video                                        |
 | `--use-da3`             | off          | Run Depth Anything 3 dense reconstruction (needs CUDA)    |
@@ -215,7 +242,8 @@ Useful flags:
 | `--embedding-model`     | `resnet18`   | Embedding backbone: `resnet18` (offline) or `dinov2_vits14`/`dinov2_vitb14`/`dinov2_vitl14` (cross-domain VPR, downloads weights on first use) |
 | `--geotessera-year`     | `2024`       | GeoTessera tile year when `geotessera` retrieval is enabled |
 | `--ground-truth A B C`  | none         | Known street names; the pipeline scores each candidate by distance to nearest GT geometry |
-| `--enable-bev-splat`    | off          | Run the BevSplat (NeurIPS'26) cross-view localization channel as an extra aerial matcher. See *BevSplat integration* below. |
+| `--ground-truth-waypoints` | none      | JSON file of timestamped GPS fixes along the true route (see `ground_truth/`); reports metric start/route errors per candidate |
+| `--enable-bev-splat`    | off          | Run the BevSplat cross-view localization channel. When ≥80% of candidates score successfully, its appearance rank is **fused into the consensus** (weight 0.75 vs 1.0 for the geometric channels). See *BevSplat integration* below. |
 | `--bev-splat-weights`   | none         | Path to BevSplat checkpoint downloaded from the authors' OneDrive share (link in the BevSplat section below). |
 | `--bev-splat-repo-path` | none         | Path to a local clone of `wangqww/BevSplat` with its CUDA extensions built. Required alongside `--bev-splat-weights` for actual inference. |
 | `--bev-splat-source`    | `esri`       | Satellite tile source: `esri`/`satellite` (real RGB orthoimagery — matches BevSplat's KITTI training domain, recommended), `geotessera` (satellite-derived PCA false-colour — non-discriminative across inner-city tiles), or `osm` (schematic raster). |
@@ -237,7 +265,9 @@ Outputs land in `output/<submission>/`:
 - `splat.html` — interactive 3-D viewer (open in any browser, no server needed)
 - `splat_topdown.png` — top-down rasterization of the splat
 - `aerial/osm_candidate_N.png` — OSM patch for each top-K candidate
-- `result.json` — top-K candidate streets + shape scores + ORB-match counts
+- `result.json` — the estimated `position` (lat/lon, route, street names,
+  confidence, map links) plus top-K candidate streets, per-candidate
+  `center_latlon`, shape scores, and ORB-match counts
 - `road_graph.graphml` — cached OSM graph
 
 ---

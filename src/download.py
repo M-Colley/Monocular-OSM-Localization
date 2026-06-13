@@ -1,8 +1,9 @@
-"""Download a YouTube video to a local file using yt-dlp."""
+"""Acquire input videos: download from YouTube, or describe a local file."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 
 import yt_dlp
@@ -17,6 +18,27 @@ class VideoMetadata:
     url: str
     title: str | None
     video_id: str | None
+
+
+def local_video_metadata(path: Path) -> VideoMetadata:
+    """Build :class:`VideoMetadata` for a local video file.
+
+    Mirrors :func:`fetch_video_metadata` so the rest of the pipeline
+    (slug generation, result JSON) treats local files and URLs the same:
+    the title is the filename stem and the id is a stable digest of the
+    absolute path, so re-running on the same file reuses the same
+    data/output directories (and therefore the VO cache).
+    """
+    path = Path(path)
+    if not path.exists():
+        raise DownloadError(f"local video not found: {path}")
+    resolved = path.resolve()
+    digest = sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+    return VideoMetadata(
+        url=resolved.as_uri(),
+        title=path.stem,
+        video_id=f"local-{digest}",
+    )
 
 
 def fetch_video_metadata(url: str) -> VideoMetadata:

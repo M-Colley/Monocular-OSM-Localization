@@ -1,0 +1,15 @@
+{
+  "video_id": "ULl8s4qydrk",
+  "video_url": "https://www.youtube.com/watch?v=ULl8s4qydrk",
+  "city": "Ulm, Germany",
+  "vo_segment": "0:420",
+  "description": "User-verified GPS waypoints for the analyzed first 7 minutes. Route: Neutorbruecke south, then east along Olgastrasse toward Donauhalle.",
+  "waypoints": [
+    {"t_sec": 0,   "lat": 48.405933, "lon": 9.983683},
+    {"t_sec": 180, "lat": 48.400024, "lon": 9.984949},
+    {"t_sec": 240, "lat": 48.400533, "lon": 9.985767},
+    {"t_sec": 300, "lat": 48.401420, "lon": 9.989297},
+    {"t_sec": 360, "lat": 48.402410, "lon": 9.996393},
+    {"t_sec": 415, "lat": 48.400353, "lon": 10.002622}
+  ]
+}

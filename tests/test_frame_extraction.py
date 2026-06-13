@@ -51,3 +51,11 @@ def test_extract_frames_max_cap(tmp_path: Path) -> None:
 def test_extract_frames_missing_file() -> None:
     with pytest.raises(FrameExtractionError):
         extract_frames(Path("does-not-exist.mp4"))
+
+
+def test_extract_frames_uncapped(tmp_path: Path) -> None:
+    """max_frames=None must read the whole segment — a fixed cap smaller
+    than the segment silently truncates the analyzed window."""
+    video = _make_video(tmp_path / "test.mp4", n_frames=50)
+    out = extract_frames(video, stride=1, max_frames=None)
+    assert len(out.frames) == 50
