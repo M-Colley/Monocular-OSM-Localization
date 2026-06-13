@@ -1,0 +1,80 @@
+{
+  "video_id": "comma2k19_b0c9d2329ad1606b_2018-08-17--14-55-39",
+  "video_url": "https://huggingface.co/datasets/commaai/comma2k19",
+  "city": "San Francisco Peninsula, California, USA",
+  "vo_segment": "0:239",
+  "description": "Auto-extracted from a burned-in GPS overlay via OCR (4800 fixes → 14 waypoints). Verify before trusting.",
+  "source": "comma2k19_global_pose",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 37.674993,
+      "lon": -122.460861
+    },
+    {
+      "t_sec": 18.4,
+      "lat": 37.673823,
+      "lon": -122.46258
+    },
+    {
+      "t_sec": 36.9,
+      "lat": 37.672847,
+      "lon": -122.463891
+    },
+    {
+      "t_sec": 55.3,
+      "lat": 37.671961,
+      "lon": -122.464109
+    },
+    {
+      "t_sec": 73.8,
+      "lat": 37.671185,
+      "lon": -122.464089
+    },
+    {
+      "t_sec": 92.3,
+      "lat": 37.670778,
+      "lon": -122.464776
+    },
+    {
+      "t_sec": 110.7,
+      "lat": 37.670749,
+      "lon": -122.465028
+    },
+    {
+      "t_sec": 129.2,
+      "lat": 37.670896,
+      "lon": -122.465727
+    },
+    {
+      "t_sec": 147.6,
+      "lat": 37.671284,
+      "lon": -122.466164
+    },
+    {
+      "t_sec": 166.1,
+      "lat": 37.671537,
+      "lon": -122.466351
+    },
+    {
+      "t_sec": 184.6,
+      "lat": 37.671916,
+      "lon": -122.466647
+    },
+    {
+      "t_sec": 203.0,
+      "lat": 37.672871,
+      "lon": -122.467398
+    },
+    {
+      "t_sec": 221.5,
+      "lat": 37.675361,
+      "lon": -122.469523
+    },
+    {
+      "t_sec": 239.9,
+      "lat": 37.679342,
+      "lon": -122.471595
+    }
+  ]
+}

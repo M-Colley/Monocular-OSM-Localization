@@ -152,6 +152,12 @@ class PipelineConfig:
     bev_splat_source: str = "esri"
     bev_splat_tile_size: int = 512
     bev_splat_half_extent_m: float = 60.0
+    # How many top-by-geometry candidates appearance may reorder. The
+    # default 5 assumes geometry already ranks the truth near the top; the
+    # multi-clip benchmark shows it often does NOT (the GT-best sits at
+    # geometry-rank #37 on KITTI 0033), so raise this to let appearance
+    # rescue a geometrically-buried-but-correct candidate.
+    bev_fusion_cap: int = 5
     vo_workers: int | None = None  # None → auto (min(cpu_count, 12)); 1 → sequential
     # When set, use this local video file directly: no download, `url` is
     # informational only (recorded in the result JSON).
@@ -1295,7 +1301,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     for i in range(len(bev_results))
                 ]
                 ranks = [bev_rank[i] for i in range(len(bev_results))]
-                order = _fuse_bev_rank(base, ranks)
+                order = _fuse_bev_rank(base, ranks, cap=cfg.bev_fusion_cap)
                 for new_pos, i in enumerate(order):
                     m = result["matches"][i]
                     m["consensus_score"] = base[i] + _W_BEV * ranks[i]

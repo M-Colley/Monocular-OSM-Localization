@@ -274,6 +274,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="BevSplat satellite tile side length in pixels (KITTI default: 512).")
     p.add_argument("--bev-splat-half-extent-m", type=float, default=60.0,
                    help="BevSplat satellite tile half-side in metres.")
+    p.add_argument("--bev-fusion-cap", type=int, default=5,
+                   help="How many top-by-geometry candidates the BevSplat "
+                        "appearance rank may reorder (default 5). Raise it when "
+                        "geometry ranks the true route deep (see bench_matching).")
     return p
 
 
@@ -382,6 +386,7 @@ def main() -> None:
             bev_splat_source=args.bev_splat_source,
             bev_splat_tile_size=args.bev_splat_tile_size,
             bev_splat_half_extent_m=args.bev_splat_half_extent_m,
+            bev_fusion_cap=args.bev_fusion_cap,
             vo_workers=args.vo_workers,
             video_path=local_path,
         )

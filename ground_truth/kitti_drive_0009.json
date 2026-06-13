@@ -1,0 +1,70 @@
+{
+  "video_id": "2011_09_26_drive_0009_sync",
+  "video_url": "https://www.cvlibs.net/datasets/kitti/raw_data.php",
+  "city": "Karlsruhe, Germany",
+  "vo_segment": "0:46",
+  "description": "Auto-extracted from a burned-in GPS overlay via OCR (447 fixes → 12 waypoints). Verify before trusting.",
+  "source": "kitti_raw_oxts",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 49.009348,
+      "lon": 8.437134
+    },
+    {
+      "t_sec": 4.3,
+      "lat": 49.009235,
+      "lon": 8.437722
+    },
+    {
+      "t_sec": 8.4,
+      "lat": 49.009117,
+      "lon": 8.438325
+    },
+    {
+      "t_sec": 12.6,
+      "lat": 49.009007,
+      "lon": 8.438942
+    },
+    {
+      "t_sec": 16.8,
+      "lat": 49.008913,
+      "lon": 8.439429
+    },
+    {
+      "t_sec": 21.0,
+      "lat": 49.008874,
+      "lon": 8.439599
+    },
+    {
+      "t_sec": 25.2,
+      "lat": 49.008994,
+      "lon": 8.439771
+    },
+    {
+      "t_sec": 29.4,
+      "lat": 49.009318,
+      "lon": 8.439939
+    },
+    {
+      "t_sec": 33.5,
+      "lat": 49.009659,
+      "lon": 8.440167
+    },
+    {
+      "t_sec": 37.8,
+      "lat": 49.009932,
+      "lon": 8.4404
+    },
+    {
+      "t_sec": 41.9,
+      "lat": 49.010012,
+      "lon": 8.440469
+    },
+    {
+      "t_sec": 46.2,
+      "lat": 49.010013,
+      "lon": 8.440468
+    }
+  ]
+}
