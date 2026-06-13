@@ -115,6 +115,31 @@ class PipelineConfig:
     # on the main video; OCR reads frames from here when set. Lets a 4K
     # source feed street-plate OCR without re-running VO at 4K.
     ocr_video_path: Path | None = None
+    # Scale recovery / georeferencing from timed anchors (ideas 1 & 2).
+    # Fits a similarity VO->world from anchor (time -> geocoded latlon)
+    # correspondences; sets the metric length prior and georeferences the
+    # reported route. Robust thresholds — declines (falls back) when the
+    # anchors are too few/clustered/noisy for a reliable fit.
+    # (lat, lon, radius_m) to fetch a bounded disc of the OSM graph
+    # instead of the whole named place — needed for mega-cities.
+    osm_around: tuple[float, float, float] | None = None
+    enable_scale_recovery: bool = True
+    scale_recovery_thresh_m: float = 150.0
+    scale_recovery_min_inliers: int = 3
+    scale_recovery_min_baseline_m: float = 250.0
+    # Idea 3: ground-plane optical-flow scale. Off by default — needs
+    # camera calibration to be reliable (on the uncalibrated Ulm clip it
+    # was wildly pitch-sensitive). When on, sets the metric length prior
+    # subject to the same sanity gate.
+    use_ipm_scale: bool = False
+    ipm_scale_pitch_deg: float = 6.0
+    ipm_scale_camera_height_m: float = 1.4
+    # Lock the matcher's alignment scale to (estimated_length_m / VO arc
+    # length) instead of letting Procrustes choose it freely. Forces the
+    # matched route to span the prescribed metric extent — stops the
+    # compression that left the localized route unable to reach its far
+    # end (the Ulm eastern-tail problem).
+    scale_lock: bool = False
     ground_truth_streets: tuple[str, ...] = ()
     # JSON file of timestamped GPS fixes along the true route — see
     # evaluator.load_gt_waypoints for the schema and ground_truth/ for
@@ -329,7 +354,10 @@ def _resolve_input_video(cfg: PipelineConfig) -> Path:
     return video_path
 
 
-def _fetch_road_graph(city: str, cache_path: Path) -> RoadGraph:
+def _fetch_road_graph(
+    city: str, cache_path: Path,
+    around: tuple[float, float, float] | None = None,
+) -> RoadGraph:
     """Fetch the OSM graph with a user-actionable error on geocode failure.
 
     osmnx raises a grab-bag of exceptions (InsufficientResponseError,
@@ -338,7 +366,7 @@ def _fetch_road_graph(city: str, cache_path: Path) -> RoadGraph:
     expected format, keeping the original as __cause__.
     """
     try:
-        return fetch_city_graph(city, cache_path=cache_path)
+        return fetch_city_graph(city, cache_path=cache_path, around=around)
     except Exception as e:
         raise ValueError(
             f"Could not fetch an OSM road graph for {city!r}. Check the "
@@ -366,18 +394,63 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     )
     print(f"      -> {len(frames.frames)} frames @ {frames.fps:.1f} fps")
 
-    # 2b. Route-length prior for OSM walk enumeration.
+    # 2b. Route-length prior for OSM walk enumeration. The
+    # duration-based estimate is the *stable sanity reference* that every
+    # (noisier) scale source — IPM flow (2c), DA3 (4b), anchors (4c) — is
+    # gated against. Gating each source against this fixed baseline
+    # rather than against the running prior avoids one unreliable source
+    # opening the gate for another (e.g. IPM flow lowering the prior so a
+    # wrong anchor scale then passes).
+    analyzed_sec = (
+        frames.timestamps[-1] - frames.timestamps[0]
+        if len(frames.timestamps) >= 2 else 0.0
+    )
+    duration_prior_m = _auto_estimated_length_m(analyzed_sec)
     if cfg.estimated_length_m is not None:
         estimated_length_m = float(cfg.estimated_length_m)
     else:
-        analyzed_sec = (
-            frames.timestamps[-1] - frames.timestamps[0]
-            if len(frames.timestamps) >= 2 else 0.0
-        )
-        estimated_length_m = _auto_estimated_length_m(analyzed_sec)
+        estimated_length_m = duration_prior_m
         print(f"      -> estimated route length: {estimated_length_m:.0f} m "
               f"(auto: {analyzed_sec:.0f} s at urban avg speed; "
               f"override with --estimated-length-m)")
+
+    def _length_sane(candidate_m: float) -> bool:
+        """A recovered length is trustworthy only if it's within 2x of the
+        duration-based estimate (the robust reference)."""
+        return 0.5 * duration_prior_m <= candidate_m <= 2.0 * duration_prior_m
+
+    # 2c. Idea 3: ground-plane optical-flow metric scale (opt-in). Sets
+    # the length prior from road-feature motion, sanity-gated against the
+    # duration estimate. Off by default — unreliable without real camera
+    # calibration.
+    if cfg.use_ipm_scale:
+        print("[2c] Ground-plane optical-flow scale")
+        try:
+            from .speed_scale import estimate_route_length_from_flow
+            h_img, w_img = frames.frames[0].shape[:2]
+            K_flow = default_intrinsics(w_img, h_img)
+            # Subsample to ~3 fps so the flow pass is quick.
+            step = max(1, int(round(frames.fps / 3.0)) // max(1, cfg.frame_stride))
+            sub = frames.frames[::step] if step > 1 else frames.frames
+            flow_len, motions = estimate_route_length_from_flow(
+                sub, K_flow, camera_height_m=cfg.ipm_scale_camera_height_m,
+                pitch_deg=cfg.ipm_scale_pitch_deg, fps=frames.fps,
+                frame_stride=cfg.frame_stride * step,
+            )
+            if flow_len > 0 and _length_sane(flow_len):
+                print(f"      -> flow length {flow_len:.0f} m adopted (was "
+                      f"{estimated_length_m:.0f} m)")
+                estimated_length_m = float(np.clip(flow_len, 500.0, 12000.0))
+                result_ipm_scale = {"status": "ok", "length_m": round(flow_len, 1)}
+            else:
+                print(f"      -> flow length {flow_len:.0f} m rejected (sanity vs "
+                      f"prior {estimated_length_m:.0f} m); keeping prior")
+                result_ipm_scale = {"status": "rejected", "length_m": round(flow_len, 1)}
+        except Exception as e:
+            print(f"      -> IPM-scale failed: {e}")
+            result_ipm_scale = {"status": "error", "error": str(e)}
+    else:
+        result_ipm_scale = None
 
     # 3. Visual odometry. Cache to disk: VO is the slowest CPU stage of
     # the pipeline (minutes on a 7-minute clip), and the recovered
@@ -481,9 +554,17 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     _plot_trajectory(traj, cfg.output_dir / "trajectory.png")
 
     # 4. OSM road graph for the city.
-    print(f"[4/5] Fetching OSM driving graph for {cfg.city!r}")
-    cache_path = cfg.data_dir / f"{cfg.city.replace(',', '').replace(' ', '_')}.graphml"
-    road = _fetch_road_graph(cfg.city, cache_path)
+    if cfg.osm_around is not None:
+        la, lo, rad = cfg.osm_around
+        print(f"[4/5] Fetching OSM driving graph around ({la:.4f}, {lo:.4f}) "
+              f"r={rad:.0f} m for {cfg.city!r}")
+        cache_path = cfg.data_dir / (
+            f"{cfg.city.replace(',', '').replace(' ', '_')}"
+            f"_around_{la:.4f}_{lo:.4f}_{int(rad)}.graphml")
+    else:
+        print(f"[4/5] Fetching OSM driving graph for {cfg.city!r}")
+        cache_path = cfg.data_dir / f"{cfg.city.replace(',', '').replace(' ', '_')}.graphml"
+    road = _fetch_road_graph(cfg.city, cache_path, around=cfg.osm_around)
     print(f"      -> {road.graph.number_of_nodes()} nodes, "
           f"{road.graph.number_of_edges()} edges, CRS={road.crs}")
 
@@ -497,6 +578,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # the per-frame VO poses) and only swap the matcher's input here.
     match_xz = traj.xz
     da3_rec = None
+    result_scale_recovery: dict | None = None   # set by DA3 (4b) or anchors (4c)
     if cfg.use_da3_trajectory:
         print("[4b] Depth Anything 3 trajectory (drift-free matcher input)")
         from .da3_reconstruction import da3_trajectory_xy, reconstruct_with_da3
@@ -528,6 +610,22 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 )
                 print(f"      -> using DA3 trajectory: {len(da3_xy)} keyframe poses")
                 result_traj_source = "da3"
+                # Idea 4: DA3 is metric, so its arc length IS the route
+                # length — adopt it as the prior when it sanity-checks
+                # against the duration estimate.
+                from .visual_odometry import trajectory_arc_length as _arclen
+                da3_len = float(_arclen(da3_xy)[-1])
+                if _length_sane(da3_len):
+                    print(f"      -> DA3 metric length {da3_len:.0f} m adopted as "
+                          f"route prior (was {estimated_length_m:.0f} m)")
+                    estimated_length_m = float(np.clip(da3_len, 500.0, 12000.0))
+                    result_scale_recovery = {
+                        "status": "ok", "source": "da3",
+                        "estimated_length_m": round(estimated_length_m, 1),
+                    }
+                else:
+                    print(f"      -> DA3 metric length {da3_len:.0f} m rejected "
+                          f"(sanity vs prior {estimated_length_m:.0f} m)")
             else:
                 if len(da3_xy) < 2 or not bool(np.isfinite(da3_xy).all()):
                     print("      -> DA3 trajectory invalid; falling back to VO path")
@@ -549,6 +647,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     anchor_xy = np.zeros((0, 2))
     anchor_seed: list | None = None
     ocr_anchor_error: str | None = None
+    anchor_transform = None          # similarity VO->world (idea 2), if fit
+    anchor_world_route = None        # full VO path georeferenced to world xy
     if cfg.enable_ocr_anchor:
         ocr_source = cfg.ocr_video_path or video_path
         tag = " (4K OCR source)" if cfg.ocr_video_path else ""
@@ -595,6 +695,83 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             for a in ocr_anchors:
                 print(f"        poi:    {a.name!r} @ ({a.lat:.5f},{a.lon:.5f}) "
                       f"conf={a.confidence:.2f}")
+
+            # --- Scale recovery / georeferencing (ideas 1 & 2) ----------
+            # Use the *pre-cluster-filter* anchors here: scale needs
+            # temporal+spatial SPREAD, and RANSAC rejects the noise that
+            # the cluster filter would otherwise have removed. Each anchor
+            # is a timed pseudo-fix (seen at t_sec, geocoded to lat/lon).
+            if cfg.enable_scale_recovery and len(ocr_anchors) >= 3:
+                from .scale_recovery import (
+                    apply_transform,
+                    fit_similarity_ransac,
+                    scaled_length,
+                    vo_positions_at_times,
+                )
+                from .text_anchor import anchors_to_xy as _a2xy
+                t_secs = np.array([a.t_sec for a in ocr_anchors])
+                world_pts = _a2xy(ocr_anchors, road.crs)
+                vo_pts = vo_positions_at_times(traj.xz, frames.timestamps, t_secs)
+                fit = fit_similarity_ransac(
+                    vo_pts, world_pts,
+                    thresh_m=cfg.scale_recovery_thresh_m,
+                    min_inliers=cfg.scale_recovery_min_inliers,
+                    min_world_baseline_m=cfg.scale_recovery_min_baseline_m,
+                )
+                recovered_len = (scaled_length(traj.xz, fit.scale)
+                                 if fit is not None else None)
+                # Sanity gate: a handful of noisy sign-anchors can yield a
+                # self-consistent-but-wrong RANSAC triple (rms looks fine,
+                # scale is garbage). Trust the anchor scale only if it
+                # roughly agrees with the duration-based prior — otherwise
+                # the simple prior is the safer bet (verified on Ulm: a
+                # 3-anchor fit gave 974 m vs a true ~2100 m, worse than the
+                # 2310 m duration prior). Require >= the inlier floor too.
+                sane = (
+                    fit is not None and recovered_len is not None
+                    and _length_sane(recovered_len)
+                )
+                if fit is not None and sane:
+                    anchor_transform = fit.transform
+                    duration_prior = estimated_length_m
+                    estimated_length_m = float(np.clip(recovered_len, 500.0, 12000.0))
+                    anchor_world_route = apply_transform(traj.xz, fit.transform)
+                    result_scale_recovery = {
+                        "status": "ok",
+                        "scale_m_per_vo_unit": round(fit.scale, 4),
+                        "n_inliers": int(len(fit.inlier_idx)),
+                        "n_anchors": int(len(ocr_anchors)),
+                        "rms_m": round(fit.rms_m, 1),
+                        "world_baseline_m": round(fit.world_baseline_m, 1),
+                        "estimated_length_m": round(estimated_length_m, 1),
+                    }
+                    print(f"      -> scale recovery OK: scale={fit.scale:.3f} m/unit, "
+                          f"{len(fit.inlier_idx)}/{len(ocr_anchors)} inliers, "
+                          f"baseline={fit.world_baseline_m:.0f} m, rms={fit.rms_m:.0f} m "
+                          f"→ route length prior {estimated_length_m:.0f} m")
+                elif fit is not None and not sane:
+                    result_scale_recovery = {
+                        "status": "rejected_sanity",
+                        "scale_m_per_vo_unit": round(fit.scale, 4),
+                        "n_inliers": int(len(fit.inlier_idx)),
+                        "recovered_length_m": round(recovered_len, 1),
+                        "duration_prior_m": round(duration_prior_m, 1),
+                        "reason": "recovered length disagrees with duration prior "
+                                  ">2x; trusting the prior",
+                    }
+                    print(f"      -> scale recovery REJECTED (sanity): recovered "
+                          f"{recovered_len:.0f} m vs duration prior "
+                          f"{duration_prior_m:.0f} m (>2x off); keeping prior")
+                else:
+                    result_scale_recovery = {
+                        "status": "declined",
+                        "n_anchors": int(len(ocr_anchors)),
+                        "reason": "too few well-separated inlier anchors "
+                                  "(short baseline / noisy geocodes)",
+                    }
+                    print("      -> scale recovery declined (anchors too few/clustered "
+                          "for a reliable fit); keeping default length prior")
+
             # Reject spatial-outlier anchors (a far-off shop sign or a
             # fuzzy-matched wrong street) — keep only the corroborated
             # cluster, so one bad anchor can't hijack the gate.
@@ -626,6 +803,17 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # anchor vicinity (a trustworthy absolute prior beats the drift-prone
     # global shape for *where* to look) and let shape rank within it. Fall
     # back to the full-city scan if the gate yields nothing.
+    # Scale lock: pin alignment scale to the metric extent so the route
+    # can't compress (the eastern-tail fix). scale = metres per VO unit.
+    locked_scale = None
+    if cfg.scale_lock:
+        from .visual_odometry import trajectory_arc_length
+        vo_arclen = float(trajectory_arc_length(match_xz)[-1])
+        if vo_arclen > 1e-6:
+            locked_scale = estimated_length_m / vo_arclen
+            print(f"      -> scale-locked alignment: {locked_scale:.4f} m/VO-unit "
+                  f"(extent {estimated_length_m:.0f} m / {vo_arclen:.1f} VO units)")
+
     anchor_gated = bool(cfg.enable_ocr_anchor and anchor_seed)
     if anchor_gated:
         print(f"[5/5] Matching (anchor-gated to {len(anchor_seed)} seed nodes "
@@ -640,12 +828,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         estimated_length_m=estimated_length_m,
         extra_start_nodes=anchor_seed,
         restrict_to_start_nodes=anchor_gated,
+        locked_scale=locked_scale,
     )
     if anchor_gated and not candidates:
         print("      -> anchor-gated match found nothing; falling back to full scan")
         candidates = match_trajectory(
             match_xz, road, final_top_k=cfg.top_k, sample_every=cfg.sample_every,
-            estimated_length_m=estimated_length_m,
+            estimated_length_m=estimated_length_m, locked_scale=locked_scale,
         )
 
     if not candidates:
@@ -1271,20 +1460,95 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 result["matches"][i]["center_latlon"] = [
                     round(latlon[0], 6), round(latlon[1], 6),
                 ]
+        # Idea 2: when the anchor similarity fit succeeded, report the
+        # *georeferenced* VO path (absolute, anchor-derived) instead of
+        # the free-scale shape alignment. Street names still come from
+        # the matched candidate.
+        world_route_latlon = None
+        pos_ranking = ranking_mode
+        # Scale-lock + single-anchor pin: keep the locked metric extent
+        # AND the shape-fit rotation, but pin absolute position with the
+        # most confident anchor — fixes the start drift that scale-lock
+        # alone leaves. Takes precedence over the idea-2 georeference.
+        if (cfg.scale_lock and locked_scale is not None and ocr_anchors):
+            try:
+                from .position import xy_to_latlon as _xy2ll
+                from .scale_recovery import vo_positions_at_times
+                from .text_anchor import anchors_to_xy as _a2xy
+                from .trajectory_matching import anchor_pinned_route
+                # Least-squares translation over the anchors, weighted by
+                # confidence AND proximity to the matched route. The
+                # proximity term is the key robustness fix: a precise
+                # on-route anchor (the car drove past the building) sits
+                # on the walk, while a coarse *direction* sign geocodes
+                # 100s of m off it — and OCR confidence can't tell them
+                # apart (both 1.00). Down-weighting by distance-to-walk
+                # lets the on-route anchors dominate. (Naive equal/conf
+                # weighting over all anchors was worse: 307 vs 146 m.)
+                t_secs = np.array([a.t_sec for a in ocr_anchors])
+                a_world = _a2xy(ocr_anchors, road.crs)
+                a_vo = vo_positions_at_times(match_xz, frames.timestamps, t_secs)
+                walk = np.asarray(candidates[0].walk_xy, dtype=np.float64)
+                dist_to_walk = np.array([
+                    np.linalg.norm(walk - w, axis=1).min() for w in a_world])
+                wts = np.array([a.confidence for a in ocr_anchors]) / (
+                    1.0 + dist_to_walk / 50.0)
+                route_xy = anchor_pinned_route(
+                    match_xz, candidates[0].walk_xy, locked_scale,
+                    a_vo, a_world, weights=wts,
+                )
+                world_route_latlon = _xy2ll(route_xy, road.crs)
+                pos_ranking = ranking_mode + f"+scalelock+anchor-pin({len(ocr_anchors)})"
+                lead = ocr_anchors[int(np.argmax(wts))]
+                print(f"      -> route pinned (proximity-weighted LS) over "
+                      f"{len(ocr_anchors)} anchor(s); lead={lead.name!r} "
+                      f"(d_to_walk={dist_to_walk[int(np.argmax(wts))]:.0f} m)")
+            except Exception as e:
+                print(f"      -> anchor-pin failed: {e}")
+                world_route_latlon = None
+        if world_route_latlon is None and anchor_world_route is not None:
+            from .position import xy_to_latlon as _xy2ll
+            try:
+                world_route_latlon = _xy2ll(anchor_world_route, road.crs)
+                pos_ranking = ranking_mode + "+anchor-georef"
+            except Exception:
+                world_route_latlon = None
+
         position = build_position_report(
             candidates[0],
             road,
             matches=result["matches"],
-            ranking=ranking_mode,
+            ranking=pos_ranking,
+            world_route_latlon=world_route_latlon,
         )
         if position is not None:
-            if waypoint_evals:
+            if world_route_latlon is not None and cfg.ground_truth_waypoints:
+                # GT error of the georeferenced route (the candidate-based
+                # waypoint_evals don't describe this route).
+                try:
+                    from .evaluator import _segment_to_polyline_distance
+                    from .position import latlon_to_xy
+                    wps = load_gt_waypoints(cfg.ground_truth_waypoints)
+                    wp_xy = latlon_to_xy(wps, road.crs)
+                    rt_xy = latlon_to_xy(world_route_latlon, road.crs)
+                    d0 = float(np.linalg.norm(rt_xy[0] - wp_xy[0]))
+                    dm = float(np.mean([
+                        _segment_to_polyline_distance(w, rt_xy) for w in wp_xy]))
+                    position["gt_start_error_m"] = round(d0, 1)
+                    position["gt_mean_route_error_m"] = round(dm, 1)
+                except Exception as e:
+                    print(f"      -> georef GT eval failed: {e}")
+            elif waypoint_evals:
                 position["gt_start_error_m"] = round(
                     waypoint_evals[0].start_error_m, 1
                 )
                 position["gt_mean_route_error_m"] = round(
                     waypoint_evals[0].mean_route_error_m, 1
                 )
+            if result_scale_recovery is not None:
+                result["scale_recovery"] = result_scale_recovery
+            if result_ipm_scale is not None:
+                result["ipm_scale"] = result_ipm_scale
             result["position"] = position
             print()
             print(format_position_summary(position))

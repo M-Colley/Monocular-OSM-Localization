@@ -173,6 +173,7 @@ def build_position_report(
     matches: list[dict] | None = None,
     ranking: str = "shape",
     max_route_points: int = 50,
+    world_route_latlon: np.ndarray | None = None,
 ) -> dict | None:
     """Build the JSON-safe ``position`` block for the winning candidate.
 
@@ -187,21 +188,31 @@ def build_position_report(
     the analyzed segment. That is the most literal answer to "where is
     this video?". ``start``/``end``/``center`` and ``route_latlon``
     describe the whole driven route.
+
+    ``world_route_latlon`` (Nx2 lat/lon) overrides the route with an
+    externally-georeferenced path — used by the anchor-georeferencing
+    channel (idea 2), where the absolute position comes from timed sign
+    anchors rather than the free-scale shape fit. Street names still
+    come from the matched candidate.
     """
     crs = _usable_crs(road.crs)
     if crs is None:
         return None
 
-    traj = np.asarray(cand.aligned_traj_xy, dtype=np.float64)
-    if traj.ndim != 2 or traj.shape[0] < 1 or traj.shape[1] != 2:
-        return None
-    if not np.isfinite(traj).all():
-        return None
-
-    try:
-        route = xy_to_latlon(traj, crs)
-    except Exception:
-        return None
+    if world_route_latlon is not None:
+        route = np.asarray(world_route_latlon, dtype=np.float64)
+        if route.ndim != 2 or route.shape[0] < 1 or route.shape[1] != 2:
+            return None
+    else:
+        traj = np.asarray(cand.aligned_traj_xy, dtype=np.float64)
+        if traj.ndim != 2 or traj.shape[0] < 1 or traj.shape[1] != 2:
+            return None
+        if not np.isfinite(traj).all():
+            return None
+        try:
+            route = xy_to_latlon(traj, crs)
+        except Exception:
+            return None
     if not np.isfinite(route).all():
         return None
     # Reject results outside valid WGS84 ranges (symptom of a bogus CRS

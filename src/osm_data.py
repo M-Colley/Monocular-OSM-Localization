@@ -35,14 +35,28 @@ def fetch_city_graph(
     cache_path: Path | None = None,
     *,
     network_type: str = "drive",
+    around: tuple[float, float, float] | None = None,
 ) -> RoadGraph:
-    """Get the driving road graph for `place`. Caches to GraphML if asked."""
+    """Get the driving road graph for `place`. Caches to GraphML if asked.
+
+    ``around=(lat, lon, radius_m)`` fetches a disc of that radius around
+    the point instead of the whole named place — essential for
+    mega-cities (e.g. London), where ``graph_from_place`` would pull
+    millions of edges and the matcher's full scan would be infeasible.
+    ``place`` is then used only for cache naming / downstream geocoding.
+    """
     cache_path = Path(cache_path) if cache_path else None
 
     if cache_path and cache_path.exists():
         graph = ox.load_graphml(cache_path)
     else:
-        graph = ox.graph_from_place(place, network_type=network_type)
+        if around is not None:
+            lat, lon, radius_m = around
+            graph = ox.graph_from_point(
+                (lat, lon), dist=float(radius_m), network_type=network_type,
+            )
+        else:
+            graph = ox.graph_from_place(place, network_type=network_type)
         graph = ox.project_graph(graph)  # UTM in meters
         if cache_path:
             cache_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,18 @@
+{
+  "video_id": "T4wTL3LpLqU",
+  "video_url": "https://www.youtube.com/watch?v=T4wTL3LpLqU",
+  "city": "London, UK",
+  "vo_segment": "0:295",
+  "description": "User-verified GPS waypoints for a ~5-minute central-London (Marylebone/Fitzrovia) dashcam clip. Second ground-truth clip, for testing whether the Ulm-tuned recipe generalizes.",
+  "waypoints": [
+    {"t_sec": 0,   "lat": 51.527047, "lon": -0.131824},
+    {"t_sec": 33,  "lat": 51.527317, "lon": -0.131007},
+    {"t_sec": 60,  "lat": 51.526476, "lon": -0.129795},
+    {"t_sec": 112, "lat": 51.524634, "lon": -0.127792},
+    {"t_sec": 165, "lat": 51.522721, "lon": -0.125597},
+    {"t_sec": 221, "lat": 51.521427, "lon": -0.124296},
+    {"t_sec": 245, "lat": 51.520585, "lon": -0.126299},
+    {"t_sec": 274, "lat": 51.518982, "lon": -0.124436},
+    {"t_sec": 295, "lat": 51.518585, "lon": -0.125304}
+  ]
+}

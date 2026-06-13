@@ -114,15 +114,28 @@ def test_fetch_road_graph_passes_through(
 ) -> None:
     sentinel = object()
     monkeypatch.setattr(
-        pipeline, "fetch_city_graph", lambda city, cache_path: sentinel
+        pipeline, "fetch_city_graph",
+        lambda city, cache_path, around=None: sentinel,
     )
     assert _fetch_road_graph("Ulm, Germany", tmp_path / "g.graphml") is sentinel
+
+
+def test_fetch_road_graph_passes_around(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = {}
+    monkeypatch.setattr(
+        pipeline, "fetch_city_graph",
+        lambda city, cache_path, around=None: seen.setdefault("around", around),
+    )
+    _fetch_road_graph("London, UK", tmp_path / "g.graphml", around=(51.5, -0.13, 2500.0))
+    assert seen["around"] == (51.5, -0.13, 2500.0)
 
 
 def test_fetch_road_graph_wraps_geocode_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def boom(city: str, cache_path: Path) -> None:
+    def boom(city: str, cache_path: Path, around=None) -> None:
         raise RuntimeError("Nominatim could not geocode 'Ulmm'")
 
     monkeypatch.setattr(pipeline, "fetch_city_graph", boom)

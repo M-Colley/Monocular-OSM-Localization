@@ -95,6 +95,91 @@ def procrustes_similarity(
     return R, scale, residual, src_aligned
 
 
+def procrustes_fixed_scale(
+    src: np.ndarray, dst: np.ndarray, scale: float
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """Best rotation+translation of `src → dst` at a *fixed* uniform scale.
+
+    Unlike :func:`procrustes_similarity`, the scale is not free — it's
+    pinned to ``scale`` (e.g. the metric-per-VO-unit factor implied by a
+    trustworthy route-length prior). Only rotation and translation are
+    optimised (orientation-preserving Kabsch; the optimal rotation is
+    independent of the fixed scale). This stops the alignment from
+    *shrinking* a drifty VO path onto a compact decoy walk — the
+    compression that left the localized route unable to reach its far
+    end — by forcing it to span the prescribed metric extent.
+
+    Returns ``(residual_rms, src_aligned, R)`` where ``R`` is the 2x2
+    orientation-preserving rotation (callers can reuse it to re-place the
+    path under a different translation, e.g. an anchor pin).
+    """
+    assert src.shape == dst.shape and src.ndim == 2 and src.shape[1] == 2
+    src_c = src - src.mean(axis=0)
+    dst_c = dst - dst.mean(axis=0)
+    H = src_c.T @ dst_c
+    U, _S, Vt = np.linalg.svd(H)
+    R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:                      # forbid reflection
+        Vt = Vt.copy(); Vt[-1] *= -1
+        R = Vt.T @ U.T
+    src_aligned = scale * (src_c @ R.T) + dst.mean(axis=0)
+    residual = float(np.sqrt(((src_aligned - dst) ** 2).sum(axis=1).mean()))
+    return residual, src_aligned, R
+
+
+def anchor_pinned_route(
+    vo_xy: np.ndarray,
+    walk_xy: np.ndarray,
+    locked_scale: float,
+    anchor_vo_xy: np.ndarray,
+    anchor_world_xy: np.ndarray,
+    *,
+    weights: np.ndarray | None = None,
+    n_samples: int = 128,
+) -> np.ndarray:
+    """Scale-locked route whose translation is fit to the anchors.
+
+    Combines the three trustworthy pieces: the metric **scale** (locked),
+    the **rotation** from the shape fit of the VO path onto the matched
+    walk, and the **position** from the OCR anchors. With the scale and
+    rotation fixed, the only free parameter is the translation ``t``; its
+    least-squares optimum over the anchor correspondences is the
+    (confidence-)weighted mean of ``world_i - s·R·vo_i``. One anchor →
+    an exact pin; several → a balanced fit that spreads the residual
+    across them instead of nailing one point and letting the rest drift.
+
+    ``anchor_vo_xy`` / ``anchor_world_xy`` are ``(N, 2)`` (a single
+    ``(2,)`` pair is accepted too). Returns the full ``vo_xy`` mapped into
+    world (projected-metre) coordinates.
+    """
+    vo_xy = np.asarray(vo_xy, dtype=np.float64)
+    a_vo = np.asarray(anchor_vo_xy, dtype=np.float64).reshape(-1, 2)
+    a_world = np.asarray(anchor_world_xy, dtype=np.float64).reshape(-1, 2)
+    vr = resample_uniform(vo_xy, n_samples)
+    wr = resample_uniform(np.asarray(walk_xy, dtype=np.float64), n_samples)
+    _resid, _aligned, R = procrustes_fixed_scale(vr, wr, locked_scale)
+    # Each anchor implies a translation t_i = world_i - s·R·vo_i. A valid
+    # (clean) correspondence — the car was actually at the geocoded spot
+    # at that time — agrees with the others; a bad one (a direction sign,
+    # a distant/coarse POI) gives an outlier t_i. So keep the densest
+    # cluster of t_i and average that, rejecting the rest. This is what
+    # makes the pin robust to the noisy anchors that naive averaging let
+    # in (Ulm: naive 307 m, this ~140 m).
+    residuals = a_world - locked_scale * (a_vo @ R.T)        # (N, 2) candidate t's
+    w = (np.asarray(weights, dtype=np.float64)
+         if weights is not None and len(weights) == len(residuals) else None)
+    if len(residuals) >= 3:
+        from .text_anchor import select_anchor_cluster
+        keep = select_anchor_cluster(residuals, w, radius_m=150.0)
+        residuals = residuals[keep]
+        w = w[keep] if w is not None else None
+    if w is not None and w.sum() > 1e-9:
+        t = (residuals * w[:, None]).sum(axis=0) / w.sum()
+    else:
+        t = residuals.mean(axis=0)
+    return locked_scale * (vo_xy @ R.T) + t
+
+
 def _bearing_corr(sig_a: np.ndarray, sig_b: np.ndarray) -> float:
     """Pearson correlation of two bearing signatures, clipped to [-1, 1]."""
     if len(sig_a) != len(sig_b) or len(sig_a) < 2:
@@ -143,6 +228,7 @@ def match_trajectory(
     bearing_corr_weight: float = 400.0,
     extra_start_nodes: list | None = None,
     restrict_to_start_nodes: bool = False,
+    locked_scale: float | None = None,
 ) -> list[MatchCandidate]:
     """Localize the trajectory: return up to `final_top_k` best walks.
 
@@ -231,7 +317,12 @@ def match_trajectory(
             poly_resampled = resample_uniform(poly, n_samples)
         except ValueError:
             continue
-        _, _, residual, traj_aligned = procrustes_similarity(traj_resampled, poly_resampled)
+        if locked_scale is not None:
+            residual, traj_aligned, _R = procrustes_fixed_scale(
+                traj_resampled, poly_resampled, locked_scale)
+        else:
+            _, _, residual, traj_aligned = procrustes_similarity(
+                traj_resampled, poly_resampled)
         walk_len = float(trajectory_arc_length(poly)[-1])
         candidates.append(
             MatchCandidate(

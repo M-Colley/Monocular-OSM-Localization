@@ -290,3 +290,66 @@ def test_restrict_to_start_nodes_noop_without_seeds() -> None:
         progress=False, extra_start_nodes=None, restrict_to_start_nodes=True,
     )
     assert cands, "fallback to full scan should still produce candidates"
+
+
+def test_procrustes_fixed_scale_preserves_extent() -> None:
+    """Fixed-scale Procrustes must NOT shrink a path to fit a smaller dst;
+    it keeps the prescribed metric extent (the anti-compression property)."""
+    from src.trajectory_matching import procrustes_fixed_scale
+    # src spans 100 units; dst is a compact 10 m blob.
+    src = np.array([[0, 0], [50, 0], [100, 0]], dtype=float)
+    dst = np.array([[0, 0], [5, 0], [10, 0]], dtype=float)
+    resid, aligned, _R = procrustes_fixed_scale(src, dst, scale=1.0)
+    span = np.linalg.norm(aligned[-1] - aligned[0])
+    assert span == pytest.approx(100.0, rel=1e-6)   # extent preserved, not shrunk
+    assert resid > 30.0                              # and it fits the blob poorly
+
+
+def test_procrustes_fixed_scale_recovers_rotation_translation() -> None:
+    from src.trajectory_matching import procrustes_fixed_scale
+    src = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype=float)
+    s = 3.0
+    th = np.deg2rad(40.0)
+    R = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+    dst = s * src @ R.T + np.array([100.0, -50.0])
+    resid, aligned, _R = procrustes_fixed_scale(src, dst, scale=s)
+    assert resid < 1e-6
+    assert np.allclose(aligned, dst, atol=1e-6)
+
+
+def test_procrustes_fixed_scale_no_reflection() -> None:
+    from src.trajectory_matching import procrustes_fixed_scale
+    # dst is a mirrored src; fixed-scale fit must not use a reflection,
+    # so it cannot match perfectly.
+    src = np.array([[0, 0], [10, 0], [10, 5]], dtype=float)
+    dst = np.array([[0, 0], [10, 0], [10, -5]], dtype=float)
+    resid, aligned, _R = procrustes_fixed_scale(src, dst, scale=1.0)
+    assert resid > 1.0
+
+
+def test_match_trajectory_locked_scale_runs() -> None:
+    road = _l_shape_graph()
+    traj = np.array([[0, -i] for i in range(0, 201, 5)], dtype=float)
+    cands = match_trajectory(
+        traj, road, n_samples=48, walks_per_node=4, walk_depth=6,
+        bearing_top_k=20, final_top_k=5, estimated_length_m=180.0,
+        progress=False, locked_scale=1.0,
+    )
+    assert cands  # produces candidates with the fixed-scale path
+
+
+def test_anchor_pinned_route_places_anchor_exactly() -> None:
+    """The VO point at the anchor time must map exactly onto the anchor's
+    world location, and the route keeps the locked metric extent."""
+    from src.trajectory_matching import anchor_pinned_route
+    # Straight 100-unit VO path; matched walk is a straight 500 m segment.
+    vo = np.array([[0, 0], [25, 0], [50, 0], [75, 0], [100, 0]], dtype=float)
+    walk = np.array([[0, 0], [500, 0]], dtype=float)
+    s = 5.0  # 500 m / 100 units
+    anchor_vo = vo[2]                      # midpoint, "seen" here
+    anchor_world = np.array([9000.0, 7000.0])  # geocoded location
+    route = anchor_pinned_route(vo, walk, s, anchor_vo, anchor_world, n_samples=32)
+    # midpoint of the route must sit exactly on the anchor
+    assert np.allclose(route[2], anchor_world, atol=1e-6)
+    # extent preserved (100 units * scale 5 = 500 m)
+    assert np.linalg.norm(route[-1] - route[0]) == pytest.approx(500.0, rel=1e-6)

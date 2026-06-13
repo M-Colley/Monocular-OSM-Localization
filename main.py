@@ -220,6 +220,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Separate (higher-res, e.g. 4K) video used for OCR only; "
                         "VO/matching stay on the main video. Lets a 4K source feed "
                         "street-plate OCR without re-running VO at 4K.")
+    p.add_argument("--no-scale-recovery", action="store_true",
+                   help="Disable anchor-based metric scale recovery / georeferencing "
+                        "(ideas 1+2). On by default; auto-declines when anchors are "
+                        "too sparse/noisy for a reliable fit.")
+    p.add_argument("--use-ipm-scale", action="store_true",
+                   help="Estimate route length from ground-plane optical flow (idea 3). "
+                        "Off by default — needs camera calibration to be reliable.")
+    p.add_argument("--scale-lock", action="store_true",
+                   help="Lock the matcher's alignment scale to the metric length prior "
+                        "instead of a free Procrustes scale, so the localized route "
+                        "spans the true extent (fixes route compression / the far-end "
+                        "tail error).")
+    p.add_argument("--osm-around", default=None,
+                   help="Bound the OSM graph to a disc 'lat,lon,radius_m' instead of "
+                        "the whole named city. Required for mega-cities (e.g. London) "
+                        "where fetching the full place is infeasible.")
     p.add_argument("--ground-truth", nargs="*", default=[],
                    help="known street names traversed by the video (e.g. Neutorstrasse Olgastrasse)")
     p.add_argument("--ground-truth-waypoints", type=Path, default=None,
@@ -268,6 +284,14 @@ def main() -> None:
         _validate_input_args(args.video, args.url, args.city)
     except ValueError as e:
         p.error(str(e))
+
+    osm_around = None
+    if args.osm_around:
+        try:
+            la, lo, rad = (float(x) for x in args.osm_around.split(","))
+            osm_around = (la, lo, rad)
+        except ValueError:
+            p.error("--osm-around must be 'lat,lon,radius_m' (e.g. 51.52,-0.13,2500)")
 
     if args.analyze_minutes is not None:
         start, end = 0.0, args.analyze_minutes * 60.0
@@ -345,6 +369,10 @@ def main() -> None:
             ocr_sample_interval_sec=args.ocr_sample_interval_sec,
             ocr_min_confidence=args.ocr_min_confidence,
             ocr_video_path=args.ocr_video,
+            enable_scale_recovery=not args.no_scale_recovery,
+            use_ipm_scale=args.use_ipm_scale,
+            scale_lock=args.scale_lock,
+            osm_around=osm_around,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,
             enable_bev_splat=args.enable_bev_splat,
