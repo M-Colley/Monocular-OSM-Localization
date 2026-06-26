@@ -280,7 +280,10 @@ Useful flags:
 | `--ocr-min-confidence`  | `0.5`        | Min OCR confidence for a detection to be used |
 | `--ocr-video`           | none         | Separate higher-res (e.g. 4K) video used for OCR only; VO/matching stay on `--video`/`--url`. Lets a 4K source feed street-plate OCR without re-running VO at 4K. |
 | `--no-scale-recovery`   | off (on)     | Disable anchor-based metric scale recovery + georeferencing (ideas 1+2). On by default; auto-declines when sign-anchors are too sparse/noisy for a reliable fit (the Ulm case). |
-| `--use-ipm-scale`       | off          | Estimate route length from ground-plane optical flow (idea 3). Off by default — unreliable without real camera calibration. |
+| `--use-ipm-scale`       | off          | Estimate metric route length from ground-plane optical flow. A real measurement (not the duration guess) — recovers scale within ~10% when the camera is near-horizontal. Tune with `--ipm-scale-height`/`--ipm-scale-pitch`. |
+| `--ipm-scale-height`    | `1.4`        | Camera height (m) for `--use-ipm-scale`. |
+| `--ipm-scale-pitch`     | `1.5`        | Camera downward pitch (deg) for `--use-ipm-scale` — the sensitive knob; ~1–2° for a windshield-mounted dashcam. |
+| `--enable-loop-closure` | off          | Detect a route that returns near its start (ORB-verified) and redistribute VO drift so the loop closes. Pair with `--use-ipm-scale`; closing at a wrong scale doesn't help. On KITTI drive_0033 the chain cuts mean route error 144 → 77 m. |
 | `--ground-truth A B C`  | none         | Known street names; the pipeline scores each candidate by distance to nearest GT geometry |
 | `--ground-truth-waypoints` | none      | JSON file of timestamped GPS fixes along the true route (see `ground_truth/`); reports metric start/route errors per candidate |
 | `--enable-bev-splat`    | off          | Run the BevSplat cross-view localization channel. When ≥80% of candidates score successfully, its appearance rank is **fused into the consensus** (weight 0.75 vs 1.0 for the geometric channels). See *BevSplat integration* below. |
@@ -704,6 +707,36 @@ reliably *in the top-5 shortlist* even when shape mis-ranks the headline pick:
 - **The output is now honest.** Tight spatial spread (Ulm, 368 m) → trustworthy;
   large spread (comma/London, 1400 m+) → reported as **low** confidence with a
   top-N shortlist, instead of a confident wrong answer.
+
+### Beyond shape matching: the SOTA is neural BEV→OSM (OrienterNet)
+
+A literature survey (CVPR/arXiv, 2025–2026) shows our trajectory-shape pipeline is
+the *classical* approach; the learned state of the art for "localize a monocular
+image in OpenStreetMap" is **[OrienterNet](https://github.com/facebookresearch/OrienterNet)**
+(CVPR 2023) and its 2026 successors — they encode the ground image into a neural
+**bird's-eye view** and match it against the OSM raster to predict a metric 3-DoF
+pose, reporting **recall@3 m >95 % on KITTI** with short-sequence fusion. This
+sidesteps the selection wall entirely (it uses learned semantics + appearance, not
+distinctive trajectory shape).
+
+We ran OrienterNet on our own KITTI 0033 frames (`scripts/test_orienternet*.py`).
+Single-frame is ~30 m median (residential layout is ambiguous), but with the paper's
+**sequential fusion** (`maploc`'s `RigidAligner`, using OXTS odometry over ~13 s
+chunks) it lands **median 1.9 m, recall@3 m 75 %, @5 m 100 %, @10 m 100 %** — a **75×
+improvement** over the 144 m shape-matcher, and far below the 50 m target.
+
+The natural architecture going forward: keep this pipeline for the **coarse prior +
+OSM region + VO odometry**, and use OrienterNet as the **metric localization head**.
+An opt-in `--use-orienternet` channel is wired (`src/orienternet_localizer.py`); it
+runs end-to-end (and degrades to a no-op without the model), but doesn't yet realise
+the ~2 m through the full pipeline — OrienterNet needs each keyframe's prior within
+~½ tile of its truth, and the shape-matcher's loop-phase ambiguity scatters per-point
+priors too far. The fix (next step) is to drive OrienterNet from the VO's native
+per-frame poses rather than the street-snapped route. (For drift-free VO,
+**MASt3R-SLAM**, CVPR 2025, is the modern choice, but it needs the same `lietorch`
+CUDA build that fails on Blackwell/Windows; the 2026 successor "Coarse-to-Fine
+Monocular Re-Localization in OSM", arXiv 2603.01613, beats OrienterNet but has no
+public code yet.)
 
 ## Known limitations of the PoC
 

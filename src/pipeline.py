@@ -91,6 +91,7 @@ class PipelineConfig:
     enable_aerial_match: bool = True
     enable_da3: bool = False
     use_da3_trajectory: bool = False
+    use_mapanything_trajectory: bool = False
     da3_keyframes: int = 32
     enable_full_splat: bool = False
     full_splat_scale: float = 1.4
@@ -125,6 +126,13 @@ class PipelineConfig:
     # (lat, lon, radius_m) to fetch a bounded disc of the OSM graph
     # instead of the whole named place — needed for mega-cities.
     osm_around: tuple[float, float, float] | None = None
+    # Blind VPR coarse prior (KartaView + EigenPlaces) to gate the OSM graph to the
+    # right neighbourhood — shape-independent fix for the SELECTION wall.
+    use_vpr_prior: bool = False
+    vpr_search_radius_m: float = 3000.0
+    vpr_gate_radius_m: float = 1000.0
+    # Absolute heading from the sun (activates only if the clip has a capture time).
+    use_sun_heading: bool = False
     enable_scale_recovery: bool = True
     scale_recovery_thresh_m: float = 150.0
     scale_recovery_min_inliers: int = 3
@@ -134,7 +142,10 @@ class PipelineConfig:
     # was wildly pitch-sensitive). When on, sets the metric length prior
     # subject to the same sanity gate.
     use_ipm_scale: bool = False
-    ipm_scale_pitch_deg: float = 6.0
+    # IPM-scale geometry. Pitch is the sensitive knob: a near-horizontal
+    # dashcam (~1-2 deg) recovers scale within ~10% (KITTI 0033), while 6 deg
+    # over-estimates ~35%. Default to a typical windshield-mount pitch.
+    ipm_scale_pitch_deg: float = 1.5
     ipm_scale_camera_height_m: float = 1.4
     # Lock the matcher's alignment scale to (estimated_length_m / VO arc
     # length) instead of letting Procrustes choose it freely. Forces the
@@ -160,6 +171,23 @@ class PipelineConfig:
     # geometry-rank #37 on KITTI 0033), so raise this to let appearance
     # rescue a geometrically-buried-but-correct candidate.
     bev_fusion_cap: int = 5
+    # Detect a route that returns near its start and redistribute the VO
+    # drift so the loop closes (src/loop_closure.py). Pair with
+    # --use-ipm-scale; closing at a wrong scale doesn't help.
+    enable_loop_closure: bool = False
+    # Run VGGT (feed-forward, drift-free poses) to GATE enumeration to the
+    # area its trajectory selects, then let the precise (loop-closed) VO
+    # geometry pick within it (src/vggt_trajectory.py). Needs the vggt
+    # package + GPU + ~5 GB weights; degrades to a no-op if unavailable.
+    use_vggt_gating: bool = False
+    vggt_keyframes: int = 64
+    # Refine the shape-matched coarse position with OrienterNet (neural
+    # BEV->OSM matching + sequential fusion) — the metric localization head
+    # (src/orienternet_localizer.py). ~2 m on KITTI. Needs
+    # third_party/OrienterNet + GPU + weights; no-op if unavailable.
+    use_orienternet: bool = False
+    orienternet_keyframes: int = 10
+    orienternet_tile_m: float = 160.0
     vo_workers: int | None = None  # None → auto (min(cpu_count, 12)); 1 → sequential
     # When set, use this local video file directly: no download, `url` is
     # informational only (recorded in the result JSON).
@@ -317,6 +345,62 @@ def _auto_estimated_length_m(duration_sec: float) -> float:
     return float(np.clip(duration_sec * _URBAN_AVG_SPEED_MPS, 500.0, 12000.0))
 
 
+def _orienternet_refine(cfg, frames, cand, road, position, result) -> None:
+    """Refine the shape-matched coarse position with OrienterNet (BEV->OSM).
+
+    Samples keyframes across the analyzed window, maps each to a coarse
+    lat/lon from the shape-matched route, and runs OrienterNet sequential
+    fusion. Updates ``position`` in place (keeps the coarse estimate under
+    ``coarse_*``) and records the refined-vs-GT error when GT is present.
+    """
+    print("[10c] OrienterNet metric refinement (neural BEV->OSM)")
+    try:
+        from .orienternet_localizer import refine_route
+        from .position import xy_to_latlon
+        fr = frames.frames
+        route_ll = xy_to_latlon(np.asarray(cand.aligned_traj_xy, dtype=np.float64), road.crs)
+        if len(fr) < 2 or len(route_ll) < 2:
+            print("      -> too few frames; skipping")
+            return
+        # Dense keyframes over the WHOLE route (the aligner chains them via
+        # odometry and is anchored at the middle, so confident frames pin
+        # even the loop-phase-ambiguous endpoints). Needs correct metric
+        # scale — run with --use-ipm-scale --enable-loop-closure.
+        n_kf = max(cfg.orienternet_keyframes, 1)
+        idxs = np.linspace(0, len(fr) - 1, n_kf).round().astype(int)
+        kf = [fr[i] for i in idxs]
+        rfrac = (idxs / max(len(fr) - 1, 1) * (len(route_ll) - 1)).round().astype(int)
+        prior_ll = route_ll[rfrac]
+        # focal_px=None -> OrienterNet auto-calibrates the camera FOV.
+        refined = refine_route(kf, prior_ll, None, tile_m=cfg.orienternet_tile_m)
+        if refined is None:
+            print("      -> OrienterNet unavailable; keeping shape-match position")
+            return
+        lat0, lon0 = float(refined[0][0]), float(refined[0][1])
+        position["coarse_latitude"] = position["latitude"]
+        position["coarse_longitude"] = position["longitude"]
+        position["latitude"] = round(lat0, 6)
+        position["longitude"] = round(lon0, 6)
+        position["ranking"] = position.get("ranking", "") + "+orienternet"
+        position["google_maps_url"] = google_maps_url(lat0, lon0)
+        position["orienternet_route_latlon"] = [
+            [round(float(a), 6), round(float(b), 6)] for a, b in refined]
+        result["orienternet"] = {"keyframes": len(kf), "tile_m": cfg.orienternet_tile_m}
+        print(f"      -> refined start: {lat0:.6f}, {lon0:.6f}")
+        if cfg.ground_truth_waypoints:
+            from .evaluator import _segment_to_polyline_distance, load_gt_waypoints
+            from .position import latlon_to_xy
+            wp_xy = latlon_to_xy(load_gt_waypoints(cfg.ground_truth_waypoints), road.crs)
+            rt_xy = latlon_to_xy(refined, road.crs)
+            d0 = float(np.linalg.norm(rt_xy[0] - wp_xy[0]))
+            dm = float(np.mean([_segment_to_polyline_distance(w_, rt_xy) for w_ in wp_xy]))
+            position["orienternet_gt_start_error_m"] = round(d0, 1)
+            position["orienternet_gt_mean_route_error_m"] = round(dm, 1)
+            print(f"      -> OrienterNet vs GT: start {d0:.1f} m, mean route {dm:.1f} m")
+    except Exception as e:
+        print(f"      -> OrienterNet refine failed ({e})")
+
+
 def _da3_trajectory_plausible(xy: np.ndarray) -> bool:
     """Reject DA3 camera paths that look like pose-estimation failures.
 
@@ -453,7 +537,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 pitch_deg=cfg.ipm_scale_pitch_deg, fps=frames.fps,
                 frame_stride=cfg.frame_stride * step,
             )
-            if flow_len > 0 and _length_sane(flow_len):
+            # IPM flow is a *physical measurement* (optical flow + camera
+            # height), so trust it on a looser bound than the generic 2x
+            # sanity gate: the duration prior uses a conservative 5.5 m/s,
+            # so a faster drive legitimately measures ~2x it (KITTI 0033:
+            # true 1705 m vs 876 m prior = 1.95x), which the 2x gate would
+            # wrongly reject. Accept within [0.3x, 3x] of the prior.
+            if flow_len > 0 and 0.3 * duration_prior_m <= flow_len <= 3.0 * duration_prior_m:
                 print(f"      -> flow length {flow_len:.0f} m adopted (was "
                       f"{estimated_length_m:.0f} m)")
                 estimated_length_m = float(np.clip(flow_len, 500.0, 12000.0))
@@ -569,9 +659,33 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         )
     _plot_trajectory(traj, cfg.output_dir / "trajectory.png")
 
+    # 4a. Optional blind VPR coarse prior (KartaView + EigenPlaces): retrieve the
+    # frames against GPS-tagged street photos to locate the clip INDEPENDENTLY of
+    # trajectory shape, then gate the OSM graph to that neighbourhood — the fix for
+    # the SELECTION wall. ~53 m prior on Ulm 4K (src/kartaview_vpr.py).
+    osm_around = cfg.osm_around
+    if cfg.use_vpr_prior and osm_around is None:
+        print("[4a] VPR coarse prior (KartaView + EigenPlaces)")
+        try:
+            import osmnx as ox
+            from .kartaview_vpr import kartaview_vpr_prior
+            center = ox.geocode(cfg.city)
+            p = kartaview_vpr_prior(frames.frames, center,
+                                    radius_m=cfg.vpr_search_radius_m,
+                                    cache_dir=str(cfg.data_dir / "kartaview"),
+                                    device="cuda")
+            if p is not None:
+                osm_around = (p[0], p[1], cfg.vpr_gate_radius_m)
+                print(f"      -> VPR prior {p[0]:.5f}, {p[1]:.5f}; gating graph to "
+                      f"{cfg.vpr_gate_radius_m:.0f} m disc")
+            else:
+                print("      -> VPR unavailable; keeping full-city graph")
+        except Exception as e:
+            print(f"      -> VPR prior failed ({e}); keeping full-city graph")
+
     # 4. OSM road graph for the city.
-    if cfg.osm_around is not None:
-        la, lo, rad = cfg.osm_around
+    if osm_around is not None:
+        la, lo, rad = osm_around
         print(f"[4/5] Fetching OSM driving graph around ({la:.4f}, {lo:.4f}) "
               f"r={rad:.0f} m for {cfg.city!r}")
         cache_path = cfg.data_dir / (
@@ -580,9 +694,36 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     else:
         print(f"[4/5] Fetching OSM driving graph for {cfg.city!r}")
         cache_path = cfg.data_dir / f"{cfg.city.replace(',', '').replace(' ', '_')}.graphml"
-    road = _fetch_road_graph(cfg.city, cache_path, around=cfg.osm_around)
+    road = _fetch_road_graph(cfg.city, cache_path, around=osm_around)
     print(f"      -> {road.graph.number_of_nodes()} nodes, "
           f"{road.graph.number_of_edges()} edges, CRS={road.crs}")
+
+    # 4b. Optional: absolute heading from the sun. Activates only when the clip
+    # carries a usable capture time (container metadata or a burned-in clock);
+    # otherwise a graceful no-op. When available it pins the matcher's free
+    # rotation DOF (src/sun_heading.py). Computed + reported here.
+    if cfg.use_sun_heading:
+        try:
+            from .sun_heading import estimate_heading
+            cen = osm_around[:2] if osm_around else None
+            if cen is None:
+                import osmnx as ox
+                cen = ox.geocode(cfg.city)
+            sh_times = list(np.linspace(cfg.vo_start_sec,
+                                        cfg.vo_end_sec or (cfg.vo_start_sec + 420.0), 30))
+            sh = estimate_heading(str(video_path), cen, sh_times)
+            result_sun_heading = sh
+            if sh and sh.get("available"):
+                print(f"[4b] Sun heading: {sh['median_heading']:.0f} deg via {sh['source']} "
+                      f"({sh['n_used']} frames, conf {sh['confidence']:.2f})")
+            else:
+                print(f"[4b] Sun heading: not available "
+                      f"({(sh or {}).get('reason', 'module missing')})")
+        except Exception as e:
+            print(f"[4b] Sun heading failed ({e})")
+            result_sun_heading = {"available": False, "reason": str(e)}
+    else:
+        result_sun_heading = None
 
     # 4b. Optional: use Depth Anything 3's globally-consistent camera path
     # as the trajectory the shape matcher consumes. Monocular VO drifts
@@ -593,6 +734,18 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # We keep the VO `traj` for the splat/IPM renders (those are tied to
     # the per-frame VO poses) and only swap the matcher's input here.
     match_xz = traj.xz
+    if cfg.use_mapanything_trajectory:
+        print("[4b'] MapAnything submap-stitched trajectory (matcher input)")
+        from .mapanything_trajectory import mapanything_trajectory_xy
+        end_s = cfg.vo_end_sec if cfg.vo_end_sec else (cfg.vo_start_sec + 420.0)
+        ma = mapanything_trajectory_xy(str(video_path), cfg.vo_start_sec, end_s)
+        if ma is not None and len(ma[0]) >= 2 and bool(np.isfinite(ma[0]).all()):
+            match_xz = ma[0]
+            _plot_xy(match_xz, cfg.output_dir / "trajectory_mapanything.png",
+                     "MapAnything submap-stitched trajectory (matcher input)")
+            print(f"      -> using MapAnything trajectory: {len(match_xz)} stitched poses")
+        else:
+            print("      -> MapAnything unavailable/invalid; keeping VO path")
     da3_rec = None
     result_scale_recovery: dict | None = None   # set by DA3 (4b) or anchors (4c)
     if cfg.use_da3_trajectory:
@@ -652,6 +805,34 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             result_traj_source = "vo"
     else:
         result_traj_source = "vo"
+
+    # 4b2. Optional: loop-closure drift correction. On a route that returns
+    # near its start, monocular VO leaves a large end-start gap (pure
+    # drift) that warps the whole shape — the dominant geometric error.
+    # If the last frames verifiably revisit the first, redistribute the
+    # gap back along the trajectory. Pair with a real metric scale
+    # (--use-ipm-scale): closing the loop at a wrong scale doesn't help.
+    result_loop_closure: dict | None = None
+    if cfg.enable_loop_closure:
+        from .loop_closure import detect_end_to_start_loop, redistribute_drift
+        from .visual_odometry import trajectory_arc_length as _arclen2
+        print("[4b2] Loop-closure drift correction")
+        try:
+            pair = detect_end_to_start_loop(frames.frames)
+            if pair is not None and pair[0] < pair[1] < len(match_xz):
+                i, j = pair
+                gap = float(np.linalg.norm(match_xz[j] - match_xz[i]))
+                arclen = float(_arclen2(match_xz)[-1])
+                match_xz = redistribute_drift(match_xz, i, j)
+                result_loop_closure = {"closed": True, "i": int(i), "j": int(j),
+                                       "gap_units": round(gap, 2)}
+                print(f"      -> loop detected (frames {i}↔{j}); closed "
+                      f"{gap:.1f}-unit gap ({100 * gap / max(arclen, 1e-6):.0f}% of arc)")
+            else:
+                result_loop_closure = {"closed": False}
+                print("      -> no verifiable loop (end does not revisit start)")
+        except Exception as e:
+            print(f"      -> loop-closure failed ({e}); using VO path unchanged")
 
     # 4c. Optional: OCR scene-text → geocoded POI anchors. Computed before
     # the match so the anchors can *seed* enumeration (add walk roots near
@@ -841,10 +1022,37 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             print(f"      -> scale-locked alignment: {locked_scale:.4f} m/VO-unit "
                   f"(extent {estimated_length_m:.0f} m / {vo_arclen:.1f} VO units)")
 
-    anchor_gated = bool(cfg.enable_ocr_anchor and anchor_seed)
-    if anchor_gated:
-        print(f"[5/5] Matching (anchor-gated to {len(anchor_seed)} seed nodes "
-              f"near {len(ocr_anchors)} OCR anchor(s))")
+    # VGGT gating: a drift-free feed-forward trajectory selects the AREA
+    # (its bearing signature matches the true street, breaking the
+    # parallel-street ambiguity that drifted VO can't), then the precise
+    # loop-closed VO geometry ranks within it.
+    vggt_seed: list = []
+    result_vggt: dict | None = None
+    if cfg.use_vggt_gating:
+        print("[5a] VGGT trajectory gating (drift-free area selection)")
+        try:
+            from .vggt_trajectory import vggt_camera_trajectory, vggt_seed_nodes
+            vxy = vggt_camera_trajectory(frames.frames, n_keyframes=cfg.vggt_keyframes)
+            if vxy is not None:
+                vggt_seed = vggt_seed_nodes(
+                    vxy, road, estimated_length_m=estimated_length_m)
+                result_vggt = {"poses": len(vxy), "seed_nodes": len(vggt_seed)}
+                print(f"      -> VGGT: {len(vxy)} poses -> {len(vggt_seed)} seed start-node(s)")
+            else:
+                print("      -> VGGT unavailable (no package/GPU/weights); skipping")
+        except Exception as e:
+            print(f"      -> VGGT gating failed ({e}); skipping")
+
+    seed = list(dict.fromkeys((anchor_seed or []) + vggt_seed))
+    gated = bool((cfg.enable_ocr_anchor and anchor_seed) or vggt_seed)
+    anchor_gated = gated  # downstream reporting reuses this name
+    if gated:
+        why = []
+        if cfg.enable_ocr_anchor and anchor_seed:
+            why.append(f"{len(ocr_anchors)} OCR anchor(s)")
+        if vggt_seed:
+            why.append("VGGT")
+        print(f"[5/5] Matching (gated to {len(seed)} seed nodes: {', '.join(why)})")
     else:
         print(f"[5/5] Matching trajectory against {road.graph.number_of_nodes()} candidate starts")
     _pool_k = max(cfg.top_k, _HYP_POOL)
@@ -854,12 +1062,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         final_top_k=_pool_k,
         sample_every=cfg.sample_every,
         estimated_length_m=estimated_length_m,
-        extra_start_nodes=anchor_seed,
-        restrict_to_start_nodes=anchor_gated,
+        extra_start_nodes=seed or None,
+        restrict_to_start_nodes=gated,
         locked_scale=locked_scale,
     )
-    if anchor_gated and not candidates:
-        print("      -> anchor-gated match found nothing; falling back to full scan")
+    if gated and not candidates:
+        print("      -> gated match found nothing; falling back to full scan")
         candidates = match_trajectory(
             match_xz, road, final_top_k=_pool_k, sample_every=cfg.sample_every,
             estimated_length_m=estimated_length_m, locked_scale=locked_scale,
@@ -1604,6 +1812,10 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 )
             if result_scale_recovery is not None:
                 result["scale_recovery"] = result_scale_recovery
+            if result_loop_closure is not None:
+                result["loop_closure"] = result_loop_closure
+            if result_vggt is not None:
+                result["vggt_gating"] = result_vggt
             if result_ipm_scale is not None:
                 result["ipm_scale"] = result_ipm_scale
 
@@ -1629,6 +1841,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     for h in hyps
                 ]
 
+            # OrienterNet metric refinement (neural BEV->OSM). Refines the
+            # shape-matched coarse route to ~metric accuracy by fusing
+            # per-frame BEV->OSM beliefs along it. Updates the headline
+            # position with the refined start; keeps the coarse one too.
+            if cfg.use_orienternet and candidates:
+                _orienternet_refine(cfg, frames, candidates[0], road, position, result)
+
             result["position"] = position
             print()
             print(format_position_summary(position))
@@ -1649,6 +1868,11 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 f"(road graph CRS: {road.crs!r})"
             )
             print(f"      -> position unavailable: {result['position_error']}")
+
+    if result_sun_heading is not None:
+        # store a JSON-safe view (drop the per-frame numpy array)
+        result["sun_heading"] = {k: v for k, v in result_sun_heading.items()
+                                 if k != "headings"}
 
     out_json = cfg.output_dir / "result.json"
     with out_json.open("w", encoding="utf-8") as f:

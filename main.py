@@ -169,6 +169,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "splat/IPM renders.")
     p.add_argument("--da3-keyframes", type=int, default=32,
                    help="number of keyframes to feed DA3 (must fit in GPU memory)")
+    p.add_argument("--use-mapanything-trajectory", action="store_true",
+                   help="EXPERIMENTAL (does NOT improve accuracy — see below). Use "
+                        "MapAnything (3DV'26) as the matcher's trajectory via "
+                        "submap-stitching (src/mapanything_trajectory.py): short "
+                        "high-overlap windows reconstructed feed-forward then chained "
+                        "by a scale-guarded Sim(3). It recovers the metric scale a "
+                        "single pass collapses and fits the trajectory SHAPE better "
+                        "than VO (219 vs 258 m global-fit RMS on Ulm), but end-to-end "
+                        "it localized WORSE (final start err 1400 vs 664 m on the Ulm "
+                        "GT clip): a lower-drift path doesn't fix candidate SELECTION, "
+                        "which is the real bottleneck. Kept as a research toggle. Needs "
+                        "the mapanything package + GPU + ~9GB weights; no-op if missing.")
     p.add_argument("--full-splat", action="store_true",
                    help="render the splat (sparse and/or DA3) as anisotropic "
                         "alpha-blended Gaussians instead of isotropic disks. "
@@ -236,6 +248,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Bound the OSM graph to a disc 'lat,lon,radius_m' instead of "
                         "the whole named city. Required for mega-cities (e.g. London) "
                         "where fetching the full place is infeasible.")
+    p.add_argument("--use-vpr-prior", action="store_true",
+                   help="Blind coarse-location prior via Visual Place Recognition on "
+                        "KartaView street imagery (open API, no token) + EigenPlaces, then "
+                        "gate the OSM graph to that neighbourhood (src/kartaview_vpr.py). "
+                        "Shape-INDEPENDENT — the fix for the selection wall; ~53 m prior on "
+                        "Ulm 4K vs ~530 m for chance. Needs requests + GPU + EigenPlaces "
+                        "weights; no-op if unavailable. Ignored if --osm-around is given.")
+    p.add_argument("--vpr-search-radius", type=float, default=3000.0,
+                   help="Radius (m) around the city centre to fetch KartaView reference "
+                        "photos for --use-vpr-prior (default 3000).")
+    p.add_argument("--vpr-gate-radius", type=float, default=1000.0,
+                   help="Radius (m) of the OSM disc gated around the VPR prior (default 1000).")
+    p.add_argument("--use-sun-heading", action="store_true",
+                   help="Recover an ABSOLUTE camera heading from the sun (src/sun_heading.py) "
+                        "to pin the matcher's free rotation. Activates only if the clip carries "
+                        "a capture time (container metadata or a burned-in dashcam clock) AND "
+                        "the sun is in view; otherwise a graceful no-op. The astronomy is exact; "
+                        "needs pysolar+timezonefinder. Reported in result.json['sun_heading'].")
     p.add_argument("--ground-truth", nargs="*", default=[],
                    help="known street names traversed by the video (e.g. Neutorstrasse Olgastrasse)")
     p.add_argument("--ground-truth-waypoints", type=Path, default=None,
@@ -274,6 +304,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="BevSplat satellite tile side length in pixels (KITTI default: 512).")
     p.add_argument("--bev-splat-half-extent-m", type=float, default=60.0,
                    help="BevSplat satellite tile half-side in metres.")
+    p.add_argument("--ipm-scale-height", type=float, default=1.4,
+                   help="Camera height (m) for --use-ipm-scale metric scale (default 1.4).")
+    p.add_argument("--ipm-scale-pitch", type=float, default=1.5,
+                   help="Camera downward pitch (deg) for --use-ipm-scale. The sensitive "
+                        "knob: ~1-2 deg for a near-horizontal dashcam (default 1.5).")
+    p.add_argument("--enable-loop-closure", action="store_true",
+                   help="Detect a route that returns near its start and redistribute "
+                        "VO drift so the loop closes (src/loop_closure.py). Pair with "
+                        "--use-ipm-scale; closing at a wrong scale doesn't help.")
+    p.add_argument("--use-vggt-gating", action="store_true",
+                   help="Run VGGT (feed-forward, drift-free poses) to gate enumeration "
+                        "to the area its trajectory selects, then let the loop-closed VO "
+                        "geometry pick within it. Needs the vggt package + GPU + ~5GB "
+                        "weights; no-op if unavailable. Best with --enable-loop-closure "
+                        "--use-ipm-scale.")
+    p.add_argument("--vggt-keyframes", type=int, default=64,
+                   help="Keyframes fed to VGGT (default 64; wider baselines = cleaner poses).")
+    p.add_argument("--use-orienternet", action="store_true",
+                   help="Refine the shape-matched position with OrienterNet (neural "
+                        "BEV->OSM matching + sequential fusion) — the metric localization "
+                        "head, ~2 m on KITTI. Needs third_party/OrienterNet + GPU + weights.")
+    p.add_argument("--orienternet-keyframes", type=int, default=10)
+    p.add_argument("--orienternet-tile-m", type=float, default=160.0,
+                   help="OrienterNet OSM tile half-extent (m); size to the coarse error.")
     p.add_argument("--bev-fusion-cap", type=int, default=5,
                    help="How many top-by-geometry candidates the BevSplat "
                         "appearance rank may reorder (default 5). Raise it when "
@@ -354,6 +408,7 @@ def main() -> None:
             splat_max_pairs=args.splat_max_pairs,
             enable_da3=args.use_da3,
             use_da3_trajectory=args.use_da3_trajectory,
+            use_mapanything_trajectory=args.use_mapanything_trajectory,
             da3_keyframes=args.da3_keyframes,
             enable_full_splat=args.full_splat,
             full_splat_scale=args.full_splat_scale,
@@ -377,6 +432,10 @@ def main() -> None:
             use_ipm_scale=args.use_ipm_scale,
             scale_lock=args.scale_lock,
             osm_around=osm_around,
+            use_vpr_prior=args.use_vpr_prior,
+            vpr_search_radius_m=args.vpr_search_radius,
+            vpr_gate_radius_m=args.vpr_gate_radius,
+            use_sun_heading=args.use_sun_heading,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,
             enable_bev_splat=args.enable_bev_splat,
@@ -387,6 +446,14 @@ def main() -> None:
             bev_splat_tile_size=args.bev_splat_tile_size,
             bev_splat_half_extent_m=args.bev_splat_half_extent_m,
             bev_fusion_cap=args.bev_fusion_cap,
+            enable_loop_closure=args.enable_loop_closure,
+            use_vggt_gating=args.use_vggt_gating,
+            vggt_keyframes=args.vggt_keyframes,
+            use_orienternet=args.use_orienternet,
+            orienternet_keyframes=args.orienternet_keyframes,
+            orienternet_tile_m=args.orienternet_tile_m,
+            ipm_scale_camera_height_m=args.ipm_scale_height,
+            ipm_scale_pitch_deg=args.ipm_scale_pitch,
             vo_workers=args.vo_workers,
             video_path=local_path,
         )
