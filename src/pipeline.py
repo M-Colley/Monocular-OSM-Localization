@@ -92,6 +92,8 @@ class PipelineConfig:
     enable_da3: bool = False
     use_da3_trajectory: bool = False
     use_mapanything_trajectory: bool = False
+    openvo_trajectory_path: "Path | None" = None
+    prefer_openvo_trajectory: bool = True   # default: auto-use a staged OpenVO path, VO fallback
     da3_keyframes: int = 32
     enable_full_splat: bool = False
     full_splat_scale: float = 1.4
@@ -112,6 +114,7 @@ class PipelineConfig:
     # near anchors and re-ranks by anchor proximity. Needs easyocr +
     # network geocoding (both cached after first run).
     enable_ocr_anchor: bool = False
+    use_ocr_super_res: bool = False
     ocr_sample_interval_sec: float = 6.0
     ocr_min_confidence: float = 0.5
     # Optional separate (higher-res) video for OCR only. VO/matching stay
@@ -131,6 +134,11 @@ class PipelineConfig:
     use_vpr_prior: bool = False
     vpr_search_radius_m: float = 3000.0
     vpr_gate_radius_m: float = 1000.0
+    vpr_gate: bool = False   # default: VPR is a re-rank centre, not an OSM gate (gating hurt)
+    # License-plate registration-district anchor: read EU plate region prefixes,
+    # vote, geocode the modal district -> coarse region gate (src/plate_anchor.py).
+    use_plate_anchor: bool = False
+    plate_gate_radius_m: float = 8000.0
     # Absolute heading from the sun (activates only if the clip has a capture time).
     use_sun_heading: bool = False
     enable_scale_recovery: bool = True
@@ -664,8 +672,9 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # trajectory shape, then gate the OSM graph to that neighbourhood — the fix for
     # the SELECTION wall. ~53 m prior on Ulm 4K (src/kartaview_vpr.py).
     osm_around = cfg.osm_around
+    vpr_center: tuple | None = None
     if cfg.use_vpr_prior and osm_around is None:
-        print("[4a] VPR coarse prior (KartaView + EigenPlaces)")
+        print("[4a] VPR coarse prior (KartaView + MegaLoc)")
         try:
             import osmnx as ox
             from .kartaview_vpr import kartaview_vpr_prior
@@ -675,13 +684,53 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                                     cache_dir=str(cfg.data_dir / "kartaview"),
                                     device="cuda")
             if p is not None:
-                osm_around = (p[0], p[1], cfg.vpr_gate_radius_m)
-                print(f"      -> VPR prior {p[0]:.5f}, {p[1]:.5f}; gating graph to "
-                      f"{cfg.vpr_gate_radius_m:.0f} m disc")
+                # VPR is route-accurate (~190 m from the GT route on Ulm — better
+                # than the matcher's pick). Use it as a RE-RANK centre, NOT a gate:
+                # gating to its disc changes the candidate scoring and hurt
+                # end-to-end (664 -> 1276 m on Ulm). Re-ranking candidates by
+                # proximity to this centre instead pulls the pick to the true area.
+                vpr_center = (p[0], p[1])
+                if cfg.vpr_gate:
+                    osm_around = (p[0], p[1], cfg.vpr_gate_radius_m)
+                    print(f"      -> VPR prior {p[0]:.5f}, {p[1]:.5f}; gating graph to "
+                          f"{cfg.vpr_gate_radius_m:.0f} m disc")
+                else:
+                    print(f"      -> VPR prior {p[0]:.5f}, {p[1]:.5f}; re-ranking "
+                          f"candidates by proximity")
             else:
                 print("      -> VPR unavailable; keeping full-city graph")
         except Exception as e:
             print(f"      -> VPR prior failed ({e}); keeping full-city graph")
+
+    # [4a'] License-plate district anchor: an independent, absolute coarse prior.
+    # Reads EU plate region prefixes across the clip, votes on the registration
+    # district, geocodes it. Used as a RE-RANK channel in the consensus fusion
+    # (not a hard gate — gating is slow on the resulting graph and can't separate
+    # the true candidate from wrong ones inside any reasonable radius). The
+    # district centroid pulls the pick toward the right area and kills gross
+    # km-scale errors. 0.4 km from GT on Ulm; strong where plates are readable
+    # (>=720p) and the fleet is local.
+    result_plate_anchor: dict | None = None
+    plate_center: tuple | None = None
+    if cfg.use_plate_anchor:
+        print("[4a'] License-plate district anchor (ALPR + Kfz-code vote)")
+        try:
+            from .plate_anchor import plate_district_anchor
+            pa = plate_district_anchor(str(video_path))
+            if pa is not None:
+                plate_center = (pa.lat, pa.lon)
+                result_plate_anchor = {
+                    "code": pa.code, "district": pa.district, "lat": pa.lat,
+                    "lon": pa.lon, "votes": pa.votes, "unique": pa.total_unique,
+                    "margin": round(pa.margin, 2), "tally": pa.tally,
+                }
+                print(f"      -> district {pa.code}={pa.district} "
+                      f"({pa.votes}/{pa.total_unique} unique, x{pa.margin:.1f}) at "
+                      f"{pa.lat:.4f},{pa.lon:.4f}; re-ranking candidates by proximity")
+            else:
+                print("      -> no confident district")
+        except Exception as e:
+            print(f"      -> plate anchor failed ({e})")
 
     # 4. OSM road graph for the city.
     if osm_around is not None:
@@ -746,6 +795,30 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             print(f"      -> using MapAnything trajectory: {len(match_xz)} stitched poses")
         else:
             print("      -> MapAnything unavailable/invalid; keeping VO path")
+    # OpenVO is the default matcher trajectory when one is staged for this clip
+    # (explicit --openvo-trajectory, else <data_dir>/openvo_trajectory.txt). It is
+    # intrinsic-free metric dashcam VO with lower drift than our frame-to-frame VO
+    # (196 vs 241 m global-fit RMS on Ulm). Poses are KITTI 3x4 rows; the top-down
+    # ground projection is (tx, tz) = cols 3,11. Falls back to VO if none present.
+    ov_path = cfg.openvo_trajectory_path
+    if ov_path is None and cfg.prefer_openvo_trajectory:
+        cand = cfg.data_dir / "openvo_trajectory.txt"
+        if cand.exists():
+            ov_path = cand
+    if ov_path is not None:
+        print(f"[4b''] OpenVO metric trajectory (matcher input): {ov_path}")
+        try:
+            P = np.loadtxt(str(ov_path))
+            ov = P[:, [3, 11]].astype(float)
+            if len(ov) >= 2 and bool(np.isfinite(ov).all()):
+                match_xz = ov
+                _plot_xy(ov, cfg.output_dir / "trajectory_openvo.png",
+                         "OpenVO metric trajectory (matcher input)")
+                print(f"      -> using OpenVO trajectory: {len(ov)} poses")
+            else:
+                print("      -> OpenVO trajectory invalid; keeping VO path")
+        except Exception as e:
+            print(f"      -> OpenVO trajectory load failed ({e}); keeping VO path")
     da3_rec = None
     result_scale_recovery: dict | None = None   # set by DA3 (4b) or anchors (4c)
     if cfg.use_da3_trajectory:
@@ -865,12 +938,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # Cache key includes the source name so 720p and 4K OCR don't
             # collide.
             cache_tag = "_4k" if cfg.ocr_video_path else ""
+            cache_tag += "_sr" if cfg.use_ocr_super_res else ""
             detections = extract_scene_text(
                 ocr_source,
                 sample_interval_sec=cfg.ocr_sample_interval_sec,
                 start_sec=cfg.vo_start_sec,
                 end_sec=cfg.vo_end_sec,
                 min_confidence=0.3,
+                super_res=cfg.use_ocr_super_res,
                 cache_path=cfg.data_dir / f"scene_text_cache{cache_tag}.json",
             )
             print(f"      -> {len(detections)} text detections")
@@ -1355,7 +1430,11 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         #     just chases whichever candidate (incl. a noise anchor like a
         #     shop sign) sits closest, demoting the true shape match.
         #     A small weight (0.25) only breaks near-ties. (GT-confirmed:
-        #     at 7 min the gated shape #1 IS the true route.)
+        #     at 7 min the gated shape #1 IS the true route.) NB raising this
+        #     does NOT fix the London failure: there the 'Holborn' anchor is a
+        #     DISTANT direction sign ~1.5 km from the true route, so trusting it
+        #     more only chases the wrong place — an anchor-QUALITY (here-vs-
+        #     direction) problem a VLM must solve, not a weight.
         #   * un-gated (anchors present but enumeration not restricted):
         #     strong weight (2.0) to pull toward the anchored area.
         #   * no anchors: 0 (clean no-op).
@@ -1367,6 +1446,64 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         else:
             W_ANCHOR = 2.0
 
+        # License-plate district anchor (shape-INDEPENDENT absolute prior): rank
+        # candidates by distance from their start to the voted district centroid.
+        # Unlike noisy OCR shop-sign anchors this is a reliable region cue, so it
+        # gets a strong weight to pull the pick toward the right district and kill
+        # gross km-scale errors. No-op (rank = shape) when no district was found.
+        if plate_center is not None:
+            import math as _math
+            from .position import xy_to_latlon as _xy2ll
+            _plat, _plon = plate_center
+            _cl = _math.cos(_math.radians(_plat))
+            _pd = []
+            for _c in candidates:
+                _ll = _xy2ll(np.asarray(_c.aligned_traj_xy[:1], dtype=np.float64), road.crs)
+                _la, _lo = float(_ll[0][0]), float(_ll[0][1])
+                _pd.append(_math.hypot((_la - _plat) * 111320.0,
+                                       (_lo - _plon) * 111320.0 * _cl))
+            _order = np.argsort(_pd)
+            plate_rank = {int(idx): r + 1 for r, idx in enumerate(_order)}
+            # DISTANCE-based penalty (not rank — rank loses magnitude). Each
+            # candidate is pushed down ∝ how far its start is from the district
+            # centroid (km), scaled by the vote confidence (margin, capped x2).
+            # This leaves near-centroid candidates almost untouched (so an
+            # already-correct pool still competes on shape) while strongly
+            # demoting gross km-scale errors — the plate anchor's real job.
+            # Free-radius penalty: candidates within R0 of the district seat pay
+            # nothing (trust shape there, so an already-correct in-district pick
+            # is preserved); beyond R0 the penalty grows ∝ extra km, strongly
+            # demoting gross errors. The district centroid is seat-biased, so a
+            # too-tight R0 would hurt legit non-seat drives — 1.5 km keeps the
+            # common city-centre case neutral while catching km-scale mispicks.
+            _conf = min(2.0, float((result_plate_anchor or {}).get("margin", 1.0)))
+            _R0 = 1500.0
+            plate_penalty = {i: 10.0 * _conf * max(0.0, (_pd[i] - _R0) / 1000.0)
+                             for i in range(len(candidates))}
+        else:
+            plate_rank = {i: i + 1 for i in range(len(candidates))}
+            plate_penalty = {i: 0.0 for i in range(len(candidates))}
+
+        # VPR re-rank channel: the VPR prior marks the clip's filmed CENTRE and is
+        # route-accurate (~190 m on Ulm — finer than the matcher itself), so we
+        # penalise each candidate by how far its trajectory CENTROID sits from the
+        # prior, with a tight free radius. This is the strongest shape-independent
+        # selection signal we have; it pulls the pick to the true area.
+        if vpr_center is not None:
+            import math as _vm
+            from .position import xy_to_latlon as _vxy2ll
+            _vlat, _vlon = vpr_center
+            _vcl = _vm.cos(_vm.radians(_vlat))
+            vpr_penalty = {}
+            for i, _c in enumerate(candidates):
+                _cen = np.asarray(_c.aligned_traj_xy, dtype=np.float64).mean(axis=0)
+                _ll = _vxy2ll(_cen[None, :], road.crs)
+                _d = _vm.hypot((float(_ll[0][0]) - _vlat) * 111320.0,
+                               (float(_ll[0][1]) - _vlon) * 111320.0 * _vcl)
+                vpr_penalty[i] = 15.0 * (_d / 1000.0)
+        else:
+            vpr_penalty = {i: 0.0 for i in range(len(candidates))}
+
         def _sliding_rank(i: int) -> int:
             return int(result["matches"][i].get("sliding_window_rank", i + 1))
 
@@ -1377,6 +1514,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 + W_TURN * turn_rank[i]
                 + W_ANCHOR * anchor_rank[i]
                 + W_AERIAL * aerial_rank[i]
+                + plate_penalty[i]
+                + vpr_penalty[i]
             )
 
         for i in range(len(aerial_results)):
@@ -1393,6 +1532,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
               f"sliding #{_sliding_rank(consensus_idx)}, "
               f"turn #{turn_rank[consensus_idx]}, "
               f"anchor #{anchor_rank[consensus_idx]}, "
+              f"plate #{plate_rank[consensus_idx]}, "
               f"aerial #{aerial_rank[consensus_idx]}, "
               f"fused={_fused(consensus_idx):.1f})")
 
@@ -1657,6 +1797,29 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             "first_named_rank": name_rank,
         }
 
+    # 10a*. ANCHOR-PRIMARY position. A route-accurate absolute prior (VPR,
+    # ~141-200 m on Ulm) beats ANY matcher candidate (pick 664 m, best-in-pool
+    # 521 m), and the matcher's candidate GENERATION — not its ranking — is the
+    # wall (gating its disc hurts; re-ranking can't beat the prior). So place the
+    # best trajectory AT the prior: translate the top candidate so its centroid
+    # sits on the prior, and report THAT anchored start as the primary answer.
+    # Orientation/shape come from the matcher; absolute position from the prior.
+    anchored_cand = None
+    if vpr_center is not None and candidates:
+        import dataclasses
+        from .position import latlon_to_xy as _ll2xy, xy_to_latlon as _xy2ll2
+        _traj = np.asarray(candidates[0].aligned_traj_xy, dtype=np.float64)
+        _vpr_xy = _ll2xy(np.asarray([[vpr_center[0], vpr_center[1]]], float), road.crs)[0]
+        _shift = _vpr_xy - _traj.mean(axis=0)
+        anchored_cand = dataclasses.replace(candidates[0], aligned_traj_xy=_traj + _shift)
+        _astart = _xy2ll2((_traj[:1] + _shift), road.crs)[0]
+        result["anchored_position"] = {
+            "lat": float(_astart[0]), "lon": float(_astart[1]), "source": "vpr",
+            "prior_latlon": [float(vpr_center[0]), float(vpr_center[1])],
+        }
+        print(f"[10a*] ANCHOR-PRIMARY (VPR): top trajectory placed at the prior "
+              f"-> start {_astart[0]:.5f}, {_astart[1]:.5f}")
+
     # 10b. Optional: metric evaluation against GPS waypoint ground truth.
     waypoint_evals = None
     if cfg.ground_truth_waypoints and candidates:
@@ -1689,6 +1852,16 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     waypoint_evals[0].mean_route_error_m, 1
                 ),
             }
+            if anchored_cand is not None:
+                aev = evaluate_candidates_against_waypoints(
+                    [anchored_cand], road, waypoints)[0]
+                result["anchored_position"]["gt_start_error_m"] = round(
+                    aev.start_error_m, 1)
+                result["anchored_position"]["gt_mean_route_error_m"] = round(
+                    aev.mean_route_error_m, 1)
+                print(f"      -> ANCHOR-PRIMARY start error vs GT: "
+                      f"{aev.start_error_m:.1f} m   (matcher pick was "
+                      f"{waypoint_evals[0].start_error_m:.1f} m)")
 
     # 11. Final position report — the single answer to "where is this
     # video?". candidates[0] is consensus-best when the aerial channel

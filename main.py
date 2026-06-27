@@ -181,6 +181,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "GT clip): a lower-drift path doesn't fix candidate SELECTION, "
                         "which is the real bottleneck. Kept as a research toggle. Needs "
                         "the mapanything package + GPU + ~9GB weights; no-op if missing.")
+    p.add_argument("--openvo-trajectory", type=Path, default=None,
+                   help="path to a precomputed OpenVO (CVPR'26) trajectory (KITTI 3x4 "
+                        "poses .txt) to feed the shape matcher instead of VO. OpenVO is "
+                        "intrinsic-free metric dashcam VO with lower drift than our VO "
+                        "(196 vs 241 m global-fit RMS on Ulm). Tests whether a better "
+                        "trajectory improves end-to-end OSM selection.")
+    p.add_argument("--no-openvo-default", action="store_true",
+                   help="disable the default of auto-using a staged OpenVO trajectory "
+                        "(<data_dir>/openvo_trajectory.txt) as the matcher input; force "
+                        "the built-in monocular VO instead.")
     p.add_argument("--full-splat", action="store_true",
                    help="render the splat (sparse and/or DA3) as anisotropic "
                         "alpha-blended Gaussians instead of isotropic disks. "
@@ -224,6 +234,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "candidates. The one channel that injects absolute "
                         "geographic info from the video. Needs easyocr + network "
                         "geocoding (both cached after first run).")
+    p.add_argument("--ocr-super-res", action="store_true",
+                   help="Upscale + sharpen frames before OCR (src/scene_text._upscale_sharpen) "
+                        "to recover legible street/place names from low-res signage. On London "
+                        "720p it ~doubled high-confidence detections and recovered geocodable "
+                        "names (Holborn, Bloomsbury, Euston) the original missed. Pair with "
+                        "--enable-ocr-anchor.")
     p.add_argument("--ocr-sample-interval-sec", type=float, default=6.0,
                    help="Seconds between frames sampled for OCR (default 6).")
     p.add_argument("--ocr-min-confidence", type=float, default=0.5,
@@ -260,6 +276,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "photos for --use-vpr-prior (default 3000).")
     p.add_argument("--vpr-gate-radius", type=float, default=1000.0,
                    help="Radius (m) of the OSM disc gated around the VPR prior (default 1000).")
+    p.add_argument("--use-plate-anchor", action="store_true",
+                   help="Blind coarse-location prior from license-plate REGISTRATION "
+                        "DISTRICTS (src/plate_anchor.py): read the EU plate region prefix "
+                        "(UL, M, B...) across the clip, vote, geocode the modal district, "
+                        "and gate the OSM graph to it. Shape-INDEPENDENT; 0.4 km from GT on "
+                        "Ulm. Privacy: only the district code (shared by 1000s of cars) is "
+                        "used, never full plates. Needs fast-alpr; no-op if no district "
+                        "emerges. Ignored if --osm-around or a VPR prior is given.")
+    p.add_argument("--plate-gate-radius", type=float, default=8000.0,
+                   help="Radius (m) of the OSM disc gated around the plate-district prior "
+                        "(default 8000 — covers a city + inner suburbs, excludes other cities).")
     p.add_argument("--use-sun-heading", action="store_true",
                    help="Recover an ABSOLUTE camera heading from the sun (src/sun_heading.py) "
                         "to pin the matcher's free rotation. Activates only if the clip carries "
@@ -409,6 +436,8 @@ def main() -> None:
             enable_da3=args.use_da3,
             use_da3_trajectory=args.use_da3_trajectory,
             use_mapanything_trajectory=args.use_mapanything_trajectory,
+            openvo_trajectory_path=args.openvo_trajectory,
+            prefer_openvo_trajectory=not args.no_openvo_default,
             da3_keyframes=args.da3_keyframes,
             enable_full_splat=args.full_splat,
             full_splat_scale=args.full_splat_scale,
@@ -425,6 +454,7 @@ def main() -> None:
             embedding_model=args.embedding_model,
             geotessera_year=args.geotessera_year,
             enable_ocr_anchor=args.enable_ocr_anchor,
+            use_ocr_super_res=args.ocr_super_res,
             ocr_sample_interval_sec=args.ocr_sample_interval_sec,
             ocr_min_confidence=args.ocr_min_confidence,
             ocr_video_path=args.ocr_video,
@@ -433,6 +463,8 @@ def main() -> None:
             scale_lock=args.scale_lock,
             osm_around=osm_around,
             use_vpr_prior=args.use_vpr_prior,
+            use_plate_anchor=args.use_plate_anchor,
+            plate_gate_radius_m=args.plate_gate_radius,
             vpr_search_radius_m=args.vpr_search_radius,
             vpr_gate_radius_m=args.vpr_gate_radius,
             use_sun_heading=args.use_sun_heading,

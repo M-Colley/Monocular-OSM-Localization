@@ -59,6 +59,7 @@ def _cache_signature(
     languages: tuple[str, ...],
     min_confidence: float,
     min_len: int,
+    super_res: bool = False,
 ) -> dict:
     return {
         "sample_interval_sec": sample_interval_sec,
@@ -67,7 +68,19 @@ def _cache_signature(
         "languages": list(languages),
         "min_confidence": min_confidence,
         "min_len": min_len,
+        "super_res": super_res,
     }
+
+
+def _upscale_sharpen(image, scale: float = 2.5):
+    """Lanczos upscale + unsharp mask — recovers legible street text from low-res
+    signage (London 720p: ~2x more high-conf detections; recovers Holborn/Bloomsbury)."""
+    import cv2
+    import numpy as np
+    img = np.asarray(image)
+    up = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
+    blur = cv2.GaussianBlur(up, (0, 0), 2.0)
+    return cv2.addWeighted(up, 1.6, blur, -0.6, 0)
 
 
 def _load_cache(cache_path: Path, sig: dict) -> list[SceneText] | None:
@@ -117,6 +130,7 @@ def extract_scene_text(
     cache_path: Path | None = None,
     ocr_reader: OcrReader | None = None,
     use_gpu: bool = True,
+    super_res: bool = False,
     frame_reader: Callable[[Path, float, float | None, float], list] | None = None,
 ) -> list[SceneText]:
     """OCR text off frames of ``video_path`` every ``sample_interval_sec``.
@@ -132,7 +146,7 @@ def extract_scene_text(
     video_path = Path(video_path)
     sig = _cache_signature(
         sample_interval_sec, start_sec, end_sec, tuple(languages),
-        min_confidence, min_len,
+        min_confidence, min_len, super_res,
     )
     if cache_path is not None:
         cached = _load_cache(Path(cache_path), sig)
@@ -146,6 +160,8 @@ def extract_scene_text(
 
     detections: list[SceneText] = []
     for t_sec, image in frames:
+        if super_res:
+            image = _upscale_sharpen(image)
         for item in reader.readtext(image):
             # easyocr returns (bbox, text, confidence).
             _bbox, text, conf = item

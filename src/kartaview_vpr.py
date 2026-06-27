@@ -125,8 +125,24 @@ def _embed_refs(refs, device, cache_dir):
     return emb, ref_xy
 
 
+def _geometric_median(pts, weights=None, iters=64, eps=1e-9):
+    """Weiszfeld geometric median (robust to outlier matches)."""
+    pts = np.asarray(pts, float)
+    w = np.ones(len(pts)) if weights is None else np.asarray(weights, float)
+    x = np.average(pts, axis=0, weights=w)
+    for _ in range(iters):
+        d = np.maximum(np.linalg.norm(pts - x, axis=1), eps)
+        wd = w / d
+        x_new = (pts * wd[:, None]).sum(0) / wd.sum()
+        if np.linalg.norm(x_new - x) < eps:
+            break
+        x = x_new
+    return x
+
+
 def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
-                        cache_dir=None, n_query=30, device=None):
+                        cache_dir=None, n_query=40, device=None,
+                        model_name="megaloc"):
     """Return a ``(lat, lon)`` coarse prior from KartaView VPR, or ``None``.
 
     ``center`` is a ``(lat, lon)`` seed (e.g. the city centroid); reference photos are
@@ -146,9 +162,18 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         if len(refs) < 30:
             return None
         if _MODEL is None:
-            _MODEL = torch.hub.load("gmberton/eigenplaces", "get_trained_model",
-                                    backbone="ResNet50", fc_output_dim=2048,
-                                    verbose=False).to(device).eval()
+            # MegaLoc (2024 SOTA retrieval) >> EigenPlaces; fall back if its
+            # weights/hub fetch fails so the channel still works offline-ish.
+            if model_name == "megaloc":
+                try:
+                    _MODEL = torch.hub.load("gmberton/MegaLoc", "get_trained_model",
+                                            verbose=False).to(device).eval()
+                except Exception:
+                    model_name = "eigenplaces"
+            if _MODEL is None:
+                _MODEL = torch.hub.load("gmberton/eigenplaces", "get_trained_model",
+                                        backbone="ResNet50", fc_output_dim=2048,
+                                        verbose=False).to(device).eval()
         ref_emb, ref_xy = _embed_refs(refs, device, cache_dir)
         if ref_emb is None or len(ref_xy) < 30:
             return None
@@ -156,7 +181,17 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         q_emb = _embed(device, [_prep(frames_bgr[i]) for i in idx])
         sims = (q_emb @ ref_emb.T).numpy()
         top1 = sims.argmax(1)
-        prior = np.median(ref_xy[top1], axis=0)
+        maxsim = sims.max(1)
+        # Confidence-thresholded robust aggregation: keep only frames whose best
+        # match is clearly above the per-clip baseline (the rest are ambiguous
+        # views — sky, foliage, generic road — that drag the plain median off),
+        # then take a similarity-weighted geometric median of their matched GPS.
+        thr = float(np.percentile(maxsim, 60))
+        keep = maxsim >= thr
+        if int(keep.sum()) >= 5:
+            prior = _geometric_median(ref_xy[top1[keep]], weights=maxsim[keep])
+        else:
+            prior = np.median(ref_xy[top1], axis=0)
         return float(prior[0]), float(prior[1])
     except Exception:
         return None
