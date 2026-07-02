@@ -57,6 +57,70 @@ def _load_model(device):
     return _MODEL, _CFG
 
 
+def _fetch_canvases(
+    tile_manager_cls,
+    boundary_box_cls,
+    proj,
+    xy_all: np.ndarray,
+    tile_m: float,
+    ppm,
+    *,
+    max_shared_span_m: float = 2000.0,
+    retry_sleep_s: float = 20.0,
+) -> list:
+    """Fetch one OSM canvas per keyframe, downloading OSM data ONCE.
+
+    ``TileManager.from_bbox`` is a full Overpass download; calling it per
+    keyframe means N heavily-overlapping ~tile-sized downloads, each with
+    its own HTTP-509 backoff. When the route's bbox is modest
+    (span <= ``max_shared_span_m``) we fetch a single TileManager covering
+    the whole route (+ tile margin) and ``query`` the per-keyframe bbox
+    from it. The per-keyframe path is kept as fallback for very long
+    routes and for keyframes the shared manager cannot serve.
+    """
+    import time
+
+    def _retry(fn):
+        # Backoff retry: the OSM API returns HTTP 509 under bursty load.
+        for attempt in range(5):
+            try:
+                return fn()
+            except ValueError as e:
+                if "509" in str(e) and attempt < 4:
+                    time.sleep(retry_sleep_s)
+                    continue
+                raise
+
+    mn = xy_all.min(axis=0)
+    mx = xy_all.max(axis=0)
+    span = float(np.max(mx - mn))
+
+    shared = None
+    if span <= max_shared_span_m:
+        try:
+            shared = _retry(lambda: tile_manager_cls.from_bbox(
+                proj, boundary_box_cls(mn, mx) + (tile_m + 10), ppm,
+            ))
+        except Exception:
+            shared = None  # fall back to per-keyframe fetching
+
+    canvases = []
+    for center in xy_all:
+        bbox = boundary_box_cls(center, center) + tile_m
+        canvas = None
+        if shared is not None:
+            try:
+                canvas = shared.query(bbox)
+            except Exception:
+                canvas = None
+        if canvas is None:
+            canvas = _retry(
+                lambda b=bbox: tile_manager_cls.from_bbox(proj, b + 10, ppm)
+            ).query(bbox)
+        canvases.append(canvas)
+    return canvases
+
+
 def _prepare(image, camera, canvas, cfg, gravity, model):
     import torch
     from maploc.data.image import pad_image, rectify_image, resize_image
@@ -104,8 +168,6 @@ def refine_route(
     except Exception:
         return None
 
-    import time
-
     def _camera(image, fpx):
         h, w = image.shape[:2]
         return Camera.from_dict({"model": "SIMPLE_PINHOLE", "width": w, "height": h,
@@ -127,24 +189,14 @@ def refine_route(
         d = np.gradient(xy_all, axis=0)
         yaw = (90.0 - np.degrees(np.arctan2(d[:, 1], d[:, 0]))) % 360.0
 
-        # Pre-fetch the OSM canvas + RGB image per keyframe once (with a
-        # backoff retry: the OSM API returns HTTP 509 under bursty load).
+        # Pre-fetch the OSM canvases (ONE Overpass download covering the
+        # whole route bbox when it is small enough; per-keyframe fallback
+        # otherwise) + the RGB image per keyframe once.
+        canvases = _fetch_canvases(TileManager, BoundaryBox, proj, xy_all, tile_m, ppm)
         prepped = []
         for i, bgr in enumerate(frames_bgr):
             image = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-            center = xy_all[i]
-            bbox = BoundaryBox(center, center) + tile_m
-            canvas = None
-            for attempt in range(5):
-                try:
-                    canvas = TileManager.from_bbox(proj, bbox + 10, ppm).query(bbox)
-                    break
-                except ValueError as e:
-                    if "509" in str(e) and attempt < 4:
-                        time.sleep(20)
-                        continue
-                    raise
-            prepped.append((image, canvas, xy_all[i], yaw[i]))
+            prepped.append((image, canvases[i], xy_all[i], yaw[i]))
 
         # AUTO-CALIBRATE the effective FOV by maximising OrienterNet's own
         # confidence (a peaked belief = a BEV that aligns to the OSM). NB the

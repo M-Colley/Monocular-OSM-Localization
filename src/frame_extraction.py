@@ -57,7 +57,15 @@ def extract_frames(
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
     start_frame = int(start_sec * fps)
-    end_frame = int(end_sec * fps) if end_sec is not None else total
+    # Some containers (raw elementary streams, broken duration metadata)
+    # report a frame count of 0 even though cap.read() decodes fine. With
+    # an open-ended segment we then read until EOF instead of never reading.
+    if end_sec is not None:
+        end_frame: int | None = int(end_sec * fps)
+    elif total > 0:
+        end_frame = total
+    else:
+        end_frame = None  # unknown length: cap.read() termination ends the loop
 
     if start_frame > 0:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
@@ -66,13 +74,23 @@ def extract_frames(
     timestamps: list[float] = []
     idx = start_frame
     try:
-        while idx < end_frame and (max_frames is None or len(frames) < max_frames):
+        while (end_frame is None or idx < end_frame) and (
+                max_frames is None or len(frames) < max_frames):
             ok, frame = cap.read()
             if not ok:
                 break
+            # Media time of the frame just decoded (POS_MSEC after read()
+            # reports its PTS) — exact on variable-frame-rate sources
+            # where idx/fps drifts.
+            pos_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
             if (idx - start_frame) % stride == 0:
                 frames.append(frame)
-                timestamps.append(idx / fps)
+                # Backends that can't report POS_MSEC return 0/negative;
+                # fall back to the nominal-fps timestamp there.
+                if pos_ms is not None and pos_ms > 0:
+                    timestamps.append(pos_ms / 1000.0)
+                else:
+                    timestamps.append(idx / fps)
             idx += 1
     finally:
         cap.release()

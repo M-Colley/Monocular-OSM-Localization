@@ -17,6 +17,24 @@ def test_parse_clock_formats():
     assert _parse_clock("1999-01-01 00:00:00") is None       # out of plausible range
 
 
+def test_parse_clock_disambiguates_day_month_order():
+    # US month-first clock: day > 12 proves the order (the old day-first-only
+    # parse rejected this as month 13 and lost the channel on US clips).
+    assert _parse_clock("06/13/2023 16:00:00") == datetime.datetime(2023, 6, 13, 16, 0, 0)
+    # EU day-first stays supported (day > 12 proves it, see above).
+    assert _parse_clock("25/06/2023 09:30:00") == datetime.datetime(2023, 6, 25, 9, 30, 0)
+    # Same value either way -> unambiguous.
+    assert _parse_clock("07/07/2023 12:00:00") == datetime.datetime(2023, 7, 7, 12, 0, 0)
+
+
+def test_parse_clock_rejects_ambiguous_dates():
+    # 06/10 is June 10 (US) or 6 October (EU): a wrong guess skews the sun
+    # azimuth by tens of degrees, so ambiguity must yield None, not a guess
+    # (the old code silently picked day-first).
+    assert _parse_clock("06/10/2023 16:00:00") is None
+    assert _parse_clock("01/02/2024 08:00:00") is None
+
+
 def test_sun_az_alt_known():
     tz = zoneinfo.ZoneInfo("Europe/Berlin")
     dt = datetime.datetime(2023, 6, 21, 13, 30, tzinfo=tz)    # near summer solstice noon

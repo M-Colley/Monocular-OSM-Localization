@@ -111,9 +111,17 @@ def comma_ground_truth(seg_dirs: list[Path], *, n_waypoints: int = 12) -> dict:
 
 
 def render_route_to_video(
-    seg_dirs: list[Path], out_path: Path, *, fps: float = COMMA_FPS
+    seg_dirs: list[Path], out_path: Path, *, fps: float = COMMA_FPS,
+    frame_count_tolerance: float = 0.01,
 ) -> Path:
-    """Transcode a route's ``video.hevc`` files into one mp4 in order."""
+    """Transcode a route's ``video.hevc`` files into one mp4 in order.
+
+    Every decoded frame count is checked against the segment's pose count
+    (``global_pose/frame_positions`` — the GT source of truth, one pose per
+    frame). A segment that fails to open or decodes fewer/more frames than
+    ``frame_count_tolerance`` allows raises instead of silently shifting
+    every later frame relative to its GT time.
+    """
     import cv2
 
     out_path = Path(out_path)
@@ -125,6 +133,10 @@ def render_route_to_video(
             if not hevc.exists():
                 raise FileNotFoundError(f"missing {hevc}")
             cap = cv2.VideoCapture(str(hevc))
+            if not cap.isOpened():
+                cap.release()
+                raise RuntimeError(f"cv2 failed to open {hevc}")
+            n_decoded = 0
             while True:
                 ok, frame = cap.read()
                 if not ok:
@@ -136,7 +148,20 @@ def render_route_to_video(
                     if not writer.isOpened():
                         raise RuntimeError(f"VideoWriter failed to open {out_path}")
                 writer.write(frame)
+                n_decoded += 1
             cap.release()
+            # Video/GT alignment check: the pose array is one pose per frame,
+            # so it doubles as the expected frame count for free.
+            pose_path = Path(seg) / "global_pose" / "frame_positions"
+            if pose_path.exists():
+                expected = len(_load_npy(pose_path))
+                tol = max(1, int(expected * frame_count_tolerance))
+                if abs(n_decoded - expected) > tol:
+                    raise RuntimeError(
+                        f"{hevc} decoded {n_decoded} frames but "
+                        f"global_pose/frame_positions has {expected} — "
+                        f"truncated/corrupt segment would silently misalign "
+                        f"video vs ground truth")
     finally:
         if writer is not None:
             writer.release()

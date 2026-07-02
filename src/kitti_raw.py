@@ -98,20 +98,41 @@ def render_images_to_video(
     """Encode a KITTI camera's PNG sequence into an mp4 for the pipeline."""
     import cv2
 
+    import warnings
+
     img_dir = Path(drive_dir) / camera / "data"
     frames = sorted(img_dir.glob("*.png"))
     if not frames:
         raise FileNotFoundError(f"no PNG frames under {img_dir}")
-    first = cv2.imread(str(frames[0]))
+    # A corrupt/zero-byte first PNG (interrupted zip extraction) must not
+    # crash with AttributeError — take dimensions from the first readable one.
+    first = None
+    for fp in frames:
+        first = cv2.imread(str(fp))
+        if first is not None:
+            break
+    if first is None:
+        raise RuntimeError(f"no readable PNG frames under {img_dir}")
     h, w = first.shape[:2]
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     vw = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
     if not vw.isOpened():
         raise RuntimeError(f"cv2 VideoWriter failed to open {out_path}")
+    dropped = 0
     for fp in frames:
         img = cv2.imread(str(fp))
         if img is not None:
             vw.write(img)
+        else:
+            dropped += 1
     vw.release()
+    if dropped:
+        # Every dropped frame shifts all later frames earlier relative to
+        # the OXTS-derived GT timestamps — make the misalignment visible.
+        warnings.warn(
+            f"{dropped}/{len(frames)} PNG frames under {img_dir} were "
+            f"unreadable and dropped; the mp4 is ~{dropped / fps:.1f}s "
+            f"shorter than the OXTS ground truth (video/GT misalignment)",
+            RuntimeWarning, stacklevel=2)
     return out_path

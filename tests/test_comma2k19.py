@@ -13,6 +13,7 @@ from src.comma2k19 import (
     ecef_to_latlon,
     load_route_track,
     load_segment_track,
+    render_route_to_video,
 )
 
 
@@ -132,3 +133,58 @@ def test_comma_ground_truth_empty_raises(tmp_path: Path) -> None:
     _save_npy(empty / "global_pose" / "frame_positions", np.zeros((0, 3)))
     with pytest.raises(ValueError):
         comma_ground_truth([empty])
+
+
+# ---------------------------------------------------------------------------
+# render_route_to_video — video/GT alignment must fail loudly, not silently
+# ---------------------------------------------------------------------------
+
+
+def _make_video_segment(seg_dir: Path, n_video_frames: int, n_poses: int) -> Path:
+    """A segment with a decodable 'video.hevc' (mp4-encoded; cv2 sniffs the
+    container by content, not extension) and `n_poses` pose rows."""
+    import cv2
+
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(str(seg_dir / "video.hevc"),
+                             cv2.VideoWriter_fourcc(*"mp4v"), 20.0, (64, 48))
+    if not writer.isOpened():
+        pytest.skip("OpenCV cannot write mp4v on this platform")
+    for i in range(n_video_frames):
+        writer.write(np.full((48, 64, 3), i % 256, dtype=np.uint8))
+    writer.release()
+    cap = cv2.VideoCapture(str(seg_dir / "video.hevc"))
+    ok = cap.isOpened() and cap.read()[0]
+    cap.release()
+    if not ok:
+        pytest.skip("OpenCV cannot re-read the synthetic segment video")
+    pose = seg_dir / "global_pose"
+    pose.mkdir(exist_ok=True)
+    _save_npy(pose / "frame_positions", np.zeros((n_poses, 3)))
+    return seg_dir
+
+
+def test_render_route_matching_counts_succeeds(tmp_path: Path) -> None:
+    seg = _make_video_segment(tmp_path / "0", n_video_frames=10, n_poses=10)
+    out = render_route_to_video([seg], tmp_path / "out.mp4")
+    assert out.exists()
+
+
+def test_render_route_raises_on_frame_pose_mismatch(tmp_path: Path) -> None:
+    # A truncated video.hevc decodes far fewer frames than the segment has
+    # poses — silently continuing would shift every later frame vs GT time.
+    seg = _make_video_segment(tmp_path / "0", n_video_frames=10, n_poses=40)
+    with pytest.raises(RuntimeError, match="misalign"):
+        render_route_to_video([seg], tmp_path / "out.mp4")
+
+
+def test_render_route_raises_on_unopenable_segment(tmp_path: Path) -> None:
+    # Old behavior: an unopenable second segment was skipped silently and
+    # the mp4 quietly lost a whole segment of footage.
+    seg0 = _make_video_segment(tmp_path / "0", n_video_frames=10, n_poses=10)
+    seg1 = tmp_path / "1"
+    (seg1 / "global_pose").mkdir(parents=True)
+    (seg1 / "video.hevc").write_bytes(b"this is not a video stream")
+    _save_npy(seg1 / "global_pose" / "frame_positions", np.zeros((10, 3)))
+    with pytest.raises(RuntimeError):
+        render_route_to_video([seg0, seg1], tmp_path / "out.mp4")

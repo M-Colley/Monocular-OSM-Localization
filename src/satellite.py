@@ -24,6 +24,9 @@ caches tiles on disk afterwards.
 
 from __future__ import annotations
 
+from functools import lru_cache
+from pathlib import Path
+
 import cv2
 import numpy as np
 from pyproj import Transformer
@@ -37,6 +40,38 @@ _PROVIDERS: dict[str, tuple[str, str]] = {
     "satellite": ("Esri", "WorldImagery"),
     "esri_worldimagery": ("Esri", "WorldImagery"),
 }
+
+# Default on-disk tile cache (repo-local, survives across runs).
+_TILE_CACHE_DIR = Path(__file__).resolve().parents[1] / "data" / "tiles"
+_CACHE_DIR_SET = False
+
+
+def _ensure_tile_cache(cx) -> None:
+    """Enable contextily's on-disk tile cache (once per process).
+
+    contextily only memory-caches within a process unless
+    ``set_cache_dir`` is called — without this, every pipeline run
+    refetches all Esri tiles over the network.
+    """
+    global _CACHE_DIR_SET
+    if _CACHE_DIR_SET:
+        return
+    set_cache_dir = getattr(cx, "set_cache_dir", None)
+    if set_cache_dir is None:  # very old contextily — degrade gracefully
+        return
+    try:
+        _TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        set_cache_dir(str(_TILE_CACHE_DIR))
+        _CACHE_DIR_SET = True
+    except Exception:
+        pass  # caching is an optimization; never block the fetch
+
+
+@lru_cache(maxsize=64)
+def _get_transformer(src_crs: str, dst_crs: str) -> Transformer:
+    """Cached ``Transformer.from_crs`` — construction costs ~50-100 ms
+    and the same (src, dst) pair recurs once per candidate."""
+    return Transformer.from_crs(src_crs, dst_crs, always_xy=True)
 
 
 def _provider_source(provider: str):
@@ -72,13 +107,15 @@ def fetch_satellite_tile(
     """
     import contextily as cx
 
+    _ensure_tile_cache(cx)
+
     # Square bbox of side 2*half_extent_m around the centre, defined in a
     # local AEQD frame (true metres) and reprojected to lon/lat corners.
     aeqd = (
         f"+proj=aeqd +lat_0={lat} +lon_0={lon} "
         "+x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
     )
-    to_ll = Transformer.from_crs(aeqd, "EPSG:4326", always_xy=True)
+    to_ll = _get_transformer(aeqd, "EPSG:4326")
     H = float(half_extent_m)
     corners_m = [(-H, -H), (H, -H), (H, H), (-H, H)]
     lons, lats = [], []
@@ -123,7 +160,7 @@ def _crop_to_bbox_3857(
     in matplotlib ``(left, right, bottom, top)`` order) to the lon/lat
     bbox ``(west, south, east, north)``."""
     left, right, bottom, top = extent
-    to_merc = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+    to_merc = _get_transformer("EPSG:4326", "EPSG:3857")
     wx, sy = to_merc.transform(west, south)
     ex, ny = to_merc.transform(east, north)
     h_img, w_img = img.shape[:2]
@@ -155,7 +192,7 @@ def satellite_tile_for_candidate(
 ) -> np.ndarray:
     """Real RGB satellite tile centred on a candidate's walk centroid."""
     center_xy = cand.walk_xy.mean(axis=0)
-    transformer = Transformer.from_crs(road.crs, "EPSG:4326", always_xy=True)
+    transformer = _get_transformer(road.crs, "EPSG:4326")
     lon, lat = transformer.transform(float(center_xy[0]), float(center_xy[1]))
     return fetch_satellite_tile(
         lon, lat, half_extent_m=half_extent_m, size=size, provider=provider,

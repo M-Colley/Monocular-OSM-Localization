@@ -47,11 +47,13 @@ class IPMCalibration:
 
 
 def _rotation_pitch_roll(pitch_deg: float, roll_deg: float) -> np.ndarray:
-    """Camera-to-vehicle rotation: pitch about x then roll about z.
+    """Vehicle-to-camera rotation: pitch about x then roll about z.
 
-    OpenCV camera frame: +x right, +y down, +z forward. We're rotating
-    so that the road (at y = camera_height in vehicle frame) is mapped
-    correctly into the camera image.
+    OpenCV camera frame: +x right, +y down, +z forward. Used as
+    ``x_cam = R @ x_veh`` (after removing the camera position), so a
+    positive ``pitch_deg`` means the camera is pitched *down* toward the
+    road. The road (at y = 0 in the vehicle frame, below the camera) is
+    thereby mapped correctly into the camera image.
     """
     p = np.deg2rad(pitch_deg)
     r = np.deg2rad(roll_deg)
@@ -81,7 +83,9 @@ def compute_ipm_homography(cal: IPMCalibration) -> tuple[np.ndarray, tuple[int, 
     image↔BEV correspondences with `cv2.findHomography`.
     """
     R = _rotation_pitch_roll(cal.pitch_deg, cal.roll_deg)
-    t = np.array([0.0, cal.camera_height_m, 0.0])  # camera is up by h above ground
+    # Camera sits h metres ABOVE the road plane (y = 0). +y points down
+    # in the OpenCV/vehicle convention, so "above" is negative y.
+    t = np.array([0.0, -cal.camera_height_m, 0.0])
 
     # Four corners of the BEV in vehicle (= ground) frame:
     #  ground points: y = 0 (road plane), x in lateral, z in forward

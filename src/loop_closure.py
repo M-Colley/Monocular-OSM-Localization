@@ -85,17 +85,33 @@ def detect_end_to_start_loop(
     head_idx = list(range(0, n_head))
     tail_idx = list(range(n - n_tail, n))
     na = max(1, min(n_anchor, n_head, n_tail))
-    matcher = match_fn or _orb_inliers
     pairs: set[tuple[int, int]] = set()
     for b in tail_idx[-na:]:                 # last frames vs all of the head
         pairs.update((a, b) for a in head_idx)
     for a in head_idx[:na]:                   # first frames vs all of the tail
         pairs.update((a, b) for b in tail_idx)
+    if match_fn is not None:
+        score = lambda a, b: match_fn(frames[a], frames[b])
+    else:
+        # Cache ORB keypoints/descriptors per frame: each head frame is
+        # otherwise re-described once per tail anchor (and vice versa),
+        # ~6x redundant detection. Identical results, ~4-6x faster.
+        import cv2
+
+        orb = cv2.ORB_create(nfeatures=1500)
+        feats: dict[int, tuple] = {}
+
+        def _feat(i: int):
+            if i not in feats:
+                feats[i] = _orb_describe(frames[i], orb=orb)
+            return feats[i]
+
+        score = lambda a, b: _inliers_from_features(_feat(a), _feat(b))
     best = (0, None)
     for a, b in pairs:
         if a >= b:
             continue
-        nin = matcher(frames[a], frames[b])
+        nin = score(a, b)
         if nin > best[0]:
             best = (nin, (a, b))
     if best[0] >= min_inliers and best[1] is not None:
@@ -103,15 +119,22 @@ def detect_end_to_start_loop(
     return None
 
 
-def _orb_inliers(img_a, img_b, *, n_features: int = 1500, ratio: float = 0.75) -> int:
-    """ORB + ratio-test matches verified by a fundamental-matrix RANSAC."""
+def _orb_describe(img, *, n_features: int = 1500, orb=None):
+    """ORB keypoints + descriptors for one frame (cacheable per frame)."""
     import cv2
 
-    orb = cv2.ORB_create(nfeatures=n_features)
-    ga = cv2.cvtColor(img_a, cv2.COLOR_BGR2GRAY) if img_a.ndim == 3 else img_a
-    gb = cv2.cvtColor(img_b, cv2.COLOR_BGR2GRAY) if img_b.ndim == 3 else img_b
-    ka, da = orb.detectAndCompute(ga, None)
-    kb, db = orb.detectAndCompute(gb, None)
+    if orb is None:
+        orb = cv2.ORB_create(nfeatures=n_features)
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+    return orb.detectAndCompute(g, None)
+
+
+def _inliers_from_features(feat_a, feat_b, *, ratio: float = 0.75) -> int:
+    """Ratio-test matches verified by a fundamental-matrix RANSAC."""
+    import cv2
+
+    ka, da = feat_a
+    kb, db = feat_b
     if da is None or db is None or len(ka) < 8 or len(kb) < 8:
         return 0
     bf = cv2.BFMatcher(cv2.NORM_HAMMING)
@@ -123,3 +146,12 @@ def _orb_inliers(img_a, img_b, *, n_features: int = 1500, ratio: float = 0.75) -
     pb = np.float32([kb[m.trainIdx].pt for m in good])
     _F, mask = cv2.findFundamentalMat(pa, pb, cv2.FM_RANSAC, 3.0, 0.99)
     return int(mask.sum()) if mask is not None else 0
+
+
+def _orb_inliers(img_a, img_b, *, n_features: int = 1500, ratio: float = 0.75) -> int:
+    """ORB + ratio-test matches verified by a fundamental-matrix RANSAC."""
+    return _inliers_from_features(
+        _orb_describe(img_a, n_features=n_features),
+        _orb_describe(img_b, n_features=n_features),
+        ratio=ratio,
+    )

@@ -8,6 +8,7 @@ visual-odometry trajectory is meaningful.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 
 import networkx as nx
@@ -139,18 +140,25 @@ def _build_walk(
     walk: list[tuple] = [first_edge]
     length = _edge_length(graph, *first_edge)
     heading = _edge_end_heading(graph, *first_edge)
-    # Track visited nodes so we don't drive in circles. Without this, the
-    # greedy chooser will happily lap a roundabout or block forever.
-    visited = {first_edge[0], first_edge[1]}
+    # Track visited (undirected) EDGES so we don't drive in circles.
+    # Without this, the greedy chooser will happily lap a roundabout or
+    # block forever. Edges — not nodes — because real routes revisit
+    # intersections all the time: loops back to the start, figure-eights,
+    # and crossings of a previously-driven street all pass through an
+    # already-seen node, and a node-based set made those true routes
+    # structurally unenumerable (KITTI drive_0033 is a loop). Each
+    # roundabout edge is still consumed at most once, so the anti-lap
+    # protection is preserved.
+    visited_edges = {frozenset((first_edge[0], first_edge[1]))}
 
     while length < target_length_m and len(walk) < max_depth:
         last_u, last_v, _ = walk[-1]
         out = list(graph.out_edges(last_v, keys=True))
-        # Drop immediate reversal AND any revisit of an earlier node.
+        # Drop immediate reversal AND any re-drive of an earlier edge.
         out = [
             e for e in out
             if not (e[0] == last_v and e[1] == last_u)
-            and e[1] not in visited
+            and frozenset((e[0], e[1])) not in visited_edges
         ]
         if not out:
             break
@@ -160,7 +168,7 @@ def _build_walk(
         walk.append(choice)
         length += _edge_length(graph, *choice)
         heading = _edge_end_heading(graph, *choice)
-        visited.add(choice[1])
+        visited_edges.add(frozenset((choice[0], choice[1])))
 
     return walk, length
 
@@ -186,6 +194,7 @@ def walks_from_node(
     target is mainly a way to bound how far we walk before scoring.
     """
     walks: list[list[tuple]] = []
+    _EXHAUSTED = object()
 
     out0 = list(graph.out_edges(start, keys=True))
     if not out0:
@@ -224,20 +233,46 @@ def walks_from_node(
     pair_indices = (
         (1, 3), (1, 4), (1, 6), (2, 4), (2, 6), (3, 6), (3, 8), (4, 8),
     )
-    for first in out0_sorted[:3]:
-        if len(walks) >= max_walks:
+    # Turn specs grouped in generations of increasing complexity.
+    single_turn_specs = [
+        {bi: rank} for bi in branch_indices for rank in (1, 2)
+    ]
+    two_turn_specs = [
+        spec for bi, bj in pair_indices
+        for spec in ({bi: 1, bj: 1}, {bi: 1, bj: 2})
+    ]
+    # Enumerate ALL first edges (out-degree is small), and round-robin
+    # the walk budget across them one spec at a time. Each direction
+    # draws from the same ordered mix: greedy first, then single-turn
+    # specs interleaved 2:1 with two-turn specs (shallow branch indices
+    # first). The interleave matters: iterating generation-by-generation
+    # would let the 12x single-turn generation exhaust a 40-walk budget
+    # at a 4-way intersection before ANY two-turn walk is tried — and
+    # real urban routes (the Ulm GT route above) need two turns. The
+    # previous scheme ([:3] first-edge cap + sequential exhaustion)
+    # never tried the 4th direction of a standard 4-way intersection at
+    # all, and let the first edge burn the whole budget on multi-turn
+    # variants while later directions got nothing.
+    spec_mix: list[dict[int, int] | None] = [None]
+    st_iter, tt_iter = iter(single_turn_specs), iter(two_turn_specs)
+    while True:
+        chunk = list(islice(st_iter, 2)) + list(islice(tt_iter, 1))
+        if not chunk:
             break
-        try_walk(first, None)
-        for bi in branch_indices:
+        spec_mix.extend(chunk)
+
+    pending = [(first, iter(spec_mix)) for first in out0_sorted]
+    while pending and len(walks) < max_walks:
+        still_pending = []
+        for first, it in pending:
+            spec = next(it, _EXHAUSTED)
+            if spec is _EXHAUSTED:
+                continue
             if len(walks) >= max_walks:
-                break
-            for rank in (1, 2):
-                try_walk(first, {bi: rank})
-        for bi, bj in pair_indices:
-            if len(walks) >= max_walks:
-                break
-            try_walk(first, {bi: 1, bj: 1})
-            try_walk(first, {bi: 1, bj: 2})
+                return walks
+            try_walk(first, spec)
+            still_pending.append((first, it))
+        pending = still_pending
 
     return walks
 

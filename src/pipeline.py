@@ -129,16 +129,24 @@ class PipelineConfig:
     # (lat, lon, radius_m) to fetch a bounded disc of the OSM graph
     # instead of the whole named place — needed for mega-cities.
     osm_around: tuple[float, float, float] | None = None
-    # Blind VPR coarse prior (KartaView + EigenPlaces) to gate the OSM graph to the
-    # right neighbourhood — shape-independent fix for the SELECTION wall.
+    # Blind VPR coarse prior (KartaView + EigenPlaces): a re-rank centre and the
+    # anchor-primary placement prior — shape-independent fix for the SELECTION
+    # wall. (Gating the OSM graph to the prior's disc was refuted by experiment:
+    # 664 -> 1276 m on Ulm — so there is deliberately no gate knob.)
     use_vpr_prior: bool = False
     vpr_search_radius_m: float = 3000.0
-    vpr_gate_radius_m: float = 1000.0
-    vpr_gate: bool = False   # default: VPR is a re-rank centre, not an OSM gate (gating hurt)
+    # Experimental: score candidates against the per-frame VPR track (sequence-
+    # median distance at matched arc fractions) instead of the centroid-only
+    # distance. Untested on GT — off by default.
+    use_vpr_sequence: bool = False
     # License-plate registration-district anchor: read EU plate region prefixes,
-    # vote, geocode the modal district -> coarse region gate (src/plate_anchor.py).
+    # vote, geocode the modal district -> re-rank penalty (src/plate_anchor.py).
+    # (A hard region gate was refuted; the penalty free-radius lives in
+    # _PLATE_FREE_RADIUS_M below.)
     use_plate_anchor: bool = False
-    plate_gate_radius_m: float = 8000.0
+    # VLM (Gemma 4) district/landmark prior — a coverage fallback when VPR finds
+    # no references (src/vlm_anchor.py). Feeds the same anchor-primary path.
+    use_vlm_anchor: bool = False
     # Absolute heading from the sun (activates only if the clip has a capture time).
     use_sun_heading: bool = False
     enable_scale_recovery: bool = True
@@ -353,6 +361,227 @@ def _auto_estimated_length_m(duration_sec: float) -> float:
     return float(np.clip(duration_sec * _URBAN_AVG_SPEED_MPS, 500.0, 12000.0))
 
 
+def _length_sane(
+    candidate_m: float,
+    duration_prior_m: float,
+    user_length_m: float | None = None,
+) -> bool:
+    """A recovered length is trustworthy if it's within 2x of the
+    duration-based estimate (the robust reference) — or, when the user
+    supplied an explicit ``--estimated-length-m``, within 2x of THAT.
+
+    Without the user gate, a correct recovered length on a fast
+    (highway) clip is rejected against the conservative 5.5 m/s prior
+    even though the user already told us the true extent.
+    """
+    refs = [duration_prior_m]
+    if user_length_m is not None and user_length_m > 0:
+        refs.append(float(user_length_m))
+    return any(0.5 * r <= candidate_m <= 2.0 * r for r in refs)
+
+
+def _find_vo_cache(candidates: list, n_frames: int):
+    """First VO cache file whose frame count matches, or ``None``.
+
+    Every candidate — including the canonical key — must PASS the shape
+    check; a stale canonical cache from a different stream (fps change on
+    re-download) must be recomputed, not loaded. Probes are opened with a
+    context manager so no npz handle stays open (an open handle blocks
+    deleting/renaming the file on Windows).
+    """
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            with np.load(candidate) as z_probe:
+                shape_ok = z_probe["valid"].shape[0] == n_frames
+        except Exception:
+            continue
+        if shape_ok:
+            return candidate
+    return None
+
+
+def _match_timestamps(frame_timestamps, n_rows: int) -> np.ndarray:
+    """Timestamp axis aligned to the matcher trajectory's rows.
+
+    A staged trajectory (OpenVO / DA3 / MapAnything) has FEWER rows than
+    extracted frames (Ulm: 1260 poses vs 4196 frames), so indexing it
+    with per-frame timestamps is out of bounds. Spread the clip's frame
+    time span uniformly over the pose rows instead.
+    """
+    ts = np.asarray(frame_timestamps, dtype=np.float64)
+    if len(ts) == 0:
+        return np.zeros(n_rows, dtype=np.float64)
+    if n_rows == len(ts):
+        return ts
+    return np.linspace(ts[0], ts[-1], n_rows)
+
+
+def _remap_frame_pair_to_poses(
+    pair, n_frames: int, n_poses: int
+):
+    """Map a loop-closure (i, j) frame-index pair into pose-index space.
+
+    ``detect_end_to_start_loop`` indexes the extracted frames, but the
+    drift redistribution acts on the matcher trajectory, which has a
+    different row count whenever a staged (OpenVO/DA3/MapAnything) path
+    is in use. Scale proportionally; return ``None`` when the remapped
+    pair is degenerate (so the caller skips instead of warping poses).
+    """
+    if pair is None:
+        return None
+    i, j = int(pair[0]), int(pair[1])
+    if n_frames == n_poses:
+        return (i, j) if 0 <= i < j < n_poses else None
+    if n_frames < 2 or n_poses < 2:
+        return None
+    scale = (n_poses - 1) / (n_frames - 1)
+    ip = int(round(i * scale))
+    jp = int(round(j * scale))
+    if not (0 <= ip < jp < n_poses):
+        return None
+    return (ip, jp)
+
+
+# VPR re-rank penalty: metres of slack before a candidate is penalized for
+# distance to the VPR prior. The prior's own error bar is ~91-190 m on Ulm,
+# so candidates within it are indistinguishable from the truth — penalizing
+# them flips near-ties away from a correct shape pick.
+_VPR_FREE_RADIUS_M = 150.0
+
+# Plate-district penalty free radius (see the fusion comment for rationale).
+_PLATE_FREE_RADIUS_M = 1500.0
+
+
+def _vpr_distance_penalty(d_m: float) -> float:
+    """Consensus penalty for a candidate ``d_m`` metres from the VPR prior:
+    free inside the prior's own error bar, then 15 rank-points per km."""
+    return 15.0 * max(0.0, (d_m - _VPR_FREE_RADIUS_M) / 1000.0)
+
+
+def _vpr_sequence_median_m(
+    traj_xy: np.ndarray,
+    track_frame_idx,
+    track_xy: np.ndarray,
+    sims,
+    n_frames: int,
+) -> float | None:
+    """Similarity-weighted median distance (m) between the candidate route
+    position at each VPR-matched frame's arc fraction and that frame's
+    retrieved reference location.
+
+    Frame index -> arc fraction assumes roughly constant speed (the
+    aligned trajectory is arc-uniform, the frames time-uniform); good
+    enough for the median statistic this feeds. A candidate centred
+    correctly but flipped/rotated has the same centroid distance yet a
+    much worse sequence distance — the ambiguity class the centroid
+    penalty cannot rank.
+    """
+    traj = np.asarray(traj_xy, dtype=np.float64)
+    track_xy = np.asarray(track_xy, dtype=np.float64)
+    if len(traj) < 2 or len(track_xy) == 0:
+        return None
+    frac = np.asarray(track_frame_idx, dtype=np.float64) / max(n_frames - 1, 1)
+    rows = np.clip(np.round(frac * (len(traj) - 1)).astype(int), 0, len(traj) - 1)
+    d = np.linalg.norm(traj[rows] - track_xy, axis=1)
+    w = np.clip(np.asarray(sims, dtype=np.float64), 0.0, None)
+    if w.sum() <= 0:
+        w = np.ones_like(d)
+    order = np.argsort(d)
+    cw = np.cumsum(w[order])
+    k = int(np.searchsorted(cw, 0.5 * cw[-1]))
+    return float(d[order][min(k, len(d) - 1)])
+
+
+def _mean_bearing_deg(xy: np.ndarray) -> float | None:
+    """Length-weighted circular mean compass bearing (0=N, 90=E) of a
+    projected polyline, or ``None`` when degenerate."""
+    xy = np.asarray(xy, dtype=np.float64)
+    if len(xy) < 2:
+        return None
+    seg = np.diff(xy, axis=0)
+    lengths = np.linalg.norm(seg, axis=1)
+    if lengths.sum() <= 1e-9:
+        return None
+    # Compass convention: x is easting, y is northing -> atan2(dx, dy).
+    ang = np.arctan2(seg[:, 0], seg[:, 1])
+    c = float((lengths * np.cos(ang)).sum())
+    s = float((lengths * np.sin(ang)).sum())
+    if abs(c) < 1e-12 and abs(s) < 1e-12:
+        return None
+    return float(np.degrees(np.arctan2(s, c)) % 360.0)
+
+
+def _heading_diff_deg(a: float, b: float) -> float:
+    """Smallest absolute angular difference between two compass headings."""
+    d = abs((a - b) % 360.0)
+    return min(d, 360.0 - d)
+
+
+# Sun-heading penalty shape: free inside the tolerance (route curvature +
+# median-vs-mean mismatch), then grows to _W_SUN at a full 180-degree
+# contradiction — enough to kill mirror/rotated walks on near-ties without
+# overriding the geometric channels.
+_SUN_FREE_DEG = 30.0
+_W_SUN = 5.0
+_SUN_MIN_CONFIDENCE = 0.6
+
+
+def _sun_bearing_penalty(mean_bearing_deg: float, sun_heading_deg: float) -> float:
+    d = _heading_diff_deg(mean_bearing_deg, sun_heading_deg)
+    return _W_SUN * max(0.0, (d - _SUN_FREE_DEG) / (180.0 - _SUN_FREE_DEG))
+
+
+def _final_position_reports(
+    candidates,
+    road,
+    *,
+    matches,
+    ranking: str,
+    world_route_latlon=None,
+    anchored_cand=None,
+    anchor_origin: str | None = None,
+    prior_latlon=None,
+):
+    """Build (headline, matcher) position reports per the output contract.
+
+    ``matcher`` is ALWAYS the raw matcher-pick report (old ``position``
+    schema, ``source: "matcher"``). When an anchor-primary candidate
+    exists its report becomes the HEADLINE (``source:
+    "anchor_primary_vpr"|"anchor_primary_vlm"`` + ``prior_latlon``) —
+    the anchored answer is the project's proven accuracy win and must be
+    what ``result["position"]`` carries. Falls back to the matcher
+    report when the anchored one can't be built.
+    """
+    matcher_position = build_position_report(
+        candidates[0],
+        road,
+        matches=matches,
+        ranking=ranking,
+        world_route_latlon=world_route_latlon,
+    )
+    if matcher_position is not None:
+        matcher_position["source"] = "matcher"
+    headline = matcher_position
+    if anchored_cand is not None:
+        origin = anchor_origin or "vpr"
+        anchored = build_position_report(
+            anchored_cand,
+            road,
+            matches=matches,
+            ranking=f"anchored({origin})",
+        )
+        if anchored is not None:
+            anchored["source"] = f"anchor_primary_{origin}"
+            if prior_latlon is not None:
+                anchored["prior_latlon"] = [
+                    float(prior_latlon[0]), float(prior_latlon[1]),
+                ]
+            headline = anchored
+    return headline, matcher_position
+
+
 def _orienternet_refine(cfg, frames, cand, road, position, result) -> None:
     """Refine the shape-matched coarse position with OrienterNet (BEV->OSM).
 
@@ -454,6 +683,20 @@ def _resolve_input_video(cfg: PipelineConfig) -> Path:
         existing = list(cfg.data_dir.glob("input.*"))
         if not existing:
             raise FileNotFoundError("--skip-download but no cached video in data/")
+        # Deterministic pick when several cached inputs exist (e.g. a
+        # re-download that changed container left input.webm beside
+        # input.mp4): prefer a fixed extension order, then the newest.
+        # Bare glob order is filesystem-dependent and can silently
+        # analyze the older/other file.
+        ext_rank = {".mp4": 0, ".mkv": 1, ".webm": 2}
+        existing.sort(key=lambda p: (
+            ext_rank.get(p.suffix.lower(), len(ext_rank)),
+            -p.stat().st_mtime,
+            p.name,
+        ))
+        if len(existing) > 1:
+            print(f"      -> {len(existing)} cached inputs "
+                  f"({', '.join(p.name for p in existing)}); picking {existing[0].name}")
         print(f"[1/5] Using cached video: {existing[0]}")
         return existing[0]
     print(f"[1/5] Downloading video from {cfg.url}")
@@ -522,10 +765,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
               f"(auto: {analyzed_sec:.0f} s at urban avg speed; "
               f"override with --estimated-length-m)")
 
-    def _length_sane(candidate_m: float) -> bool:
+    def _length_sane_here(candidate_m: float) -> bool:
         """A recovered length is trustworthy only if it's within 2x of the
-        duration-based estimate (the robust reference)."""
-        return 0.5 * duration_prior_m <= candidate_m <= 2.0 * duration_prior_m
+        duration-based estimate — or of an explicit user-provided
+        ``--estimated-length-m`` (see module-level ``_length_sane``)."""
+        return _length_sane(candidate_m, duration_prior_m,
+                            user_length_m=cfg.estimated_length_m)
 
     # 2c. Idea 3: ground-plane optical-flow metric scale (opt-in). Sets
     # the length prior from road-feature motion, sanity-gated against the
@@ -599,37 +844,33 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         f"_s{cfg.frame_stride}_f*.npz"
     ))
 
-    vo_cache = cache_v2_with_frames
-    legacy_used: Path | None = None
-    for candidate in (
-        cache_v2_with_frames, cache_v2_legacy, cache_v2_flat, *sibling_caches,
-    ):
-        if candidate.exists():
-            try:
-                z_probe = np.load(candidate)
-                shape_ok = z_probe["valid"].shape[0] == len(frames.frames)
-            except Exception:
-                continue
-            if shape_ok:
-                if candidate is not cache_v2_with_frames:
-                    legacy_used = candidate
-                vo_cache = candidate
-                break
+    # Every candidate — including the canonical key — must PASS the
+    # frame-count shape check before it may be loaded. A stale canonical
+    # cache (same key, different stream fps after a re-download) used to
+    # slip through and misassociate poses with frames downstream.
+    vo_cache = _find_vo_cache(
+        [cache_v2_with_frames, cache_v2_legacy, cache_v2_flat, *sibling_caches],
+        len(frames.frames),
+    )
+    legacy_used: Path | None = (
+        vo_cache if (vo_cache is not None and vo_cache != cache_v2_with_frames)
+        else None
+    )
 
-    if vo_cache.exists() and (legacy_used or vo_cache is cache_v2_with_frames):
+    if vo_cache is not None:
         msg = f"[3/5] Loading cached trajectory: {vo_cache}"
         if legacy_used is not None:
             msg += "  (legacy cache key)"
         print(msg)
-        z = np.load(vo_cache)
-        traj = Trajectory(
-            centers=z["centers"],
-            xz=z["xz"],
-            valid=z["valid"],
-            n_inliers=z["n_inliers"].tolist(),
-            rotations=z["rotations"],
-            translations=z["translations"],
-        )
+        with np.load(vo_cache) as z:
+            traj = Trajectory(
+                centers=z["centers"],
+                xz=z["xz"],
+                valid=z["valid"],
+                n_inliers=z["n_inliers"].tolist(),
+                rotations=z["rotations"],
+                translations=z["translations"],
+            )
         n_valid = int(traj.valid.sum())
         print(f"      -> {n_valid}/{len(traj.valid)} valid relative poses, "
               f"trajectory shape {traj.xz.shape}")
@@ -669,34 +910,50 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
 
     # 4a. Optional blind VPR coarse prior (KartaView + EigenPlaces): retrieve the
     # frames against GPS-tagged street photos to locate the clip INDEPENDENTLY of
-    # trajectory shape, then gate the OSM graph to that neighbourhood — the fix for
-    # the SELECTION wall. ~53 m prior on Ulm 4K (src/kartaview_vpr.py).
+    # trajectory shape — the fix for the SELECTION wall. ~53 m prior on Ulm 4K
+    # (src/kartaview_vpr.py). Used as a re-rank centre + the anchor-primary
+    # placement prior; gating the OSM graph to its disc was refuted (664->1276 m).
     osm_around = cfg.osm_around
     vpr_center: tuple | None = None
-    if cfg.use_vpr_prior and osm_around is None:
+    vpr_track = None
+    anchor_origin: str | None = None   # which channel produced vpr_center: vpr|vlm
+    # VPR runs whenever enabled — it re-ranks + drives anchor-primary, so it is
+    # NOT conditioned on osm_around (mega-cities pass --osm-around AND want VPR).
+    if cfg.use_vpr_prior:
         print("[4a] VPR coarse prior (KartaView + MegaLoc)")
         try:
             import osmnx as ox
-            from .kartaview_vpr import kartaview_vpr_prior
-            center = ox.geocode(cfg.city)
-            p = kartaview_vpr_prior(frames.frames, center,
-                                    radius_m=cfg.vpr_search_radius_m,
-                                    cache_dir=str(cfg.data_dir / "kartaview"),
-                                    device="cuda")
-            if p is not None:
-                # VPR is route-accurate (~190 m from the GT route on Ulm — better
-                # than the matcher's pick). Use it as a RE-RANK centre, NOT a gate:
-                # gating to its disc changes the candidate scoring and hurt
-                # end-to-end (664 -> 1276 m on Ulm). Re-ranking candidates by
-                # proximity to this centre instead pulls the pick to the true area.
-                vpr_center = (p[0], p[1])
-                if cfg.vpr_gate:
-                    osm_around = (p[0], p[1], cfg.vpr_gate_radius_m)
-                    print(f"      -> VPR prior {p[0]:.5f}, {p[1]:.5f}; gating graph to "
-                          f"{cfg.vpr_gate_radius_m:.0f} m disc")
-                else:
-                    print(f"      -> VPR prior {p[0]:.5f}, {p[1]:.5f}; re-ranking "
-                          f"candidates by proximity")
+            from .kartaview_vpr import kartaview_vpr_track, _robust_center
+            # Prefer an explicit --osm-around centre (robust to Nominatim
+            # geocode failures / ambiguous small-town names); else geocode.
+            center = ((osm_around[0], osm_around[1]) if osm_around
+                      else ox.geocode(cfg.city))
+            # Device: only request CUDA when it is actually available;
+            # None lets the module fall back to CPU inference (slow but
+            # working) instead of dying inside torch.hub and masquerading
+            # as "VPR unavailable" on CPU-only machines.
+            try:
+                import torch as _torch
+                _vpr_device = "cuda" if _torch.cuda.is_available() else None
+            except Exception:
+                _vpr_device = None
+            tr = kartaview_vpr_track(frames.frames, center,
+                                     radius_m=cfg.vpr_search_radius_m,
+                                     cache_dir=str(cfg.data_dir / "kartaview"),
+                                     device=_vpr_device)
+            if tr is not None:
+                vpr_track = tr
+                v_idx, v_ll, v_sims = tr
+                # Robust centre (conf-threshold + weighted geometric median +
+                # spatial-MAD outlier rejection) for the re-rank channel + guard;
+                # the per-frame track drives the anchor-primary placement below.
+                # VPR is route-accurate (~91 m to the GT route on Ulm) — better
+                # than the matcher's own pick. Re-rank, don't gate (gating its
+                # disc hurt end-to-end: 664 -> 1276 m).
+                vpr_center = _robust_center(v_ll, v_sims)
+                anchor_origin = "vpr"
+                print(f"      -> VPR prior {vpr_center[0]:.5f}, {vpr_center[1]:.5f} "
+                      f"({len(v_idx)}-frame track); re-rank + anchor-primary fit")
             else:
                 print("      -> VPR unavailable; keeping full-city graph")
         except Exception as e:
@@ -731,6 +988,30 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> no confident district")
         except Exception as e:
             print(f"      -> plate anchor failed ({e})")
+
+    # [4a''] VLM (Gemma 4) district/landmark prior — a coverage FALLBACK: only
+    # runs when VPR produced no centre (no nearby street-photo references). Reads
+    # frames -> infers district + reads names -> geocodes -> feeds the same
+    # anchor-primary path via vpr_center. Independent failure modes from VPR.
+    result_vlm_anchor: dict | None = None
+    if cfg.use_vlm_anchor and vpr_center is None:
+        print("[4a''] VLM district/landmark prior (Gemma 4)")
+        try:
+            from .vlm_anchor import vlm_district_anchor
+            va = vlm_district_anchor(frames.frames, cfg.city)
+            if va is not None:
+                vpr_center = (va.lat, va.lon)
+                anchor_origin = "vlm"
+                result_vlm_anchor = {"label": va.label, "lat": va.lat, "lon": va.lon,
+                                     "streets": va.street_votes,
+                                     "districts": va.district_votes, "texts": va.text_votes,
+                                     "applied_as_prior": True}
+                print(f"      -> VLM prior {va.lat:.5f}, {va.lon:.5f} ('{va.label}'); "
+                      f"feeding anchor-primary")
+            else:
+                print("      -> VLM produced no geocodable district/name")
+        except Exception as e:
+            print(f"      -> VLM anchor failed ({e})")
 
     # 4. OSM road graph for the city.
     if osm_around is not None:
@@ -857,7 +1138,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # against the duration estimate.
                 from .visual_odometry import trajectory_arc_length as _arclen
                 da3_len = float(_arclen(da3_xy)[-1])
-                if _length_sane(da3_len):
+                if _length_sane_here(da3_len):
                     print(f"      -> DA3 metric length {da3_len:.0f} m adopted as "
                           f"route prior (was {estimated_length_m:.0f} m)")
                     estimated_length_m = float(np.clip(da3_len, 500.0, 12000.0))
@@ -879,6 +1160,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     else:
         result_traj_source = "vo"
 
+    # Timestamp axis aligned to the matcher trajectory. The staged
+    # OpenVO/DA3/MapAnything paths have FEWER rows than extracted frames
+    # (Ulm: 1260 poses vs 4196 frames), so anything that maps a time to
+    # a match_xz row must use this axis, not frames.timestamps.
+    match_ts = _match_timestamps(frames.timestamps, len(match_xz))
+
     # 4b2. Optional: loop-closure drift correction. On a route that returns
     # near its start, monocular VO leaves a large end-start gap (pure
     # drift) that warps the whole shape — the dominant geometric error.
@@ -891,15 +1178,23 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         from .visual_odometry import trajectory_arc_length as _arclen2
         print("[4b2] Loop-closure drift correction")
         try:
-            pair = detect_end_to_start_loop(frames.frames)
-            if pair is not None and pair[0] < pair[1] < len(match_xz):
+            frame_pair = detect_end_to_start_loop(frames.frames)
+            # The detector indexes the extracted FRAMES; the drift fix acts
+            # on match_xz POSES, which is a different (shorter) axis when a
+            # staged trajectory is in use — remap proportionally.
+            pair = _remap_frame_pair_to_poses(
+                frame_pair, len(frames.frames), len(match_xz))
+            if pair is not None:
                 i, j = pair
                 gap = float(np.linalg.norm(match_xz[j] - match_xz[i]))
                 arclen = float(_arclen2(match_xz)[-1])
                 match_xz = redistribute_drift(match_xz, i, j)
                 result_loop_closure = {"closed": True, "i": int(i), "j": int(j),
+                                       "frame_i": int(frame_pair[0]),
+                                       "frame_j": int(frame_pair[1]),
                                        "gap_units": round(gap, 2)}
-                print(f"      -> loop detected (frames {i}↔{j}); closed "
+                print(f"      -> loop detected (frames {frame_pair[0]}↔"
+                      f"{frame_pair[1]} -> poses {i}↔{j}); closed "
                       f"{gap:.1f}-unit gap ({100 * gap / max(arclen, 1e-6):.0f}% of arc)")
             else:
                 result_loop_closure = {"closed": False}
@@ -975,6 +1270,25 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # "you are here" timestamp.
                 time_buckets=0,
             )
+            # OCR-quality: directional/destination signs name places ELSEWHERE,
+            # so they geocode FAR from the actual route (the London 'Holborn'
+            # failure: a direction sign ~1.5 km off). When a route-accurate VPR
+            # prior exists, reject OCR anchors > 1.5 km from it — this drops the
+            # misleading direction signs while keeping local street/POI plates,
+            # leaving only anchors usable in the anchor-primary fit.
+            if vpr_center is not None and ocr_anchors:
+                import math as _om
+                _vlat, _vlon = vpr_center
+                _kept = []
+                for a in ocr_anchors:
+                    _d = _om.hypot((a.lat - _vlat) * 111320.0,
+                                   (a.lon - _vlon) * 111320.0 * _om.cos(_om.radians(_vlat)))
+                    if _d <= 1500.0:
+                        _kept.append(a)
+                    else:
+                        print(f"        poi REJECTED ({_d/1000:.1f} km from VPR — "
+                              f"likely a direction sign): {a.name!r}")
+                ocr_anchors = _kept
             for a in ocr_anchors:
                 print(f"        poi:    {a.name!r} @ ({a.lat:.5f},{a.lon:.5f}) "
                       f"conf={a.confidence:.2f}")
@@ -1012,7 +1326,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # 2310 m duration prior). Require >= the inlier floor too.
                 sane = (
                     fit is not None and recovered_len is not None
-                    and _length_sane(recovered_len)
+                    and _length_sane_here(recovered_len)
                 )
                 if fit is not None and sane:
                     anchor_transform = fit.transform
@@ -1249,20 +1563,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             splat_img_rgb = render_topdown_splat(splat_pts, splat_cols)
 
             if cfg.enable_full_splat:
-                from .full_splat import render_full_splat_to_file, render_full_splat_topdown
+                from .full_splat import render_full_splat_to_file
                 hq_path = cfg.output_dir / "splat_topdown_hq.png"
-                render_full_splat_to_file(
+                splat_img_rgb = render_full_splat_to_file(
                     splat_pts, splat_cols, hq_path,
                     scale=cfg.full_splat_scale,
                     opacity=cfg.full_splat_opacity,
                     progress=True,
                 )
                 print(f"      -> wrote {hq_path} (anisotropic Gaussian render)")
-                splat_img_rgb = render_full_splat_topdown(
-                    splat_pts, splat_cols,
-                    scale=cfg.full_splat_scale,
-                    opacity=cfg.full_splat_opacity,
-                )
         else:
             print("      -> no triangulated points")
 
@@ -1299,61 +1608,76 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             result["ipm_error"] = str(e)
             ipm_canvas = None
 
-    # 8. Aerial matching channel.
-    # Primary signal: trajectory-raster IoU (always runs — uses aligned_traj_xy
-    # from each MatchCandidate, no top-down image required).
-    # Supplemental signal: ORB on top-down image vs OSM patch (weak when
-    # image is a photographic IPM vs a schematic OSM render; retained for
-    # completeness and inter-method comparison).
+    # 8. Aerial matching channel + consensus fusion.
+    # The aerial ORB/IoU scoring is ONE optional channel; the fusion itself
+    # (turn + OCR-anchor + plate + VPR + sun penalties, consensus reorder)
+    # runs whenever candidates exist. It used to sit entirely inside the
+    # aerial gate, so --no-aerial silently disabled every proven
+    # disambiguator (plate guard, VPR re-rank, OCR-anchor rank).
     ranking_mode = "shape"
-    if cfg.enable_aerial_match and candidates:
-        if ipm_canvas is not None:
-            aerial_input = cv2.cvtColor(ipm_canvas, cv2.COLOR_BGR2RGB)
-            aerial_source = "ipm_bev"
-        elif splat_img_rgb is not None:
-            aerial_input = splat_img_rgb
-            aerial_source = "splat_topdown"
+    if candidates:
+        if cfg.enable_aerial_match:
+            # Primary signal: trajectory-raster IoU (uses aligned_traj_xy
+            # from each MatchCandidate, no top-down image required).
+            # Supplemental signal: ORB on top-down image vs OSM patch (weak
+            # when the image is a photographic IPM vs a schematic OSM
+            # render; retained for completeness and inter-method comparison).
+            if ipm_canvas is not None:
+                aerial_input = cv2.cvtColor(ipm_canvas, cv2.COLOR_BGR2RGB)
+                aerial_source = "ipm_bev"
+            elif splat_img_rgb is not None:
+                aerial_input = splat_img_rgb
+                aerial_source = "splat_topdown"
+            else:
+                aerial_input = None
+                aerial_source = "traj_iou_only"
+
+            print(f"[8] Aerial matching: traj-IoU"
+                  f"{' (input: ' + aerial_source + ')' if aerial_input is not None else ''} "
+                  f"({len(candidates)} candidates)")
+            aerial_results = match_splat_against_candidates(
+                aerial_input, road, candidates,
+                output_dir=cfg.output_dir / "aerial",
+            )
+            result["aerial_input"] = aerial_source
+
+            # Aerial rank by combined aerial_score (higher = better → sort descending).
+            order_by_aerial = sorted(
+                range(len(aerial_results)),
+                key=lambda i: -aerial_results[i].aerial_score,
+            )
+            aerial_rank = {idx: r + 1 for r, idx in enumerate(order_by_aerial)}
+
+            print()
+            print("        ===== Method comparison (top-{:d}) =====".format(len(candidates)))
+            print("        shape_rank  shape_RMS  shape_corr  | aerial_rank  coverage  traj_IoU  ORB_inliers | streets")
+            print("        " + "-" * 120)
+            for i, ar in enumerate(aerial_results):
+                c = candidates[i]
+                names = ", ".join(
+                    candidate_geographic_summary(c, road.graph)["street_names"][:2]
+                ) or "(unnamed)"
+                print(f"           #{i+1:<2}      {c.score:7.1f} m   {c.bearing_corr:+.3f}     |"
+                      f"     #{aerial_rank[i]:<2}     {ar.traj_coverage:.3f}    {ar.traj_iou:.3f}       {ar.n_inliers:3d}        | {names}")
+
+            for i, ar in enumerate(aerial_results):
+                m = result["matches"][i]
+                m["traj_iou"] = ar.traj_iou
+                m["traj_coverage"] = ar.traj_coverage
+                m["aerial_score"] = ar.aerial_score
+                m["aerial_orb_matches"] = ar.n_orb_matches
+                m["aerial_inliers"] = ar.n_inliers
+                m["aerial_inlier_ratio"] = ar.inlier_ratio
+                m["aerial_rank"] = aerial_rank[i]
+            W_AERIAL = 0.5
         else:
-            aerial_input = None
-            aerial_source = "traj_iou_only"
+            # Neutral channel: uniform rank, zero weight — the same no-op
+            # pattern the anchor channel uses when it has no data.
+            aerial_rank = {i: i + 1 for i in range(len(candidates))}
+            W_AERIAL = 0.0
 
-        print(f"[8] Aerial matching: traj-IoU + {'ORB on ' + aerial_source if aerial_input is not None else 'IoU only'} "
-              f"({len(candidates)} candidates)")
-        aerial_results = match_splat_against_candidates(
-            aerial_input, road, candidates,
-            output_dir=cfg.output_dir / "aerial",
-        )
-        result["aerial_input"] = aerial_source
-
-        # Aerial rank by combined aerial_score (higher = better → sort descending).
-        order_by_aerial = sorted(
-            range(len(aerial_results)),
-            key=lambda i: -aerial_results[i].aerial_score,
-        )
-        aerial_rank = {idx: r + 1 for r, idx in enumerate(order_by_aerial)}
-
-        print()
-        print("        ===== Method comparison (top-{:d}) =====".format(len(candidates)))
-        print("        shape_rank  shape_RMS  shape_corr  | aerial_rank  coverage  traj_IoU  ORB_inliers | streets")
-        print("        " + "-" * 120)
-        for i, ar in enumerate(aerial_results):
-            c = candidates[i]
-            names = ", ".join(
-                candidate_geographic_summary(c, road.graph)["street_names"][:2]
-            ) or "(unnamed)"
-            print(f"           #{i+1:<2}      {c.score:7.1f} m   {c.bearing_corr:+.3f}     |"
-                  f"     #{aerial_rank[i]:<2}     {ar.traj_coverage:.3f}    {ar.traj_iou:.3f}       {ar.n_inliers:3d}        | {names}")
-
-        for i, ar in enumerate(aerial_results):
-            m = result["matches"][i]
-            m["shape_rank"] = i + 1
-            m["traj_iou"] = ar.traj_iou
-            m["traj_coverage"] = ar.traj_coverage
-            m["aerial_score"] = ar.aerial_score
-            m["aerial_orb_matches"] = ar.n_orb_matches
-            m["aerial_inliers"] = ar.n_inliers
-            m["aerial_inlier_ratio"] = ar.inlier_ratio
-            m["aerial_rank"] = aerial_rank[i]
+        for i in range(len(candidates)):
+            result["matches"][i]["shape_rank"] = i + 1
 
         # Turn-sequence channel: a drift-robust topological descriptor.
         # Cheap (signature compare over candidate polylines, no city
@@ -1438,7 +1762,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         #   * un-gated (anchors present but enumeration not restricted):
         #     strong weight (2.0) to pull toward the anchored area.
         #   * no anchors: 0 (clean no-op).
-        W_SHAPE, W_SLIDING, W_TURN, W_AERIAL = 1.0, 1.0, 0.0, 0.5
+        W_SHAPE, W_SLIDING, W_TURN = 1.0, 1.0, 0.0
         if not have_anchors:
             W_ANCHOR = 0.0
         elif anchor_gated:
@@ -1477,9 +1801,11 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # too-tight R0 would hurt legit non-seat drives — 1.5 km keeps the
             # common city-centre case neutral while catching km-scale mispicks.
             _conf = min(2.0, float((result_plate_anchor or {}).get("margin", 1.0)))
-            _R0 = 1500.0
+            _R0 = _PLATE_FREE_RADIUS_M
             plate_penalty = {i: 10.0 * _conf * max(0.0, (_pd[i] - _R0) / 1000.0)
                              for i in range(len(candidates))}
+            if result_plate_anchor is not None:
+                result_plate_anchor["applied"] = True
         else:
             plate_rank = {i: i + 1 for i in range(len(candidates))}
             plate_penalty = {i: 0.0 for i in range(len(candidates))}
@@ -1487,22 +1813,67 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # VPR re-rank channel: the VPR prior marks the clip's filmed CENTRE and is
         # route-accurate (~190 m on Ulm — finer than the matcher itself), so we
         # penalise each candidate by how far its trajectory CENTROID sits from the
-        # prior, with a tight free radius. This is the strongest shape-independent
+        # prior, with a free radius matching the prior's own error bar (see
+        # _vpr_distance_penalty). This is the strongest shape-independent
         # selection signal we have; it pulls the pick to the true area.
+        # --use-vpr-sequence (experimental) scores against the per-frame VPR
+        # track instead: the sequence-median distance also penalises
+        # correctly-centred but flipped/rotated candidates.
         if vpr_center is not None:
             import math as _vm
-            from .position import xy_to_latlon as _vxy2ll
+            from .position import latlon_to_xy as _vll2xy, xy_to_latlon as _vxy2ll
             _vlat, _vlon = vpr_center
             _vcl = _vm.cos(_vm.radians(_vlat))
+            track_xy = None
+            if cfg.use_vpr_sequence and vpr_track is not None:
+                try:
+                    track_xy = _vll2xy(
+                        np.asarray(vpr_track[1], dtype=np.float64), road.crs)
+                except Exception as e:
+                    print(f"        VPR sequence penalty unavailable ({e}); "
+                          f"falling back to centroid")
             vpr_penalty = {}
             for i, _c in enumerate(candidates):
-                _cen = np.asarray(_c.aligned_traj_xy, dtype=np.float64).mean(axis=0)
-                _ll = _vxy2ll(_cen[None, :], road.crs)
-                _d = _vm.hypot((float(_ll[0][0]) - _vlat) * 111320.0,
-                               (float(_ll[0][1]) - _vlon) * 111320.0 * _vcl)
-                vpr_penalty[i] = 15.0 * (_d / 1000.0)
+                _d = None
+                if track_xy is not None:
+                    _d = _vpr_sequence_median_m(
+                        _c.aligned_traj_xy, vpr_track[0], track_xy,
+                        vpr_track[2], len(frames.frames))
+                if _d is None:
+                    _cen = np.asarray(_c.aligned_traj_xy, dtype=np.float64).mean(axis=0)
+                    _ll = _vxy2ll(_cen[None, :], road.crs)
+                    _d = _vm.hypot((float(_ll[0][0]) - _vlat) * 111320.0,
+                                   (float(_ll[0][1]) - _vlon) * 111320.0 * _vcl)
+                vpr_penalty[i] = _vpr_distance_penalty(_d)
         else:
             vpr_penalty = {i: 0.0 for i in range(len(candidates))}
+
+        # Sun-heading channel: penalise candidates whose overall bearing
+        # contradicts the sun-derived absolute heading. Orientation is
+        # exactly what shape RMS cannot fix, so a confident sun estimate
+        # kills mirror/rotated walks on near-ties. Confident estimates
+        # only; a graceful no-op otherwise.
+        sun_penalty = {i: 0.0 for i in range(len(candidates))}
+        sun_active = False
+        if (result_sun_heading is not None
+                and result_sun_heading.get("available")
+                and result_sun_heading.get("median_heading") is not None
+                and float(result_sun_heading.get("confidence", 0.0))
+                >= _SUN_MIN_CONFIDENCE):
+            _sun_h = float(result_sun_heading["median_heading"])
+            for i, _c in enumerate(candidates):
+                _mb = _mean_bearing_deg(np.asarray(_c.aligned_traj_xy,
+                                                   dtype=np.float64))
+                if _mb is None:
+                    continue
+                sun_active = True
+                _diff = _heading_diff_deg(_mb, _sun_h)
+                result["matches"][i]["sun_heading_diff_deg"] = round(_diff, 1)
+                sun_penalty[i] = _sun_bearing_penalty(_mb, _sun_h)
+            if sun_active:
+                print(f"        sun-heading channel: {_sun_h:.0f} deg "
+                      f"(conf {float(result_sun_heading['confidence']):.2f}) "
+                      f"fused as orientation penalty")
 
         def _sliding_rank(i: int) -> int:
             return int(result["matches"][i].get("sliding_window_rank", i + 1))
@@ -1516,13 +1887,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 + W_AERIAL * aerial_rank[i]
                 + plate_penalty[i]
                 + vpr_penalty[i]
+                + sun_penalty[i]
             )
 
-        for i in range(len(aerial_results)):
+        for i in range(len(candidates)):
             result["matches"][i]["consensus_score"] = _fused(i)
 
         consensus_order = sorted(
-            range(len(aerial_results)),
+            range(len(candidates)),
             key=lambda i: (_fused(i), i),
         )
         consensus_idx = consensus_order[0]
@@ -1542,11 +1914,33 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         for rank, m in enumerate(reordered_matches):
             m["final_rank"] = rank + 1
         result["matches"] = reordered_matches
-        ranking_mode = "consensus"
+        # ranking_mode names the channels that actually contributed, so
+        # the JSON says what ran (--no-aerial used to still claim plain
+        # 'shape' while skipping every anchor channel).
+        active_channels = ["shape"]
+        if any("sliding_window_rank" in m for m in result["matches"]):
+            active_channels.append("sliding")
+        if W_AERIAL > 0:
+            active_channels.append("aerial")
+        if have_anchors:
+            active_channels.append("anchor")
+        if plate_center is not None:
+            active_channels.append("plate")
+        if vpr_center is not None:
+            active_channels.append("vpr-seq" if (cfg.use_vpr_sequence
+                                                 and vpr_track is not None)
+                                   else "vpr")
+        if sun_active:
+            active_channels.append("sun")
+        if len(active_channels) > 1:
+            ranking_mode = "consensus(" + "+".join(active_channels) + ")"
+        else:
+            ranking_mode = "shape"
+        result["ranking_mode"] = ranking_mode
+        print(f"        Final #1 after consensus re-rank ({ranking_mode}): "
+              f"{', '.join(result['matches'][0]['street_names'][:3]) or '(unnamed)'}")
         # Mirror the reorder in candidates for downstream (GT eval).
         candidates = [candidates[i] for i in consensus_order]
-        print(f"        Final #1 after consensus re-rank: "
-              f"{', '.join(result['matches'][0]['street_names'][:3]) or '(unnamed)'}")
 
     if cfg.embedding_sources and candidates:
         if ipm_canvas is not None:
@@ -1683,7 +2077,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     m["final_rank"] = new_pos + 1
                 result["matches"] = [result["matches"][i] for i in order]
                 candidates = [candidates[i] for i in order]
-                ranking_mode = "consensus+bev"
+                ranking_mode = ranking_mode + "+bev"
+                result["ranking_mode"] = ranking_mode
                 result["bev_splat"]["fused"] = True
                 result["bev_splat"]["weight"] = _W_BEV
                 print(f"        BevSplat fused into consensus (w={_W_BEV}); new #1: "
@@ -1806,6 +2201,10 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # Orientation/shape come from the matcher; absolute position from the prior.
     anchored_cand = None
     if vpr_center is not None and candidates:
+        # Place the top candidate's trajectory so its CENTROID sits on the robust
+        # VPR centre, keeping the matcher's (clean) orientation. This beat fitting
+        # to the per-frame VPR track (top-1 matches are too noisy: 334 vs 227 m
+        # mean route error on Ulm), so the single robust centre wins.
         import dataclasses
         from .position import latlon_to_xy as _ll2xy, xy_to_latlon as _xy2ll2
         _traj = np.asarray(candidates[0].aligned_traj_xy, dtype=np.float64)
@@ -1813,15 +2212,20 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         _shift = _vpr_xy - _traj.mean(axis=0)
         anchored_cand = dataclasses.replace(candidates[0], aligned_traj_xy=_traj + _shift)
         _astart = _xy2ll2((_traj[:1] + _shift), road.crs)[0]
+        # The source must name the channel that produced the prior: a VLM
+        # district centroid is a far coarser prior than a MegaLoc VPR fit,
+        # and per-channel accuracy studies need to tell them apart.
+        _anchor_src = "vlm_geocode" if anchor_origin == "vlm" else "vpr_centroid"
         result["anchored_position"] = {
-            "lat": float(_astart[0]), "lon": float(_astart[1]), "source": "vpr",
+            "lat": float(_astart[0]), "lon": float(_astart[1]), "source": _anchor_src,
             "prior_latlon": [float(vpr_center[0]), float(vpr_center[1])],
         }
-        print(f"[10a*] ANCHOR-PRIMARY (VPR): top trajectory placed at the prior "
-              f"-> start {_astart[0]:.5f}, {_astart[1]:.5f}")
+        print(f"[10a*] ANCHOR-PRIMARY ({_anchor_src}): start "
+              f"{_astart[0]:.5f}, {_astart[1]:.5f}")
 
     # 10b. Optional: metric evaluation against GPS waypoint ground truth.
     waypoint_evals = None
+    anchored_eval = None
     if cfg.ground_truth_waypoints and candidates:
         print(f"[10b] Evaluating against GT waypoints: {cfg.ground_truth_waypoints}")
         try:
@@ -1855,13 +2259,16 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             if anchored_cand is not None:
                 aev = evaluate_candidates_against_waypoints(
                     [anchored_cand], road, waypoints)[0]
+                anchored_eval = aev
                 result["anchored_position"]["gt_start_error_m"] = round(
                     aev.start_error_m, 1)
                 result["anchored_position"]["gt_mean_route_error_m"] = round(
                     aev.mean_route_error_m, 1)
-                print(f"      -> ANCHOR-PRIMARY start error vs GT: "
-                      f"{aev.start_error_m:.1f} m   (matcher pick was "
-                      f"{waypoint_evals[0].start_error_m:.1f} m)")
+                print(f"      -> ANCHOR-PRIMARY (headline) vs GT: start "
+                      f"{aev.start_error_m:.1f} m, mean route "
+                      f"{aev.mean_route_error_m:.1f} m   (matcher pick: start "
+                      f"{waypoint_evals[0].start_error_m:.1f} m, mean route "
+                      f"{waypoint_evals[0].mean_route_error_m:.1f} m)")
 
     # 11. Final position report — the single answer to "where is this
     # video?". candidates[0] is consensus-best when the aerial channel
@@ -1884,7 +2291,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # AND the shape-fit rotation, but pin absolute position with the
         # most confident anchor — fixes the start drift that scale-lock
         # alone leaves. Takes precedence over the idea-2 georeference.
-        if (cfg.scale_lock and locked_scale is not None and ocr_anchors):
+        # Street-name anchors are first-class pin points (the temporally
+        # valid "you are here" anchors that drove the Ulm gains), so the
+        # pin also runs on street-name-only runs — it used to require a
+        # geocodable POI, silently skipping when OCR read only street
+        # plates (the common 4K case).
+        if (cfg.scale_lock and locked_scale is not None
+                and (ocr_anchors or street_anchors)):
             try:
                 from .position import xy_to_latlon as _xy2ll
                 from .scale_recovery import vo_positions_at_times
@@ -1921,9 +2334,20 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     a_t.append(sa.t_sec)
                     a_conf.append(sa.confidence)
                     names.append(sa.name)
+                if not a_world:
+                    raise ValueError("no pinnable anchors (street anchors "
+                                     "carry no graph nodes)")
                 a_world = np.asarray(a_world, dtype=np.float64)
+                # match_ts, not frames.timestamps: the staged OpenVO/DA3
+                # trajectory has fewer rows than frames, and indexing it
+                # with per-frame times was the silent IndexError that
+                # reverted the pin (the 412->160 m win) on default runs.
+                if len(match_ts) != len(match_xz):
+                    raise ValueError(
+                        f"timestamp axis desynced from trajectory "
+                        f"({len(match_ts)} ts vs {len(match_xz)} poses)")
                 a_vo = vo_positions_at_times(
-                    match_xz, frames.timestamps, np.asarray(a_t))
+                    match_xz, match_ts, np.asarray(a_t))
                 dist_to_walk = np.array([
                     np.linalg.norm(walk - w, axis=1).min() for w in a_world])
                 wts = np.asarray(a_conf) / (1.0 + dist_to_walk / 50.0)
@@ -1952,14 +2376,24 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             except Exception:
                 world_route_latlon = None
 
-        position = build_position_report(
-            candidates[0],
+        # Output contract: result["position"] is the HEADLINE answer —
+        # the ANCHORED route when anchor-primary fired (VPR/VLM prior),
+        # else the matcher pick. result["matcher_position"] always
+        # carries the raw matcher-pick report (old schema). The anchored
+        # answer used to live only in the anchored_position side field
+        # while position/printed summary carried the matcher pick,
+        # silently discarding the project's main accuracy win.
+        position, matcher_position = _final_position_reports(
+            candidates,
             road,
             matches=result["matches"],
             ranking=pos_ranking,
             world_route_latlon=world_route_latlon,
+            anchored_cand=anchored_cand,
+            anchor_origin=anchor_origin,
+            prior_latlon=vpr_center,
         )
-        if position is not None:
+        if matcher_position is not None:
             if world_route_latlon is not None and cfg.ground_truth_waypoints:
                 # GT error of the georeferenced route (the candidate-based
                 # waypoint_evals don't describe this route).
@@ -1972,26 +2406,30 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     d0 = float(np.linalg.norm(rt_xy[0] - wp_xy[0]))
                     dm = float(np.mean([
                         _segment_to_polyline_distance(w, rt_xy) for w in wp_xy]))
-                    position["gt_start_error_m"] = round(d0, 1)
-                    position["gt_mean_route_error_m"] = round(dm, 1)
+                    matcher_position["gt_start_error_m"] = round(d0, 1)
+                    matcher_position["gt_mean_route_error_m"] = round(dm, 1)
                 except Exception as e:
                     print(f"      -> georef GT eval failed: {e}")
             elif waypoint_evals:
-                position["gt_start_error_m"] = round(
+                matcher_position["gt_start_error_m"] = round(
                     waypoint_evals[0].start_error_m, 1
                 )
-                position["gt_mean_route_error_m"] = round(
+                matcher_position["gt_mean_route_error_m"] = round(
                     waypoint_evals[0].mean_route_error_m, 1
                 )
-            if result_scale_recovery is not None:
-                result["scale_recovery"] = result_scale_recovery
-            if result_loop_closure is not None:
-                result["loop_closure"] = result_loop_closure
-            if result_vggt is not None:
-                result["vggt_gating"] = result_vggt
-            if result_ipm_scale is not None:
-                result["ipm_scale"] = result_ipm_scale
-
+        # GT errors of the headline: the anchored route's own when the
+        # anchor fired, else it shares the matcher pick's numbers.
+        if (position is not None and position is not matcher_position
+                and anchored_eval is not None):
+            position["gt_start_error_m"] = round(anchored_eval.start_error_m, 1)
+            position["gt_mean_route_error_m"] = round(
+                anchored_eval.mean_route_error_m, 1)
+        if matcher_position is not None:
+            # Written unconditionally (not inside the headline block) so
+            # the contract's "always present" holds even if the headline
+            # report fails to build.
+            result["matcher_position"] = matcher_position
+        if position is not None:
             # Calibrated multi-hypothesis output. Collapse the candidate
             # pool (final-ranked top_k + geometric tail) into distinct
             # location hypotheses and attach a confidence derived from
@@ -2015,15 +2453,27 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 ]
 
             # OrienterNet metric refinement (neural BEV->OSM). Refines the
-            # shape-matched coarse route to ~metric accuracy by fusing
-            # per-frame BEV->OSM beliefs along it. Updates the headline
-            # position with the refined start; keeps the coarse one too.
+            # coarse route to ~metric accuracy by fusing per-frame
+            # BEV->OSM beliefs along it. The prior route is the ANCHORED
+            # candidate when it exists — OrienterNet's per-keyframe tiles
+            # only cover ~160 m around the prior, so it needs the best
+            # prior the pipeline has (the anchored route, ~91-236 m on
+            # Ulm), not the blind shape pick (~500-700 m off).
             if cfg.use_orienternet and candidates:
-                _orienternet_refine(cfg, frames, candidates[0], road, position, result)
+                _orienternet_refine(
+                    cfg, frames,
+                    anchored_cand if anchored_cand is not None else candidates[0],
+                    road, position, result)
 
             result["position"] = position
             print()
             print(format_position_summary(position))
+            if (matcher_position is not None
+                    and position is not matcher_position):
+                print(f"  Matcher pick (non-headline): "
+                      f"{matcher_position['latitude']:.6f}, "
+                      f"{matcher_position['longitude']:.6f}  "
+                      f"({matcher_position['google_maps_url']})")
             if hyps and len(hyps) > 1:
                 sc = position.get("spatial_confidence", {})
                 print(f"  Spatial confidence: {sc.get('level', '?')} "
@@ -2046,6 +2496,39 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # store a JSON-safe view (drop the per-frame numpy array)
         result["sun_heading"] = {k: v for k, v in result_sun_heading.items()
                                  if k != "headings"}
+
+    # Diagnostics are attached UNCONDITIONALLY: failed runs (no candidates,
+    # unusable CRS) are exactly the ones these are needed to debug, and
+    # they used to vanish whenever the position report didn't build.
+    if result_scale_recovery is not None:
+        result["scale_recovery"] = result_scale_recovery
+    if result_loop_closure is not None:
+        result["loop_closure"] = result_loop_closure
+    if result_vggt is not None:
+        result["vggt_gating"] = result_vggt
+    if result_ipm_scale is not None:
+        result["ipm_scale"] = result_ipm_scale
+
+    # Anchor-channel summaries: a run's only record of these expensive
+    # computations must not be stdout.
+    if result_plate_anchor is not None:
+        result_plate_anchor.setdefault("applied", False)
+        result["plate_anchor"] = result_plate_anchor
+    elif cfg.use_plate_anchor:
+        result["plate_anchor"] = {"applied": False,
+                                  "status": "no_confident_district"}
+    if result_vlm_anchor is not None:
+        result["vlm_anchor"] = result_vlm_anchor
+    elif cfg.use_vlm_anchor and vpr_center is None:
+        result["vlm_anchor"] = {"applied_as_prior": False,
+                                "status": "no_geocodable_prior"}
+    if vpr_center is not None:
+        result["vpr_prior"] = {
+            "lat": float(vpr_center[0]), "lon": float(vpr_center[1]),
+            "origin": anchor_origin,
+            "track_frames": (int(len(vpr_track[0]))
+                             if vpr_track is not None else None),
+        }
 
     out_json = cfg.output_dir / "result.json"
     with out_json.open("w", encoding="utf-8") as f:

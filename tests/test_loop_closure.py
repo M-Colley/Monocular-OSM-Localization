@@ -63,3 +63,51 @@ def test_detect_loop_returns_none_when_no_revisit() -> None:
 
 def test_detect_loop_short_clip_none() -> None:
     assert detect_end_to_start_loop([np.zeros((4, 4, 3), np.uint8)] * 5) is None
+
+
+def _textured(seed: int, w: int = 160, h: int = 120) -> np.ndarray:
+    """Blocky random texture — plenty of ORB corners, deterministic."""
+    import cv2
+
+    rng = np.random.default_rng(seed)
+    small = rng.integers(0, 255, (h // 4, w // 4, 3)).astype(np.uint8)
+    return cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+
+
+def test_cached_orb_path_matches_uncached_reference() -> None:
+    """The per-frame descriptor cache must give identical results to
+    scoring every pair from scratch with _orb_inliers."""
+    from src.loop_closure import _orb_inliers
+
+    # Head and tail share (shifted) copies of one scene; middles differ.
+    scene = _textured(0)
+    frames = [np.roll(scene, 4 * k, axis=1) for k in range(2)]
+    frames += [_textured(s) for s in range(1, 17)]
+    frames += [np.roll(scene, 3 + 4 * k, axis=1) for k in range(2)]
+
+    cached = detect_end_to_start_loop(frames, min_inliers=20)
+    reference = detect_end_to_start_loop(frames, min_inliers=20,
+                                         match_fn=_orb_inliers)
+    assert cached == reference
+    assert cached is not None
+    i, j = cached
+    assert i < 3 and j > 16
+
+
+def test_default_path_describes_each_frame_once(monkeypatch) -> None:
+    """The default ORB path computes keypoints/descriptors once per
+    unique frame instead of once per pair."""
+    import src.loop_closure as lc
+
+    calls: list[int] = []
+    real = lc._orb_describe
+
+    def counting(img, **kw):
+        calls.append(1)
+        return real(img, **kw)
+
+    monkeypatch.setattr(lc, "_orb_describe", counting)
+    frames = [_textured(s % 4) for s in range(20)]
+    lc.detect_end_to_start_loop(frames, min_inliers=10 ** 6)
+    # head=2, tail=2 (12 % of 20) -> 4 unique frames across all pairs.
+    assert len(calls) == 4

@@ -91,9 +91,29 @@ def _clean(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _is_genuine_not_found(exc: Exception) -> bool:
+    """True only for osmnx's "no such place" error. Transient failures
+    (timeouts, DNS, HTTP 429) must NOT be treated as a negative result."""
+    try:
+        from osmnx._errors import InsufficientResponseError
+    except Exception:  # pragma: no cover - very old/new osmnx layouts
+        try:
+            from osmnx import InsufficientResponseError  # type: ignore
+        except Exception:
+            return False
+    return isinstance(exc, InsufficientResponseError)
+
+
 def default_geocode_fn(cache_path: Path | None = None) -> GeocodeFn:
     """Nominatim-backed geocoder (via osmnx) with on-disk memoization
-    and the 1 req/s courtesy delay Nominatim asks for."""
+    and the 1 req/s courtesy delay Nominatim asks for.
+
+    Only hits and GENUINE not-found results are persisted. A transient
+    network failure (timeout, rate limit) is returned as ``None`` for this
+    call but never written to the cache — otherwise one flaky-network run
+    permanently converts every queried text into a cached miss and silently
+    disables the OCR-anchor channel on all later runs.
+    """
     import time
 
     import osmnx as ox
@@ -110,14 +130,18 @@ def default_geocode_fn(cache_path: Path | None = None) -> GeocodeFn:
         if query in cache:
             v = cache[query]
             return (v[0], v[1]) if v else None
+        cacheable = True
         try:
             lat, lon = ox.geocode(query)
             cache[query] = [float(lat), float(lon)]
             result: tuple[float, float] | None = (float(lat), float(lon))
-        except Exception:
-            cache[query] = None
+        except Exception as exc:
             result = None
-        if cp is not None:
+            if _is_genuine_not_found(exc):
+                cache[query] = None      # real "no such place" -> memoize
+            else:
+                cacheable = False        # transient failure -> retry next run
+        if cacheable and cp is not None:
             cp.parent.mkdir(parents=True, exist_ok=True)
             cp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
         time.sleep(1.1)
@@ -378,6 +402,43 @@ def _nodes_for_street(road: RoadGraph, canonical_name: str) -> tuple:
     return tuple(nodes)
 
 
+def _street_components(
+    road: RoadGraph, nodes: tuple, *, linkage_m: float = 300.0
+) -> list[tuple]:
+    """Split a street's node set into spatial connected components.
+
+    Common names (``Hauptstraße``) recur city-wide; treating every instance
+    as ONE anchor puts its centroid *between* the instances — a phantom
+    point on no street at all. Single-linkage clustering (nodes closer than
+    ``linkage_m`` join a component) recovers the physical instances so each
+    can be scored/filtered on its own. ``linkage_m <= 0`` disables the split.
+    """
+    if linkage_m <= 0 or len(nodes) <= 1:
+        return [tuple(nodes)]
+    xy = np.array([[road.graph.nodes[n]["x"], road.graph.nodes[n]["y"]]
+                   for n in nodes], dtype=float)
+    # Union-find over close pairs (streets have few nodes; O(n^2) is fine).
+    parent = list(range(len(nodes)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    d = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=2)
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            if d[i, j] <= linkage_m:
+                ri, rj = find(i), find(j)
+                if ri != rj:
+                    parent[ri] = rj
+    groups: dict[int, list] = {}
+    for i, n in enumerate(nodes):
+        groups.setdefault(find(i), []).append(n)
+    return [tuple(g) for g in groups.values()]
+
+
 def match_text_to_streets(
     detections: list[SceneText],
     road: RoadGraph,
@@ -385,15 +446,20 @@ def match_text_to_streets(
     min_confidence: float = 0.5,
     min_ratio: float = 0.85,
     min_letters: int = 5,
+    component_linkage_m: float = 300.0,
 ) -> list[StreetAnchor]:
     """Fuzzy-match OCR detections against the OSM street gazetteer.
 
-    Returns one :class:`StreetAnchor` per distinct matched street. A match
-    requires similarity ``>= min_ratio`` to a real graph street name — a
-    strict bar that, combined with the distinctive German street suffixes
-    (``-straße`` / ``-gasse`` / ``-weg`` …), keeps shop-name false
-    positives out. Needs legible plates (true-4K); at 720p this returns
-    nothing (confirmed empirically).
+    Returns one :class:`StreetAnchor` per matched street *instance*: a
+    name shared by several disconnected streets across the city yields one
+    anchor per spatial component (see :func:`_street_components`), so the
+    downstream cluster filter can pick the corroborated instance instead
+    of a city-wide phantom centroid. A match requires similarity
+    ``>= min_ratio`` to a real graph street name — a strict bar that,
+    combined with the distinctive German street suffixes (``-straße`` /
+    ``-gasse`` / ``-weg`` …), keeps shop-name false positives out. Needs
+    legible plates (true-4K); at 720p this returns nothing (confirmed
+    empirically).
     """
     import difflib
 
@@ -401,7 +467,7 @@ def match_text_to_streets(
 
     gaz = build_street_gazetteer(road)
     keys = list(gaz)
-    best: dict[str, StreetAnchor] = {}
+    best: dict[str, list[StreetAnchor]] = {}
     for d in detections:
         if d.confidence < min_confidence:
             continue
@@ -414,13 +480,20 @@ def match_text_to_streets(
         ratio = difflib.SequenceMatcher(None, norm, hits[0]).ratio()
         canonical = gaz[hits[0]]
         prev = best.get(canonical)
-        if prev is None or d.confidence > prev.confidence:
-            best[canonical] = StreetAnchor(
-                name=canonical, ocr_text=d.text, confidence=d.confidence,
-                match_ratio=ratio, node_ids=_nodes_for_street(road, canonical),
-                t_sec=float(d.t_sec),
+        if prev is None or d.confidence > prev[0].confidence:
+            comps = _street_components(
+                road, _nodes_for_street(road, canonical),
+                linkage_m=component_linkage_m,
             )
-    return sorted(best.values(), key=lambda a: -a.confidence)
+            best[canonical] = [
+                StreetAnchor(
+                    name=canonical, ocr_text=d.text, confidence=d.confidence,
+                    match_ratio=ratio, node_ids=comp, t_sec=float(d.t_sec),
+                )
+                for comp in comps
+            ]
+    return sorted((a for lst in best.values() for a in lst),
+                  key=lambda a: -a.confidence)
 
 
 def street_anchor_xy(anchors: list[StreetAnchor], road: RoadGraph) -> np.ndarray:

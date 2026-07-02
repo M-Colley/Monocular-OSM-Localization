@@ -5,7 +5,9 @@ from __future__ import annotations
 import numpy as np
 
 from src.hypotheses import (
+    LocationHypothesis,
     cluster_candidates,
+    dedup_candidates_by_walk,
     distinct_hypotheses,
     hypothesis_confidence,
 )
@@ -31,14 +33,14 @@ class _Road:
         self.graph = _FakeGraph()
 
 
-def _cand(start_xy, score, *, names=("X",)) -> MatchCandidate:
+def _cand(start_xy, score, *, names=("X",), walk=()) -> MatchCandidate:
     # aligned_traj_xy: a short path starting at start_xy. UTM 32N metres
     # near Karlsruhe so xy_to_latlon yields valid WGS84.
     base = np.array([456000.0, 5428000.0])  # ~Karlsruhe in UTM 32N
     p0 = base + np.asarray(start_xy, dtype=float)
     traj = np.array([p0, p0 + [10.0, 0.0], p0 + [20.0, 5.0]])
     c = MatchCandidate(
-        score=score, bearing_corr=0.3, start_node=0, walk=[],
+        score=score, bearing_corr=0.3, start_node=0, walk=list(walk),
         walk_xy=traj.copy(), aligned_traj_xy=traj, walk_length_m=100.0)
     c._names = list(names)  # not used by the graph stub; summary returns []
     return c
@@ -98,3 +100,42 @@ def test_confidence_low_when_scattered() -> None:
 def test_confidence_empty_hyps() -> None:
     conf = hypothesis_confidence([], [])
     assert conf["level"] == "low"
+
+
+def test_dedup_collapses_shared_walks_keeps_distinct() -> None:
+    """Walks sharing most (undirected) edges are one evidence unit; walks
+    with disjoint edges are kept. Direction must not matter."""
+    same_a = _cand((0, 0), 10.0, walk=[("A", "B", 0), ("B", "C", 0)])
+    same_b = _cand((40, 0), 11.0, walk=[("C", "B", 0), ("B", "A", 0)])  # reversed
+    other = _cand((80, 0), 12.0, walk=[("D", "E", 0), ("E", "F", 0)])
+    kept = dedup_candidates_by_walk([same_a, same_b, other])
+    assert kept == [same_a, other]
+
+
+def test_dedup_keeps_walkless_candidates() -> None:
+    """Candidates without walk edges (synthetic pools) are all kept."""
+    cands = [_cand((i * 10, 0), 10.0 + i) for i in range(4)]
+    assert dedup_candidates_by_walk(cands) == cands
+
+
+def test_confidence_not_inflated_by_duplicate_walks() -> None:
+    """Nine near-identical walks spawned along the same street are ONE
+    shape solution, not nine agreeing votes. Before dedup, they
+    manufactured 'high' confidence; after collapsing them the pool is
+    1 concentrated unit vs 3 scattered ones -> low confidence."""
+    dup_walk = [("A", "B", 0), ("B", "C", 0), ("C", "D", 0)]
+    cands = [_cand((i * 10, 0), 10.0 + i, walk=dup_walk) for i in range(9)]
+    cands += [
+        _cand((3000, 0), 30.0, walk=[("P", "Q", 0)]),
+        _cand((0, 4000), 31.0, walk=[("R", "S", 0)]),
+        _cand((5000, 5000), 32.0, walk=[("T", "U", 0)]),
+    ]
+    hyps = [LocationHypothesis(
+        rank=1, candidate_index=0, lat=49.0, lon=8.4,
+        score=10.0, support=9, street_names=[],
+    )]
+    conf = hypothesis_confidence(cands, hyps, top_k=12, radius_m=150.0)
+    # Raw-walk statistics said "high" (9/12 concentrated, tight spread);
+    # deduplicated evidence is 1 vs 3 scattered.
+    assert conf["level"] == "low"
+    assert conf["concentration"] < 0.3

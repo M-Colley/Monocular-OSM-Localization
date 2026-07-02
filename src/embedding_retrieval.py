@@ -68,6 +68,55 @@ def _embedding_cube_to_rgb(embedding: np.ndarray, *, size: int = 224) -> np.ndar
     return rgb
 
 
+def _embedding_cubes_to_rgb_shared(
+    cubes: Sequence[np.ndarray], *, size: int = 224
+) -> list[np.ndarray]:
+    """PCA-render several embedding cubes with ONE shared basis.
+
+    :func:`_embedding_cube_to_rgb` fits a fresh SVD basis per tile (plus
+    a per-tile min/max stretch and PCA sign ambiguity), so two cubes are
+    not comparable even when they cover adjacent ground. For candidate
+    ranking we instead pool the pixels of *all* candidate crops, fit a
+    single mean/basis, and normalize with a single global min/max — the
+    resulting false-colour images live in one shared colour space.
+    """
+    if not cubes:
+        return []
+    prepped: list[np.ndarray] = []
+    for embedding in cubes:
+        if embedding.ndim != 3:
+            raise ValueError("expected HxWxC embedding cube")
+        if embedding.shape[2] < 3:
+            raise ValueError("embedding cube needs at least 3 channels")
+        h, w = embedding.shape[:2]
+        if max(h, w) > size:
+            scale = max(1, int(np.ceil(max(h, w) / size)))
+            embedding = embedding[::scale, ::scale]
+        prepped.append(np.asarray(embedding, dtype=np.float32))
+
+    pooled = np.vstack([e.reshape(-1, e.shape[-1]) for e in prepped])
+    mean = pooled.mean(axis=0, keepdims=True)
+    _, _, vt = np.linalg.svd(pooled - mean, full_matrices=False)
+    basis = vt[:3].T                                   # (C, 3)
+
+    projected = [
+        ((e.reshape(-1, e.shape[-1]) - mean) @ basis).reshape(e.shape[0], e.shape[1], 3)
+        for e in prepped
+    ]
+    lo = np.min([p.min(axis=(0, 1)) for p in projected], axis=0)
+    hi = np.max([p.max(axis=(0, 1)) for p in projected], axis=0)
+    denom = np.where(hi - lo < 1e-6, 1.0, hi - lo)
+
+    out: list[np.ndarray] = []
+    for p in projected:
+        rgb = np.clip((p - lo) / denom, 0.0, 1.0)
+        rgb = (255.0 * rgb).astype(np.uint8)
+        if rgb.shape[:2] != (size, size):
+            rgb = cv2.resize(rgb, (size, size), interpolation=cv2.INTER_AREA)
+        out.append(rgb)
+    return out
+
+
 class TorchvisionImageEmbedder:
     """Deep image embedder for retrieval.
 
@@ -177,13 +226,81 @@ def _candidate_center_lonlat(road: RoadGraph, cand: MatchCandidate) -> tuple[flo
     return float(lon), float(lat)
 
 
-def _render_geotessera_patch(
+def _crop_embedding_cube(
+    embedding: np.ndarray,
+    crs,
+    transform,
+    lon: float,
+    lat: float,
+    *,
+    half_extent_m: float,
+    min_half_px: int = 4,
+) -> np.ndarray:
+    """Crop a tile-wide embedding cube to a window centred on ``(lon, lat)``.
+
+    ``fetch_embedding`` returns the cube for the whole 0.1-degree
+    (~11 km) registry tile *containing* the point, so without this crop
+    every candidate in the same cell renders the byte-identical image.
+    ``transform`` is the affine mapping pixel ``(col, row)`` to ``(x, y)``
+    in ``crs`` (rasterio convention: ``x = a*col + b*row + c``,
+    ``y = d*col + e*row + f``); we invert it to find the candidate pixel
+    and window ``half_extent_m`` metres around it (clamped to the tile).
+    Returns the full cube unchanged when ``crs``/``transform`` are missing.
+    """
+    if crs is None or transform is None:
+        return embedding
+
+    # Accept a rasterio Affine (attributes a..f) or a 6-sequence.
+    if hasattr(transform, "a"):
+        a, b, c = float(transform.a), float(transform.b), float(transform.c)
+        d, e, f = float(transform.d), float(transform.e), float(transform.f)
+    else:
+        a, b, c, d, e, f = (float(v) for v in list(transform)[:6])
+
+    tr = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    x, y = tr.transform(lon, lat)
+
+    det = a * e - b * d
+    if not np.isfinite(det) or abs(det) < 1e-12:
+        return embedding
+    col = (e * (x - c) - b * (y - f)) / det
+    row = (-d * (x - c) + a * (y - f)) / det
+
+    # Metres per pixel along each axis; geographic CRSs report degrees.
+    px_x = float(np.hypot(a, d))
+    px_y = float(np.hypot(b, e))
+    try:
+        from pyproj import CRS
+        if CRS.from_user_input(crs).is_geographic:
+            px_x *= 111_320.0 * max(np.cos(np.deg2rad(lat)), 1e-6)
+            px_y *= 110_540.0
+    except Exception:
+        pass
+    if px_x <= 0 or px_y <= 0:
+        return embedding
+
+    h, w = embedding.shape[:2]
+    half_c = max(int(round(half_extent_m / px_x)), min_half_px)
+    half_r = max(int(round(half_extent_m / px_y)), min_half_px)
+    ci = int(round(np.clip(col, 0, w - 1)))
+    ri = int(round(np.clip(row, 0, h - 1)))
+    c0 = max(ci - half_c, 0)
+    c1 = min(ci + half_c + 1, w)
+    r0 = max(ri - half_r, 0)
+    r1 = min(ri + half_r + 1, h)
+    if c1 - c0 < 2 or r1 - r0 < 2:
+        return embedding
+    return embedding[r0:r1, c0:c1]
+
+
+def _fetch_geotessera_cube(
     road: RoadGraph,
     cand: MatchCandidate,
     *,
     year: int,
-    size: int = 224,
+    half_extent_m: float = 600.0,
 ) -> np.ndarray:
+    """Fetch the GeoTessera embedding cube cropped around the candidate."""
     try:
         from geotessera import GeoTessera
     except ImportError as exc:  # pragma: no cover - exercised in real envs
@@ -193,8 +310,22 @@ def _render_geotessera_patch(
 
     lon, lat = _candidate_center_lonlat(road, cand)
     client = GeoTessera()
-    embedding, _crs, _transform = client.fetch_embedding(lon=lon, lat=lat, year=year)
-    return _embedding_cube_to_rgb(np.asarray(embedding), size=size)
+    embedding, crs, transform = client.fetch_embedding(lon=lon, lat=lat, year=year)
+    return _crop_embedding_cube(
+        np.asarray(embedding), crs, transform, lon, lat, half_extent_m=half_extent_m,
+    )
+
+
+def _render_geotessera_patch(
+    road: RoadGraph,
+    cand: MatchCandidate,
+    *,
+    year: int,
+    size: int = 224,
+    half_extent_m: float = 600.0,
+) -> np.ndarray:
+    cube = _fetch_geotessera_cube(road, cand, year=year, half_extent_m=half_extent_m)
+    return _embedding_cube_to_rgb(cube, size=size)
 
 
 def _render_source_image(
@@ -264,22 +395,51 @@ def score_candidates_by_embeddings(
             for i in range(len(candidates))
         ]
 
-        for i, cand in enumerate(candidates):
-            image_path = source_dir / f"{source}_candidate_{i + 1}.png"
+        if source == "geotessera":
+            # Fetch the candidate-centred cubes first, then PCA-render them
+            # with ONE shared basis so the false-colour images are
+            # comparable across candidates (a per-tile basis + per-tile
+            # stretch makes even neighbouring crops non-comparable).
+            cubes: list[np.ndarray] = []
+            cube_indices: list[int] = []
+            for i, cand in enumerate(candidates):
+                try:
+                    cubes.append(_fetch_geotessera_cube(
+                        road, cand, year=geotessera_year,
+                    ))
+                    cube_indices.append(i)
+                except Exception as exc:
+                    source_results[i].error = str(exc)
             try:
-                img = _render_source_image(
-                    source,
-                    road,
-                    cand,
-                    geotessera_year=geotessera_year,
-                    size=size,
-                )
+                images = _embedding_cubes_to_rgb_shared(cubes, size=size)
+            except Exception as exc:
+                images = []
+                for i in cube_indices:
+                    source_results[i].error = str(exc)
+                cube_indices = []
+            for i, img in zip(cube_indices, images, strict=True):
+                image_path = source_dir / f"{source}_candidate_{i + 1}.png"
                 cv2.imwrite(str(image_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
                 rendered.append(img)
                 rendered_indices.append(i)
                 source_results[i].image_path = image_path
-            except Exception as exc:
-                source_results[i].error = str(exc)
+        else:
+            for i, cand in enumerate(candidates):
+                image_path = source_dir / f"{source}_candidate_{i + 1}.png"
+                try:
+                    img = _render_source_image(
+                        source,
+                        road,
+                        cand,
+                        geotessera_year=geotessera_year,
+                        size=size,
+                    )
+                    cv2.imwrite(str(image_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+                    rendered.append(img)
+                    rendered_indices.append(i)
+                    source_results[i].image_path = image_path
+                except Exception as exc:
+                    source_results[i].error = str(exc)
 
         if rendered:
             candidate_vecs = embedder.encode(rendered)

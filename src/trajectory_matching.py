@@ -259,14 +259,36 @@ def match_trajectory(
         ranks only *within* the anchored area. No-op (falls back to the
         full scan) if no start nodes are supplied.
     """
-    if len(traj_xz) < n_samples:
-        # Resample anyway: if traj has fewer points we still want to
-        # interpolate to n_samples.
-        if trajectory_arc_length(traj_xz)[-1] <= 0:
-            return []
+    # Degenerate input — empty, a single point, or a stationary segment
+    # (VO emitted identical poses, zero total arc length) — cannot be
+    # matched; return "no candidates" instead of crashing in
+    # resample_uniform. This must run unconditionally: the previous
+    # guard only fired for len(traj_xz) < n_samples, so a 300-identical-
+    # pose trajectory blew up after the expensive VO/graph stages.
+    if len(traj_xz) < 2 or trajectory_arc_length(traj_xz)[-1] <= 0:
+        return []
 
     traj_resampled = resample_uniform(traj_xz, n_samples)
     traj_sig = bearing_signature(traj_xz, n_samples=n_samples)
+
+    # Scale the walk-depth (edge count) cap with the length prior. A
+    # fixed cap of 40 edges silently empties the pool once the prior
+    # exceeds ~5 km in a dense grid: with ~60-80 m edges, 40 edges cover
+    # only 2.4-3.2 km, so every walk fails the 0.5*estimated_length_m
+    # filter below and dense-center start nodes contribute NOTHING —
+    # truncated walks are dropped, not scored. Derive the depth needed
+    # to physically reach 1.5x the target at the graph's median edge
+    # length (computed once), never below the caller's `walk_depth` and
+    # capped at 150 to keep enumeration bounded.
+    edge_lengths = np.array([
+        float(d.get("length", 0.0))
+        for _, _, d in road.graph.edges(data=True)
+    ], dtype=np.float64)
+    edge_lengths = edge_lengths[edge_lengths > 0]
+    if len(edge_lengths):
+        median_edge_m = float(np.median(edge_lengths))
+        needed = int(np.ceil(1.5 * estimated_length_m / median_edge_m))
+        walk_depth = int(min(150, max(walk_depth, needed)))
 
     seed = [n for n in (extra_start_nodes or []) if n in road.graph]
     if restrict_to_start_nodes and seed:
@@ -323,6 +345,12 @@ def match_trajectory(
         else:
             _, _, residual, traj_aligned = procrustes_similarity(
                 traj_resampled, poly_resampled)
+        # A failed/degenerate alignment reports an inf (or NaN) residual
+        # and an UNALIGNED trajectory. Letting it through corrupts the
+        # ranking and every downstream consumer of aligned_traj_xy
+        # (hypothesis starts, spread_m, evaluator start error) — drop it.
+        if not np.isfinite(residual):
+            continue
         walk_len = float(trajectory_arc_length(poly)[-1])
         candidates.append(
             MatchCandidate(
@@ -414,21 +442,45 @@ def _candidate_street_names(cand: MatchCandidate, graph: nx.MultiDiGraph) -> set
     }
 
 
+def _min_polyline_distance(a: np.ndarray, b: np.ndarray) -> float:
+    """Min point-to-segment distance between two polylines (symmetric)."""
+    # Lazy import: evaluator imports MatchCandidate from this module, so
+    # a top-level import would be circular.
+    from .evaluator import _polyline_to_polyline_distance
+    return min(
+        _polyline_to_polyline_distance(a, b),
+        _polyline_to_polyline_distance(b, a),
+    )
+
+
 def _candidates_overlap(
     ref: MatchCandidate,
     other: MatchCandidate,
     graph: nx.MultiDiGraph,
     *,
     support_radius_m: float,
+    name_radius_m: float = 500.0,
 ) -> bool:
+    """Does the window-match walk `other` support the full-route candidate `ref`?
+
+    Geometric support is the minimum point-to-polyline distance between
+    the two walks — NOT centroid-to-centroid, which structurally denied
+    support to long routes (a window covering the first quarter of a
+    1.5 km route has its centroid ~550 m from the full route's centroid
+    *on the same street*). A street-name match only counts when the
+    named window walk also lies within ``name_radius_m`` of the
+    candidate polyline; bare name equality granted support to any
+    same-named street city-wide.
+    """
+    dist = _min_polyline_distance(ref.walk_xy, other.walk_xy)
+    if dist <= support_radius_m:
+        return True
+
     ref_names = _candidate_street_names(ref, graph)
     other_names = _candidate_street_names(other, graph)
     if ref_names and other_names and ref_names.intersection(other_names):
-        return True
-
-    ref_center = ref.walk_xy.mean(axis=0)
-    other_center = other.walk_xy.mean(axis=0)
-    return float(np.linalg.norm(ref_center - other_center)) <= support_radius_m
+        return dist <= name_radius_m
+    return False
 
 
 def score_candidates_with_sliding_windows(

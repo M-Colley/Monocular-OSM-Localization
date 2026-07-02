@@ -145,10 +145,12 @@ def render_full_splat_topdown(
     py = resolution - margin_px - 1 - (xz[:, 1] - ymin) * s
     cov_px = cov2d * (s ** 2)
 
-    # Render top-most Gaussians last (overwrite below). World convention
-    # in this codebase is camera-y up, so a smaller y-coord = higher up;
-    # we sort by y *descending* so the highest things composite last.
-    order = np.argsort(-pts[:, 1])
+    # Front-to-back compositing: the FIRST-iterated Gaussian gets full
+    # weight (img += T*alpha*c with T starting at 1), so it is front-most.
+    # World convention in this codebase is camera-y DOWN, so a smaller
+    # y-coord = higher up; sort by y *ascending* so elevated structure
+    # (trees, roofs) composites first and occludes the ground below it.
+    order = np.argsort(pts[:, 1])
 
     iter_range = order
     if progress:
@@ -207,11 +209,17 @@ def render_full_splat_to_file(
     colors: np.ndarray,
     path: Path,
     **kwargs,
-) -> None:
+) -> np.ndarray:
+    """Render, write the PNG, and RETURN the rendered RGB image.
+
+    Returning the image lets callers reuse it (e.g. as ``splat_img_rgb``)
+    instead of running the O(N)-Python compositing loop a second time.
+    """
     img_rgb = render_full_splat_topdown(points, colors, **kwargs)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(path), cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
+    return img_rgb
 
 
 # ---------------------------------------------------------------------------

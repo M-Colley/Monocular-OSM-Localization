@@ -19,7 +19,11 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 
+import src.aerial_match as aerial_match
 from src.aerial_match import (
+    _traj_coverage_score,
+    _traj_iou_score,
+    _traj_overlap,
     feature_match_score,
     match_splat_against_candidates,
     render_osm_patch,
@@ -110,13 +114,76 @@ def test_match_splat_against_candidates_returns_one_per_input(tmp_path: Path) ->
     cv2.rectangle(splat_rgb, (10, 10), (110, 110), (255, 255, 255), -1)
     cv2.circle(splat_rgb, (64, 64), 30, (0, 0, 0), 3)
 
+    # ORB is opt-in (excluded from the score and expensive); enable it
+    # here so the OSM patches get rendered and the path assertions hold.
     results = match_splat_against_candidates(
         splat_rgb, road, candidates,
         output_dir=tmp_path,
         resolution=128,
         half_extent_m=200.0,
+        enable_orb=True,
     )
     assert len(results) == 2
     assert all(r.osm_render_path is not None and r.osm_render_path.exists() for r in results)
     # Indices are preserved.
     assert [r.candidate_index for r in results] == [0, 1]
+
+
+def _one_candidate() -> list[MatchCandidate]:
+    w = np.array([[50.0, 50.0], [50.0, 250.0]])
+    return [MatchCandidate(
+        score=10.0, bearing_corr=0.5, start_node=0, walk=[(0, 1, 0)],
+        walk_xy=w, aligned_traj_xy=w.copy(), walk_length_m=200.0,
+    )]
+
+
+def test_orb_subchannel_is_off_by_default(tmp_path: Path, monkeypatch) -> None:
+    """The score-excluded ORB sub-channel burns a 1024px matplotlib render
+    + ORB per candidate for numbers nobody consumes — it must NOT run
+    unless explicitly enabled, even when a top-down image is supplied."""
+    road = _two_road_graph()
+    calls = {"n": 0}
+    real_render = aerial_match.render_osm_patch
+
+    def counting_render(*args, **kwargs):
+        calls["n"] += 1
+        return real_render(*args, **kwargs)
+
+    monkeypatch.setattr(aerial_match, "render_osm_patch", counting_render)
+
+    splat_rgb = np.full((64, 64, 3), 128, dtype=np.uint8)
+    results = match_splat_against_candidates(
+        splat_rgb, road, _one_candidate(),
+        output_dir=tmp_path, resolution=128, half_extent_m=200.0,
+    )
+    assert calls["n"] == 0, "ORB/OSM-patch path ran without enable_orb=True"
+    assert len(results) == 1
+    assert results[0].n_orb_matches == 0 and results[0].n_inliers == 0
+    assert results[0].osm_render_path is None
+    # The trajectory channel still runs.
+    assert results[0].traj_coverage > 0.5
+
+    # Opt-in re-enables the sub-channel.
+    results_orb = match_splat_against_candidates(
+        splat_rgb, road, _one_candidate(),
+        output_dir=tmp_path, resolution=128, half_extent_m=200.0,
+        enable_orb=True,
+    )
+    assert calls["n"] == 1
+    assert results_orb[0].osm_render_path is not None
+
+
+def test_traj_overlap_single_raster_matches_wrappers() -> None:
+    """_traj_overlap rasterises once and must reproduce exactly what the
+    two back-compat wrappers report."""
+    traj = np.array([[0.0, 0.0], [100.0, 0.0], [100.0, 100.0]])
+    walk = np.array([[0.0, 5.0], [100.0, 5.0], [100.0, 120.0]])
+
+    iou, coverage = _traj_overlap(traj, walk)
+    assert iou == _traj_iou_score(traj, walk)
+    assert coverage == _traj_coverage_score(traj, walk)
+    assert 0.0 < iou <= 1.0
+    assert iou <= coverage <= 1.0
+
+    # Degenerate input (fewer than 2 vertices) stays well-defined.
+    assert _traj_overlap(traj[:1], walk) == (0.0, 0.0)

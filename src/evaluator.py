@@ -122,11 +122,37 @@ def _segment_to_polyline_distance(p: np.ndarray, polyline: np.ndarray) -> float:
     return float(d.min())
 
 
+def _densify_polyline(poly: np.ndarray, spacing_m: float = 10.0) -> np.ndarray:
+    """Insert vertices so consecutive points are at most `spacing_m` apart.
+
+    Unsimplified straight OSM edges carry only their two endpoints, so a
+    vertex-sampled distance across a long edge misses the closest
+    mid-segment approach entirely. Densifying makes the vertex-to-segment
+    minimum below accurate to ~spacing_m/2 at negligible cost.
+    """
+    if len(poly) < 2:
+        return poly
+    pieces: list[np.ndarray] = []
+    for p0, p1 in zip(poly[:-1], poly[1:]):
+        seg_len = float(np.linalg.norm(p1 - p0))
+        n = max(1, int(np.ceil(seg_len / spacing_m)))
+        t = np.linspace(0.0, 1.0, n, endpoint=False)
+        pieces.append(p0 + t[:, None] * (p1 - p0))
+    pieces.append(poly[-1:])
+    return np.vstack(pieces)
+
+
 def _polyline_to_polyline_distance(a: np.ndarray, b: np.ndarray) -> float:
-    """Min point-to-segment distance from any point of `a` to any segment of `b`."""
+    """Min distance from polyline `a` to the segments of polyline `b`.
+
+    `a` is densified to ~10 m vertex spacing first, so the result is a
+    true point-to-SEGMENT distance in both directions (up to ~5 m
+    quantization) rather than a vertex-sampled one that overestimates
+    across long straight OSM edges.
+    """
     if len(a) == 0 or len(b) == 0:
         return float("inf")
-    return min(_segment_to_polyline_distance(p, b) for p in a)
+    return min(_segment_to_polyline_distance(p, b) for p in _densify_polyline(a))
 
 
 def _candidate_gt_names(

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.mapanything_trajectory import _umeyama, stitch_windows
+from src.mapanything_trajectory import _positions_to_xy, _umeyama, stitch_windows
+
+
+def _rot_y(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
 
 
 def _rand_rot(rng):
@@ -47,6 +52,58 @@ def test_stitch_recovers_trajectory_up_to_similarity():
     s2, R2, t2 = _umeyama(rec, truth[ids])
     res = (s2 * (rec @ R2.T) + t2) - truth[ids]
     assert np.sqrt((res ** 2).sum(1).mean()) < 1e-6
+
+
+def test_stitch_collinear_overlap_no_arbitrary_roll():
+    """Straight-driving overlaps are (near-)collinear: the full 3D fit's
+    rotation about the driving line is noise-driven, so a turn following
+    the straight stretch used to enter the global frame with an arbitrary
+    twist. The rank-deficiency guard must constrain the fit to yaw-only
+    and keep the turn in the ground plane."""
+    rng = np.random.default_rng(7)
+    straight = np.c_[np.arange(20.0), np.zeros(20), np.zeros(20)]
+    turn = np.c_[np.full(6, 19.0), np.zeros(6), np.arange(1.0, 7.0)]
+    truth = np.vstack([straight, turn])
+
+    # Each window reconstructs the shared frames with its own independent
+    # mm-level noise (the realistic case; with common-mode noise even a
+    # degenerate fit looks exact).
+    w0 = (list(range(0, 14)), truth[0:14] + rng.normal(size=(14, 3)) * 1e-3)
+    # Window 1 lives in its own frame: an in-plane yaw + translation of
+    # the truth. Its overlap with window 0 (ids 8..13) is collinear.
+    cur = (truth[8:26] + rng.normal(size=(18, 3)) * 1e-3) \
+        @ _rot_y(np.deg2rad(25.0)).T + np.array([3.0, 0.0, -5.0])
+    w1 = (list(range(8, 26)), cur)
+
+    G = stitch_windows([w0, w1])
+    placed = np.array([G[i] for i in range(26)])
+    # No roll twist: the turn stays in the ground plane (the old full-3D
+    # fit twisted it out of plane by metres)...
+    assert np.abs(placed[:, 1]).max() < 0.05
+    # ... and lands where the truth says (yaw + translation recovered).
+    np.testing.assert_allclose(placed, truth, atol=0.05)
+
+
+def test_positions_to_xy_preserves_turn_sign_under_yaw():
+    """Same arbitrary-handedness coin flip as VO's plane fit: the PCA
+    projection must never MIRROR the driving plane (turn signs flip)."""
+    rng = np.random.default_rng(3)
+    path = np.vstack([
+        np.c_[np.arange(20.0), np.zeros(20), np.zeros(20)],
+        np.c_[np.full(15, 19.0), np.zeros(15), np.arange(1.0, 16.0)],
+    ])
+    path[:, 1] += rng.normal(size=len(path)) * 0.01
+
+    def turn_sign(xy):
+        d1 = xy[8] - xy[0]
+        d2 = xy[-1] - xy[-9]
+        return np.sign(d1[0] * d2[1] - d1[1] * d2[0])
+
+    ref = turn_sign(path[:, [0, 2]])  # raw top-down drop
+    for seed in range(20):
+        a = np.random.default_rng(seed).uniform(0, 2 * np.pi)
+        xy = _positions_to_xy(path @ _rot_y(a).T)
+        assert turn_sign(xy) == ref, f"mirrored at seed {seed}"
 
 
 def test_stitch_scale_guard_rejects_blowup():

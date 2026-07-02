@@ -53,6 +53,37 @@ def _rigid(src: np.ndarray, dst: np.ndarray) -> tuple[float, np.ndarray, np.ndar
     return 1.0, R, mu_d - R @ mu_s
 
 
+def _yaw_fit(
+    src: np.ndarray,
+    dst: np.ndarray,
+    scale_guard: tuple[float, float],
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """Yaw-only (rotation about +y) similarity for rank-deficient overlaps.
+
+    On straight driving the shared camera positions are collinear, so a
+    full 3D fit leaves the rotation about the driving line unconstrained
+    and the SVD returns an arbitrary roll that every later window
+    inherits. Constraining the rotation to the ground plane (x-z, +y is
+    the camera-down axis) removes that degree of freedom: 2D Procrustes
+    for the yaw angle, spread ratio for the scale (guarded to 1 like the
+    full fit — MapAnything is metric).
+    """
+    mu_s, mu_d = src.mean(0), dst.mean(0)
+    sc, dc = src - mu_s, dst - mu_d
+    # Optimal in-plane rotation angle from the 2D cross/dot sums.
+    x_s, z_s = sc[:, 0], sc[:, 2]
+    x_d, z_d = dc[:, 0], dc[:, 2]
+    a = np.arctan2(float((x_s * z_d - z_s * x_d).sum()),
+                   float((x_s * x_d + z_s * z_d).sum()))
+    c, s_a = np.cos(a), np.sin(a)
+    R = np.array([[c, 0.0, -s_a], [0.0, 1.0, 0.0], [s_a, 0.0, c]])
+    denom = float((sc ** 2).sum())
+    s = float(np.sqrt((dc ** 2).sum() / denom)) if denom > 1e-12 else 1.0
+    if not (scale_guard[0] <= s <= scale_guard[1]):
+        s = 1.0
+    return s, R, mu_d - s * R @ mu_s
+
+
 def stitch_windows(
     windows: list[tuple[list[int], np.ndarray]],
     *,
@@ -81,20 +112,43 @@ def stitch_windows(
             continue
         src = np.array([pos[j] for j, _ in ov])
         dst = np.array([G[fid] for _, fid in ov])
-        s, R, t = _umeyama(src, dst)
-        if not (scale_guard[0] <= s <= scale_guard[1]):
-            s, R, t = _rigid(src, dst)
+        # Straight-driving overlaps are collinear: the full 3D fit's
+        # rotation about the line is unconstrained (arbitrary roll with a
+        # plausible scale, so the scale guard can't catch it). Detect the
+        # rank deficiency from the singular-value ratio of the centered
+        # shared positions and fall back to a yaw-only in-plane fit.
+        sv = np.linalg.svd(src - src.mean(0), compute_uv=False)
+        if len(src) < 3 or sv[0] < 1e-9 or sv[1] / sv[0] < 0.05:
+            s, R, t = _yaw_fit(src, dst, scale_guard)
+        else:
+            s, R, t = _umeyama(src, dst)
+            if not (scale_guard[0] <= s <= scale_guard[1]):
+                s, R, t = _rigid(src, dst)
         for j, fid in enumerate(ids):
             if fid not in G:
                 G[fid] = s * R @ pos[j] + t
     return G
 
 
-def _positions_to_xy(positions: np.ndarray) -> np.ndarray:
-    """Project 3D camera positions onto their 2D driving plane (PCA top-2)."""
+def _positions_to_xy(positions: np.ndarray, up: np.ndarray | None = None) -> np.ndarray:
+    """Project 3D camera positions onto their 2D driving plane (PCA top-2).
+
+    numpy's SVD returns the axes with arbitrary signs, so the raw top-2
+    projection can be a MIRROR of the true top-down path (turn signs
+    inverted -- fatal for the chirality-sensitive matcher downstream).
+    Enforce view-from-above handedness: the kept axes' normal must align
+    with ``up`` (camera up = -y in the OpenCV convention MapAnything's
+    first-camera world frame approximately shares); flip the second axis
+    when it points the other way.
+    """
+    if up is None:
+        up = np.array([0.0, -1.0, 0.0])
     c = positions - positions.mean(0)
     _, _, vt = np.linalg.svd(c, full_matrices=False)
-    return c @ vt[:2].T
+    axes = vt[:2].T.copy()
+    if float(np.dot(np.cross(axes[:, 0], axes[:, 1]), up)) < 0.0:
+        axes[:, 1] *= -1.0
+    return c @ axes
 
 
 def mapanything_trajectory_xy(
@@ -120,6 +174,7 @@ def mapanything_trajectory_xy(
         from mapanything.utils.image import load_images
     except Exception:
         return None
+    cap = None
     try:
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         model = MapAnything.from_pretrained("facebook/map-anything").to(device).eval()
@@ -131,17 +186,24 @@ def mapanything_trajectory_xy(
         if M < window:
             return None
 
-        def infer(ids: list[int]) -> np.ndarray:
-            folder = tempfile.mkdtemp()
-            for j, fid in enumerate(ids):
-                cap.set(cv2.CAP_PROP_POS_MSEC, float(times[fid]) * 1000)
-                ok, bgr = cap.read()
-                if ok:
-                    cv2.imwrite(os.path.join(folder, f"{j:03d}.jpg"), bgr)
-            views = load_images(folder)
-            with torch.no_grad():
-                preds = model.infer(views, memory_efficient_inference=True,
-                                    use_amp=True, amp_dtype="bf16")
+        def infer(ids: list[int]) -> tuple[list[int], np.ndarray]:
+            # Return the ids that were actually decoded alongside their
+            # positions: a failed cap.read() (e.g. a seek past EOF) must
+            # not shift every later position onto the wrong frame id.
+            kept: list[int] = []
+            with tempfile.TemporaryDirectory() as folder:
+                for fid in ids:
+                    cap.set(cv2.CAP_PROP_POS_MSEC, float(times[fid]) * 1000)
+                    ok, bgr = cap.read()
+                    if ok:
+                        cv2.imwrite(os.path.join(folder, f"{len(kept):03d}.jpg"), bgr)
+                        kept.append(fid)
+                if not kept:
+                    return [], np.zeros((0, 3))
+                views = load_images(folder)
+                with torch.no_grad():
+                    preds = model.infer(views, memory_efficient_inference=True,
+                                        use_amp=True, amp_dtype="bf16")
             out = []
             for p in preds:
                 if "cam_trans" in p:
@@ -149,7 +211,7 @@ def mapanything_trajectory_xy(
                 else:
                     cp = np.asarray(p["camera_poses"].detach().cpu().numpy()).reshape(-1, 4, 4)[0]
                     out.append(cp[:3, 3])
-            return np.array(out)
+            return kept, np.array(out)
 
         starts = list(range(0, max(1, M - window + 1), step))
         if starts and starts[-1] != M - window:
@@ -157,8 +219,7 @@ def mapanything_trajectory_xy(
         windows = []
         for st in starts:
             ids = list(range(st, min(st + window, M)))
-            windows.append((ids, infer(ids)))
-        cap.release()
+            windows.append(infer(ids))
 
         G = stitch_windows(windows)
         if len(G) < window:
@@ -168,3 +229,6 @@ def mapanything_trajectory_xy(
         return _positions_to_xy(traj), times[fids]
     except Exception:
         return None
+    finally:
+        if cap is not None:
+            cap.release()

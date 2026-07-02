@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
 import yt_dlp
+
+# yt-dlp intermediates: per-format streams ("input.f399.mp4") and the FFmpeg
+# merge temp file ("input.temp.mp4"). Neither is a finished download.
+_INTERMEDIATE = re.compile(r"\.(?:temp|f\d+)\.[^.]+$", re.IGNORECASE)
+_VIDEO_SUFFIXES = {".mp4", ".mkv", ".webm"}
 
 
 class DownloadError(RuntimeError):
@@ -62,6 +69,47 @@ def fetch_video_metadata(url: str) -> VideoMetadata:
         raise DownloadError(str(e)) from e
 
 
+def _format_selector(max_height: int) -> str:
+    """Video-only format chain with a last-resort '/best' fallback.
+
+    Audio is never used by any pipeline stage, so we don't request it.
+    The trailing '/best' keeps sources with unreported heights (some HLS)
+    or no <=max_height rendition from hard-failing.
+    """
+    return f"bestvideo[height<={max_height}]/best[height<={max_height}]/best"
+
+
+def _marker_path(out_dir: Path, filename_stem: str) -> Path:
+    return Path(out_dir) / f"{filename_stem}.download.json"
+
+
+def _existing_download(out_dir: Path, filename_stem: str) -> Path | None:
+    """Return a previously completed download, or None.
+
+    Prefers the marker written by :func:`download_video` (deterministic
+    resume); falls back to globbing, but never picks up yt-dlp
+    intermediates (``input.temp.mp4`` / ``input.fNNN.mp4``).
+    """
+    out_dir = Path(out_dir)
+    marker = _marker_path(out_dir, filename_stem)
+    if marker.exists():
+        try:
+            recorded = out_dir / json.load(open(marker, encoding="utf-8"))["file"]
+            if recorded.exists():
+                return recorded
+        except (OSError, ValueError, KeyError):
+            pass  # corrupt marker: fall through to the glob
+    candidates = [
+        p for p in sorted(out_dir.glob(f"{filename_stem}.*"))
+        if p.suffix.lower() in _VIDEO_SUFFIXES and not _INTERMEDIATE.search(p.name)
+    ]
+    # Prefer the canonical merged name over other suffixes.
+    for p in candidates:
+        if p.name.lower() == f"{filename_stem}.mp4".lower():
+            return p
+    return candidates[0] if candidates else None
+
+
 def download_video(
     url: str,
     out_dir: Path,
@@ -76,14 +124,14 @@ def download_video(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    for existing in out_dir.glob(f"{filename_stem}.*"):
-        if existing.suffix.lower() in {".mp4", ".mkv", ".webm"}:
-            return existing
+    existing = _existing_download(out_dir, filename_stem)
+    if existing is not None:
+        return existing
 
     outtmpl = str(out_dir / f"{filename_stem}.%(ext)s")
     ydl_opts = {
         "outtmpl": outtmpl,
-        "format": f"bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]",
+        "format": _format_selector(max_height),
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
@@ -100,10 +148,15 @@ def download_video(
                     path = merged
             if not path.exists():
                 # yt-dlp sometimes renames during merge; fall back to globbing
-                candidates = list(out_dir.glob(f"{filename_stem}.*"))
-                if not candidates:
-                    raise DownloadError(f"yt-dlp finished but no file at {path}")
-                path = candidates[0]
+                # (same intermediate/suffix filter as the resume check).
+                path = _existing_download(out_dir, filename_stem)
+                if path is None:
+                    raise DownloadError(
+                        f"yt-dlp finished but no completed file for "
+                        f"{filename_stem}.* in {out_dir}")
+            # Persist the resolved name so later runs resume deterministically.
+            json.dump({"file": path.name, "url": url},
+                      open(_marker_path(out_dir, filename_stem), "w", encoding="utf-8"))
             return path
     except yt_dlp.utils.DownloadError as e:  # network / unavailable
         raise DownloadError(str(e)) from e

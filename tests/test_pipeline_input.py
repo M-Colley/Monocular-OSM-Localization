@@ -6,8 +6,10 @@ no network, video decoding, or OSM access is involved.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import src.pipeline as pipeline
@@ -15,7 +17,16 @@ from src.pipeline import (
     PipelineConfig,
     _auto_estimated_length_m,
     _fetch_road_graph,
+    _find_vo_cache,
+    _heading_diff_deg,
+    _length_sane,
+    _match_timestamps,
+    _mean_bearing_deg,
+    _remap_frame_pair_to_poses,
     _resolve_input_video,
+    _sun_bearing_penalty,
+    _vpr_distance_penalty,
+    _vpr_sequence_median_m,
 )
 
 
@@ -102,6 +113,20 @@ def test_url_branch_downloads(
     cfg = _cfg(tmp_path)
     assert _resolve_input_video(cfg) == sentinel
     assert calls == [(cfg.url, cfg.data_dir)]
+
+
+def test_skip_download_prefers_mp4_over_glob_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With several cached inputs the pick must be deterministic: prefer
+    .mp4, not whatever the filesystem glob returns first (input.mkv sorts
+    before input.mp4 alphabetically and used to win)."""
+    _forbid_download(monkeypatch)
+    cfg = _cfg(tmp_path, skip_download=True)
+    (cfg.data_dir / "input.mkv").write_bytes(b"\x00")
+    (cfg.data_dir / "input.mp4").write_bytes(b"\x00")
+    (cfg.data_dir / "input.webm").write_bytes(b"\x00")
+    assert _resolve_input_video(cfg) == cfg.data_dir / "input.mp4"
 
 
 # ---------------------------------------------------------------------------
@@ -292,3 +317,219 @@ def test_fuse_bev_cap_at_full_length_is_unconstrained() -> None:
     assert _fuse_bev_rank(base, bev_ranks, cap=99) == _fuse_bev_rank(
         base, bev_ranks, cap=3
     )
+
+
+# ---------------------------------------------------------------------------
+# _length_sane — user-provided --estimated-length-m must widen the gate
+# ---------------------------------------------------------------------------
+
+
+def test_length_sane_against_duration_prior_only() -> None:
+    assert _length_sane(2000.0, 2310.0) is True
+    assert _length_sane(7900.0, 2310.0) is False       # >2x the prior
+
+
+def test_length_sane_accepts_user_length() -> None:
+    """Highway clip: user passed --estimated-length-m 8000; a correct
+    recovered ~7900 m must not be rejected against the 2310 m duration
+    prior (the old gate compared only against the duration prior)."""
+    assert _length_sane(7900.0, 2310.0, user_length_m=8000.0) is True
+    # Still rejects lengths far from BOTH references.
+    assert _length_sane(25000.0, 2310.0, user_length_m=8000.0) is False
+
+
+# ---------------------------------------------------------------------------
+# _find_vo_cache — shape check must gate the canonical key too
+# ---------------------------------------------------------------------------
+
+
+def _write_vo_npz(path: Path, n: int) -> None:
+    np.savez(
+        path,
+        centers=np.zeros((n, 3)),
+        xz=np.zeros((n, 2)),
+        valid=np.ones(n, dtype=bool),
+        n_inliers=np.zeros(n),
+        rotations=np.zeros((n, 3, 3)),
+        translations=np.zeros((n, 3)),
+    )
+
+
+def test_stale_canonical_vo_cache_is_rejected(tmp_path: Path) -> None:
+    """A canonical cache that FAILS the frame-count check must not be
+    selected (the old load condition let it through because it existed
+    under the canonical key)."""
+    canonical = tmp_path / "trajectory_v2_0-420_s3_fauto.npz"
+    _write_vo_npz(canonical, 4196)   # stale: from a different stream fps
+    assert _find_vo_cache([canonical], n_frames=3496) is None
+
+
+def test_matching_vo_cache_is_selected_and_handle_closed(tmp_path: Path) -> None:
+    canonical = tmp_path / "trajectory_v2_0-420_s3_fauto.npz"
+    sibling = tmp_path / "trajectory_v2_0-420_s3_f4200.npz"
+    _write_vo_npz(canonical, 999)    # wrong shape
+    _write_vo_npz(sibling, 100)      # matches
+    picked = _find_vo_cache([canonical, sibling], n_frames=100)
+    assert picked == sibling
+    # Probe handles must be CLOSED: on Windows an open npz handle blocks
+    # deletion of the file (the old bare np.load leaked them).
+    os.remove(canonical)
+    os.remove(sibling)
+
+
+# ---------------------------------------------------------------------------
+# _match_timestamps / _remap_frame_pair_to_poses — staged-trajectory axes
+# ---------------------------------------------------------------------------
+
+
+def test_match_timestamps_spans_clip_over_pose_rows() -> None:
+    """OpenVO case: 4196 frames but 1260 poses — the axis must have one
+    entry per POSE, spanning the clip's time range."""
+    ts = list(np.linspace(0.0, 419.5, 4196))
+    mts = _match_timestamps(ts, 1260)
+    assert len(mts) == 1260
+    assert mts[0] == pytest.approx(0.0)
+    assert mts[-1] == pytest.approx(419.5)
+    assert np.all(np.diff(mts) > 0)
+
+
+def test_match_timestamps_identity_when_lengths_match() -> None:
+    ts = [0.0, 0.2, 0.4, 0.6]
+    assert np.allclose(_match_timestamps(ts, 4), ts)
+
+
+def test_match_timestamps_anchor_lookup_stays_in_bounds() -> None:
+    """An anchor at t=245 s used to map to frame index ~2447 in a
+    1260-row OpenVO trajectory -> IndexError. With the aligned axis the
+    nearest-time lookup is in bounds by construction."""
+    from src.scale_recovery import vo_positions_at_times
+
+    n_frames, n_poses = 4196, 1260
+    frame_ts = list(np.linspace(0.0, 419.5, n_frames))
+    match_xz = np.column_stack([np.arange(n_poses, dtype=float),
+                                np.zeros(n_poses)])
+    mts = _match_timestamps(frame_ts, n_poses)
+    pos = vo_positions_at_times(match_xz, mts, np.array([245.0]))
+    # ~245/419.5 of the way through the poses.
+    assert pos[0, 0] == pytest.approx(245.0 / 419.5 * (n_poses - 1), abs=1.0)
+
+
+def test_remap_frame_pair_scales_into_pose_space() -> None:
+    """The Ulm OpenVO case: a loop detected on frames (10, 4190) used to
+    be discarded because 4190 >= 1260 poses. It must remap
+    proportionally instead."""
+    pair = _remap_frame_pair_to_poses((10, 4190), n_frames=4196, n_poses=1260)
+    assert pair is not None
+    i, j = pair
+    assert 0 <= i < j < 1260
+    assert j == pytest.approx(4190 * 1259 / 4195, abs=1.0)
+
+
+def test_remap_frame_pair_identity_when_lengths_equal() -> None:
+    assert _remap_frame_pair_to_poses((3, 90), 100, 100) == (3, 90)
+
+
+def test_remap_frame_pair_degenerate_returns_none() -> None:
+    assert _remap_frame_pair_to_poses(None, 100, 50) is None
+    # Collapses to the same pose index -> unusable.
+    assert _remap_frame_pair_to_poses((10, 12), 4196, 5) is None
+    assert _remap_frame_pair_to_poses((3, 90), 100, 1) is None
+
+
+# ---------------------------------------------------------------------------
+# _vpr_distance_penalty — free radius inside the prior's own error bar
+# ---------------------------------------------------------------------------
+
+
+def test_vpr_penalty_free_inside_prior_error_bar() -> None:
+    """Candidates within ~150 m of the prior are indistinguishable from
+    the truth and must pay nothing (the old 15*d_km penalized a 100 m
+    candidate 1.5 rank-units — enough to flip a near-tie)."""
+    assert _vpr_distance_penalty(0.0) == 0.0
+    assert _vpr_distance_penalty(100.0) == 0.0
+    assert _vpr_distance_penalty(150.0) == 0.0
+
+
+def test_vpr_penalty_grows_beyond_free_radius() -> None:
+    assert _vpr_distance_penalty(1150.0) == pytest.approx(15.0)
+    assert _vpr_distance_penalty(2150.0) == pytest.approx(30.0)
+
+
+# ---------------------------------------------------------------------------
+# _vpr_sequence_median_m — sequence mode separates flipped candidates
+# ---------------------------------------------------------------------------
+
+
+def test_vpr_sequence_median_zero_for_aligned_candidate() -> None:
+    n_frames = 101
+    traj = np.column_stack([np.linspace(0, 100, 101), np.zeros(101)])
+    track_idx = [0, 50, 100]
+    track_xy = np.array([[0.0, 0.0], [50.0, 0.0], [100.0, 0.0]])
+    med = _vpr_sequence_median_m(traj, track_idx, track_xy, [1, 1, 1], n_frames)
+    assert med == pytest.approx(0.0)
+
+
+def test_vpr_sequence_median_penalizes_flipped_candidate() -> None:
+    """A 180-deg-flipped candidate has the SAME centroid distance (0) but
+    a much worse sequence distance — the ambiguity class the centroid
+    penalty cannot rank."""
+    n_frames = 101
+    flipped = np.column_stack([np.linspace(100, 0, 101), np.zeros(101)])
+    track_idx = [0, 50, 100]
+    track_xy = np.array([[0.0, 0.0], [50.0, 0.0], [100.0, 0.0]])
+    med = _vpr_sequence_median_m(flipped, track_idx, track_xy, [1, 1, 1], n_frames)
+    assert med == pytest.approx(100.0)
+
+
+def test_vpr_sequence_median_degenerate_returns_none() -> None:
+    assert _vpr_sequence_median_m(np.zeros((1, 2)), [0], np.zeros((1, 2)),
+                                  [1.0], 10) is None
+    assert _vpr_sequence_median_m(np.zeros((5, 2)), [], np.zeros((0, 2)),
+                                  [], 10) is None
+
+
+def test_use_vpr_sequence_defaults_off() -> None:
+    cfg = PipelineConfig(url="u", city="c", data_dir=Path("d"), output_dir=Path("o"))
+    assert cfg.use_vpr_sequence is False
+
+
+# ---------------------------------------------------------------------------
+# Sun-heading orientation penalty
+# ---------------------------------------------------------------------------
+
+
+def test_mean_bearing_compass_convention() -> None:
+    east = np.array([[0.0, 0.0], [10.0, 0.0]])
+    north = np.array([[0.0, 0.0], [0.0, 10.0]])
+    assert _mean_bearing_deg(east) == pytest.approx(90.0)
+    assert _mean_bearing_deg(north) == pytest.approx(0.0)
+    assert _mean_bearing_deg(np.zeros((3, 2))) is None   # stationary
+
+
+def test_heading_diff_wraps() -> None:
+    assert _heading_diff_deg(350.0, 10.0) == pytest.approx(20.0)
+    assert _heading_diff_deg(90.0, 270.0) == pytest.approx(180.0)
+
+
+def test_sun_penalty_free_within_tolerance_and_grows() -> None:
+    assert _sun_bearing_penalty(90.0, 90.0) == 0.0
+    assert _sun_bearing_penalty(90.0, 118.0) == 0.0          # inside 30 deg
+    assert _sun_bearing_penalty(0.0, 180.0) == pytest.approx(5.0)   # mirror
+    mid = _sun_bearing_penalty(0.0, 105.0)
+    assert 0.0 < mid < 5.0
+
+
+# ---------------------------------------------------------------------------
+# Refuted gating knobs are gone
+# ---------------------------------------------------------------------------
+
+
+def test_refuted_gate_config_fields_removed() -> None:
+    """VPR/plate OSM gating was refuted by experiment; the dead config
+    knobs must not silently parse."""
+    import dataclasses
+
+    names = {f.name for f in dataclasses.fields(PipelineConfig)}
+    assert "vpr_gate" not in names
+    assert "vpr_gate_radius_m" not in names
+    assert "plate_gate_radius_m" not in names

@@ -147,6 +147,43 @@ def _align_chunk_to_reference(
     return R_align, t_align
 
 
+def _align_chunk_least_squares(
+    ref_poses: Sequence[np.ndarray],
+    cur_poses: Sequence[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Least-squares rigid alignment over ALL shared keyframes.
+
+    Each pair ``(ref_poses[i], cur_poses[i])`` is the same keyframe's
+    world→camera (3x4) pose expressed in the reference (global) frame and
+    the current chunk's frame. Aligning on a single keyframe lets one
+    noisy DA3 pose corrupt the whole chunk, so instead:
+
+    * rotation: average the per-frame relative rotations
+      ``R_ref_i.T @ R_cur_i`` and project the sum back onto SO(3) via SVD
+      (well-conditioned even when the shared camera centers are
+      collinear, the common straight-driving case);
+    * translation: least-squares over the camera centers,
+      ``t_align = mean(C_ref_i - R_align @ C_cur_i)``.
+
+    Returns ``(R_align, t_align)`` with the same meaning as
+    :func:`_align_chunk_to_reference`.
+    """
+    M = np.zeros((3, 3))
+    c_ref: list[np.ndarray] = []
+    c_cur: list[np.ndarray] = []
+    for ref, cur in zip(ref_poses, cur_poses):
+        R_ref, t_ref = ref[:, :3], ref[:, 3]
+        R_cur, t_cur = cur[:, :3], cur[:, 3]
+        M += R_ref.T @ R_cur
+        c_ref.append(-R_ref.T @ t_ref)   # camera center in the ref frame
+        c_cur.append(-R_cur.T @ t_cur)   # ... and in the current frame
+    U, _, Vt = np.linalg.svd(M)
+    D = np.diag([1.0, 1.0, float(np.sign(np.linalg.det(U @ Vt)))])
+    R_align = U @ D @ Vt
+    t_align = np.mean(np.asarray(c_ref) - np.asarray(c_cur) @ R_align.T, axis=0)
+    return R_align, t_align
+
+
 def reconstruct_with_da3(
     frames: Sequence[np.ndarray],
     *,
@@ -240,31 +277,32 @@ def reconstruct_with_da3(
             R_align = np.eye(3)
             t_align = np.zeros(3)
         else:
-            # Find the shared keyframe (overlap of last chunk and current).
+            # The shared keyframes with the previous chunk are the ones in
+            # [s, prev_e): the current chunk starts inside the previous one
+            # by construction (step = batch_size - chunk_overlap). Collect
+            # every shared keyframe whose global pose is already known and
+            # align with a least-squares fit over all of them, so a single
+            # noisy DA3 pose can't corrupt the whole chunk's placement.
             prev_s, prev_e = chunks[ci - 1]
-            shared_idx_in_prev = e - chunk_overlap if (e - chunk_overlap) > prev_s else prev_e - 1
-            # Position of that keyframe in the GLOBAL list:
-            global_kf = keyframe_indices[shared_idx_in_prev] if shared_idx_in_prev < len(keyframe_indices) else None
-            if global_kf is None or global_kf not in extr_global_per_keyframe:
+            ref_poses: list[np.ndarray] = []
+            cur_poses: list[np.ndarray] = []
+            for shared_idx in range(s, min(prev_e, e)):
+                global_kf = int(keyframe_indices[shared_idx])
+                if global_kf not in extr_global_per_keyframe:
+                    continue
+                ref_poses.append(extr_global_per_keyframe[global_kf])
+                cur_poses.append(extr[shared_idx - s])
+            if not ref_poses:
                 # No reliable shared keyframe → just append untransformed.
                 R_align = np.eye(3)
                 t_align = np.zeros(3)
+            elif len(ref_poses) == 1:
+                R_align, t_align = _align_chunk_to_reference(
+                    ref_poses[0][:, :3], ref_poses[0][:, 3],
+                    cur_poses[0][:, :3], cur_poses[0][:, 3],
+                )
             else:
-                # The same keyframe's pose in the previous (global) frame.
-                ref_pose = extr_global_per_keyframe[global_kf]
-                R_ref_pose = ref_pose[:, :3]
-                t_ref_pose = ref_pose[:, 3]
-                # And in the current chunk's frame:
-                offset_in_cur = shared_idx_in_prev - s
-                if 0 <= offset_in_cur < len(extr):
-                    R_cur = extr[offset_in_cur, :, :3]
-                    t_cur = extr[offset_in_cur, :, 3]
-                    R_align, t_align = _align_chunk_to_reference(
-                        R_ref_pose, t_ref_pose, R_cur, t_cur,
-                    )
-                else:
-                    R_align = np.eye(3)
-                    t_align = np.zeros(3)
+                R_align, t_align = _align_chunk_least_squares(ref_poses, cur_poses)
 
         # Backproject and transform each frame's points into the global frame.
         for k in range(len(sub_imgs)):

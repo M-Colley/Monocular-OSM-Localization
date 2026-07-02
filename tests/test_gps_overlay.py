@@ -6,9 +6,13 @@ from pathlib import Path
 
 import pytest
 
+import numpy as np
+
 from src.gps_overlay import (
     GpsFix,
+    _reject_jumps,
     extract_gps_track,
+    osm_around_for_track,
     parse_latlon,
     track_to_ground_truth,
 )
@@ -152,3 +156,50 @@ def test_track_to_ground_truth_schema_and_subsample() -> None:
 def test_track_to_ground_truth_empty_raises() -> None:
     with pytest.raises(ValueError):
         track_to_ground_truth([], video_id="a", video_url="b", city="c")
+
+
+# ---------------------------------------------------------------------------
+# _reject_jumps — a wrong FIRST fix must not poison the track's start
+# ---------------------------------------------------------------------------
+
+
+def test_reject_jumps_drops_bad_first_fix() -> None:
+    # Fix #0 has a single-digit OCR error putting it ~1.1 km north — inside
+    # the 30 km median gate, but far from where the clip actually starts.
+    # It must be dropped and the correct successors kept, not the reverse.
+    bad = GpsFix(0.0, 51.5370, -0.1318)
+    good = [GpsFix(2.0 + 2 * i, 51.5270 - i * 2e-4, -0.1318 + i * 2e-4)
+            for i in range(5)]
+    out = _reject_jumps([bad] + good, max_jump_m=400.0)
+    lats = [round(f.lat, 4) for f in out]
+    assert 51.5370 not in lats              # bogus first fix rejected
+    assert len(out) == 5                    # every correct fix survives
+    assert out[0].lat == pytest.approx(51.5270, abs=1e-4)
+
+
+def test_reject_jumps_keeps_consistent_first_fix() -> None:
+    fixes = [GpsFix(2.0 * i, 51.5270 - i * 2e-4, -0.1318 + i * 2e-4)
+             for i in range(6)]
+    assert _reject_jumps(fixes, max_jump_m=400.0) == fixes
+
+
+# ---------------------------------------------------------------------------
+# osm_around_for_track — the disc must cover every fix
+# ---------------------------------------------------------------------------
+
+
+def _dist_to_center_m(f: GpsFix, clat: float, clon: float) -> float:
+    dlat = (f.lat - clat) * 111320.0
+    dlon = (f.lon - clon) * 111320.0 * np.cos(np.radians(clat))
+    return float(np.hypot(dlat, dlon))
+
+
+def test_osm_around_covers_time_clumped_track() -> None:
+    # Stop-and-go: 9 fixes piled at one end (stopped at a light), 1 fix
+    # ~2.2 km away. The mean-centred/bbox-half-diagonal disc would leave
+    # the far fix outside; the fixed disc must cover every fix.
+    fixes = [GpsFix(float(i), 49.0, 8.4) for i in range(9)]
+    fixes.append(GpsFix(9.0, 49.02, 8.4))
+    clat, clon, radius = osm_around_for_track(fixes, margin_m=100.0)
+    for f in fixes:
+        assert _dist_to_center_m(f, clat, clon) <= radius

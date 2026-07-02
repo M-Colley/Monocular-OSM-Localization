@@ -52,18 +52,79 @@ _TARGET_FRAME_BUDGET = 4800
 _NOMINAL_FPS = 30.0
 
 
-def _auto_frame_stride(duration_sec: float | None) -> int:
+def _auto_frame_stride(duration_sec: float | None, fps: float | None = None) -> int:
     """Pick a frame stride that keeps ~_TARGET_FRAME_BUDGET frames.
 
-    7 min -> 3 (the historical default), 10 min -> 4, 15 min -> 6.
-    Open-ended segments (duration None) fall back to the historical 3.
-    Never below 3: smaller strides give a too-short VO baseline at urban
-    speed and triple memory for no shape benefit.
+    7 min @30fps -> 3 (the historical default), 10 min -> 4, 15 min -> 6.
+    ``fps`` is the source's real frame rate when known — a 60 fps upload
+    at the nominal-30 assumption would get double the intended frame
+    budget (~26 GB resident at 720p) and a 2x-denser VO baseline than
+    the tuned default. Open-ended segments (duration None) fall back to
+    the historical 3. Never below 3: smaller strides give a too-short VO
+    baseline at urban speed and triple memory for no shape benefit.
     """
     if duration_sec is None or duration_sec <= 0:
         return 3
+    if fps is None or fps <= 0:
+        fps = _NOMINAL_FPS
     import math
-    return max(3, math.ceil(duration_sec * _NOMINAL_FPS / _TARGET_FRAME_BUDGET))
+    return max(3, math.ceil(duration_sec * fps / _TARGET_FRAME_BUDGET))
+
+
+def _probe_video_fps(path: Path) -> float | None:
+    """The container's frame rate, or None when unreadable."""
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(path))
+        try:
+            fps = float(cap.get(cv2.CAP_PROP_FPS)) if cap.isOpened() else 0.0
+        finally:
+            cap.release()
+        return fps if fps > 0 else None
+    except Exception:
+        return None
+
+
+# --- Metadata cache: lets --skip-download re-runs work fully offline ------
+# fetch_video_metadata is a yt-dlp network call; without this cache an
+# offline re-run of a fully cached clip died before touching the cached
+# video. Keyed on the exact submitted URL, stored under the data dir.
+
+
+def _metadata_cache_path(data_dir: Path, url: str) -> Path:
+    from hashlib import sha256
+    digest = sha256(url.encode("utf-8")).hexdigest()[:16]
+    return data_dir / "metadata_cache" / f"{digest}.json"
+
+
+def _load_cached_metadata(data_dir: Path, url: str) -> VideoMetadata | None:
+    path = _metadata_cache_path(data_dir, url)
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return VideoMetadata(
+        url=d.get("url") or url,
+        title=d.get("title"),
+        video_id=d.get("video_id"),
+    )
+
+
+def _write_cached_metadata(data_dir: Path, url: str, metadata: VideoMetadata) -> None:
+    path = _metadata_cache_path(data_dir, url)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({
+                "input_url": url,
+                "url": metadata.url,
+                "title": metadata.title,
+                "video_id": metadata.video_id,
+            }, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # cache is best-effort; never fail the run over it
 
 
 def _resolve_city(explicit_city: str | None, url: str, title: str | None) -> str:
@@ -266,27 +327,34 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "where fetching the full place is infeasible.")
     p.add_argument("--use-vpr-prior", action="store_true",
                    help="Blind coarse-location prior via Visual Place Recognition on "
-                        "KartaView street imagery (open API, no token) + EigenPlaces, then "
-                        "gate the OSM graph to that neighbourhood (src/kartaview_vpr.py). "
-                        "Shape-INDEPENDENT — the fix for the selection wall; ~53 m prior on "
-                        "Ulm 4K vs ~530 m for chance. Needs requests + GPU + EigenPlaces "
-                        "weights; no-op if unavailable. Ignored if --osm-around is given.")
+                        "KartaView street imagery (open API, no token) + EigenPlaces "
+                        "(src/kartaview_vpr.py). Shape-INDEPENDENT — the fix for the "
+                        "selection wall; ~53 m prior on Ulm 4K vs ~530 m for chance. Used "
+                        "as a re-rank centre + the anchor-primary placement prior; runs "
+                        "with or without --osm-around. (Gating the OSM graph to the prior "
+                        "was refuted by experiment, so there is no gate knob.) Needs "
+                        "requests + EigenPlaces weights; no-op if unavailable.")
     p.add_argument("--vpr-search-radius", type=float, default=3000.0,
                    help="Radius (m) around the city centre to fetch KartaView reference "
                         "photos for --use-vpr-prior (default 3000).")
-    p.add_argument("--vpr-gate-radius", type=float, default=1000.0,
-                   help="Radius (m) of the OSM disc gated around the VPR prior (default 1000).")
+    p.add_argument("--use-vpr-sequence", action="store_true",
+                   help="EXPERIMENTAL: score candidates against the per-frame VPR track "
+                        "(sequence-median distance at matched arc fractions) instead of "
+                        "the centroid-only distance. Untested on GT; off by default.")
     p.add_argument("--use-plate-anchor", action="store_true",
                    help="Blind coarse-location prior from license-plate REGISTRATION "
                         "DISTRICTS (src/plate_anchor.py): read the EU plate region prefix "
                         "(UL, M, B...) across the clip, vote, geocode the modal district, "
-                        "and gate the OSM graph to it. Shape-INDEPENDENT; 0.4 km from GT on "
+                        "and re-rank candidates by proximity to it (a wrong-district "
+                        "guard, not a hard gate). Shape-INDEPENDENT; 0.4 km from GT on "
                         "Ulm. Privacy: only the district code (shared by 1000s of cars) is "
                         "used, never full plates. Needs fast-alpr; no-op if no district "
-                        "emerges. Ignored if --osm-around or a VPR prior is given.")
-    p.add_argument("--plate-gate-radius", type=float, default=8000.0,
-                   help="Radius (m) of the OSM disc gated around the plate-district prior "
-                        "(default 8000 — covers a city + inner suburbs, excludes other cities).")
+                        "emerges.")
+    p.add_argument("--use-vlm-anchor", action="store_true",
+                   help="VLM (Gemma 4, multimodal) district/landmark prior (src/vlm_anchor.py): "
+                        "reads frames -> infers district + reads street/shop/landmark names -> "
+                        "geocodes -> feeds the anchor-primary path. A COVERAGE FALLBACK, used "
+                        "only when VPR finds no references. Needs the gemma-4-E4B-it weights.")
     p.add_argument("--use-sun-heading", action="store_true",
                    help="Recover an ABSOLUTE camera heading from the sun (src/sun_heading.py) "
                         "to pin the matcher's free rotation. Activates only if the clip carries "
@@ -382,10 +450,7 @@ def main() -> None:
         start, end = 0.0, args.analyze_minutes * 60.0
     else:
         start, end = _parse_segment(args.vo_segment)
-    frame_stride = args.frame_stride
-    if frame_stride is None:
-        duration = (end - start) if end is not None else None
-        frame_stride = _auto_frame_stride(duration)
+    duration = (end - start) if end is not None else None
     results = []
     metadata_errors: list[str] = []
 
@@ -400,10 +465,23 @@ def main() -> None:
                 metadata_errors.append(f"{path}: {e}")
     else:
         for url in (args.url or [DEFAULT_URL]):
+            # --skip-download promises an offline re-run: prefer cached
+            # metadata over the yt-dlp network fetch when available.
+            metadata = (
+                _load_cached_metadata(args.data_dir, url)
+                if args.skip_download else None
+            )
+            if metadata is not None:
+                print(f"Using cached metadata for {url} (--skip-download)")
+                submissions.append((metadata, None))
+                continue
             try:
-                submissions.append((fetch_video_metadata(url), None))
+                metadata = fetch_video_metadata(url)
             except DownloadError as e:
                 metadata_errors.append(f"{url}: {e}")
+                continue
+            _write_cached_metadata(args.data_dir, url, metadata)
+            submissions.append((metadata, None))
 
     for metadata, local_path in submissions:
         if local_path is not None:
@@ -416,6 +494,18 @@ def main() -> None:
             city,
             fallback_seed=metadata.url,
         )
+
+        # Auto stride uses the source's REAL fps when a local/cached file
+        # can be probed (a 60 fps upload must not get double the frame
+        # budget); falls back to the nominal 30.
+        frame_stride = args.frame_stride
+        if frame_stride is None:
+            probe = local_path
+            if probe is None:
+                cached = sorted((args.data_dir / submission_slug).glob("input.*"))
+                probe = cached[0] if cached else None
+            fps = _probe_video_fps(probe) if probe is not None else None
+            frame_stride = _auto_frame_stride(duration, fps=fps)
 
         cfg = PipelineConfig(
             url=metadata.url,
@@ -463,10 +553,10 @@ def main() -> None:
             scale_lock=args.scale_lock,
             osm_around=osm_around,
             use_vpr_prior=args.use_vpr_prior,
+            use_vpr_sequence=args.use_vpr_sequence,
             use_plate_anchor=args.use_plate_anchor,
-            plate_gate_radius_m=args.plate_gate_radius,
+            use_vlm_anchor=args.use_vlm_anchor,
             vpr_search_radius_m=args.vpr_search_radius,
-            vpr_gate_radius_m=args.vpr_gate_radius,
             use_sun_heading=args.use_sun_heading,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,
@@ -496,17 +586,20 @@ def main() -> None:
         result["submission_slug"] = submission_slug
         results.append(result)
 
-    if metadata_errors:
-        raise SystemExit(
-            "Failed to inspect one or more videos:\n- " + "\n- ".join(metadata_errors)
-        )
-
+    # Write the batch summary BEFORE raising on metadata errors: one
+    # bad/offline URL must not suppress the summary of the runs that
+    # succeeded.
     if len(results) > 1:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         batch_result = args.output_dir / "batch_results.json"
         with batch_result.open("w", encoding="utf-8") as f:
             json.dump({"results": results}, f, indent=2)
         print(f"\nWrote batch summary to {batch_result}")
+
+    if metadata_errors:
+        raise SystemExit(
+            "Failed to inspect one or more videos:\n- " + "\n- ".join(metadata_errors)
+        )
 
 
 if __name__ == "__main__":

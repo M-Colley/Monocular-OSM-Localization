@@ -329,3 +329,112 @@ def test_format_summary_handles_unnamed_roads() -> None:
     assert pos is not None
     pos["street_names"] = []
     assert "(unnamed roads)" in format_position_summary(pos)
+
+
+# ---------------------------------------------------------------------------
+# Output contract: anchored answer is the HEADLINE, matcher pick is always
+# reported alongside (src.pipeline._final_position_reports)
+# ---------------------------------------------------------------------------
+
+
+def _matcher_and_anchored(road, shift_deg: float = 0.005):
+    """A matcher candidate plus an anchor-primary translated copy."""
+    import dataclasses
+
+    matcher = _make_candidate(
+        road,
+        _project([
+            (ULM_LAT, ULM_LON),
+            (ULM_LAT + 0.001, ULM_LON + 0.001),
+            (ULM_LAT + 0.002, ULM_LON + 0.002),
+        ]),
+    )
+    anchored = dataclasses.replace(
+        matcher,
+        aligned_traj_xy=_project([
+            (ULM_LAT + shift_deg, ULM_LON),
+            (ULM_LAT + shift_deg + 0.001, ULM_LON + 0.001),
+            (ULM_LAT + shift_deg + 0.002, ULM_LON + 0.002),
+        ]),
+    )
+    return matcher, anchored
+
+
+def test_headline_is_anchored_route_when_anchor_fired() -> None:
+    """CRITICAL contract: when anchor-primary fired, result['position']
+    (headline lat/lon, google_maps_url) must describe the ANCHORED
+    route, not the raw matcher pick — the old code reported the matcher
+    pick and buried the accuracy win in a side field."""
+    from src.pipeline import _final_position_reports
+
+    road = _road_with_one_street()
+    matcher, anchored = _matcher_and_anchored(road)
+    prior = (ULM_LAT + 0.006, ULM_LON + 0.001)
+
+    headline, matcher_pos = _final_position_reports(
+        [matcher], road, matches=[{}], ranking="consensus(shape+vpr)",
+        anchored_cand=anchored, anchor_origin="vpr", prior_latlon=prior,
+    )
+    assert headline is not None and matcher_pos is not None
+    # Headline = anchored start, NOT the matcher start.
+    assert headline["latitude"] == pytest.approx(ULM_LAT + 0.005, abs=1e-4)
+    assert matcher_pos["latitude"] == pytest.approx(ULM_LAT, abs=1e-4)
+    assert headline["latitude"] != matcher_pos["latitude"]
+    # Source labels per the contract.
+    assert headline["source"] == "anchor_primary_vpr"
+    assert matcher_pos["source"] == "matcher"
+    assert headline["prior_latlon"] == [pytest.approx(prior[0]),
+                                        pytest.approx(prior[1])]
+    # The shareable link must reflect the headline coordinates.
+    assert f"{headline['latitude']:.6f}" in headline["google_maps_url"]
+
+
+def test_headline_source_reflects_vlm_origin() -> None:
+    from src.pipeline import _final_position_reports
+
+    road = _road_with_one_street()
+    matcher, anchored = _matcher_and_anchored(road)
+    headline, _ = _final_position_reports(
+        [matcher], road, matches=[{}], ranking="shape",
+        anchored_cand=anchored, anchor_origin="vlm",
+        prior_latlon=(ULM_LAT, ULM_LON),
+    )
+    assert headline is not None
+    assert headline["source"] == "anchor_primary_vlm"
+    assert headline["ranking"] == "anchored(vlm)"
+
+
+def test_headline_is_matcher_pick_without_anchor() -> None:
+    from src.pipeline import _final_position_reports
+
+    road = _road_with_one_street()
+    matcher, _ = _matcher_and_anchored(road)
+    headline, matcher_pos = _final_position_reports(
+        [matcher], road, matches=[{}], ranking="shape",
+    )
+    assert headline is matcher_pos
+    assert headline is not None
+    assert headline["source"] == "matcher"
+    assert headline["latitude"] == pytest.approx(ULM_LAT, abs=1e-4)
+
+
+def test_headline_falls_back_when_anchored_report_fails() -> None:
+    """An anchored candidate whose trajectory can't be converted (NaN)
+    must not lose the answer: fall back to the matcher report."""
+    import dataclasses
+
+    from src.pipeline import _final_position_reports
+
+    road = _road_with_one_street()
+    matcher, anchored = _matcher_and_anchored(road)
+    bad_traj = np.asarray(anchored.aligned_traj_xy, dtype=np.float64).copy()
+    bad_traj[0, 0] = np.nan
+    anchored = dataclasses.replace(anchored, aligned_traj_xy=bad_traj)
+    headline, matcher_pos = _final_position_reports(
+        [matcher], road, matches=[{}], ranking="shape",
+        anchored_cand=anchored, anchor_origin="vpr",
+        prior_latlon=(ULM_LAT, ULM_LON),
+    )
+    assert headline is matcher_pos
+    assert headline is not None
+    assert headline["source"] == "matcher"

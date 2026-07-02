@@ -2,17 +2,25 @@
 
 Each clip reuses its cached VO trajectory + OSM graph, so this is a fast
 regression/accuracy sweep across all GT clips with the current code. Prints
-a final table: GT mean/start error, the headline pick, and the calibrated
-spatial confidence + top hypotheses.
+a final table: GT mean/start error for both the HEADLINE answer
+(result["position"] — the anchored answer whenever an anchor fired) and the
+raw matcher pick (result["matcher_position"]), plus rc so failed runs are
+visible in the summary, not just in scrollback.
 
-    python scripts/run_all_gt.py
+    python scripts/run_all_gt.py            # gated sweep (GT-centered discs)
+    python scripts/run_all_gt.py --blind    # honest blind mode: drops the
+                                            # --osm-around GT leak (mega-city
+                                            # London keeps its point+radius
+                                            # fetch — full-city is infeasible)
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,42 +58,116 @@ CLIPS = [
         "--scale-lock", "--no-splat", "--no-aerial"]),
 ]
 
+# Mega-cities keep their point+radius graph fetch even in --blind mode: a
+# full-city London graph is not enumerable, so the disc is an infra
+# necessity there, not a GT leak we can drop.
+MEGA_CITY_CLIPS = {"London (Bloomsbury)"}
 
-def main() -> None:
+
+def _strip_osm_around(args: list[str]) -> list[str]:
+    """Return `args` without the `--osm-around <value>` GT leak."""
+    out: list[str] = []
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a == "--osm-around":
+            skip = True
+            continue
+        out.append(a)
+    return out
+
+
+def _stash_previous_result(res: Path) -> None:
+    """Move an existing result.json aside so a failed run can't leave a
+    stale file that the sweep would report as fresh numbers."""
+    if res.exists():
+        prev = res.with_name("result.prev.json")
+        prev.unlink(missing_ok=True)
+        res.replace(prev)
+
+
+def _load_fresh_result(res: Path, rc: int, run_start: float) -> dict | None:
+    """Read result.json only when the run succeeded AND the file was
+    written by *this* run (mtime after the launch)."""
+    if rc != 0 or not res.exists():
+        return None
+    if res.stat().st_mtime < run_start:
+        return None  # stale leftover from an earlier run
+    return json.load(open(res, encoding="utf-8"))
+
+
+def _result_row(name: str, rc: int, result: dict | None) -> dict:
+    """Extract the sweep-table row per the output contract:
+
+    result["position"] is the HEADLINE answer (anchored when an anchor
+    fired, check "source"); result["matcher_position"] is always the raw
+    matcher pick. Older result.json files predate matcher_position — fall
+    back to position so the sweep still degrades gracefully on them.
+    """
+    row: dict = {"name": name, "rc": rc}
+    if result is None:
+        return row
+    p = result.get("position") or {}
+    mp = result.get("matcher_position") or p
+    sc = p.get("spatial_confidence", {})
+    row.update(
+        source=p.get("source", "matcher"),
+        gt_mean=p.get("gt_mean_route_error_m"),
+        gt_start=p.get("gt_start_error_m"),
+        m_gt_mean=mp.get("gt_mean_route_error_m"),
+        m_gt_start=mp.get("gt_start_error_m"),
+        ranking=p.get("ranking", ""),
+        streets=", ".join(p.get("street_names", [])[:3]),
+        conf=sc.get("level"), spread=sc.get("spread_m"),
+        n_hyp=len(p.get("hypotheses", [])),
+    )
+    return row
+
+
+def _fmt(v, spec="%.0f", missing="-") -> str:
+    return spec % v if v is not None else missing
+
+
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--blind", action="store_true",
+                    help="drop the GT-centered --osm-around discs (except "
+                         "mega-city clips) for an honest blind number")
+    opts = ap.parse_args(argv)
+
     rows = []
     for name, slug, args in CLIPS:
-        print(f"\n{'='*70}\nRUNNING: {name}\n{'='*70}", flush=True)
+        if opts.blind and name not in MEGA_CITY_CLIPS:
+            args = _strip_osm_around(args)
+        print(f"\n{'='*70}\nRUNNING: {name}{' [blind]' if opts.blind else ''}\n{'='*70}",
+              flush=True)
+        res = ROOT / "output" / slug / "result.json"
+        _stash_previous_result(res)
         log = ROOT / "output" / f"_gt_run_{slug[:20]}.log"
+        run_start = time.time()
         with open(log, "w", encoding="utf-8") as fh:
             rc = subprocess.run([PY, "main.py", *args], cwd=ROOT,
                                 stdout=fh, stderr=subprocess.STDOUT).returncode
-        res = ROOT / "output" / slug / "result.json"
-        row = {"name": name, "rc": rc}
-        if res.exists():
-            p = json.load(open(res, encoding="utf-8")).get("position", {})
-            sc = p.get("spatial_confidence", {})
-            row.update(
-                gt_mean=p.get("gt_mean_route_error_m"),
-                gt_start=p.get("gt_start_error_m"),
-                ranking=p.get("ranking", ""),
-                streets=", ".join(p.get("street_names", [])[:3]),
-                conf=sc.get("level"), spread=sc.get("spread_m"),
-                n_hyp=len(p.get("hypotheses", [])),
-            )
+        row = _result_row(name, rc, _load_fresh_result(res, rc, run_start))
         rows.append(row)
-        print(f"  -> rc={rc}  mean={row.get('gt_mean')}  start={row.get('gt_start')}",
-              flush=True)
+        print(f"  -> rc={rc}  source={row.get('source')}  "
+              f"mean={row.get('gt_mean')}  start={row.get('gt_start')}  "
+              f"matcher_mean={row.get('m_gt_mean')}", flush=True)
 
-    print(f"\n\n{'='*92}\nFINAL RESULTS — all GT clips (current pipeline)\n{'='*92}")
-    print(f"{'clip':24s} {'mean(m)':>8s} {'start(m)':>9s} {'conf':>7s} "
-          f"{'spread':>7s}  pick streets")
-    print("-" * 92)
+    mode = "BLIND (no GT discs)" if opts.blind else "gated"
+    print(f"\n\n{'='*112}\nFINAL RESULTS — all GT clips, {mode} (current pipeline)\n{'='*112}")
+    print(f"{'clip':24s} {'rc':>3s} {'source':>19s} {'mean(m)':>8s} {'start(m)':>9s} "
+          f"{'mMean(m)':>9s} {'mStart(m)':>10s} {'conf':>7s} {'spread':>7s}  pick streets")
+    print("-" * 112)
     for r in rows:
-        m = r.get("gt_mean"); s = r.get("gt_start")
-        print(f"{r['name']:24s} {('%.0f'%m if m is not None else 'FAIL'):>8s} "
-              f"{('%.0f'%s if s is not None else '-'):>9s} {str(r.get('conf')):>7s} "
-              f"{('%.0f'%r['spread'] if r.get('spread') is not None else '-'):>7s}  "
-              f"{r.get('streets','')}")
+        print(f"{r['name']:24s} {r['rc']:>3d} {str(r.get('source', '-')):>19s} "
+              f"{_fmt(r.get('gt_mean'), missing='FAIL'):>8s} "
+              f"{_fmt(r.get('gt_start')):>9s} "
+              f"{_fmt(r.get('m_gt_mean')):>9s} {_fmt(r.get('m_gt_start')):>10s} "
+              f"{str(r.get('conf')):>7s} {_fmt(r.get('spread')):>7s}  "
+              f"{r.get('streets', '')}")
 
 
 if __name__ == "__main__":

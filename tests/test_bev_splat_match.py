@@ -32,7 +32,10 @@ from src.bev_splat_match import (
     BevSplatMatchResult,
     MockBevSplatInference,
     _build_bev_splat_args,
+    _flat_ground_depth,
     _load_bev_splat_inference,
+    _scale_intrinsics_to,
+    _state_dict_coverage_error,
     score_candidates_with_bevsplat,
 )
 from src.osm_data import _build_polyline_view
@@ -307,3 +310,62 @@ def test_build_bev_splat_args_applies_overrides() -> None:
     assert ns.rotation_range == 5.0
     # Untouched defaults survive.
     assert ns.level == "0"
+
+
+# ---------- Intrinsics rescale + flat-ground depth + state-dict check -----
+
+
+def test_scale_intrinsics_anisotropic_1080p_to_kitti_crop() -> None:
+    """K expressed in 1920x1080 pixels must be rescaled to the resized
+    256x1024 ground image the model actually sees — with DIFFERENT
+    factors per axis (the resize is anisotropic)."""
+    fx = fy = 1371.0
+    K = np.array([[fx, 0.0, 960.0], [0.0, fy, 540.0], [0.0, 0.0, 1.0]])
+    K_s = _scale_intrinsics_to(K, (1080, 1920), (256, 1024))
+
+    sx = 1024 / 1920
+    sy = 256 / 1080
+    assert np.isclose(K_s[0, 0], fx * sx)
+    assert np.isclose(K_s[0, 2], 960.0 * sx)   # principal point stays centred
+    assert np.isclose(K_s[1, 1], fy * sy)
+    assert np.isclose(K_s[1, 2], 540.0 * sy)
+    # Bottom row untouched.
+    assert np.allclose(K_s[2], [0.0, 0.0, 1.0])
+    # After the model's own normalization (row0/W, row1/H) the principal
+    # point must land at the image centre, not 2 image-heights below it.
+    assert np.isclose(K_s[0, 2] / 1024, 0.5)
+    assert np.isclose(K_s[1, 2] / 256, 0.5)
+
+
+def test_flat_ground_depth_structure() -> None:
+    """The analytic ground depth must be non-degenerate: far above the
+    horizon, finite and increasing towards the horizon below it."""
+    h, w = 64, 128
+    K = np.array([[100.0, 0.0, 64.0], [0.0, 100.0, 32.0], [0.0, 0.0, 1.0]])
+    depth = _flat_ground_depth(K, h, w, camera_height_m=1.5, max_depth_m=80.0)
+
+    assert depth.shape == (h, w)
+    assert depth.dtype == np.float32
+    # Rows at/above the horizon (v <= cy) are "far".
+    assert (depth[:32] == 80.0).all()
+    # The bottom row looks steeply down → short range ≈ camera height.
+    center_col = depth[:, 64]
+    assert 1.0 < center_col[-1] < 6.0
+    # Depth increases monotonically from the bottom row towards the horizon.
+    below = center_col[33:]
+    assert (np.diff(below) <= 1e-6).all()   # rows closer to horizon are farther
+    # NOT the all-zero placeholder this replaces.
+    assert depth.max() > 0.0 and depth[40:, :].min() > 0.0
+
+
+def test_state_dict_coverage_error_flags_mismatch() -> None:
+    """>50% missing keys (checkpoint/module mismatch) must fail loudly
+    instead of silently running a randomly-initialized model."""
+    missing = [f"layer{i}.weight" for i in range(80)]
+    err = _state_dict_coverage_error(missing, ["extra.bias"], 100)
+    assert err is not None
+    assert "mismatch" in err.lower()
+
+    # A well-matched checkpoint (few/no missing keys) passes.
+    assert _state_dict_coverage_error([], [], 100) is None
+    assert _state_dict_coverage_error(["head.bias"], [], 100) is None

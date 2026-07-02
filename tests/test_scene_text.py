@@ -77,6 +77,35 @@ def test_extract_uses_and_writes_cache(tmp_path: Path) -> None:
     assert first == second == [SceneText("Sedelhöfe", 0.99, 0.0)]
 
 
+def test_cache_invalidated_by_video_change(tmp_path: Path) -> None:
+    """Re-downloading the same slug at a different resolution/format must
+    invalidate the cache — the old signature ignored the video entirely and
+    silently served detections OCR'd from the previous file."""
+    import os
+
+    cache = tmp_path / "cache.json"
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"AAA")
+    kw = dict(frame_reader=_fake_frames([0.0]), cache_path=cache,
+              sample_interval_sec=6.0)
+    extract_scene_text(video, ocr_reader=_FakeReader([[([], "Alpha", 0.9)]]), **kw)
+
+    # Same slug, different file (size + mtime change) → must re-run OCR.
+    video.write_bytes(b"BBBBBB")
+    os.utime(video, (1_700_000_000, 1_700_000_000))
+    out = extract_scene_text(
+        video, ocr_reader=_FakeReader([[([], "Beta", 0.9)]]), **kw)
+    assert [s.text for s in out] == ["Beta"]
+
+    # Unchanged file → cache still hits.
+    class _Boom:
+        def readtext(self, image):
+            raise AssertionError("OCR must not run on a cache hit")
+
+    again = extract_scene_text(video, ocr_reader=_Boom(), **kw)
+    assert [s.text for s in again] == ["Beta"]
+
+
 def test_cache_invalidated_by_param_change(tmp_path: Path) -> None:
     cache = tmp_path / "cache.json"
     extract_scene_text(

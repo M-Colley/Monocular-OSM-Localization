@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from src.visual_odometry import (
+    _fit_plane_projection,
     bearing_signature,
     default_intrinsics,
     estimate_trajectory,
@@ -67,6 +68,84 @@ def test_bearing_signature_distinguishes_left_vs_right_turn() -> None:
     b = bearing_signature(right_turn, n_samples=64)
     # The signed turn should be opposite-sign in the two halves.
     assert np.sign(a.sum()) == -np.sign(b.sum())
+
+
+def _l_turn_centers(rng: np.random.Generator) -> np.ndarray:
+    """3D camera centers for an L-turn: +x then +z, tiny vertical noise."""
+    straight = np.c_[np.arange(20.0), np.zeros(20), np.zeros(20)]
+    turn = np.c_[np.full(15, 19.0), np.zeros(15), np.arange(1.0, 16.0)]
+    centers = np.vstack([straight, turn])
+    centers[:, 1] += rng.normal(size=len(centers)) * 0.01
+    return centers
+
+
+def _turn_sign(xy: np.ndarray) -> float:
+    """Sign of the cross product between the two legs of an L-path."""
+    d1 = xy[8] - xy[0]
+    d2 = xy[-1] - xy[-9]
+    return float(np.sign(d1[0] * d2[1] - d1[1] * d2[0]))
+
+
+def _rot_y(a: float) -> np.ndarray:
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+
+
+def test_fit_plane_projection_preserves_turn_sign_under_yaw() -> None:
+    """The PCA plane projection must never MIRROR the path: on the old
+    arbitrary-handedness SVD roughly half of these seeds came back with
+    the L-turn's sign flipped (left turn became a right turn)."""
+    centers = _l_turn_centers(np.random.default_rng(0))
+    ref_sign = _turn_sign(centers[:, [0, 2]])  # raw top-down drop
+    assert ref_sign != 0.0
+    for seed in range(20):
+        a = np.random.default_rng(seed).uniform(0.0, 2 * np.pi)
+        projected = _fit_plane_projection(centers @ _rot_y(a).T)
+        assert _turn_sign(projected) == ref_sign, f"mirrored at seed {seed}"
+
+
+def test_fit_plane_projection_up_hint_handles_full_so3() -> None:
+    """With the camera-up hint (what estimate_trajectory passes), the turn
+    sign survives arbitrary SO(3) rotations of the world frame."""
+    centers = _l_turn_centers(np.random.default_rng(1))
+    ref_sign = _turn_sign(centers[:, [0, 2]])
+    for seed in range(20):
+        rng = np.random.default_rng(seed)
+        Q, R = np.linalg.qr(rng.normal(size=(3, 3)))
+        Q = Q @ np.diag(np.sign(np.diag(R)))
+        if np.linalg.det(Q) < 0:
+            Q[:, 0] = -Q[:, 0]
+        up = Q @ np.array([0.0, -1.0, 0.0])
+        projected = _fit_plane_projection(centers @ Q.T, up=up)
+        assert _turn_sign(projected) == ref_sign, f"mirrored at seed {seed}"
+
+
+def test_fit_plane_projection_discards_axis_nearest_vertical() -> None:
+    """Accumulated pitch drift can give the vertical axis more variance
+    than the lateral one; the kept plane must still be the ground plane
+    (drop the axis nearest camera-y), not (forward, vertical-drift)."""
+    # Mostly-straight drive along x with a gentle lateral (z) wiggle of
+    # amplitude ~1 and a large vertical (y) drift bow of amplitude 8.
+    # Orthogonalize the three signals so the principal axes are exactly
+    # the coordinate axes and the variance ordering is unambiguous:
+    # var(x) >> var(y drift) > var(z wiggle).
+    x = np.arange(0.0, 60.0)
+    xc = x - x.mean()
+    y = -np.sin(x / 60.0 * np.pi) * 8.0
+    y = y - y.mean()
+    y -= (y @ xc) / (xc @ xc) * xc
+    z = np.cos(x / 60.0 * 2 * np.pi) * 1.0
+    z = z - z.mean()
+    z -= (z @ xc) / (xc @ xc) * xc
+    z -= (z @ y) / (y @ y) * y
+    centers = np.c_[x, y, z]
+    projected = _fit_plane_projection(centers)
+    # The lateral wiggle must survive the projection: correlate the
+    # projected minor axis with the true z, not with the vertical drift.
+    minor = projected[:, 1] - projected[:, 1].mean()
+    corr_z = abs(np.corrcoef(minor, z)[0, 1])
+    corr_y = abs(np.corrcoef(minor, y)[0, 1])
+    assert corr_z > 0.99 and corr_y < 0.1
 
 
 def _render_textured_scene(
@@ -148,6 +227,36 @@ def test_visual_odometry_recovers_forward_motion_direction() -> None:
     assert np.linalg.norm(delta) == pytest.approx(1.0, rel=0.05)
     # And the dominant component should be along z.
     assert abs(delta[2]) > 0.85, f"expected forward motion, got {delta}"
+
+
+def test_stationary_frames_inject_zero_arc_length() -> None:
+    """A stopped car (red light) must contribute ZERO steps.
+
+    The scene is static except for a small moving patch (a pedestrian
+    crossing) — enough coherent flow for recoverPose to clear its inlier
+    gate, so the old code normalized the spurious translation to a full
+    unit step per pair. The median matched-keypoint displacement is ~0
+    (the static background dominates), which is what the stationary
+    guard keys on."""
+    w, h = 640, 480
+    K = default_intrinsics(w, h)
+    rng = np.random.default_rng(3)
+    tex = rng.integers(0, 255, (h // 2, w // 2, 3)).astype(np.uint8)
+    base = cv2.resize(tex, (w, h), interpolation=cv2.INTER_LINEAR)
+    patch = np.random.default_rng(5).integers(0, 255, (80, 80, 3)).astype(np.uint8)
+
+    frames = []
+    for i in range(6):
+        f = base.copy()
+        y = 100 + 25 * i
+        f[y:y + 80, 120:200] = patch
+        frames.append(f)
+
+    traj = estimate_trajectory(frames, K, enforce_planar=False)
+    s = trajectory_arc_length(traj.xz)
+    assert s[-1] == pytest.approx(0.0, abs=1e-9)
+    # Stationary pairs are flagged invalid (pose held), not fake motion.
+    assert not traj.valid[1:].any()
 
 
 def test_visual_odometry_parallel_matches_sequential() -> None:

@@ -12,6 +12,7 @@ from src.kitti_raw import (
     kitti_ground_truth,
     load_oxts_track,
     osm_around_for_track,
+    render_images_to_video,
 )
 from src.gps_overlay import GpsFix
 
@@ -115,3 +116,47 @@ def test_osm_around_bounds_track(tmp_path: Path) -> None:
     dlat_m = (far.lat - clat) * 111320.0
     dlon_m = (far.lon - clon) * 111320.0 * np.cos(np.radians(clat))
     assert np.hypot(dlat_m, dlon_m) <= radius
+
+
+# ---------------------------------------------------------------------------
+# render_images_to_video — corrupt PNGs must not crash or shift silently
+# ---------------------------------------------------------------------------
+
+
+def _make_image_drive(tmp: Path, n_frames: int, corrupt: set[int]) -> Path:
+    import cv2
+
+    drive = tmp / "2011_09_26_drive_0009_sync"
+    data = drive / "image_02" / "data"
+    data.mkdir(parents=True)
+    for i in range(n_frames):
+        fp = data / f"{i:010d}.png"
+        if i in corrupt:
+            fp.write_bytes(b"")  # zero-byte PNG (interrupted zip extraction)
+        else:
+            cv2.imwrite(str(fp), np.full((48, 64, 3), i % 256, dtype=np.uint8))
+    return drive
+
+
+def test_render_skips_corrupt_first_png_and_warns(tmp_path: Path) -> None:
+    # Old behavior: AttributeError on `first.shape` for a corrupt frame 0.
+    drive = _make_image_drive(tmp_path, n_frames=5, corrupt={0, 2})
+    with pytest.warns(RuntimeWarning, match="unreadable"):
+        out = render_images_to_video(drive, tmp_path / "out.mp4")
+    assert out.exists()
+
+
+def test_render_no_warning_when_all_readable(tmp_path: Path) -> None:
+    import warnings
+
+    drive = _make_image_drive(tmp_path, n_frames=4, corrupt=set())
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        out = render_images_to_video(drive, tmp_path / "out.mp4")
+    assert out.exists()
+
+
+def test_render_all_corrupt_raises_descriptive(tmp_path: Path) -> None:
+    drive = _make_image_drive(tmp_path, n_frames=3, corrupt={0, 1, 2})
+    with pytest.raises(RuntimeError, match="no readable PNG"):
+        render_images_to_video(drive, tmp_path / "out.mp4")

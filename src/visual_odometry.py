@@ -30,6 +30,11 @@ from typing import Sequence
 import cv2
 import numpy as np
 
+# Below this median matched-keypoint displacement (pixels) a frame pair is
+# considered stationary (stopped at a light): the essential matrix carries
+# no translation signal and recoverPose would return a noise direction.
+_MIN_MOTION_PX = 0.75
+
 
 @dataclass
 class Trajectory:
@@ -97,6 +102,16 @@ def _estimate_relative_pose(
         pts1, pts2, K, method=cv2.RANSAC, prob=0.999, threshold=1.0
     )
     if E is None or E.shape != (3, 3):
+        return None
+
+    # Stationary guard: at a red light consecutive frames have ~zero
+    # baseline, the essential matrix is degenerate and recoverPose returns
+    # a noise direction — which the unit-normalization below would promote
+    # to a full fake step. Static scenes still match densely, so the
+    # inlier gate never trips; detect the no-motion case directly from the
+    # matched keypoints and treat the pair as invalid (the chain then
+    # holds the previous pose, i.e. a zero step).
+    if float(np.median(np.linalg.norm(pts2 - pts1, axis=1))) < _MIN_MOTION_PX:
         return None
 
     n_inliers, R, t, mask_pose = cv2.recoverPose(E, pts1, pts2, K, mask=mask)
@@ -201,8 +216,13 @@ def estimate_trajectory(
     if enforce_planar:
         # Re-project onto a best-fit plane for the trajectory to clean up
         # accumulated pitch drift. We refit so the dominant motion lies in
-        # the kept 2D plane.
-        xz = _fit_plane_projection(centers_arr)
+        # the kept 2D plane. The mean camera up direction (-camera-y,
+        # i.e. -row 1 of the world-to-camera rotations) disambiguates
+        # which axis is vertical and fixes the projection's chirality.
+        cam_down = rotations_arr[:, 1, :].mean(axis=0)
+        norm = float(np.linalg.norm(cam_down))
+        up_hint = -cam_down / norm if norm > 1e-9 else None
+        xz = _fit_plane_projection(centers_arr, up=up_hint)
 
     return Trajectory(
         centers=centers_arr,
@@ -234,22 +254,46 @@ class _ThreadLocalDetectors:
         return self._tl.orb, self._tl.matcher
 
 
-def _fit_plane_projection(centers: np.ndarray) -> np.ndarray:
-    """Project Nx3 points onto the 2D plane of maximum variance.
+def _fit_plane_projection(
+    centers: np.ndarray, up: np.ndarray | None = None
+) -> np.ndarray:
+    """Project Nx3 points onto the 2D driving plane.
 
     Done with PCA: the trajectory of a ground vehicle should have very
-    little variance along its true vertical axis. We discard the
-    smallest-eigenvalue component, which on clean data is the y-axis but
-    on drifted data may have leaked a bit of x or z — this is more robust
-    than blindly dropping y.
+    little variance along its true vertical axis. Two constraints on top
+    of the raw SVD keep the projection well-defined:
+
+    * The *discarded* axis is the principal axis nearest the camera
+      vertical (``up``, camera up = -y in the OpenCV convention), not
+      blindly the smallest-variance one — on straight-dominated clips
+      accumulated pitch drift can give the vertical more variance than
+      the lateral axis, which would flatten real turns out of the
+      projection.
+    * Deterministic chirality: numpy's SVD returns axes with arbitrary
+      signs, so the projection could be a MIRROR of the true top-down
+      path (left turns become right turns — fatal for the
+      chirality-sensitive matcher downstream). The raw x-z drop has
+      x̂ × ẑ = -ŷ, i.e. the plane normal aligned with camera up, so we
+      flip the second in-plane axis whenever the kept axes' normal
+      points the other way.
     """
     if centers.shape[0] < 3:
         return centers[:, [0, 2]].copy()
+    if up is None:
+        up = np.array([0.0, -1.0, 0.0])  # camera up (OpenCV: +y is down)
 
     centered = centers - centers.mean(axis=0)
     # SVD: columns of Vt.T are the principal axes, descending variance.
     _, _, Vt = np.linalg.svd(centered, full_matrices=False)
-    axes_2d = Vt[:2].T  # 3x2: project onto top-2 PCs
+    # Discard the axis nearest the vertical; keep the other two in
+    # descending-variance order.
+    drop = int(np.argmax(np.abs(Vt @ up)))
+    keep = [i for i in range(3) if i != drop]
+    axes_2d = Vt[keep].T.copy()  # 3x2: project onto the in-plane axes
+    # Enforce view-from-above handedness (see docstring).
+    normal = np.cross(axes_2d[:, 0], axes_2d[:, 1])
+    if float(np.dot(normal, up)) < 0.0:
+        axes_2d[:, 1] *= -1.0
     projected = centered @ axes_2d
     return projected
 

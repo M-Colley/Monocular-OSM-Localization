@@ -134,6 +134,20 @@ def test_save_ply_roundtrips_via_open3d(tmp_path: Path) -> None:
     assert np.allclose(loaded_cols_f, expected_f, atol=1.5 / 255)
 
 
+def test_save_ply_writes_binary_little_endian(tmp_path: Path) -> None:
+    """DA3 dense clouds go through the same helper — ASCII PLY is ~5-10x
+    larger, so the writer must emit binary_little_endian."""
+    pts = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    cols = np.array([[10, 20, 30], [255, 0, 0]], dtype=np.uint8)
+    out = tmp_path / "binary.ply"
+    save_ply(pts, cols, out)
+
+    header = out.read_bytes()[:256]
+    assert header.startswith(b"ply")
+    assert b"binary_little_endian" in header
+    assert b"format ascii" not in header
+
+
 def test_save_interactive_html_writes_file(tmp_path: Path) -> None:
     from src.splat import save_interactive_html
 

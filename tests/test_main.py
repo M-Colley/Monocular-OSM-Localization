@@ -341,3 +341,145 @@ def test_main_explicit_stride_overrides_auto(
     )
     main_mod.main()
     assert captured["cfg"].frame_stride == 2
+
+
+def test_auto_frame_stride_uses_real_fps() -> None:
+    """A 60 fps dashcam upload must not get double the intended frame
+    budget: 7 min @60fps needs stride 6, not the nominal-30 answer 3."""
+    from main import _auto_frame_stride
+
+    assert _auto_frame_stride(420.0, fps=60.0) == 6
+    assert _auto_frame_stride(420.0, fps=30.0) == 3
+    # Unknown/broken fps falls back to the nominal 30.
+    assert _auto_frame_stride(420.0, fps=None) == 3
+    assert _auto_frame_stride(420.0, fps=0.0) == 3
+
+
+# ---------------------------------------------------------------------------
+# Refuted gating flags are gone (--vpr-gate-radius / --plate-gate-radius)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--vpr-gate-radius", "500"],
+        ["--plate-gate-radius", "3000"],
+    ],
+)
+def test_dead_gate_flags_removed(argv: list[str]) -> None:
+    """The gate radii were parsed but never read (gating was refuted by
+    experiment); they must now be rejected instead of silently no-oping."""
+    with pytest.raises(SystemExit):
+        build_arg_parser().parse_args(argv)
+
+
+def test_use_vpr_sequence_flag_wired(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert build_arg_parser().parse_args([]).use_vpr_sequence is False
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"\x00")
+    captured: dict = {}
+    monkeypatch.setattr(
+        main_mod, "run_pipeline",
+        lambda cfg: captured.update(cfg=cfg) or {"city": cfg.city, "matches": []},
+    )
+    _forbid_network_metadata(monkeypatch)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["main.py", "--video", str(video), "--city", "Ulm, Germany",
+         "--use-vpr-prior", "--use-vpr-sequence",
+         "--data-dir", str(tmp_path / "d"), "--output-dir", str(tmp_path / "o")],
+    )
+    main_mod.main()
+    assert captured["cfg"].use_vpr_prior is True
+    assert captured["cfg"].use_vpr_sequence is True
+
+
+# ---------------------------------------------------------------------------
+# --skip-download offline re-runs (cached metadata; no network fetch)
+# ---------------------------------------------------------------------------
+
+
+def test_skip_download_uses_cached_metadata_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Offline re-run of a fully cached clip: --skip-download must not
+    require a yt-dlp network metadata fetch (it used to die in
+    fetch_video_metadata before ever consulting the cache)."""
+    from src.download import VideoMetadata
+
+    url = "https://www.youtube.com/watch?v=abc123def45"
+    data_dir = tmp_path / "data"
+    metadata = VideoMetadata(url=url, title="Driving in Ulm, Germany",
+                             video_id="abc123def45")
+    main_mod._write_cached_metadata(data_dir, url, metadata)
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        main_mod, "run_pipeline",
+        lambda cfg: captured.update(cfg=cfg) or {"city": cfg.city, "matches": []},
+    )
+    _forbid_network_metadata(monkeypatch)   # any fetch -> test failure
+    monkeypatch.setattr(
+        sys, "argv",
+        ["main.py", "--url", url, "--skip-download",
+         "--data-dir", str(data_dir), "--output-dir", str(tmp_path / "o")],
+    )
+    main_mod.main()
+    cfg = captured["cfg"]
+    assert cfg.skip_download is True
+    assert cfg.url == url
+    assert cfg.city == "Ulm, Germany"       # inferred from the cached title
+
+
+def test_metadata_cache_roundtrip(tmp_path: Path) -> None:
+    from src.download import VideoMetadata
+
+    url = "https://example.com/watch?v=xyz"
+    meta = VideoMetadata(url=url, title="t", video_id="xyz")
+    assert main_mod._load_cached_metadata(tmp_path, url) is None
+    main_mod._write_cached_metadata(tmp_path, url, meta)
+    loaded = main_mod._load_cached_metadata(tmp_path, url)
+    assert loaded == meta
+    # A different URL must not hit this cache entry.
+    assert main_mod._load_cached_metadata(tmp_path, url + "2") is None
+
+
+def test_metadata_fetch_failure_does_not_suppress_batch_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bad/offline URL in a batch must not suppress the summary of
+    the runs that succeeded (the SystemExit used to fire before the
+    batch_results.json write)."""
+    import json as _json
+
+    from src.download import DownloadError, VideoMetadata
+
+    good = ["https://example.com/a", "https://example.com/b"]
+    bad = "https://example.com/broken"
+
+    def fake_fetch(url: str) -> VideoMetadata:
+        if url == bad:
+            raise DownloadError("network unreachable")
+        return VideoMetadata(url=url, title=f"Driving in Ulm, Germany {url[-1]}",
+                             video_id=url[-1])
+
+    monkeypatch.setattr(main_mod, "fetch_video_metadata", fake_fetch)
+    monkeypatch.setattr(
+        main_mod, "run_pipeline",
+        lambda cfg: {"city": cfg.city, "matches": []},
+    )
+    out_dir = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv",
+        ["main.py", "--url", good[0], good[1], bad, "--city", "Ulm, Germany",
+         "--data-dir", str(tmp_path / "d"), "--output-dir", str(out_dir)],
+    )
+    with pytest.raises(SystemExit, match="broken"):
+        main_mod.main()
+    batch = out_dir / "batch_results.json"
+    assert batch.exists()
+    payload = _json.loads(batch.read_text(encoding="utf-8"))
+    assert len(payload["results"]) == 2

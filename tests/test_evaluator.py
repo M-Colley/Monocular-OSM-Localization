@@ -68,6 +68,53 @@ def test_polyline_to_polyline_distance_via_proxy() -> None:
     assert _polyline_to_polyline_distance(a, b) == pytest.approx(4.0)
 
 
+def test_polyline_distance_mid_segment_approach() -> None:
+    """The closest approach can be mid-segment on BOTH polylines — long
+    straight OSM edges carry only 2 vertices. The old vertex-sampled min
+    reported the distance from the far segment ENDPOINTS (~190 m here)
+    instead of the true ~15 m mid-segment distance."""
+    a = np.array([[0.0, 0.0], [400.0, 0.0]])        # 400 m two-vertex edge
+    b = np.array([[200.0, 15.0], [210.0, 15.0]])    # short GT street near a's middle
+    assert _polyline_to_polyline_distance(a, b) == pytest.approx(15.0, abs=0.5)
+
+
+def test_polyline_distance_crossing_is_zero() -> None:
+    """Two crossing polylines have distance ~0 even though every vertex
+    of one is far from the other."""
+    a = np.array([[-200.0, 0.0], [200.0, 0.0]])
+    b = np.array([[0.0, -200.0], [0.0, 200.0]])
+    assert _polyline_to_polyline_distance(a, b) == pytest.approx(0.0, abs=5.5)
+
+
+def test_evaluate_candidates_uses_segment_distance_on_long_edges() -> None:
+    """End-to-end: a candidate walk on a long 2-vertex edge passing 15 m
+    from a GT street mid-segment must evaluate at ~15 m, so
+    best_rank_for_gt names the truly closest candidate."""
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    nodes = {
+        "A": (0.0, 0.0), "B": (400.0, 0.0),          # long unsimplified edge
+        "G": (200.0, 15.0), "H": (210.0, 15.0),      # the GT street
+    }
+    for k, (x, y) in nodes.items():
+        g.add_node(k, x=x, y=y)
+
+    def add(a: str, b: str, name: str) -> None:
+        ax, ay = g.nodes[a]["x"], g.nodes[a]["y"]
+        bx, by = g.nodes[b]["x"], g.nodes[b]["y"]
+        L = float(np.hypot(bx - ax, by - ay))
+        g.add_edge(a, b, length=L, geometry=LineString([(ax, ay), (bx, by)]), name=name)
+        g.add_edge(b, a, length=L, geometry=LineString([(bx, by), (ax, ay)]), name=name)
+
+    add("A", "B", "LongRoad")
+    add("G", "H", "GtRoad")
+    road = _build_polyline_view(g)
+
+    cand = _candidate_for_walk(road, [("A", "B", 0)])
+    results = evaluate_candidates([cand], road, ["GtRoad"])
+    assert results[0].nearest_distance_m == pytest.approx(15.0, abs=0.5)
+
+
 def test_evaluate_candidates_marks_on_gt_street() -> None:
     road = _named_graph()
     cand_on_north = _candidate_for_walk(road, [("A", "B", 0), ("B", "C", 0)], score=10.0)

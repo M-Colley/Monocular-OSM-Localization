@@ -76,6 +76,47 @@ def test_stitch_bev_handles_helper_wrapper() -> None:
     # Helper succeeds with default calibration.
 
 
+def _ground_row(z_m: float, K: np.ndarray, h_m: float, pitch_deg: float) -> float:
+    """Image row of a ground point ``z_m`` ahead (exact for pitch-only).
+
+    The ray from a camera ``h_m`` above the road to the ground point is
+    ``atan(h/z)`` below horizontal, i.e. ``atan(h/z) - pitch`` below the
+    optical axis of a camera pitched down by ``pitch``.
+    """
+    a = np.arctan2(h_m, z_m) - np.deg2rad(pitch_deg)
+    return float(K[1, 2] + K[1, 1] * np.tan(a))
+
+
+def test_bev_homography_samples_ground_rows_below_horizon() -> None:
+    """Camera-height sign check: with the module defaults, ground points
+    4-40 m ahead project BELOW the horizon row, and the BEV homography
+    must sample image rows in that band (the old +h placed the camera
+    underground, so the BEV sampled the sky above the horizon)."""
+    K = default_intrinsics(1280, 720, hfov_deg=70.0)
+    h_m, pitch = 1.4, 6.0
+    cal = IPMCalibration(K=K, camera_height_m=h_m, pitch_deg=pitch)
+
+    horizon = float(K[1, 2] - K[1, 1] * np.tan(np.deg2rad(pitch)))
+    for z in np.linspace(4.0, 40.0, 10):
+        assert _ground_row(z, K, h_m, pitch) > horizon + 1.0
+
+    H, (bev_h, bev_w) = compute_ipm_homography(cal)
+    Hinv = np.linalg.inv(H)
+    bev_pts = np.array([
+        [0, 0, 1], [bev_w, 0, 1], [0, bev_h, 1], [bev_w, bev_h, 1],
+        [bev_w / 2.0, bev_h / 2.0, 1],
+    ], dtype=float)
+    img_pts = bev_pts @ Hinv.T
+    v_img = img_pts[:, 1] / img_pts[:, 2]
+    # Every sampled row lies below the horizon, inside the ground band
+    # spanned by the near/far clip distances.
+    v_far = _ground_row(cal.near_clip_m + cal.bev_depth_m, K, h_m, pitch)
+    v_near = _ground_row(cal.near_clip_m, K, h_m, pitch)
+    assert (v_img > horizon).all(), f"BEV samples the sky: rows {v_img}"
+    assert v_img.min() >= v_far - 2.0
+    assert v_img.max() <= v_near + 2.0
+
+
 def test_stitch_bev_rejects_mismatched_lengths() -> None:
     K = default_intrinsics(1280, 720)
     cal = IPMCalibration(K=K)

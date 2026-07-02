@@ -193,10 +193,30 @@ def _reject_jumps(fixes: list[GpsFix], max_jump_m: float) -> list[GpsFix]:
     near = [f for f in fixes if _haversine_m(f, med) < 30000.0]
     if len(near) < 2:
         return near
-    out = [near[0]]
-    for f in near[1:]:
+    # Seed from the median of the first few plausible fixes rather than
+    # trusting fix #0 outright: a moderately-wrong first fix (inside the
+    # 30 km gate but ~1 km off) would otherwise be kept and cause the
+    # genuinely-correct successors to be rejected against it.
+    k = min(5, len(near))
+    seed = GpsFix(0.0, float(np.median([f.lat for f in near[:k]])),
+                  float(np.median([f.lon for f in near[:k]])))
+    out: list[GpsFix] = []
+    for f in near:
+        if not out:
+            # Generous gate: the vehicle moves < ~max_jump_m within the
+            # few samples the seed median spans.
+            if _haversine_m(f, seed) <= 2.0 * max_jump_m:
+                out.append(f)
+            continue
         if _haversine_m(out[-1], f) <= max_jump_m * max(1.0, (f.t_sec - out[-1].t_sec)):
             out.append(f)
+    if not out:
+        # Every fix disagrees with the seed (degenerate); keep the old
+        # first-fix seeding rather than dropping the track entirely.
+        out = [near[0]]
+        for f in near[1:]:
+            if _haversine_m(out[-1], f) <= max_jump_m * max(1.0, (f.t_sec - out[-1].t_sec)):
+                out.append(f)
     return out
 
 
@@ -217,10 +237,16 @@ def osm_around_for_track(
         raise ValueError("no fixes to bound")
     lats = np.array([f.lat for f in fixes])
     lons = np.array([f.lon for f in fixes])
-    clat, clon = float(lats.mean()), float(lons.mean())
-    dlat_m = (lats.max() - lats.min()) * 111320.0
-    dlon_m = (lons.max() - lons.min()) * 111320.0 * np.cos(np.radians(clat))
-    radius = float(np.hypot(dlat_m, dlon_m) / 2.0 + margin_m)
+    # Centre on the bbox midpoint, not the fix mean: fixes are uniform in
+    # TIME, so stop-and-go traffic piles them at one end and drags the
+    # mean off-centre, leaving part of the route outside the disc.
+    clat = float((lats.max() + lats.min()) / 2.0)
+    clon = float((lons.max() + lons.min()) / 2.0)
+    # Radius = farthest fix from the chosen centre (+margin), so every
+    # fix is inside the disc by construction.
+    dlat_m = (lats - clat) * 111320.0
+    dlon_m = (lons - clon) * 111320.0 * np.cos(np.radians(clat))
+    radius = float(np.hypot(dlat_m, dlon_m).max() + margin_m)
     return clat, clon, radius
 
 

@@ -150,6 +150,83 @@ def test_geocode_time_buckets_surface_early_anchor() -> None:
 
 
 # ---------------------------------------------------------------------------
+# default_geocode_fn — persistent cache must not memoize transient failures
+# ---------------------------------------------------------------------------
+
+
+def _geocode_fn_env(monkeypatch):
+    """Silence the Nominatim courtesy delay for the cache tests."""
+    import time
+
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+
+
+def test_geocode_cache_skips_transient_failures(tmp_path, monkeypatch) -> None:
+    """A network hiccup (timeout/429/DNS) must NOT be written to the persistent
+    cache — the old code memoized it as 'not found' forever, silently killing
+    the OCR-anchor channel on every later run."""
+    ox = pytest.importorskip("osmnx")
+    from src.text_anchor import default_geocode_fn
+
+    _geocode_fn_env(monkeypatch)
+    cp = tmp_path / "geocode_cache.json"
+    calls = []
+
+    def flaky(query):
+        calls.append(query)
+        raise ConnectionError("network down")     # transient, NOT not-found
+
+    monkeypatch.setattr(ox, "geocode", flaky)
+    fn = default_geocode_fn(cp)
+    assert fn("Sedelhöfe, Ulm") is None
+    assert calls == ["Sedelhöfe, Ulm"]
+
+    # Network recovers: a fresh geocoder (new run) must retry and succeed.
+    monkeypatch.setattr(ox, "geocode", lambda q: (48.4, 9.99))
+    fn2 = default_geocode_fn(cp)
+    assert fn2("Sedelhöfe, Ulm") == (48.4, 9.99)
+
+
+def test_geocode_cache_memoizes_genuine_not_found(tmp_path, monkeypatch) -> None:
+    ox = pytest.importorskip("osmnx")
+    from osmnx._errors import InsufficientResponseError
+
+    from src.text_anchor import default_geocode_fn
+
+    _geocode_fn_env(monkeypatch)
+    cp = tmp_path / "geocode_cache.json"
+
+    def not_found(query):
+        raise InsufficientResponseError("no results")
+
+    monkeypatch.setattr(ox, "geocode", not_found)
+    fn = default_geocode_fn(cp)
+    assert fn("Nowhereplatz, Ulm") is None
+
+    # New run: the miss is served from the cache, network never consulted.
+    def boom(query):
+        raise AssertionError("cached not-found must not re-query")
+
+    monkeypatch.setattr(ox, "geocode", boom)
+    fn2 = default_geocode_fn(cp)
+    assert fn2("Nowhereplatz, Ulm") is None
+
+
+def test_geocode_cache_memoizes_hits(tmp_path, monkeypatch) -> None:
+    ox = pytest.importorskip("osmnx")
+    from src.text_anchor import default_geocode_fn
+
+    _geocode_fn_env(monkeypatch)
+    cp = tmp_path / "geocode_cache.json"
+    monkeypatch.setattr(ox, "geocode", lambda q: (48.4, 9.99))
+    default_geocode_fn(cp)("Sedelhöfe, Ulm")
+
+    monkeypatch.setattr(ox, "geocode",
+                        lambda q: (_ for _ in ()).throw(AssertionError("cached")))
+    assert default_geocode_fn(cp)("Sedelhöfe, Ulm") == (48.4, 9.99)
+
+
+# ---------------------------------------------------------------------------
 # geometry: scoring + seed nodes
 # ---------------------------------------------------------------------------
 
@@ -252,6 +329,35 @@ def test_street_anchor_xy_and_seed_nodes() -> None:
     seeds = street_anchor_seed_nodes(anchors)
     assert xy.shape[0] == len(seeds) >= 2
     assert set(seeds) <= set(road.graph.nodes)
+
+
+def test_match_text_to_streets_splits_citywide_name_into_components() -> None:
+    """A common street name recurring across town must yield one anchor per
+    physical instance — the old single anchor put its centroid BETWEEN the
+    instances (a phantom point on no street)."""
+    from src.text_anchor import match_text_to_streets
+
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = UTM32N
+    # Two 'Hauptstraße' instances ~5 km apart, two nodes each.
+    pts = _project([
+        (48.3984, 9.9916), (48.4000, 9.9916),     # instance 1
+        (48.4434, 9.9916), (48.4450, 9.9916),     # instance 2, ~5 km north
+    ])
+    for i, (x, y) in enumerate(pts):
+        g.add_node(i, x=float(x), y=float(y))
+    g.add_edge(0, 1, length=180.0,
+               geometry=LineString([tuple(pts[0]), tuple(pts[1])]), name="Hauptstraße")
+    g.add_edge(2, 3, length=180.0,
+               geometry=LineString([tuple(pts[2]), tuple(pts[3])]), name="Hauptstraße")
+    road = _build_polyline_view(g)
+
+    anchors = match_text_to_streets(
+        [SceneText("Hauptstraße", 0.9, 10.0)], road, min_confidence=0.5,
+    )
+    assert len(anchors) == 2                      # one anchor per instance
+    assert {a.name for a in anchors} == {"Hauptstraße"}
+    assert sorted(sorted(a.node_ids) for a in anchors) == [[0, 1], [2, 3]]
 
 
 def test_match_text_to_streets_no_false_positive_from_shop_name() -> None:

@@ -121,3 +121,50 @@ def test_satellite_tile_for_candidate_routes_lonlat(monkeypatch) -> None:
 def test_unknown_provider_raises() -> None:
     with pytest.raises(ValueError, match="unsupported satellite provider"):
         satellite._provider_source("googlemaps")
+
+
+def test_fetch_enables_contextily_disk_cache(monkeypatch, tmp_path) -> None:
+    """fetch_satellite_tile must call cx.set_cache_dir so tiles persist
+    across processes (contextily only memory-caches otherwise)."""
+    calls = {}
+
+    def fake_bounds2img(w, s, e, n, ll=False, source=None, **kw):
+        from pyproj import Transformer
+        to_merc = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+        wx, sy = to_merc.transform(w, s)
+        ex, ny = to_merc.transform(e, n)
+        pad = ex - wx
+        img = np.zeros((64, 64, 3), dtype=np.uint8)
+        return img, (wx - pad, ex + pad, sy - pad, ny + pad)
+
+    def fake_set_cache_dir(path):
+        calls["cache_dir"] = path
+
+    fake_cx = types.SimpleNamespace(
+        bounds2img=fake_bounds2img,
+        set_cache_dir=fake_set_cache_dir,
+        providers=types.SimpleNamespace(
+            Esri=types.SimpleNamespace(WorldImagery="ESRI_SRC")
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "contextily", fake_cx)
+    # Reset the once-per-process flag and point the cache at a temp dir.
+    monkeypatch.setattr(satellite, "_CACHE_DIR_SET", False)
+    monkeypatch.setattr(satellite, "_TILE_CACHE_DIR", tmp_path / "tiles")
+
+    satellite.fetch_satellite_tile(9.99, 48.40, half_extent_m=60.0, size=64)
+
+    assert calls.get("cache_dir") == str(tmp_path / "tiles")
+    assert (tmp_path / "tiles").is_dir()
+    assert satellite._CACHE_DIR_SET is True
+
+
+def test_transformer_objects_are_cached() -> None:
+    """Transformer.from_crs construction is ~50-100 ms and recurs per
+    candidate — the cached factory must return the same object."""
+    t1 = satellite._get_transformer("EPSG:4326", "EPSG:3857")
+    t2 = satellite._get_transformer("EPSG:4326", "EPSG:3857")
+    assert t1 is t2
+    # Different pairs get different transformers.
+    t3 = satellite._get_transformer("EPSG:32632", "EPSG:4326")
+    assert t3 is not t1

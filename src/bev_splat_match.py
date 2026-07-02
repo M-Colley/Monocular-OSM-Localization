@@ -147,6 +147,13 @@ class BevSplatConfig:
     geotessera_year: int = 2024
     model_args: dict[str, object] = field(default_factory=dict)
     sequence_length: int = 2
+    # Camera height above the road surface in metres, used by the
+    # analytic flat-ground depth map fed to the model (KITTI's stereo
+    # rig sits at ~1.65 m; a windshield-mounted dashcam is ~1.4-1.6 m).
+    camera_height_m: float = 1.55
+    # Depth assigned to rows at/above the horizon (and clamp for rows
+    # just below it) in the flat-ground depth map.
+    max_ground_depth_m: float = 80.0
     model_module: str = "models.models_kitti_nips"
     # Which file inside the cloned BevSplat repo defines the `Model` class.
     # Probing the commit `187da9e`:
@@ -304,6 +311,91 @@ def _build_bev_splat_args(overrides: dict[str, object]) -> object:
     return argparse.Namespace(**merged)
 
 
+def _scale_intrinsics_to(
+    K: np.ndarray,
+    src_hw: tuple[int, int],
+    dst_hw: tuple[int, int],
+) -> np.ndarray:
+    """Rescale a pinhole ``K`` from a ``src_hw`` image to a ``dst_hw`` image.
+
+    The model normalizes K assuming it is expressed in pixels of the
+    *resized* ground image (models_kitti_nips.py divides row 0 by the
+    depth-map width and row 1 by its height). The resize from a 16:9
+    dashcam frame to KITTI's 256x1024 crop is anisotropic, so row 0
+    (fx, cx) and row 1 (fy, cy) need *different* scale factors.
+    """
+    src_h, src_w = src_hw
+    dst_h, dst_w = dst_hw
+    K_scaled = np.asarray(K, dtype=np.float32).copy()
+    K_scaled[0, :] *= dst_w / float(max(src_w, 1))
+    K_scaled[1, :] *= dst_h / float(max(src_h, 1))
+    return K_scaled
+
+
+def _flat_ground_depth(
+    K: np.ndarray,
+    h: int,
+    w: int,
+    *,
+    camera_height_m: float = 1.55,
+    max_depth_m: float = 80.0,
+) -> np.ndarray:
+    """Analytic flat-ground depth map for a forward-facing dashcam.
+
+    The upstream encoder places each ground Gaussian at
+    ``origin + direction * grd_depth`` — depth IS the geometry, so an
+    all-zero placeholder collapses every Gaussian onto the camera center
+    and the channel degenerates. Without a depth network at match time
+    we can still supply a structurally sound prior: intersect each pixel
+    ray with the ground plane.
+
+    Camera-y points DOWN in this codebase, so the road plane is
+    ``y = +camera_height_m``. For pixel ``(u, v)`` the (un-normalized)
+    ray is ``d = ((u - cx)/fx, (v - cy)/fy, 1)``; rows below the horizon
+    (``d_y > 0``) hit the plane at ``t = camera_height_m / d_y`` and get
+    range ``t * |d|`` (clamped to ``max_depth_m``); rows at/above the
+    horizon get ``max_depth_m`` (far). ``K`` must be expressed in pixels
+    of the ``(h, w)`` image (see :func:`_scale_intrinsics_to`).
+    """
+    K = np.asarray(K, dtype=np.float64)
+    fx = max(float(K[0, 0]), 1e-6)
+    fy = max(float(K[1, 1]), 1e-6)
+    cx = float(K[0, 2])
+    cy = float(K[1, 2])
+    us = (np.arange(w, dtype=np.float64) - cx) / fx
+    vs = (np.arange(h, dtype=np.float64) - cy) / fy
+    dx, dy = np.meshgrid(us, vs)
+    ray_norm = np.sqrt(dx * dx + dy * dy + 1.0)
+    depth = np.full((h, w), max_depth_m, dtype=np.float32)
+    below = dy > 1e-6
+    ground_range = camera_height_m / dy[below] * ray_norm[below]
+    depth[below] = np.clip(ground_range, 0.0, max_depth_m)
+    return depth
+
+
+def _state_dict_coverage_error(
+    missing: Sequence[str],
+    unexpected: Sequence[str],
+    n_model_keys: int,
+) -> str | None:
+    """Return an error string when a strict=False load left the model random-init.
+
+    ``load_state_dict(strict=False)`` succeeds even when *no* key matches
+    — the model then runs with construction-time random weights and
+    produces plausible-looking scores. Treat >50% missing keys as a
+    checkpoint/module mismatch and fail loudly.
+    """
+    if n_model_keys > 0 and len(missing) > 0.5 * n_model_keys:
+        return (
+            f"BevSplat checkpoint/module mismatch: {len(missing)}/{n_model_keys} "
+            f"model keys missing from the checkpoint ({len(unexpected)} unexpected). "
+            "The model would run with random-init weights and produce noise "
+            "scores. Check that --bev-splat-model-module matches the "
+            "checkpoint (KITTI_GPS/KITTI_no_GPS -> models.models_kitti_nips)."
+        )
+    return None
+
+
 def _load_bev_splat_inference(
     config: BevSplatConfig,
 ) -> tuple[BevSplatInference | None, str | None]:
@@ -334,8 +426,11 @@ def _load_bev_splat_inference(
 
     * tiles our query frame ``sequence_length`` times to match the
       BevSplat sequence-input convention,
-    * passes zero placeholders for depth, ``loc_shift_left``, and
-      ``heading_shift_left`` (we don't have priors at inference time),
+    * rescales the intrinsics to the resized 256×1024 ground image and
+      feeds an analytic flat-ground depth map (see
+      :func:`_flat_ground_depth`); zero placeholders remain only for
+      ``loc_shift_left`` and ``heading_shift_left`` (no priors at
+      inference time),
     * extracts a scalar score + ``(shift_u, shift_v, heading)`` from
       whatever the forward call returns, falling back to ``NaN`` when
       the schema doesn't match (verified at first call).
@@ -435,6 +530,18 @@ def _load_bev_splat_inference(
     except Exception as exc:
         return None, f"model.load_state_dict failed: {exc}"
 
+    # strict=False silently tolerates a checkpoint that matches nothing —
+    # fail loudly instead of running a randomly-initialized model.
+    mismatch = _state_dict_coverage_error(missing, unexpected, len(model.state_dict()))
+    if mismatch is not None:
+        return None, mismatch
+    if missing or unexpected:
+        print(
+            f"[bev_splat] WARNING: load_state_dict(strict=False) left "
+            f"{len(missing)} missing / {len(unexpected)} unexpected keys "
+            f"loading {weights_path.name}"
+        )
+
     seq_len = max(1, int(config.sequence_length))
 
     # The two main KITTI model variants take different positional args:
@@ -478,9 +585,11 @@ def _load_bev_splat_inference(
     # existing size (1600)" error seen in the first full-pipeline run.
     #
     # We therefore resize every ground image to (256, 1024) before passing
-    # it to the model.  The depth placeholder is created at the same spatial
-    # size.  Intrinsics are NOT updated here — the model internally rescales
-    # them at line 535–536 of models_kitti_nips.py based on grd_depth.shape.
+    # it to the model.  The depth map is created at the same spatial size.
+    # Intrinsics MUST be rescaled to the resized resolution too: the model's
+    # own normalization (line 535–536 of models_kitti_nips.py divides K's
+    # rows by grd_depth width/height) assumes K is already expressed in
+    # 256×1024-image pixels — see _scale_intrinsics_to.
     _GRD_H, _GRD_W = 256, 1024
 
     def _to_4d(rgb: np.ndarray, target_hw: tuple[int, int] | None = None) -> "torch.Tensor":
@@ -495,18 +604,35 @@ def _load_bev_splat_inference(
         intrinsics: np.ndarray,
     ) -> tuple[float, float, float, float]:
         # Convert to tensors in the expected shape. The model was
-        # trained on KITTI-shaped inputs (sat 512×512, ground 128×128).
+        # trained on KITTI-shaped inputs (sat 512×512, ground 256×1024).
         # We always resize the ground image to (_GRD_H, _GRD_W) — see the
-        # constant definition above for the detailed rationale.
+        # constant definition above for the detailed rationale — and
+        # rescale K to that resolution (the resize is anisotropic, so
+        # fx/cx and fy/cy get different factors).
         sat_t = _to_4d(satellite_rgb)                                    # [1, 3, H_s, W_s]
-        K_t = torch.from_numpy(np.asarray(intrinsics, dtype=np.float32)).unsqueeze(0).to(device)
+        h_img, w_img = ground_rgb.shape[:2]
+        K_scaled = _scale_intrinsics_to(intrinsics, (h_img, w_img), (_GRD_H, _GRD_W))
+        K_t = torch.from_numpy(K_scaled).unsqueeze(0).to(device)
         gt_zeros_1 = torch.zeros(1, 1, device=device)
+
+        # Flat-ground analytic depth: the encoder consumes depth both
+        # geometrically (Gaussian means = origins + directions * depth)
+        # and as an input feature, so an all-zero placeholder collapses
+        # every Gaussian to the camera center. The ground-plane model
+        # keeps the channel structurally non-degenerate without a depth
+        # network at match time.
+        depth_np = _flat_ground_depth(
+            K_scaled, _GRD_H, _GRD_W,
+            camera_height_m=config.camera_height_m,
+            max_depth_m=config.max_ground_depth_m,
+        )
+        depth_t = torch.from_numpy(depth_np).to(device)                  # [H, W]
 
         with torch.inference_mode():
             try:
                 if forward_is_nips:
-                    grd_t = _to_4d(ground_rgb, target_hw=(_GRD_H, _GRD_W))  # [1, 3, 128, 128]
-                    grd_depth = torch.zeros(1, _GRD_H, _GRD_W, device=device)  # [1, 128, 128]
+                    grd_t = _to_4d(ground_rgb, target_hw=(_GRD_H, _GRD_W))  # [1, 3, 256, 1024]
+                    grd_depth = depth_t.unsqueeze(0)                        # [1, 256, 1024]
                     out = model(
                         sat_t, sat_t, grd_t, grd_depth, grd_t, K_t,
                         gt_zeros_1, gt_zeros_1, gt_zeros_1,
@@ -515,7 +641,7 @@ def _load_bev_splat_inference(
                     grd_t = _to_4d(ground_rgb, target_hw=(_GRD_H, _GRD_W))
                     grd_t = grd_t.unsqueeze(1).expand(1, seq_len, -1, -1, -1)
                     grd_ori_t = grd_t.clone()
-                    grd_depth = torch.zeros(1, seq_len, _GRD_H, _GRD_W, device=device)
+                    grd_depth = depth_t.unsqueeze(0).unsqueeze(0).expand(1, seq_len, -1, -1)
                     loc_shift = torch.zeros(1, seq_len, 2, device=device)
                     head_shift = torch.zeros(1, seq_len, device=device)
                     out = model(
@@ -729,20 +855,15 @@ def _render_satellite_tile(
         )
         return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
     if source == "geotessera":
-        try:
-            from geotessera import GeoTessera
-        except ImportError as exc:
-            raise RuntimeError(
-                "geotessera not installed; pip install geotessera"
-            ) from exc
-        from .embedding_retrieval import _embedding_cube_to_rgb
+        # Delegate to embedding_retrieval, which crops the ~11 km registry
+        # tile down to the requested half_extent_m around the candidate —
+        # otherwise BevSplat would be told an ~11 km tile spans 2*half_extent_m.
+        from .embedding_retrieval import _render_geotessera_patch
 
-        lon, lat = _candidate_center_lonlat(road, cand)
-        client = GeoTessera()
-        embedding, _crs, _t = client.fetch_embedding(
-            lon=lon, lat=lat, year=geotessera_year
+        return _render_geotessera_patch(
+            road, cand, year=geotessera_year, size=size,
+            half_extent_m=half_extent_m,
         )
-        return _embedding_cube_to_rgb(np.asarray(embedding), size=size)
     if source in ("esri", "satellite"):
         # Real RGB orthoimagery — the domain BevSplat's KITTI checkpoints
         # were actually trained on. Unlike the GeoTessera PCA false-colour

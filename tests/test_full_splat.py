@@ -6,11 +6,14 @@ tests cover only the train-free `render_full_splat_topdown` rasterizer.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from src.full_splat import (
     _estimate_local_covariances,
+    render_full_splat_to_file,
     render_full_splat_topdown,
 )
 
@@ -65,3 +68,52 @@ def test_render_output_dtype_and_range():
     img = render_full_splat_topdown(pts, cols, resolution=64, scale=2.0)
     assert img.dtype == np.uint8
     assert img.min() >= 0 and img.max() <= 255
+
+
+def test_topdown_elevated_structure_occludes_ground():
+    """Camera-y points DOWN in this codebase, so smaller y = higher up.
+    From a top-down view the elevated (small-y) cluster must composite in
+    FRONT of the ground (large-y) cluster at the same (x, z) — i.e. the
+    render is dominated by the elevated cluster's colour, not the ground's."""
+    rng = np.random.default_rng(0)
+    n = 40
+    xz = rng.uniform(-1.0, 1.0, size=(n, 2)).astype(np.float32)
+    # Elevated red cluster (roof/canopy) at y = -5 (high, camera-y down).
+    high = np.column_stack([xz[:, 0], np.full(n, -5.0, np.float32), xz[:, 1]])
+    # Ground green cluster directly below at y = +1.5.
+    ground = np.column_stack([xz[:, 0], np.full(n, 1.5, np.float32), xz[:, 1]])
+    pts = np.vstack([ground, high])   # ground first in input order
+    cols = np.vstack([
+        np.tile([0, 255, 0], (n, 1)),   # ground = green
+        np.tile([255, 0, 0], (n, 1)),   # elevated = red
+    ]).astype(np.uint8)
+
+    img = render_full_splat_topdown(
+        pts, cols, resolution=128, scale=1.5, opacity=0.7, background=(0, 0, 0),
+    )
+    lit = img.sum(axis=2) > 30
+    assert lit.any()
+    red = float(img[..., 0][lit].mean())
+    green = float(img[..., 1][lit].mean())
+    assert red > green, (
+        f"elevated red cluster must occlude the ground (red={red:.1f}, "
+        f"green={green:.1f}) — depth order is inverted"
+    )
+
+
+def test_render_to_file_returns_image(tmp_path: Path):
+    """render_full_splat_to_file must return the rendered image so callers
+    don't have to run the expensive compositing loop a second time."""
+    rng = np.random.default_rng(2)
+    pts = rng.uniform(-3, 3, size=(50, 3)).astype(np.float32)
+    cols = np.full((50, 3), [10, 200, 30], dtype=np.uint8)
+    out_path = tmp_path / "splat.png"
+
+    img = render_full_splat_to_file(pts, cols, out_path, resolution=64)
+
+    assert out_path.exists()
+    assert isinstance(img, np.ndarray)
+    assert img.shape == (64, 64, 3)
+    # Returned image is the same render that was written.
+    expected = render_full_splat_topdown(pts, cols, resolution=64)
+    assert np.array_equal(img, expected)

@@ -112,6 +112,40 @@ def distinct_hypotheses(
     return hyps
 
 
+def _walk_edge_set(cand: MatchCandidate) -> frozenset:
+    """Undirected edge set of a candidate's walk (direction-insensitive)."""
+    return frozenset(frozenset((u, v)) for (u, v, _k) in cand.walk)
+
+
+def dedup_candidates_by_walk(
+    candidates: list[MatchCandidate], *, min_jaccard: float = 0.5
+) -> list[MatchCandidate]:
+    """Collapse near-duplicate walks into one evidence unit each.
+
+    The enumerator produces many near-identical walks from adjacent
+    start nodes along the same street. Those are NOT independent
+    evidence of a location — they are one shape solution counted many
+    times. Greedily (in ranked order) keep a candidate only if its
+    undirected edge set overlaps every already-kept walk by less than
+    ``min_jaccard`` (Jaccard). Candidates without walk edges (synthetic
+    or degenerate) are always kept — there is nothing to compare.
+    """
+    kept: list[MatchCandidate] = []
+    kept_sets: list[frozenset] = []
+    for cand in candidates:
+        edges = _walk_edge_set(cand)
+        duplicate = False
+        for other in kept_sets:
+            union = len(edges | other)
+            if union and len(edges & other) / union >= min_jaccard:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(cand)
+            kept_sets.append(edges)
+    return kept
+
+
 def _median_pairwise(starts: np.ndarray) -> float:
     if len(starts) < 2:
         return 0.0
@@ -130,24 +164,31 @@ def hypothesis_confidence(
     top_k: int = 10,
     radius_m: float = 150.0,
 ) -> dict:
-    """Confidence from spatial AGREEMENT of the top-k candidates.
+    """Confidence from spatial AGREEMENT of the top-k *deduplicated* candidates.
 
     Signals (none derived from the winner's own RMS/corr, which the
     benchmark showed don't predict correctness):
 
-    * ``concentration`` — fraction of the top-k candidates whose start
-      falls within ``radius_m`` of the #1 hypothesis. High = the good
-      candidates agree on one place.
-    * ``spread_m`` — median pairwise distance among the top-k starts.
-      Low = tight consensus; high = scattered guesses.
+    * ``concentration`` — fraction of the top-k deduplicated candidates
+      whose start falls within ``radius_m`` of the #1 hypothesis. High =
+      the good candidates agree on one place.
+    * ``spread_m`` — median pairwise distance among the top-k
+      deduplicated starts. Low = tight consensus; high = scattered
+      guesses.
     * ``support`` — how many pool candidates back the #1 hypothesis.
+
+    The statistics run over walks deduplicated by edge overlap
+    (:func:`dedup_candidates_by_walk`): near-duplicate walks spawned by
+    adjacent start nodes along the same street are one shape solution,
+    not independent evidence, and counting them raw manufactured "high"
+    confidence out of enumeration redundancy.
 
     Level: ``high`` when the top candidates concentrate tightly on #1,
     ``low`` when they scatter across the region, else ``medium``.
     """
     if not hyps:
         return {"level": "low", "concentration": 0.0, "spread_m": None, "support": 0}
-    top = candidates[:top_k]
+    top = dedup_candidates_by_walk(candidates)[:top_k]
     starts = _starts_xy(top)
     h1 = np.array(_starts_xy([candidates[hyps[0].candidate_index]])[0])
     within = np.linalg.norm(starts - h1, axis=1) <= radius_m

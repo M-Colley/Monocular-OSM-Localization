@@ -16,6 +16,7 @@ from shapely.geometry import LineString
 from src.osm_data import (
     RoadGraph,
     _build_polyline_view,
+    _build_walk,
     walk_to_polyline,
     walks_from_node,
 )
@@ -145,6 +146,94 @@ def test_walks_include_two_turn_routes() -> None:
     turn_counts = [n_turns(walk_to_polyline(g, w)) for w in walks]
     assert max(turn_counts) >= 2, (
         f"no two-turn walk enumerated (turn counts: {sorted(set(turn_counts))})"
+    )
+
+
+def test_enumerator_produces_closed_rectangular_loop() -> None:
+    """A route that returns through its starting intersection (the KITTI
+    drive_0033 pattern) must be enumerable. On a grid, the greedy walk
+    from a corner follows the perimeter — a closed rectangular loop —
+    but the old node-based visited set truncated it one edge before the
+    revisit of the start node, so no closed walk could ever exist."""
+    g = _grid_graph(size=4, spacing=100.0)
+    # Perimeter of the 4x4 grid: 4 * 3 * 100 = 1200 m.
+    walks = walks_from_node(g, start=0, target_length_m=1200.0, max_walks=8, max_depth=20)
+    assert walks
+    closed = [w for w in walks if w[-1][1] == w[0][0]]
+    assert closed, (
+        "no closed loop enumerated; walks end at "
+        f"{sorted({w[-1][1] for w in walks})}"
+    )
+    # The closed walk really is the full rectangle, not a short-circuit.
+    poly = walk_to_polyline(g, closed[0])
+    seg = np.linalg.norm(np.diff(poly, axis=0), axis=1)
+    assert seg.sum() == pytest.approx(1200.0)
+
+
+def test_build_walk_does_not_lap_roundabout() -> None:
+    """Edge-based visited still prevents lapping a (one-way) roundabout
+    forever: each edge is consumed at most once, so the walk breaks
+    after a single lap even with a much larger length target."""
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    ring = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+    for n, (x, y) in enumerate(ring):
+        g.add_node(n, x=x, y=y)
+    for n in range(4):
+        m = (n + 1) % 4
+        ax, ay = ring[n]
+        bx, by = ring[m]
+        g.add_edge(n, m, length=100.0, geometry=LineString([(ax, ay), (bx, by)]))
+
+    walk, length = _build_walk(g, (0, 1, 0), target_length_m=5000.0, max_depth=50)
+    assert len(walk) == 4          # one lap: each ring edge exactly once
+    assert length == pytest.approx(400.0)
+
+
+def test_walks_cover_all_four_directions_at_crossroads() -> None:
+    """At a standard 4-way intersection every out-direction must appear
+    among the enumerated walks. The old first-edge cap ([:3], sorted by
+    edge length) never tried the 4th direction at all."""
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    nodes = {
+        "M": (0, 0),
+        "N": (0, 400), "E": (400, 0), "S": (0, -400), "W": (-400, 0),
+    }
+    for k, (x, y) in nodes.items():
+        g.add_node(k, x=float(x), y=float(y))
+
+    def add(a: str, b: str) -> None:
+        ax, ay = g.nodes[a]["x"], g.nodes[a]["y"]
+        bx, by = g.nodes[b]["x"], g.nodes[b]["y"]
+        L = float(np.hypot(bx - ax, by - ay))
+        g.add_edge(a, b, length=L, geometry=LineString([(ax, ay), (bx, by)]))
+        g.add_edge(b, a, length=L, geometry=LineString([(bx, by), (ax, ay)]))
+
+    for arm in ("N", "E", "S", "W"):
+        add("M", arm)
+
+    walks = walks_from_node(g, start="M", target_length_m=400.0, max_walks=8, max_depth=4)
+    first_targets = {w[0][1] for w in walks}
+    assert first_targets == {"N", "E", "S", "W"}, (
+        f"enumeration missed a start direction; first edges reach {first_targets}"
+    )
+
+
+def test_walk_budget_round_robins_across_first_edges() -> None:
+    """With a budget smaller than one first edge's full expansion, the
+    remaining budget must still be spread over ALL first edges (greedy
+    walks first) instead of letting the first direction consume it."""
+    g = _grid_graph(size=6, spacing=100.0)
+    # Interior node: out-degree 4. Budget of 4 → exactly the four greedy
+    # walks, one per direction. The old sequential scheme burned all 4
+    # on the first direction's greedy + single-turn variants.
+    start = 2 * 6 + 2
+    walks = walks_from_node(g, start=start, target_length_m=300.0, max_walks=4, max_depth=8)
+    assert len(walks) == 4
+    first_targets = {w[0][1] for w in walks}
+    assert len(first_targets) == 4, (
+        f"budget was not round-robined: first edges reach only {first_targets}"
     )
 
 

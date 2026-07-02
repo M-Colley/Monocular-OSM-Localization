@@ -60,8 +60,9 @@ def _cache_signature(
     min_confidence: float,
     min_len: int,
     super_res: bool = False,
+    video_path: Path | None = None,
 ) -> dict:
-    return {
+    sig = {
         "sample_interval_sec": sample_interval_sec,
         "start_sec": start_sec,
         "end_sec": end_sec,
@@ -70,6 +71,18 @@ def _cache_signature(
         "min_len": min_len,
         "super_res": super_res,
     }
+    # Video identity: re-downloading the same submission at a different
+    # resolution/format into the same slug must invalidate the cache instead
+    # of silently serving detections OCR'd from the old file.
+    if video_path is not None:
+        p = Path(video_path)
+        try:
+            st = p.stat()
+            sig["video"] = {"name": p.name, "size": int(st.st_size),
+                            "mtime": int(st.st_mtime)}
+        except OSError:
+            sig["video"] = {"name": p.name, "size": None, "mtime": None}
+    return sig
 
 
 def _upscale_sharpen(image, scale: float = 2.5):
@@ -146,7 +159,7 @@ def extract_scene_text(
     video_path = Path(video_path)
     sig = _cache_signature(
         sample_interval_sec, start_sec, end_sec, tuple(languages),
-        min_confidence, min_len, super_res,
+        min_confidence, min_len, super_res, video_path=video_path,
     )
     if cache_path is not None:
         cached = _load_cache(Path(cache_path), sig)
@@ -193,7 +206,10 @@ def _sample_frames(
         raise RuntimeError(f"cv2 failed to open {video_path}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    end = int(end_sec * fps) if end_sec is not None else total
+    # Fragmented containers report 0 frames; fall back to reading until the
+    # decoder fails instead of silently sampling nothing.
+    end = (int(end_sec * fps) if end_sec is not None
+           else (total if total > 0 else float("inf")))
     step = max(1, int(interval_sec * fps))
     out: list[tuple[float, object]] = []
     try:

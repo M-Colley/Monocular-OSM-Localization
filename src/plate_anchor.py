@@ -29,7 +29,36 @@ import numpy as np
 
 from .kfz_codes import KFZ_DISTRICTS
 
-_PREFIX_RE = re.compile(r"^([A-ZÄÖÜ]{1,3})[A-ZÄÖÜ]{1,2}\d")
+# German plate format: <district 1-3 letters> <serial 1-2 letters> <1-4 digits>,
+# at most 8 characters total.
+_SERIAL_RE = re.compile(r"^[A-ZÄÖÜ]{1,2}\d{1,4}$")
+# OCR text that PRESERVED the district separator ("UL-AB 123") — the split is
+# explicit, so even otherwise-ambiguous strings resolve correctly.
+_SEP_RE = re.compile(r"^([A-ZÄÖÜ]{1,3})[\s\-.·:]+([A-ZÄÖÜ]{1,2})[\s\-.·:]*(\d{1,4})$")
+
+
+def _candidate_codes(raw_text: str) -> list[str]:
+    """All KFZ district codes consistent with one OCR plate read.
+
+    The old greedy longest-prefix regex mis-split 1-2-letter-code cities:
+    stripped 'BAB123' (Berlin B-AB 123) matched as 'BA' = Bamberg, 'MAB123'
+    (Munich M-AB) as 'MA' = Mannheim. If the separator survived OCR we split
+    on it; otherwise we enumerate EVERY split (prefix 1-3 letters, remainder
+    1-2 serial letters + 1-4 digits) and return all valid codes. Callers only
+    vote when exactly one code survives — an ambiguous read must not vote.
+    """
+    up = raw_text.upper().strip()
+    m = _SEP_RE.match(up)
+    if m:
+        return [m.group(1)] if m.group(1) in KFZ_DISTRICTS else []
+    t = re.sub(r"[^A-ZÄÖÜ0-9]", "", up)
+    if len(t) > 8:
+        return []
+    codes = []
+    for n in (1, 2, 3):
+        if t[:n] in KFZ_DISTRICTS and _SERIAL_RE.match(t[n:]):
+            codes.append(t[:n])
+    return codes
 
 
 @dataclass
@@ -65,16 +94,15 @@ def _read_prefixes(frames, alpr, min_conf: float = 0.55):
                 conf = float(np.mean(conf)) if conf is not None else 0.0
             except Exception:
                 conf = float(conf or 0.0)
-            t = re.sub(r"[^A-Z0-9]", "", o.text.upper())
+            t = re.sub(r"[^A-ZÄÖÜ0-9]", "", o.text.upper())
             if conf < min_conf or len(t) < 5:
                 continue
-            m = _PREFIX_RE.match(t)
-            if not m:
+            codes = _candidate_codes(o.text)
+            # Ambiguous splits (BAB123 = B-AB or BA-B) must not vote: the old
+            # greedy prefix credited Bamberg for every Berlin two-serial plate.
+            if len(codes) != 1:
                 continue
-            code = m.group(1)
-            if code not in KFZ_DISTRICTS:
-                continue
-            yield code, hashlib.md5(t.encode()).hexdigest()[:8]
+            yield codes[0], hashlib.md5(t.encode()).hexdigest()[:8]
 
 
 def _sample_frames(video_path: str, every_sec: float, max_frames: int):
@@ -134,6 +162,11 @@ def plate_district_anchor(
     code, n = ranked[0]
     second = ranked[1][1] if len(ranked) > 1 else 0
     margin = n / second if second else float(n)
+    # Vote-margin gate: a confident anchor from a scattered ballot does more
+    # harm than none (it drives the wrong-district penalty downstream). Require
+    # at least 2 votes and a clear winner over the runner-up.
+    if n < 2 or (second and n <= 1.5 * second):
+        return None
     district = KFZ_DISTRICTS[code]
 
     if geocode_fn is None:

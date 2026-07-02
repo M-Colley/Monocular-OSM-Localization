@@ -62,7 +62,22 @@ def _parse_clock(text):
         if not m:
             continue
         g = list(map(int, m.groups()))
-        y, mo, da, hh, mm, ss = (g if i == 0 else [g[2], g[1], g[0], g[3], g[4], g[5]])
+        if i == 0:
+            y, mo, da, hh, mm, ss = g
+        else:
+            # NN/NN/YYYY is ambiguous between EU day-first and US month-first;
+            # a wrong date silently skews the sun azimuth by tens of degrees.
+            a, b, y, hh, mm, ss = g
+            if a > 12:                       # month can't exceed 12 -> day-first
+                da, mo = a, b
+            elif b > 12:                     # -> month-first (US clock)
+                mo, da = a, b
+            elif a == b:                     # same date either way
+                mo = da = a
+            else:
+                # Genuinely ambiguous: a guessed date is worse than none (the
+                # whole point of the channel is a TRUSTED absolute heading).
+                continue
         try:
             if 2005 < y < 2035 and 1 <= mo <= 12 and 1 <= da <= 31 and hh < 24:
                 return _dt.datetime(y, mo, da, hh, mm, ss)

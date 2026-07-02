@@ -45,10 +45,12 @@ def image_to_ground(
     """
     pts_uv = np.asarray(pts_uv, dtype=np.float64).reshape(-1, 2)
     Kinv = np.linalg.inv(np.asarray(K, dtype=np.float64))
-    R = _rotation_pitch_roll(pitch_deg, roll_deg)   # camera→vehicle
+    R = _rotation_pitch_roll(pitch_deg, roll_deg)   # vehicle→camera (ipm convention)
     hom = np.column_stack([pts_uv, np.ones(len(pts_uv))])    # N x 3
     rays_cam = (Kinv @ hom.T).T                              # N x 3
-    rays_veh = (R @ rays_cam.T).T                            # N x 3, +y down
+    # camera→vehicle is the transpose; with R.T a positive pitch_deg
+    # means the camera is pitched DOWN, matching ipm.py.
+    rays_veh = (R.T @ rays_cam.T).T                          # N x 3, +y down
     out = np.full((len(pts_uv), 2), np.nan)
     dy = rays_veh[:, 1]
     hits = dy > 1e-6                                          # ray goes downward
@@ -56,6 +58,30 @@ def image_to_ground(
     out[hits, 0] = lam[hits] * rays_veh[hits, 0]             # X (right)
     out[hits, 1] = lam[hits] * rays_veh[hits, 2]             # Z (forward)
     return out
+
+
+def _pair_motion(g0: np.ndarray, g1: np.ndarray) -> float:
+    """Yaw-compensated forward motion (m) between two ground-point sets.
+
+    During a turn the ego yaw sweeps ground points laterally (a point
+    15 m ahead moves ~1 m sideways for 4 deg of yaw) on top of the true
+    travel, so the raw displacement norm overestimates speed in every
+    curve. Estimate the per-pair yaw as the median bearing change of the
+    tracked points (translation-induced bearing changes are odd in X, so
+    the median over a lateral spread of features isolates the rotation),
+    rotate it out of the second set, and keep only the forward (Z)
+    component of the remaining displacement.
+    """
+    bearing0 = np.arctan2(g0[:, 0], g0[:, 1])
+    bearing1 = np.arctan2(g1[:, 0], g1[:, 1])
+    dyaw = (bearing1 - bearing0 + np.pi) % (2 * np.pi) - np.pi
+    yaw = float(np.median(dyaw))
+    # Rotate g1 by -yaw about the camera (bearing convention: X right,
+    # Z forward) to remove the rotational component of the flow.
+    c, s = np.cos(yaw), np.sin(yaw)
+    z1c = g1[:, 1] * c + g1[:, 0] * s
+    # Driving forward moves ground points toward the camera: Z decreases.
+    return float(np.median(g0[:, 1] - z1c))
 
 
 def estimate_route_length_from_flow(
@@ -76,9 +102,10 @@ def estimate_route_length_from_flow(
 
     For each consecutive pair, tracks features in the lower ``1 -
     roi_top_frac`` of the frame (the road), back-projects matches onto
-    the ground plane, and takes the median displacement of points within
-    ``[near_clip_m, far_clip_m]`` forward as the inter-frame metric
-    motion. Per-frame speed = motion x fps / stride; total length = sum
+    the ground plane, and takes the yaw-compensated forward component of
+    the median point displacement within ``[near_clip_m, far_clip_m]``
+    as the inter-frame metric motion (see :func:`_pair_motion`).
+    Per-frame speed = motion x fps / stride; total length = sum
     of motions. Returns ``(total_length_m, per_pair_motion_m)``.
 
     Robust by construction (median over features, clip on implausible
@@ -115,8 +142,9 @@ def estimate_route_length_from_flow(
                     & (g0[:, 1] >= near_clip_m) & (g0[:, 1] <= far_clip_m)
                 )
                 if valid.sum() >= min_features:
-                    disp = np.linalg.norm(g1[valid] - g0[valid], axis=1)
-                    m = float(np.median(disp))
+                    # Forward-component, yaw-compensated displacement:
+                    # raw |g1 - g0| norms are biased long in every curve.
+                    m = _pair_motion(g0[valid], g1[valid])
                     if 0.0 <= m <= max_speed_mps * dt:
                         motions.append(m)
         prev_gray = gray
