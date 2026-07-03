@@ -29,10 +29,22 @@ from typing import Callable, Protocol
 @dataclass(frozen=True)
 class SceneText:
     """One OCR detection: recovered ``text`` with ``confidence`` in
-    [0, 1] read from the frame at ``t_sec`` seconds."""
+    [0, 1] read from the frame at ``t_sec`` seconds.
+
+    ``bbox`` is the axis-aligned pixel box ``(x_min, y_min, x_max, y_max)``
+    of the detection in the source frame, or ``None`` when unavailable
+    (older caches, injected test readers). It is kept so a downstream
+    consumer can crop the sign back out of the frame — e.g. the VLM
+    here-vs-direction sign classifier (:func:`src.vlm_anchor.classify_sign_types`)
+    that decides whether a geocoded anchor names *this* location or a place
+    a directional sign is pointing to. Added as an optional trailing field
+    so positional ``SceneText(text, conf, t_sec)`` construction and
+    ``SceneText(**old_cache_dict)`` both keep working.
+    """
     text: str
     confidence: float
     t_sec: float
+    bbox: tuple[float, float, float, float] | None = None
 
 
 class OcrReader(Protocol):
@@ -70,6 +82,11 @@ def _cache_signature(
         "min_confidence": min_confidence,
         "min_len": min_len,
         "super_res": super_res,
+        # Bumped when the detection schema changed to also carry the pixel
+        # bbox: an old cache (no bbox) must regenerate so the sign-type
+        # classifier has boxes to crop from. Bump again on future schema
+        # changes.
+        "schema": 2,
     }
     # Video identity: re-downloading the same submission at a different
     # resolution/format into the same slug must invalidate the cache instead
@@ -105,7 +122,15 @@ def _load_cache(cache_path: Path, sig: dict) -> list[SceneText] | None:
         return None
     if blob.get("signature") != sig:
         return None
-    return [SceneText(**d) for d in blob.get("detections", [])]
+    out: list[SceneText] = []
+    for d in blob.get("detections", []):
+        # JSON has no tuples: a persisted bbox comes back as a list. Restore
+        # it to a tuple so equality with freshly-built detections holds.
+        bb = d.get("bbox")
+        if bb is not None:
+            d = {**d, "bbox": tuple(bb)}
+        out.append(SceneText(**d))
+    return out
 
 
 def _save_cache(cache_path: Path, sig: dict, detections: list[SceneText]) -> None:
@@ -123,6 +148,21 @@ def _save_cache(cache_path: Path, sig: dict, detections: list[SceneText]) -> Non
 # ---------------------------------------------------------------------------
 # OCR
 # ---------------------------------------------------------------------------
+
+
+def _polygon_to_bbox(poly) -> tuple[float, float, float, float] | None:
+    """easyocr's 4-point polygon [[x,y], ...] → axis-aligned
+    ``(x_min, y_min, x_max, y_max)``. ``None`` for an empty/degenerate box
+    (e.g. the ``[]`` that injected test readers supply)."""
+    try:
+        pts = [(float(x), float(y)) for x, y in poly]
+    except (TypeError, ValueError):
+        return None
+    if not pts:
+        return None
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
 
 
 def _default_reader(languages: tuple[str, ...], use_gpu: bool) -> OcrReader:
@@ -176,12 +216,15 @@ def extract_scene_text(
         if super_res:
             image = _upscale_sharpen(image)
         for item in reader.readtext(image):
-            # easyocr returns (bbox, text, confidence).
+            # easyocr returns (bbox, text, confidence); bbox is a 4-point
+            # polygon [[x,y], ...]. Keep an axis-aligned box so the sign
+            # can be cropped back out later.
             _bbox, text, conf = item
             text = str(text).strip()
             if float(conf) >= min_confidence and len(text) >= min_len:
-                detections.append(SceneText(text=text, confidence=float(conf),
-                                            t_sec=float(t_sec)))
+                detections.append(SceneText(
+                    text=text, confidence=float(conf), t_sec=float(t_sec),
+                    bbox=_polygon_to_bbox(_bbox)))
 
     if cache_path is not None:
         _save_cache(Path(cache_path), sig, detections)

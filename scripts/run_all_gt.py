@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -51,10 +52,15 @@ CLIPS = [
         "--osm-around", "37.672466,-122.465576,1272", "--vo-segment", "0:240",
         "--ground-truth-waypoints", "ground_truth/comma_148.json",
         "--scale-lock", "--no-splat", "--no-aerial"]),
+    # London: OCR super-res + the local OSM gazetteer (default on) recover the
+    # sub-300 m anchors the rate-limited Nominatim path missed on this 720p
+    # clip, dropping start error 1728 -> 295 m vs shape-only 1325 m.
     ("London (Bloomsbury)", "local-73200bdd8068-input-london-uk", [
         "--video", "data/london_T4wTL3LpLqU/input.mp4", "--city", "London, UK",
         "--osm-around", "51.5223,-0.1267,1500", "--vo-segment", "0:295",
         "--ground-truth-waypoints", "ground_truth/london_T4wTL3LpLqU.json",
+        "--enable-ocr-anchor", "--ocr-super-res",
+        "--ocr-video", "data/london_T4wTL3LpLqU/input_4k.webm",
         "--scale-lock", "--no-splat", "--no-aerial"]),
 ]
 
@@ -135,10 +141,21 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--blind", action="store_true",
                     help="drop the GT-centered --osm-around discs (except "
                          "mega-city clips) for an honest blind number")
+    ap.add_argument("--no-vpr", action="store_true",
+                    help="skip the Mapillary VPR prior (on by default now — it "
+                         "is the strongest blind lever; needs MLY_TOKEN env)")
     opts = ap.parse_args(argv)
+
+    # Mapillary VPR is the best blind prior we have (3-31 m to route on every
+    # clip); on by default. Search radius auto-caps to the osm_around disc.
+    vpr = [] if opts.no_vpr else ["--use-vpr-prior", "--vpr-source", "mapillary"]
+    if vpr and not os.environ.get("MLY_TOKEN"):
+        print("WARNING: MLY_TOKEN not set — Mapillary VPR will fall back to "
+              "kartaview. Set it or pass --no-vpr.", flush=True)
 
     rows = []
     for name, slug, args in CLIPS:
+        args = args + vpr
         if opts.blind and name not in MEGA_CITY_CLIPS:
             args = _strip_osm_around(args)
         print(f"\n{'='*70}\nRUNNING: {name}{' [blind]' if opts.blind else ''}\n{'='*70}",

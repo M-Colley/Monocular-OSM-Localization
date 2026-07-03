@@ -303,6 +303,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "--enable-ocr-anchor.")
     p.add_argument("--ocr-sample-interval-sec", type=float, default=6.0,
                    help="Seconds between frames sampled for OCR (default 6).")
+    p.add_argument("--no-osm-gazetteer", dest="use_osm_gazetteer",
+                   action="store_false",
+                   help="Disable the local OSM gazetteer anchor source (on by "
+                        "default): fuzzy-matches OCR text against named OSM "
+                        "features (POIs, transit stops) in the graph area — "
+                        "offline, free, additive. It recovered 2 sub-300 m "
+                        "anchors on London where Nominatim found none.")
+    p.set_defaults(use_osm_gazetteer=True)
+    p.add_argument("--classify-signs", action="store_true",
+                   help="Classify each OCR anchor's sign as here vs direction "
+                        "(Gemma 4) and drop directional signs, which name "
+                        "places elsewhere and geocode off-route (the London "
+                        "'Holborn' failure). GPU; needs ~9.5 GB free VRAM.")
     p.add_argument("--ocr-min-confidence", type=float, default=0.5,
                    help="Min OCR confidence for a detection to be geocoded (default 0.5).")
     p.add_argument("--ocr-video", type=Path, default=None,
@@ -335,8 +348,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "was refuted by experiment, so there is no gate knob.) Needs "
                         "requests + EigenPlaces weights; no-op if unavailable.")
     p.add_argument("--vpr-search-radius", type=float, default=3000.0,
-                   help="Radius (m) around the city centre to fetch KartaView reference "
+                   help="Radius (m) around the city centre to fetch VPR reference "
                         "photos for --use-vpr-prior (default 3000).")
+    p.add_argument("--vpr-source", choices=["kartaview", "mapillary"],
+                   default="kartaview",
+                   help="VPR reference imagery source. 'kartaview' is open and "
+                        "tokenless. 'mapillary' is much denser (needs a free "
+                        "MLY_TOKEN env var) and gave a 3-31 m prior on every GT "
+                        "clip, including London/comma/KITTI that KartaView could "
+                        "not cover.")
     p.add_argument("--use-vpr-sequence", action="store_true",
                    help="EXPERIMENTAL: score candidates against the per-frame VPR track "
                         "(sequence-median distance at matched arc fractions) instead of "
@@ -548,11 +568,14 @@ def main() -> None:
             ocr_sample_interval_sec=args.ocr_sample_interval_sec,
             ocr_min_confidence=args.ocr_min_confidence,
             ocr_video_path=args.ocr_video,
+            use_osm_gazetteer=args.use_osm_gazetteer,
+            classify_signs=args.classify_signs,
             enable_scale_recovery=not args.no_scale_recovery,
             use_ipm_scale=args.use_ipm_scale,
             scale_lock=args.scale_lock,
             osm_around=osm_around,
             use_vpr_prior=args.use_vpr_prior,
+            vpr_source=args.vpr_source,
             use_vpr_sequence=args.use_vpr_sequence,
             use_plate_anchor=args.use_plate_anchor,
             use_vlm_anchor=args.use_vlm_anchor,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.scene_text import SceneText, extract_scene_text
+from src.scene_text import SceneText, _polygon_to_bbox, extract_scene_text
 
 
 class _FakeReader:
@@ -120,3 +120,67 @@ def test_cache_invalidated_by_param_change(tmp_path: Path) -> None:
         sample_interval_sec=3.0,
     )
     assert [s.text for s in out] == ["Beta"]
+
+
+def test_polygon_to_bbox_axis_aligned() -> None:
+    # easyocr 4-point polygon (may be rotated) → axis-aligned min/max box.
+    poly = [[10, 20], [90, 25], [88, 60], [12, 55]]
+    assert _polygon_to_bbox(poly) == (10.0, 20.0, 90.0, 60.0)
+
+
+def test_polygon_to_bbox_empty_is_none() -> None:
+    assert _polygon_to_bbox([]) is None
+    assert _polygon_to_bbox(None) is None
+
+
+def test_bbox_retained_from_reader(tmp_path: Path) -> None:
+    poly = [[10, 20], [90, 20], [90, 60], [10, 60]]
+    reader = _FakeReader([[(poly, "Sedelhöfe", 0.99)]])
+    out = extract_scene_text(
+        tmp_path / "v.mp4", ocr_reader=reader,
+        frame_reader=_fake_frames([0.0]),
+    )
+    assert out[0].bbox == (10.0, 20.0, 90.0, 60.0)
+
+
+def test_bbox_survives_cache_roundtrip(tmp_path: Path) -> None:
+    cache = tmp_path / "cache.json"
+    poly = [[1, 2], [30, 2], [30, 40], [1, 40]]
+    kw = dict(frame_reader=_fake_frames([0.0]), cache_path=cache,
+              sample_interval_sec=6.0)
+    first = extract_scene_text(
+        tmp_path / "v.mp4", ocr_reader=_FakeReader([[(poly, "Rathaus", 0.9)]]),
+        **kw)
+
+    class _Boom:
+        def readtext(self, image):
+            raise AssertionError("OCR must not run on a cache hit")
+
+    second = extract_scene_text(tmp_path / "v.mp4", ocr_reader=_Boom(), **kw)
+    # bbox is restored to a tuple (JSON has no tuples) so the cache hit ==
+    # the freshly-computed result.
+    assert first == second
+    assert second[0].bbox == (1.0, 2.0, 30.0, 40.0)
+
+
+def test_old_cache_without_schema_is_invalidated(tmp_path: Path) -> None:
+    """A schema-1 cache (no 'schema' key, no bbox) must be ignored so the
+    detections regenerate WITH boxes."""
+    import json
+
+    cache = tmp_path / "cache.json"
+    # Hand-write a plausible old-format cache with no schema/bbox.
+    cache.write_text(json.dumps({
+        "signature": {"sample_interval_sec": 6.0, "start_sec": 0.0,
+                      "end_sec": None, "languages": ["de", "en"],
+                      "min_confidence": 0.3, "min_len": 3, "super_res": False},
+        "detections": [{"text": "Old", "confidence": 0.9, "t_sec": 0.0}],
+    }), encoding="utf-8")
+    poly = [[0, 0], [5, 0], [5, 5], [0, 5]]
+    out = extract_scene_text(
+        tmp_path / "v.mp4", ocr_reader=_FakeReader([[(poly, "New", 0.9)]]),
+        frame_reader=_fake_frames([0.0]), cache_path=cache,
+        sample_interval_sec=6.0,
+    )
+    assert [s.text for s in out] == ["New"]
+    assert out[0].bbox == (0.0, 0.0, 5.0, 5.0)

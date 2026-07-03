@@ -533,3 +533,71 @@ def test_refuted_gate_config_fields_removed() -> None:
     assert "vpr_gate" not in names
     assert "vpr_gate_radius_m" not in names
     assert "plate_gate_radius_m" not in names
+
+
+# ---------------------------------------------------------------------------
+# Here-vs-direction sign classification wiring (--classify-signs)
+# ---------------------------------------------------------------------------
+
+
+def _fake_capture(monkeypatch):
+    import cv2
+
+    class FakeCap:
+        def __init__(self, *a):
+            pass
+
+        def set(self, *a):
+            return True
+
+        def read(self):
+            return True, np.zeros((24, 24, 3), np.uint8)
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(cv2, "VideoCapture", FakeCap)
+
+
+def test_drop_direction_anchors_removes_direction_signs(monkeypatch) -> None:
+    """A directional sign (Holborn) is dropped; a here-sign (Russell Square)
+    survives — the London 'Holborn' failure fix, wired at the pipeline level."""
+    import src.vlm_anchor as vlm
+    from src.scene_text import SceneText
+    from src.text_anchor import PoiAnchor
+
+    anchors = [
+        PoiAnchor(name="Holborn", lat=51.517, lon=-0.120, confidence=0.9, t_sec=10.0),
+        PoiAnchor(name="Russell Square", lat=51.523, lon=-0.127, confidence=0.9, t_sec=20.0),
+    ]
+    dets = [
+        SceneText("Holborn", 0.9, 10.0, (1, 1, 9, 9)),
+        SceneText("Russell Square", 0.9, 20.0, (1, 1, 9, 9)),
+    ]
+    _fake_capture(monkeypatch)
+    monkeypatch.setattr(vlm, "classify_sign_types",
+                        lambda frames, recs: ["direction" if r.text == "Holborn"
+                                              else "here" for r in recs])
+    kept, dropped = pipeline._drop_direction_anchors(anchors, dets, "x.mp4")
+    assert dropped == ["Holborn"]
+    assert [a.name for a in kept] == ["Russell Square"]
+
+
+def test_drop_direction_anchors_noop_when_all_here(monkeypatch) -> None:
+    """When nothing classifies as 'direction', the anchor list is unchanged."""
+    import src.vlm_anchor as vlm
+    from src.scene_text import SceneText
+    from src.text_anchor import PoiAnchor
+
+    anchors = [PoiAnchor(name="Sedelhoefe", lat=48.4, lon=9.99, confidence=0.9, t_sec=5.0)]
+    dets = [SceneText("Sedelhoefe", 0.9, 5.0, (0, 0, 8, 8))]
+    _fake_capture(monkeypatch)
+    monkeypatch.setattr(vlm, "classify_sign_types", lambda frames, recs: ["here"])
+    kept, dropped = pipeline._drop_direction_anchors(anchors, dets, "x.mp4")
+    assert dropped == []
+    assert kept is anchors
+
+
+def test_drop_direction_anchors_empty_input() -> None:
+    kept, dropped = pipeline._drop_direction_anchors([], [], "x.mp4")
+    assert kept == [] and dropped == []

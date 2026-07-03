@@ -369,6 +369,60 @@ def anchors_to_json(anchors: list[PoiAnchor]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Local gazetteer anchors (offline, additive to the Nominatim path)
+# ---------------------------------------------------------------------------
+
+
+def gazetteer_anchors(
+    detections: list[SceneText],
+    road: RoadGraph,
+    *,
+    cache_path: Path | None = None,
+    existing: list[PoiAnchor] | None = None,
+    bbox: tuple | None = None,
+    min_confidence: float = 0.0,
+    min_score: float = 0.87,
+) -> list[PoiAnchor]:
+    """Resolve OCR detections against a LOCAL OSM gazetteer.
+
+    An *additive* anchor source that complements (does not replace)
+    :func:`geocode_texts`: it builds a gazetteer of named OSM features
+    over the graph's area once (cached to ``cache_path``) and fuzzy-
+    matches every detection offline, so detections the rate-limited
+    Nominatim path never queried can still yield anchors.
+
+    Anchors whose name already appears in ``existing`` (the Nominatim
+    anchors) are dropped, so this only *adds* coverage. Returns [] on any
+    gazetteer error — never raises into the pipeline. The returned
+    :class:`PoiAnchor` objects are interchangeable with the geocoded ones
+    for all downstream scoring/seeding.
+    """
+    try:
+        from .osm_gazetteer import build_gazetteer, match_texts
+    except Exception:
+        return []
+    try:
+        gaz = build_gazetteer(bbox if bbox is not None else road,
+                              cache_path=cache_path)
+        anchors = match_texts(
+            detections, gaz,
+            min_confidence=min_confidence, min_score=min_score,
+        )
+    except Exception:
+        return []
+    # Only keep anchors inside the graph bbox (defence-in-depth: the
+    # gazetteer is already bbox-scoped, but a margin-edge centroid could
+    # sneak just outside).
+    min_lat, min_lon, max_lat, max_lon = _graph_bbox_latlon(road)
+    anchors = [a for a in anchors
+               if min_lat <= a.lat <= max_lat and min_lon <= a.lon <= max_lon]
+    if existing:
+        have = {a.name.casefold() for a in existing}
+        anchors = [a for a in anchors if a.name.casefold() not in have]
+    return anchors
+
+
+# ---------------------------------------------------------------------------
 # Street-name matching (true-4K: OCR street plates → OSM graph geometry)
 # ---------------------------------------------------------------------------
 

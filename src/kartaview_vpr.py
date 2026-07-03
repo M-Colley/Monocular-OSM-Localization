@@ -102,6 +102,95 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
     return refs
 
 
+def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
+    """Mapillary street-level refs (Graph API v4) as ``[{id,lat,lon,url}]`` —
+    a *much* denser source than KartaView on most areas (validated: a MegaLoc
+    prior from these lands 3-31 m from the GT route on all clips, incl. the
+    ones KartaView could not cover). Needs a free access token (``MLY_TOKEN``
+    env var or ``token=``). Returns [] with no token / on error.
+
+    No metadata cache: Mapillary thumbnail URLs are signed and expire, so we
+    re-query metadata each run (cheap) and rely on the fingerprinted image
+    cache (``ref_imgs.npz``) to skip the expensive download+embed on warm runs.
+    Refs are sorted by id so that fingerprint is stable across runs.
+    """
+    import requests
+    token = token or os.environ.get("MLY_TOKEN")
+    if not token:
+        return []
+    # Persistent ref cache (id/lat/lon only — NOT the expiring thumb URLs) so
+    # the ref set (hence the prior) is REPRODUCIBLE across runs. Without it,
+    # Mapillary returns a slightly different id-set each query, the image-cache
+    # fingerprint drifts, and a different subsample is used run-to-run (seen:
+    # London prior wandered 91 m vs 356 m). On a warm hit with the embedded-
+    # image cache present, we reuse the cached refs and never re-download.
+    sig = _fetch_signature(center, radius_m, cap)
+    meta = os.path.join(cache_dir, "mly_ref_meta.json") if cache_dir else None
+    npz = os.path.join(cache_dir, "ref_imgs.npz") if cache_dir else None
+    if meta and os.path.exists(meta) and npz and os.path.exists(npz):
+        try:
+            blob = json.load(open(meta))
+            if isinstance(blob, dict) and blob.get("signature") == sig:
+                return blob["refs"]  # url=None; the npz image cache is used
+        except Exception:
+            pass
+    clat, clon = center
+    dlat = radius_m / 111320.0
+    dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
+    # Small cells: the Graph API rejects a bbox that covers too many images.
+    step_lat = 0.0022
+    step_lon = step_lat / max(np.cos(np.radians(clat)), 0.2)
+    cells = []
+    la = clat - dlat
+    while la < clat + dlat:
+        lo = clon - dlon
+        while lo < clon + dlon:
+            cells.append((lo, la, min(lo + step_lon, clon + dlon),
+                          min(la + step_lat, clat + dlat)))
+            lo += step_lon
+        la += step_lat
+    if len(cells) > 1200:  # bound API cost on large radii
+        cells = [cells[i] for i in np.linspace(0, len(cells) - 1, 1200).astype(int)]
+    sess = requests.Session()
+
+    def query(cell):
+        w, s, e, n = cell
+        try:
+            r = sess.get("https://graph.mapillary.com/images",
+                         params={"access_token": token,
+                                 "fields": "id,geometry,thumb_1024_url",
+                                 "bbox": f"{w:.5f},{s:.5f},{e:.5f},{n:.5f}",
+                                 "limit": 2000}, timeout=30)
+            return r.json().get("data", []) if r.status_code == 200 else []
+        except Exception:
+            return []
+
+    refs = {}
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        for data in ex.map(query, cells):
+            for d in data:
+                g = d.get("geometry", {}).get("coordinates")
+                u = d.get("thumb_1024_url")
+                if g and u:
+                    refs[d["id"]] = {"lat": float(g[1]), "lon": float(g[0]), "url": u}
+    out = [{"id": k, **v} for k, v in sorted(refs.items())]
+    if len(out) > cap:
+        out = [out[i] for i in np.linspace(0, len(out) - 1, cap).astype(int)]
+    if meta and out:
+        os.makedirs(cache_dir, exist_ok=True)
+        # store WITHOUT urls (they expire); the fingerprinted npz holds pixels
+        stable = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"]} for r in out]
+        json.dump({"signature": sig, "refs": stable}, open(meta, "w"))
+    return out
+
+
+def _fetch_refs_for(source, center, radius_m, cache_dir, cap, token):
+    """Dispatch to the requested VPR reference source."""
+    if source == "mapillary":
+        return _fetch_refs_mapillary(center, radius_m, cache_dir, cap=cap, token=token)
+    return _fetch_refs(center, radius_m, cache_dir, cap=cap)
+
+
 def _prep(bgr):
     import cv2
     import torch
@@ -234,12 +323,14 @@ def _robust_center(latlons, sims):
 
 def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
                         cache_dir=None, n_query=40, device=None,
-                        model_name="megaloc"):
-    """Return a ``(lat, lon)`` coarse prior from KartaView VPR, or ``None``.
+                        model_name="megaloc", source="kartaview", token=None,
+                        cap=1500):
+    """Return a ``(lat, lon)`` coarse prior from street-level VPR, or ``None``.
 
     ``center`` is a ``(lat, lon)`` seed (e.g. the city centroid); reference photos are
-    fetched within ``radius_m``. The prior is the robust median of the per-frame nearest
-    KartaView photo's GPS — a shape-independent estimate of where the clip was filmed.
+    fetched within ``radius_m`` from ``source`` (``"kartaview"`` or ``"mapillary"``).
+    The prior is the robust median of the per-frame nearest photo's GPS — a
+    shape-independent estimate of where the clip was filmed.
     """
     global _MEAN, _STD, _MODEL
     try:
@@ -250,7 +341,7 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
         _STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        refs = _fetch_refs(center, radius_m, cache_dir)
+        refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
         if len(refs) < 30:
             return None
         if _MODEL is None:
@@ -282,12 +373,13 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
 
 def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
                         cache_dir=None, n_query=80, device=None,
-                        model_name="megaloc"):
+                        model_name="megaloc", source="kartaview", token=None,
+                        cap=1500):
     """Per-frame VPR positions: a sparse, noisy 'GPS' track to fit the trajectory
     to (anchor-primary v2). Returns ``(query_indices, latlons[N,2], sims[N])`` for
     ``n_query`` frames sampled uniformly across the clip, or ``None``. Unlike the
     single-point prior, this constrains the trajectory's ORIENTATION + start, not
-    just its centre.
+    just its centre. ``source`` selects ``"kartaview"`` or ``"mapillary"``.
     """
     global _MEAN, _STD, _MODEL
     try:
@@ -298,7 +390,7 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
         _STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        refs = _fetch_refs(center, radius_m, cache_dir)
+        refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
         if len(refs) < 30:
             return None
         if _MODEL is None:

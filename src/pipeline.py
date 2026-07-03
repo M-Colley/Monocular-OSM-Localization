@@ -117,6 +117,17 @@ class PipelineConfig:
     use_ocr_super_res: bool = False
     ocr_sample_interval_sec: float = 6.0
     ocr_min_confidence: float = 0.5
+    # Local OSM gazetteer anchors: fuzzy-match OCR text against named OSM
+    # features (POIs, transit stops) in the graph area — a free, offline
+    # anchor source that complements the rate-limited Nominatim path. On by
+    # default (purely additive; deduped by name). Recovered 2 sub-300 m
+    # anchors on London where Nominatim found none. (src/osm_gazetteer.py)
+    use_osm_gazetteer: bool = True
+    # Here-vs-direction sign classification (Gemma 4): reads each OCR anchor's
+    # sign crop and drops *directional* signs (which name places elsewhere and
+    # geocode far off-route — the London 'Holborn' failure). GPU, off by
+    # default. (src/vlm_anchor.classify_sign_types)
+    classify_signs: bool = False
     # Optional separate (higher-res) video for OCR only. VO/matching stay
     # on the main video; OCR reads frames from here when set. Lets a 4K
     # source feed street-plate OCR without re-running VO at 4K.
@@ -135,6 +146,10 @@ class PipelineConfig:
     # 664 -> 1276 m on Ulm — so there is deliberately no gate knob.)
     use_vpr_prior: bool = False
     vpr_search_radius_m: float = 3000.0
+    # VPR reference source: "kartaview" (open, tokenless) or "mapillary" (much
+    # denser — needs a free MLY_TOKEN env var; validated 3-31 m to route on all
+    # GT clips, incl. the ones KartaView could not cover). See mapillary VPR.
+    vpr_source: str = "kartaview"
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.
@@ -458,6 +473,96 @@ def _vpr_distance_penalty(d_m: float) -> float:
     """Consensus penalty for a candidate ``d_m`` metres from the VPR prior:
     free inside the prior's own error bar, then 15 rank-points per km."""
     return 15.0 * max(0.0, (d_m - _VPR_FREE_RADIUS_M) / 1000.0)
+
+
+def _drop_direction_anchors(ocr_anchors, detections, ocr_source, *,
+                            start_sec=0.0, use_super_res=False):
+    """Drop OCR POI anchors whose sign is a *directional* one (names a place
+    elsewhere) using the Gemma sign-type classifier. Each anchor is mapped
+    back to its source detection (for the sign bbox), a frame is decoded from
+    ``ocr_source`` at that detection's time, and the model labels the crop
+    here/direction/other; 'direction' anchors are removed. Returns
+    ``(kept_anchors, dropped_names)``. Any failure returns the anchors
+    unchanged — this is a best-effort quality filter, never a hard dependency.
+
+    ``use_super_res`` must match the OCR run: detection bboxes are stored in
+    the (2.5x-upscaled) coordinate space OCR saw, so the decoded frame is
+    upscaled the same way before cropping — otherwise every crop clamps to
+    ~the whole frame and the classifier over-rejects.
+    """
+    if not ocr_anchors:
+        return ocr_anchors, []
+    try:
+        import cv2
+
+        from .vlm_anchor import classify_sign_types
+    except Exception:
+        return ocr_anchors, []
+    _upscale = None
+    if use_super_res:
+        try:
+            from .scene_text import _upscale_sharpen as _upscale
+        except Exception:
+            _upscale = None
+    # Map each unique anchor to its most likely source detection: same text,
+    # nearest in time (falls back to nearest-in-time regardless of text).
+    reps, rep_for_anchor = [], {}
+    for a in ocr_anchors:
+        key = a.name.casefold()
+        if key in rep_for_anchor:
+            continue
+        same = [d for d in detections
+                if (getattr(d, "text", "") or "").casefold() == key]
+        pool = same or detections
+        if not pool:
+            continue
+        det = min(pool, key=lambda d: abs(getattr(d, "t_sec", 0.0) - a.t_sec))
+        rep_for_anchor[key] = det
+        reps.append((key, det))
+    if not reps:
+        return ocr_anchors, []
+    # Decode one frame per rep at its detection time.
+    frames_bgr, records = [], []
+    try:
+        cap = cv2.VideoCapture(str(ocr_source))
+        for key, det in reps:
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(getattr(det, "t_sec", 0.0)) * 1000.0)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            if _upscale is not None:
+                # Align the frame to the (upscaled) space the bbox was read in.
+                frame = _upscale(frame)
+            records.append(_SignRep(
+                text=getattr(det, "text", "") or "",
+                bbox=getattr(det, "bbox", None),
+                frame_idx=len(frames_bgr),
+                key=key))
+            frames_bgr.append(frame)
+        cap.release()
+    except Exception:
+        return ocr_anchors, []
+    if not records:
+        return ocr_anchors, []
+    try:
+        labels = classify_sign_types(frames_bgr, records)
+    except Exception:
+        return ocr_anchors, []
+    direction = {rec.key for rec, lab in zip(records, labels) if lab == "direction"}
+    if not direction:
+        return ocr_anchors, []
+    kept = [a for a in ocr_anchors if a.name.casefold() not in direction]
+    dropped = [a.name for a in ocr_anchors if a.name.casefold() in direction]
+    return kept, dropped
+
+
+@dataclass
+class _SignRep:
+    """Lightweight detection record for :func:`classify_sign_types`."""
+    text: str
+    bbox: tuple | None
+    frame_idx: int
+    key: str
 
 
 def _vpr_sequence_median_m(
@@ -920,8 +1025,11 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # VPR runs whenever enabled — it re-ranks + drives anchor-primary, so it is
     # NOT conditioned on osm_around (mega-cities pass --osm-around AND want VPR).
     if cfg.use_vpr_prior:
-        print("[4a] VPR coarse prior (KartaView + MegaLoc)")
+        _vpr_src = cfg.vpr_source
+        print(f"[4a] VPR coarse prior ({_vpr_src.capitalize()} + MegaLoc)")
         try:
+            import os as _os
+
             import osmnx as ox
             from .kartaview_vpr import kartaview_vpr_track, _robust_center
             # Prefer an explicit --osm-around centre (robust to Nominatim
@@ -937,10 +1045,25 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 _vpr_device = "cuda" if _torch.cuda.is_available() else None
             except Exception:
                 _vpr_device = None
+            _vpr_token = _os.environ.get("MLY_TOKEN") if _vpr_src == "mapillary" else None
+            if _vpr_src == "mapillary" and not _vpr_token:
+                print("      -> mapillary source needs MLY_TOKEN env var; "
+                      "falling back to kartaview")
+                _vpr_src = "kartaview"
+            # Never search VPR wider than the OSM graph disc: on SPARSE-coverage
+            # areas (e.g. KITTI Karlsruhe) a 3 km disc dilutes the few on-route
+            # refs under the ref cap and the robust-centre drifts off-route
+            # (verified: KITTI r3000 prior 1.3 km off -> anchor 1155 m; r968
+            # -> prior on-route -> anchor start 517->95 m). Dense areas
+            # (London/comma) are unaffected. Floor 800 m to keep enough refs.
+            _vpr_radius = cfg.vpr_search_radius_m
+            if osm_around is not None:
+                _vpr_radius = min(_vpr_radius, max(800.0, float(osm_around[2])))
             tr = kartaview_vpr_track(frames.frames, center,
-                                     radius_m=cfg.vpr_search_radius_m,
-                                     cache_dir=str(cfg.data_dir / "kartaview"),
-                                     device=_vpr_device)
+                                     radius_m=_vpr_radius,
+                                     cache_dir=str(cfg.data_dir / _vpr_src),
+                                     device=_vpr_device,
+                                     source=_vpr_src, token=_vpr_token)
             if tr is not None:
                 vpr_track = tr
                 v_idx, v_ll, v_sims = tr
@@ -997,8 +1120,17 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     if cfg.use_vlm_anchor and vpr_center is None:
         print("[4a''] VLM district/landmark prior (Gemma 4)")
         try:
+            from .text_anchor import default_geocode_fn
             from .vlm_anchor import vlm_district_anchor
-            va = vlm_district_anchor(frames.frames, cfg.city)
+            # Validated defaults (live Ulm run): trust a single legible street
+            # PLATE (min_street_votes=1 recovered 'Salzstadel' at 81 m), require
+            # 2 votes for districts, keep raw-text fallback OFF (an unguarded
+            # 1-vote TEXT token relocated the anchor 2.2 km), 15 km city bound.
+            va = vlm_district_anchor(
+                frames.frames, cfg.city,
+                geocode_fn=default_geocode_fn(cfg.data_dir / "geocode_cache.json"),
+                n_query=6, min_votes=2, min_street_votes=1,
+                use_text_fallback=False, max_km_from_city=15.0)
             if va is not None:
                 vpr_center = (va.lat, va.lon)
                 anchor_origin = "vlm"
@@ -1225,6 +1357,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 anchors_to_xy,
                 cluster_filter_anchors,
                 default_geocode_fn,
+                gazetteer_anchors,
                 geocode_texts,
                 match_text_to_streets,
                 street_anchor_seed_nodes,
@@ -1270,6 +1403,21 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # "you are here" timestamp.
                 time_buckets=0,
             )
+            # Local OSM gazetteer: fuzzy-match every detection against named
+            # OSM features in the graph area (offline, no Nominatim budget).
+            # Merged BEFORE the VPR gate below so its far-off noise is cleaned
+            # by the same 1.5 km filter. Additive + deduped by name.
+            if cfg.use_osm_gazetteer:
+                gaz_anchors = gazetteer_anchors(
+                    detections, road,
+                    cache_path=cfg.data_dir / "osm_gazetteer_cache.json",
+                    existing=ocr_anchors,
+                    min_confidence=cfg.ocr_min_confidence,
+                )
+                if gaz_anchors:
+                    print(f"      -> {len(gaz_anchors)} local-gazetteer anchor(s) "
+                          f"(offline, beyond Nominatim)")
+                ocr_anchors = ocr_anchors + gaz_anchors
             # OCR-quality: directional/destination signs name places ELSEWHERE,
             # so they geocode FAR from the actual route (the London 'Holborn'
             # failure: a direction sign ~1.5 km off). When a route-accurate VPR
@@ -1292,6 +1440,21 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             for a in ocr_anchors:
                 print(f"        poi:    {a.name!r} @ ({a.lat:.5f},{a.lon:.5f}) "
                       f"conf={a.confidence:.2f}")
+
+            # Here-vs-direction sign typing (Gemma 4): a directional sign names
+            # a place ELSEWHERE and geocodes off-route (the London 'Holborn'
+            # failure). Drop such anchors before they seed/score. GPU + opt-in.
+            if cfg.classify_signs and ocr_anchors:
+                print("      -> classifying sign types (here vs direction)")
+                try:
+                    ocr_anchors, _dropped = _drop_direction_anchors(
+                        ocr_anchors, detections, ocr_source,
+                        start_sec=cfg.vo_start_sec,
+                        use_super_res=cfg.use_ocr_super_res)
+                    for _nm in _dropped:
+                        print(f"        poi REJECTED (direction sign): {_nm!r}")
+                except Exception as e:
+                    print(f"      -> sign classification failed ({e})")
 
             # --- Scale recovery / georeferencing (ideas 1 & 2) ----------
             # Use the *pre-cluster-filter* anchors here: scale needs
