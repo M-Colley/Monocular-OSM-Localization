@@ -134,6 +134,73 @@ def test_has_mapillary_cache(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# _resolve_backbone — the MegaLoc->eigenplaces fallback must survive a warm cache
+# ---------------------------------------------------------------------------
+
+
+class _FakeModel:
+    def to(self, device):
+        return self
+
+    def eval(self):
+        return self
+
+
+class _FakeTorch:
+    """Minimal torch stand-in: hub.load fails for MegaLoc, succeeds otherwise."""
+
+    def __init__(self):
+        self.loads: list[str] = []
+
+        class _Hub:
+            def load(_self, repo, fn, **kw):
+                self.loads.append(repo)
+                if "MegaLoc" in repo:
+                    raise RuntimeError("hub unreachable")
+                return _FakeModel()
+        self.hub = _Hub()
+
+        class _Cuda:
+            @staticmethod
+            def is_available():
+                return False
+        self.cuda = _Cuda()
+
+
+def test_resolve_backbone_fallback_survives_warm_cache(monkeypatch) -> None:
+    """When MegaLoc's hub fetch fails, _resolve_backbone falls back to
+    eigenplaces AND remembers it — a later call with a warm _MODEL must not
+    relabel the resident eigenplaces weights as 'megaloc' (which would key the
+    ref-embedding cache to the wrong backbone and dot two embedding spaces)."""
+    monkeypatch.setattr(kv, "_MODEL", None)
+    monkeypatch.setattr(kv, "_MODEL_NAME", None)
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch())
+    # 1st call: MegaLoc fails -> resolves + loads eigenplaces, remembers it
+    assert kv._resolve_backbone("megaloc", "cpu") == "eigenplaces"
+    assert kv._MODEL is not None and kv._MODEL_NAME == "eigenplaces"
+    # 2nd call with a warm _MODEL: still eigenplaces, NOT megaloc (the bug)
+    assert kv._resolve_backbone("megaloc", "cpu") == "eigenplaces"
+
+
+def test_resolve_backbone_megaloc_success_labels_megaloc(monkeypatch) -> None:
+    """When MegaLoc loads, the resolved name is 'megaloc' and is remembered."""
+    class _OkTorch(_FakeTorch):
+        def __init__(self):
+            super().__init__()
+
+            class _Hub:
+                def load(_self, repo, fn, **kw):
+                    return _FakeModel()
+            self.hub = _Hub()
+
+    monkeypatch.setattr(kv, "_MODEL", None)
+    monkeypatch.setattr(kv, "_MODEL_NAME", None)
+    monkeypatch.setitem(sys.modules, "torch", _OkTorch())
+    assert kv._resolve_backbone("megaloc", "cpu") == "megaloc"
+    assert kv._MODEL_NAME == "megaloc"
+
+
+# ---------------------------------------------------------------------------
 # _viterbi_decode — continuity kills confident-but-wrong retrievals
 # ---------------------------------------------------------------------------
 

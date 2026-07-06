@@ -547,7 +547,12 @@ def main() -> None:
         if frame_stride is None:
             probe = local_path
             if probe is None:
-                cached = sorted((args.data_dir / submission_slug).glob("input.*"))
+                # Same ext-ranked pick the pipeline uses to choose the analyzed
+                # file, so the probed fps matches the file actually analyzed
+                # (a bare glob picks input.download.json first).
+                from src.pipeline import rank_cached_inputs
+                cached = rank_cached_inputs(
+                    (args.data_dir / submission_slug).glob("input.*"))
                 probe = cached[0] if cached else None
             fps = _probe_video_fps(probe) if probe is not None else None
             frame_stride = _auto_frame_stride(duration, fps=fps)

@@ -250,12 +250,10 @@ def reconstruct_with_da3(
     final_intr: np.ndarray | None = None
     proc_size: tuple[int, int] | None = None
 
-    # Reference (chunk-0) world frame is the global frame.
-    # For each later chunk, we compute (R_align, t_align) from a shared
-    # keyframe with the reference and apply to all of that chunk's points.
-    R_ref_for_chunk: list[np.ndarray] = []
-    t_ref_for_chunk: list[np.ndarray] = []
-
+    # Reference (chunk-0) world frame is the global frame. For each later
+    # chunk, a similarity transform is fit by least squares over ALL keyframes
+    # it shares with the already-placed frames (see the alignment below) and
+    # applied to that chunk's points.
     extr_global_per_keyframe: dict[int, np.ndarray] = {}
     intr_global_per_keyframe: dict[int, np.ndarray] = {}
 

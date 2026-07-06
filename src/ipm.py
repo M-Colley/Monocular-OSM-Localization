@@ -146,9 +146,10 @@ def stitch_bev_along_trajectory(
     then translate + rotate that warp onto a global canvas using the
     trajectory's heading at that frame.
 
-    The trajectory drives where each tile lands. Since monocular VO is
-    scale-free, we rescale the trajectory so that its arc-length matches
-    the metric IPM tile sizes (each forward step ≈ tile depth / 4).
+    The trajectory drives where each tile lands. Only its SHAPE matters
+    here (the canvas auto-pads), so we do not recover metric scale — we
+    merely floor the arc length at 50 m so a tiny trajectory isn't squashed
+    to sub-tile size (see ``metric_arc_target`` below).
     """
     if len(frames) != len(trajectory_xz):
         raise ValueError(

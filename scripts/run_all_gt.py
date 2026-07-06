@@ -78,20 +78,29 @@ CLIPS = [
 # necessity there, not a GT leak we can drop.
 MEGA_CITY_CLIPS = {"London (Bloomsbury)"}
 
-# Per-clip VGGT-Long trajectory override for --vggt-best. Only the clips where
-# a staged VGGT-Long trajectory BEATS the default end-to-end (A/B 2026-07-05):
-# London mean 70->43 / start 51->31, 0033 mean 137->118. Ulm-4K (172 vs 106)
-# and comma (170 vs 102) REGRESS with VGGT-Long — its globally-consistent
-# shape does not always yield a better matcher candidate pool — so they keep
-# the default. Poses must be pre-staged (scratchpad/vggt_fleet.sh); a missing
-# file makes the run fall back to the default trajectory (a warning, not an
-# error), so the flag is safe on a fresh checkout.
+# Per-clip best-achievable overrides for --vggt-best. Two independent levers,
+# each applied ONLY where it wins the e2e A/B (2026-07-05):
+#
+# VGGT_BEST — a staged VGGT-Long trajectory. Wins 0033 (mean 137->118). It
+# also lifts London (70->43) but London is handled more cheaply below (no
+# 11-min GPU staging), so only 0033 keeps VGGT-Long here. Ulm-4K (172 vs 106)
+# and comma (170 vs 102) REGRESS with VGGT-Long, so they keep the default.
+# Poses must be pre-staged (scratchpad/vggt_fleet.sh); a missing file falls
+# back to the default trajectory (a warning, not an error), safe on a fresh
+# checkout.
+#
+# VITERBI_OFF — clips where the VPR-track Viterbi decode (on by default, it
+# wins 0009/0033) REGRESSES the placement. London's placement prefers the
+# argmax track: the Viterbi track is more accurate per-frame (127->52 m) but
+# its mid-route points drift the rotation+fusion, costing London start 31->51.
+# --no-vpr-viterbi recovers London to 43/31 with the DEFAULT trajectory, so
+# London needs neither VGGT-Long nor its staging — the lighter, less-fragile
+# fix the verification pass argued for.
 VGGT_BEST = {
     "KITTI drive_0033":
         "data/local-36a50c34107a-drive-0033-karlsruhe-germany/vggt_long_poses.txt",
-    "London (Bloomsbury)":
-        "data/local-73200bdd8068-input-london-uk/vggt_long_poses.txt",
 }
+VITERBI_OFF = {"London (Bloomsbury)"}
 
 
 def _strip_osm_around(args: list[str]) -> list[str]:
@@ -173,10 +182,12 @@ def main(argv: list[str] | None = None) -> None:
                          "(track+start-pin gated, so it can only help or "
                          "no-op; costs model load + Overpass tiles per run)")
     ap.add_argument("--vggt-best", action="store_true",
-                    help="use a staged VGGT-Long trajectory on the clips where "
-                         "it beats the default e2e (0033, London — see "
-                         "VGGT_BEST); best-achievable benchmark, needs the "
-                         "poses pre-staged (scratchpad/vggt_fleet.sh)")
+                    help="apply the per-clip best-achievable overrides: a "
+                         "staged VGGT-Long trajectory on 0033 (VGGT_BEST) and "
+                         "--no-vpr-viterbi on London (VITERBI_OFF). Fleet mean "
+                         "84->77 m. VGGT-Long poses must be pre-staged "
+                         "(scratchpad/vggt_fleet.sh); missing poses fall back "
+                         "to the default, safe on a fresh checkout.")
     opts = ap.parse_args(argv)
 
     # Mapillary VPR is the best blind prior we have (3-31 m to route on every
@@ -199,6 +210,8 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 print(f"NOTE: {name} VGGT-Long poses not staged "
                       f"({traj}); using default trajectory.", flush=True)
+        if opts.vggt_best and name in VITERBI_OFF:
+            args = args + ["--no-vpr-viterbi"]
         if opts.blind and name not in MEGA_CITY_CLIPS:
             args = _strip_osm_around(args)
         print(f"\n{'='*70}\nRUNNING: {name}{' [blind]' if opts.blind else ''}\n{'='*70}",

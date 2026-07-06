@@ -741,12 +741,17 @@ def _place_candidate_on_track(traj, s_xy, e_xy, vpr_xy, vi, track_xy, vs,
     for t, m in tries:
         r = _rotation_refine_about_start(t, vi, track_xy, vs, n_frames)
         if r is None:
-            continue
+            continue                     # no rotation for this entry; try next
         if np.linalg.norm(r[0].mean(axis=0) - vpr_xy) <= 400.0:
             placed, mode, rot_deg = r[0], m + "+rot", r[1]
             notes.append(f"orientation refine: {r[1]:+.1f} deg "
                          f"(track median {r[2]:.0f} -> {r[3]:.0f} m)")
-        break
+            break                        # accepted a rotation — done
+        # rotation exists but its centroid failed the guard: on the polish
+        # path (placed already set, one entry) the loop ends and the
+        # unrotated pin is kept; on the RESCUE path (placed is None, two
+        # entries) fall through to try the next pin's rotation. A bare
+        # break here dropped the second rescue attempt (bug 2026-07-05).
     # (4) elastic fusion — bend out low-frequency drift.
     if placed is not None and "startpin" in mode:
         fu = _elastic_fuse_track(placed, vi, track_xy, vs, n_frames)
@@ -1075,6 +1080,10 @@ def _orienternet_refine(cfg, frames, cand, road, position, result,
         if refined is None:
             print("      -> OrienterNet unavailable; keeping shape-match position")
             return
+        # Project the refined route once — reused by the track gate and the GT
+        # evaluation below (both need it in the graph CRS).
+        from .position import latlon_to_xy as _refine_ll2xy
+        refined_xy = _refine_ll2xy(np.asarray(refined, dtype=np.float64), road.crs)
         if vpr_track is not None:
             try:
                 from .position import latlon_to_xy
@@ -1083,8 +1092,7 @@ def _orienternet_refine(cfg, frames, cand, road, position, result,
                 base_med = _vpr_sequence_median_m(
                     np.asarray(cand.aligned_traj_xy, dtype=np.float64),
                     vpr_track[0], tk_xy, vpr_track[2], len(fr))
-                ref_xy = latlon_to_xy(np.asarray(refined, dtype=np.float64),
-                                      road.crs)
+                ref_xy = refined_xy
                 ref_med = _vpr_sequence_median_m(
                     ref_xy, vpr_track[0], tk_xy, vpr_track[2], len(fr))
                 reject = None
@@ -1139,7 +1147,7 @@ def _orienternet_refine(cfg, frames, cand, road, position, result,
             from .evaluator import _segment_to_polyline_distance, load_gt_waypoints
             from .position import latlon_to_xy
             wp_xy = latlon_to_xy(load_gt_waypoints(cfg.ground_truth_waypoints), road.crs)
-            rt_xy = latlon_to_xy(refined, road.crs)
+            rt_xy = refined_xy
             d0 = float(np.linalg.norm(rt_xy[0] - wp_xy[0]))
             dm = float(np.mean([_segment_to_polyline_distance(w_, rt_xy) for w_ in wp_xy]))
             position["orienternet_gt_start_error_m"] = round(d0, 1)
@@ -1183,6 +1191,26 @@ def _da3_trajectory_plausible(xy: np.ndarray) -> bool:
     return reversal_ratio <= 0.15
 
 
+_VIDEO_EXT_RANK = {".mp4": 0, ".mkv": 1, ".webm": 2}
+
+
+def rank_cached_inputs(paths) -> list:
+    """Deterministic order for cached ``input.*`` files: fixed extension
+    preference (mp4 < mkv < webm, other suffixes last — a ``.download.json``
+    sidecar sorts to the end), then newest, then name.
+
+    Shared by :func:`_resolve_input_video` and main.py's fps probe so the file
+    whose fps is probed for stride selection is the SAME file the pipeline
+    analyzes — a bare ``sorted(glob("input.*"))`` picks ``input.download.json``
+    first alphabetically, giving a stride tuned to no video at all.
+    """
+    return sorted(
+        paths,
+        key=lambda p: (_VIDEO_EXT_RANK.get(p.suffix.lower(), len(_VIDEO_EXT_RANK)),
+                       -p.stat().st_mtime, p.name),
+    )
+
+
 def _resolve_input_video(cfg: PipelineConfig) -> Path:
     """Return the path of the video to analyze.
 
@@ -1200,20 +1228,9 @@ def _resolve_input_video(cfg: PipelineConfig) -> Path:
         print(f"[1/5] Using local video: {video_path}")
         return video_path
     if cfg.skip_download:
-        existing = list(cfg.data_dir.glob("input.*"))
+        existing = rank_cached_inputs(cfg.data_dir.glob("input.*"))
         if not existing:
             raise FileNotFoundError("--skip-download but no cached video in data/")
-        # Deterministic pick when several cached inputs exist (e.g. a
-        # re-download that changed container left input.webm beside
-        # input.mp4): prefer a fixed extension order, then the newest.
-        # Bare glob order is filesystem-dependent and can silently
-        # analyze the older/other file.
-        ext_rank = {".mp4": 0, ".mkv": 1, ".webm": 2}
-        existing.sort(key=lambda p: (
-            ext_rank.get(p.suffix.lower(), len(ext_rank)),
-            -p.stat().st_mtime,
-            p.name,
-        ))
         if len(existing) > 1:
             print(f"      -> {len(existing)} cached inputs "
                   f"({', '.join(p.name for p in existing)}); picking {existing[0].name}")
@@ -1322,8 +1339,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 estimated_length_m = float(np.clip(flow_len, 500.0, 12000.0))
                 result_ipm_scale = {"status": "ok", "length_m": round(flow_len, 1)}
             else:
+                # Report the duration_prior_m the gate ACTUALLY compares
+                # against, not estimated_length_m (they differ when the length
+                # prior was overridden — printing the wrong one misleads scale
+                # debugging).
                 print(f"      -> flow length {flow_len:.0f} m rejected (sanity vs "
-                      f"prior {estimated_length_m:.0f} m); keeping prior")
+                      f"prior {duration_prior_m:.0f} m); keeping prior")
                 result_ipm_scale = {"status": "rejected", "length_m": round(flow_len, 1)}
         except Exception as e:
             print(f"      -> IPM-scale failed: {e}")

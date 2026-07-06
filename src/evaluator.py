@@ -286,6 +286,13 @@ def evaluate_candidates_against_waypoints(
     analyzed segment, hence the dedicated start error vs waypoint #0.
     """
     wp_xy = latlon_to_xy(np.asarray(waypoints_latlon, dtype=np.float64), road.crs)
+    if len(wp_xy) == 0:
+        # No GT fixes -> every error is undefined. Guards the wp_xy[0] index
+        # below on this public entrypoint (load_gt_waypoints rejects empty
+        # files, so no production path reaches here today, but callers may
+        # pass an array directly).
+        return [WaypointEval(i, float("inf"), float("inf"), float("inf"))
+                for i in range(len(candidates))]
     results: list[WaypointEval] = []
     for i, cand in enumerate(candidates):
         traj = np.asarray(cand.aligned_traj_xy, dtype=np.float64)

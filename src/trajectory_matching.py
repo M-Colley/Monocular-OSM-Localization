@@ -376,9 +376,9 @@ def match_trajectory(
     #     score = RMS - bearing_corr_weight * bearing_corr
     #
     # promotes high-correlation candidates without ignoring RMS. The
-    # default weight (250 m per unit corr) was chosen so that going from
-    # corr=0.20 to corr=0.35 is worth ~38 m of RMS — the typical spread
-    # of "right-area" candidates.
+    # default weight (bearing_corr_weight=400 m per unit corr, above) makes
+    # going from corr=0.20 to corr=0.35 worth 0.15*400 = 60 m of RMS — the
+    # typical spread of "right-area" candidates.
     def _combined(c: MatchCandidate) -> float:
         return c.score - bearing_corr_weight * c.bearing_corr
 

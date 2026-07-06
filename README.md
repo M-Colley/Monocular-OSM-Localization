@@ -697,10 +697,14 @@ fleet mean:
 - **Elastic fusion** — an IRLS-Huber smoother that bends low-frequency VO drift
   out of the placed route toward the track, start hard-pinned, margin/deformation
   gated (improved every clip it touched; London to 43 m mean).
-- **VGGT-Long trajectory** where it wins the e2e A/B (0033 137→118, London
-  70→43) — a globally-consistent chunked-VGGT path; `--vggt-best` uses it only
-  on those clips (it regresses Ulm-4K and comma, so it is opt-in per clip, not a
-  default). Poses staged offline with `scratchpad/vggt_fleet.sh`.
+- **Per-clip best-achievable overrides** (`--vggt-best`): a **VGGT-Long
+  trajectory** on KITTI 0033 (137→118 — a globally-consistent chunked-VGGT
+  path; it regresses Ulm-4K and comma, so it is opt-in per clip, poses staged
+  offline with `scratchpad/vggt_fleet.sh`), and **`--no-vpr-viterbi` on
+  London** (70→43): London's placement prefers the argmax VPR track because the
+  Viterbi track's mid-route points drift its rotation+fusion, so it is the one
+  clip where the otherwise-helpful Viterbi decode is turned off. London needs
+  no VGGT-Long staging — the argmax toggle alone recovers it.
 
 ### Calibrated multi-hypothesis output
 

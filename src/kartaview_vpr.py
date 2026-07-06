@@ -29,6 +29,7 @@ import numpy as np
 _MEAN = None
 _STD = None
 _MODEL = None
+_MODEL_NAME = None   # backbone actually resident in _MODEL (survives fallback)
 
 
 def _cdn_url(lth_name: str) -> str:
@@ -402,6 +403,65 @@ def _robust_center(latlons, sims):
     return float(p[1] / dm), float(p[0] / (dm * coslat))
 
 
+def _resolve_backbone(model_name, device):
+    """Load the retrieval backbone into the module cache ONCE, returning the
+    name of the backbone actually resident in ``_MODEL``.
+
+    MegaLoc (2024 SOTA retrieval) >> EigenPlaces, but its hub/weights fetch can
+    fail; we fall back to EigenPlaces so the channel still works offline-ish.
+    The RESOLVED name is remembered in ``_MODEL_NAME`` so a warm ``_MODEL`` is
+    never mislabelled on a later call: the embedding cache is keyed on this
+    name, and keying ``"megaloc"`` onto resident EigenPlaces weights would
+    silently dot two different embedding spaces and return a wrong prior with
+    no error (bug found 2026-07-05).
+    """
+    global _MODEL, _MODEL_NAME
+    import torch
+    if _MODEL is not None:
+        return _MODEL_NAME or model_name
+    resolved = model_name
+    if model_name == "megaloc":
+        try:
+            _MODEL = torch.hub.load("gmberton/MegaLoc", "get_trained_model",
+                                    verbose=False).to(device).eval()
+        except Exception:
+            resolved = "eigenplaces"
+    if _MODEL is None:
+        _MODEL = torch.hub.load("gmberton/eigenplaces", "get_trained_model",
+                                backbone="ResNet50", fc_output_dim=2048,
+                                verbose=False).to(device).eval()
+    _MODEL_NAME = resolved
+    return resolved
+
+
+def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
+                            device, model_name, source, token, cap):
+    """Shared front half of both VPR entrypoints: fetch references, load/cache
+    the backbone, embed the references + the ``n_query`` sampled query frames.
+
+    Returns ``(idx, sims[n_query, n_ref], ref_xy[n_ref, 2])`` or ``None`` when
+    references are unavailable / too sparse. Callers own the tail (single
+    robust centre vs. per-frame track).
+    """
+    global _MEAN, _STD
+    import torch
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+    _STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+    refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
+    if len(refs) < 30:
+        return None
+    resolved = _resolve_backbone(model_name, device)
+    ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved)
+    if ref_emb is None or len(ref_xy) < 30:
+        return None
+    idx = np.linspace(0, len(frames_bgr) - 1,
+                      min(n_query, len(frames_bgr))).astype(int)
+    q_emb = _embed(device, [_prep(frames_bgr[i]) for i in idx])
+    sims = (q_emb @ ref_emb.T).numpy()
+    return idx, sims, np.asarray(ref_xy, dtype=float)
+
+
 def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
                         cache_dir=None, n_query=40, device=None,
                         model_name="megaloc", source="kartaview", token=None,
@@ -413,38 +473,17 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
     The prior is the robust median of the per-frame nearest photo's GPS — a
     shape-independent estimate of where the clip was filmed.
     """
-    global _MEAN, _STD, _MODEL
     try:
-        import torch
+        import torch  # noqa: F401 - availability guard; helper re-imports
     except Exception:
         return None
     try:
-        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        _STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
-        if len(refs) < 30:
+        out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
+                                      n_query, device, model_name, source,
+                                      token, cap)
+        if out is None:
             return None
-        if _MODEL is None:
-            # MegaLoc (2024 SOTA retrieval) >> EigenPlaces; fall back if its
-            # weights/hub fetch fails so the channel still works offline-ish.
-            if model_name == "megaloc":
-                try:
-                    _MODEL = torch.hub.load("gmberton/MegaLoc", "get_trained_model",
-                                            verbose=False).to(device).eval()
-                except Exception:
-                    model_name = "eigenplaces"
-            if _MODEL is None:
-                _MODEL = torch.hub.load("gmberton/eigenplaces", "get_trained_model",
-                                        backbone="ResNet50", fc_output_dim=2048,
-                                        verbose=False).to(device).eval()
-        ref_emb, ref_xy = _embed_refs(refs, device, cache_dir,
-                                      model_name=model_name)
-        if ref_emb is None or len(ref_xy) < 30:
-            return None
-        idx = np.linspace(0, len(frames_bgr) - 1, min(n_query, len(frames_bgr))).astype(int)
-        q_emb = _embed(device, [_prep(frames_bgr[i]) for i in idx])
-        sims = (q_emb @ ref_emb.T).numpy()
+        _idx, sims, ref_xy = out
         top1 = sims.argmax(1)
         maxsim = sims.max(1)
         return _robust_center(ref_xy[top1], maxsim)
@@ -499,42 +538,21 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
     with the continuity-constrained Viterbi decode; ``query_dt_s`` is the real
     seconds between query frames (sets the transition free radius).
     """
-    global _MEAN, _STD, _MODEL
     try:
-        import torch
+        import torch  # noqa: F401 - availability guard; helper re-imports
     except Exception:
         return None
     try:
-        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        _STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
-        if len(refs) < 30:
+        out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
+                                      n_query, device, model_name, source,
+                                      token, cap)
+        if out is None:
             return None
-        if _MODEL is None:
-            if model_name == "megaloc":
-                try:
-                    _MODEL = torch.hub.load("gmberton/MegaLoc", "get_trained_model",
-                                            verbose=False).to(device).eval()
-                except Exception:
-                    model_name = "eigenplaces"
-            if _MODEL is None:
-                _MODEL = torch.hub.load("gmberton/eigenplaces", "get_trained_model",
-                                        backbone="ResNet50", fc_output_dim=2048,
-                                        verbose=False).to(device).eval()
-        ref_emb, ref_xy = _embed_refs(refs, device, cache_dir,
-                                      model_name=model_name)
-        if ref_emb is None or len(ref_xy) < 30:
-            return None
-        idx = np.linspace(0, len(frames_bgr) - 1,
-                          min(n_query, len(frames_bgr))).astype(int)
-        q_emb = _embed(device, [_prep(frames_bgr[i]) for i in idx])
-        sims = (q_emb @ ref_emb.T).numpy()
+        idx, sims, ref_xy = out
         top1 = sims.argmax(1)
         if sequence_decode and len(idx) >= 3:
             try:
-                top1 = _viterbi_decode(sims, np.asarray(ref_xy, float),
-                                       float(query_dt_s))
+                top1 = _viterbi_decode(sims, ref_xy, float(query_dt_s))
             except Exception:
                 pass                      # keep the argmax track
         maxsim = sims[np.arange(len(idx)), top1]

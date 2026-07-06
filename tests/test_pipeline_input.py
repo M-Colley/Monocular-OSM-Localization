@@ -772,6 +772,52 @@ def test_place_candidate_on_track_full_chain() -> None:
     assert len(notes) == 2
 
 
+def test_place_candidate_rescue_tries_second_pin_after_first_fails_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression (bug 2026-07-05): when BOTH pins fail the 400 m centroid
+    guard, the rescue must try EACH pin's rotation. A bare `break` abandoned
+    the second attempt whenever the first pin's rotation EXISTED but missed
+    the guard (as opposed to returning None, which `continue` already handled).
+
+    We drive the control flow directly by stubbing the rotation: the scaled
+    pin (first `tries` entry) gets a valid rotation whose centroid still fails
+    the guard; the plain pin (second entry) gets one that lands on the prior.
+    Both pins must fail the INITIAL guard first so the rescue path (two
+    entries) is taken: the candidate runs east while the prior is north, and a
+    bad far-east end estimate over-scales the scale-retry pin to 2 km."""
+    n = 10
+    cand = np.column_stack([np.linspace(0, 1000.0, n), np.zeros(n)])    # 1 km E
+    s_xy = np.array([0.0, 0.0])
+    e_xy_bad = np.array([5000.0, 0.0])     # -> scale retry factor clips to 2
+    vpr_xy = np.array([0.0, 500.0])        # prior north of the candidate
+    idx = np.arange(n)
+    track = np.column_stack([np.zeros(n), np.linspace(0, 1000.0, n)])
+    sims = np.ones(n)
+
+    seen_extents: list[int] = []
+
+    def fake_rot(t, vi, track_xy, vs, n_frames):
+        ext = round(float(np.linalg.norm(t[-1] - t[0])))
+        seen_extents.append(ext)
+        if ext > 1500:                     # the scaled 2 km pin: guard-failing
+            return (t + np.array([0.0, 3000.0]), 90.0, 500.0, 100.0)
+        placed = np.column_stack([np.zeros(len(t)),                     # on prior
+                                  np.linspace(0.0, 1000.0, len(t))])
+        return (placed, 90.0, 500.0, 100.0)
+
+    monkeypatch.setattr(pipeline, "_rotation_refine_about_start", fake_rot)
+    monkeypatch.setattr(pipeline, "_elastic_fuse_track", lambda *a, **k: None)
+    res = pipeline._place_candidate_on_track(
+        cand, s_xy, e_xy_bad, vpr_xy, idx, track, sims, n)
+    assert res is not None                          # plain-pin rotation rescued
+    assert len(seen_extents) == 2                   # BOTH pins tried (bug: 1)
+    assert seen_extents[0] > 1500 and seen_extents[1] < 1500  # scaled then plain
+    placed, mode, rot_deg, med, notes = res
+    assert mode == "vpr_startpin+rot"
+    assert np.linalg.norm(placed.mean(axis=0) - vpr_xy) <= 400.0
+
+
 # ---------------------------------------------------------------------------
 # _pose_txt_xz — KITTI 3x4 and VGGT-Long 4x4 pose files -> top-down path
 # ---------------------------------------------------------------------------
