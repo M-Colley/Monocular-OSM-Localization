@@ -752,6 +752,19 @@ def _place_candidate_on_track(traj, s_xy, e_xy, vpr_xy, vi, track_xy, vs,
         # unrotated pin is kept; on the RESCUE path (placed is None, two
         # entries) fall through to try the next pin's rotation. A bare
         # break here dropped the second rescue attempt (bug 2026-07-05).
+    # (3.5) PHASE refine — trim the route front to fix an along-track START
+    # offset the pin baked in (a retrieval-biased start centre lands the start
+    # far along a correct corridor). BEFORE fusion, so fusion bends the
+    # correctly-phased route rather than distorting the excess front to fit.
+    # Still guard-checked, so an over-trim that drifts the centroid no-ops.
+    if placed is not None and "startpin" in mode:
+        ph = _phase_refine_start(placed, vi, track_xy, vs, n_frames)
+        if ph is not None and np.linalg.norm(
+                ph[0].mean(axis=0) - vpr_xy) <= 400.0:
+            placed = ph[0]
+            mode += "+phase"
+            notes.append(f"phase trim: {ph[1]} pts off front "
+                         f"(track median {ph[2]:.0f} -> {ph[3]:.0f} m)")
     # (4) elastic fusion — bend out low-frequency drift.
     if placed is not None and "startpin" in mode:
         fu = _elastic_fuse_track(placed, vi, track_xy, vs, n_frames)
@@ -895,6 +908,74 @@ def _elastic_fuse_track(traj_xy, track_frame_idx, track_xy, sims, n_frames):
             and rigid_med - fused_med >= _FUSE_MARGIN_ABS_M
             and fused_med <= _ROT_EXPLAIN_M):
         return fused, float(rigid_med), float(fused_med)
+    return None
+
+
+# Phase refine (_phase_refine_start): the start pin places route[0] at the VPR
+# start-region robust centre; where that centre is retrieval-biased (thin
+# start coverage) the route's start POINT lands far along a CORRECT corridor
+# (KITTI-0033: the route passes 3.7 m from the true start yet starts 228 m
+# before it). Trimming the front so the whole route best-explains the FULL
+# per-frame track lets the well-localised body back-project where the start
+# really is. Gates mirror the fusion/rotation refines; only ever trims (never
+# extends), so a route placed too SHORT at the front is left alone.
+_PHASE_MAX_TRIM_FRAC = 0.4
+_PHASE_MARGIN_RATIO = 0.88
+_PHASE_MARGIN_ABS_M = 20.0
+_PHASE_MIN_TRIM_PTS = 3
+
+
+def _phase_refine_start(traj_xy, track_frame_idx, track_xy, sims, n_frames):
+    """Correct an along-track START offset by trimming the route's front.
+
+    Searches the front-trim ``start_row`` (0..``_PHASE_MAX_TRIM_FRAC`` of the
+    route) that minimises the similarity-weighted MEDIAN distance to the full
+    track, under the model "the true route is ``traj[start_row:]`` and the
+    frames map uniformly onto it". Returns ``(trimmed_traj, start_row,
+    base_median_m, best_median_m)`` only when the trim clears the margin +
+    explain gates and is a non-trivial trim; ``None`` otherwise (keep the
+    pinned start). Robust median + the trim-only restriction mean a noisy
+    track or a correctly-phased route can only no-op.
+    """
+    traj = np.asarray(traj_xy, dtype=np.float64)
+    track = np.asarray(track_xy, dtype=np.float64)
+    m = len(traj)
+    if m < 8 or len(track) < _FUSE_MIN_TRACK_PTS:
+        return None
+    frac = np.asarray(track_frame_idx, dtype=np.float64) / max(n_frames - 1, 1)
+    w = np.clip(np.asarray(sims, dtype=np.float64), 0.0, None)
+    if w.sum() <= 0:
+        w = np.ones_like(w)
+
+    def _med(start_row):
+        span = m - 1 - start_row
+        if span < 2:
+            return float("inf")
+        rows = np.clip((start_row + frac * span).round().astype(int), 0, m - 1)
+        d = np.linalg.norm(traj[rows] - track, axis=1)
+        order = np.argsort(d)
+        cw = np.cumsum(w[order])
+        k = int(np.searchsorted(cw, 0.5 * cw[-1]))
+        return float(d[order][min(k, len(d) - 1)])
+
+    base = _med(0)
+    if not np.isfinite(base):
+        return None
+    step = max(1, m // 100)
+    candidates = list(range(0, int(_PHASE_MAX_TRIM_FRAC * (m - 1)) + 1, step))
+    meds = [_med(sr) for sr in candidates]
+    j = int(np.argmin(meds))
+    best_sr, best = candidates[j], meds[j]
+    import os as _os
+    if _os.environ.get("PHASE_DEBUG"):
+        print(f"        [phase] base={base:.0f} best={best:.0f} @row {best_sr}/"
+              f"{m} ({100*best_sr/max(m-1,1):.0f}%%) gate="
+              f"{'PASS' if (best_sr>=_PHASE_MIN_TRIM_PTS and best<_PHASE_MARGIN_RATIO*base and base-best>=_PHASE_MARGIN_ABS_M and best<=_ROT_EXPLAIN_M) else 'fail'}")
+    if (best_sr >= _PHASE_MIN_TRIM_PTS
+            and best < _PHASE_MARGIN_RATIO * base
+            and base - best >= _PHASE_MARGIN_ABS_M
+            and best <= _ROT_EXPLAIN_M):
+        return traj[best_sr:], int(best_sr), float(base), float(best)
     return None
 
 
