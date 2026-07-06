@@ -275,6 +275,9 @@ Useful flags:
 | `--embedding-sources`   | none         | Optional deep retrieval sources: `esri`/`satellite` (real RGB orthoimagery, recommended), `geotessera`, `osm` |
 | `--embedding-model`     | `resnet18`   | Embedding backbone: `resnet18` (offline) or `dinov2_vits14`/`dinov2_vitb14`/`dinov2_vitl14` (cross-domain VPR, downloads weights on first use) |
 | `--geotessera-year`     | `2024`       | GeoTessera tile year when `geotessera` retrieval is enabled |
+| `--use-vpr-prior`       | off          | Street-level **VPR anchor** (MegaLoc retrieval against Mapillary/KartaView photos): a per-frame "noisy GPS" track that re-ranks candidates AND places the headline answer (start-pin → scale retry → orientation refine about the pinned start). The strongest blind lever: prior lands 3–31 m from the route on every GT clip. Refs + embeddings are cached per clip, so warm reruns need no `MLY_TOKEN`. |
+| `--vpr-source`          | `kartaview`  | VPR reference source; `mapillary` (needs free `MLY_TOKEN` env var on cold runs) is far denser and is what the GT sweep uses. |
+| `--vpr-two-pass`        | off          | Match at both the VO scale and a scale pinned to the VPR track extent; keep whichever candidate set better explains the full per-frame track. Fixes candidate SHAPE where the VO scale is wrong. |
 | `--enable-ocr-anchor`   | off          | OCR scene text and turn it into absolute anchors that **gate** enumeration + re-rank. Two anchor kinds: geocoded **POI/landmark** names (work at 720p) and **street-name plates matched to the OSM graph** (route-relevant, strongest — need legible plates, i.e. a 4K source). Needs `easyocr` + network geocoding (both cached). |
 | `--ocr-sample-interval-sec` | `6.0`    | Seconds between frames sampled for OCR |
 | `--ocr-min-confidence`  | `0.5`        | Min OCR confidence for a detection to be used |
@@ -667,13 +670,37 @@ metric errors are reported.
 
 ### Accuracy (current pipeline)
 
-| Clip | Config | Mean route err | Start err | Calibrated confidence (spread) |
+Headline answer = the **anchor-primary** placement (Mapillary VPR track, Viterbi
+sequence-decoded → top-K start-pin → scale retry → orientation refine → **elastic
+fusion** → gated OrienterNet); the matcher-only pick is shown for contrast.
+Best-achievable sweep: `python scripts/run_all_gt.py --orienternet --vggt-best`
+(2026-07-05, six clips, **fleet mean 77 m / mean start 147 m** — best recorded;
+was ~500 m shape-only).
+
+| Clip | Trajectory | Mean route err | Start err | Matcher-only (mean / start) |
 |---|---|---|---|---|
-| **Ulm**, Germany | OCR-anchor (4K) + scale-lock | **160 m** | 450 m | medium (368 m) |
-| **KITTI drive_0033**, Karlsruhe (1.7 km loop) | shape + scale-lock | **144 m** | 517 m | low (706 m) |
-| **KITTI drive_0009**, Karlsruhe (46 s) | shape + scale-lock | 565 m | 482 m | medium (706 m) |
-| **comma2k19**, Daly City | shape + scale-lock | 761 m | 1118 m | low (1400 m) |
-| **London**, Bloomsbury | shape + scale-lock | 770 m | 1324 m | low (1433 m) |
+| **Ulm**, Germany | OpenVO + OCR-anchor (4K) | **106 m** | 157 m | 319 / 1236 m |
+| **KITTI drive_0033**, Karlsruhe (1.7 km loop) | **VGGT-Long** | **118 m** | 228 m | 86 / 481 m |
+| **KITTI drive_0009**, Karlsruhe (46 s) | VO | **36 m** | 301 m | 242 / 327 m |
+| **comma2k19**, Daly City | VO | **102 m** | **15 m** | 761 / 1120 m |
+| **Ulm #2** (held-out), Germany | VO | **55 m** | 150 m | 1439 / 2526 m |
+| **London**, Bloomsbury | **VGGT-Long** + OCR-anchor (SR) | **43 m** | **31 m** | 242 / 1747 m |
+
+Every clip runs Mapillary VPR + scale-lock. **Ulm #2 is a held-out clip** added
+after the July-2026 placement stack was tuned — it passed blind at 55/150 m, so
+the fleet is not overfit. The levers behind the 2026-07 drop from ~117 → 77 m
+fleet mean:
+
+- **Viterbi sequence decode** of the VPR track — continuity kills the
+  confident-but-wrong retrievals at the source (per-frame p90 collapses 5–8×;
+  `--no-vpr-viterbi` reverts).
+- **Elastic fusion** — an IRLS-Huber smoother that bends low-frequency VO drift
+  out of the placed route toward the track, start hard-pinned, margin/deformation
+  gated (improved every clip it touched; London to 43 m mean).
+- **VGGT-Long trajectory** where it wins the e2e A/B (0033 137→118, London
+  70→43) — a globally-consistent chunked-VGGT path; `--vggt-best` uses it only
+  on those clips (it regresses Ulm-4K and comma, so it is opt-in per clip, not a
+  default). Poses staged offline with `scratchpad/vggt_fleet.sh`.
 
 ### Calibrated multi-hypothesis output
 
@@ -732,7 +759,35 @@ runs end-to-end (and degrades to a no-op without the model), but doesn't yet rea
 the ~2 m through the full pipeline — OrienterNet needs each keyframe's prior within
 ~½ tile of its truth, and the shape-matcher's loop-phase ambiguity scatters per-point
 priors too far. The fix (next step) is to drive OrienterNet from the VO's native
-per-frame poses rather than the street-snapped route. (For drift-free VO,
+per-frame poses rather than the street-snapped route.
+
+**2026-07 update — the refinement is now gated.** With the anchored placement
+landing 15–31 m starts on comma/London, the unguarded neural refinement became a
+net *regression* there (London start 31 → 190 m, comma 15 → 160 m: a diffuse
+BEV→OSM belief drags a nearly-perfect prior off). `--use-orienternet` now accepts
+the refinement only when it (a) explains the per-frame VPR track at least as well
+as the route it started from AND (b) on start-pinned runs, keeps the start within
+100 m of the pin — with **no** track-fit escape hatch, because on comma's
+self-similar highway a "25 % better track fit" excuse moved a 15 m-accurate pin
+to a 160 m answer (the track median is the *noisy* statistic there; it must never
+overrule the pin). Once **elastic fusion** landed, it explains the VPR track
+better than OrienterNet's belief on all six clips, so the gate now *always*
+rejects the refinement — OrienterNet is a correct, currently-inert safety net,
+superseded by fusion on this fleet but retained for clips where fusion can't
+lock on. (A 10-agent verification pass confirmed all six rejections and that no
+default-trajectory clip silently fell back to centroid placement.)
+
+**2026-07 alternatives, measured** (`scripts/test_osmloc_kitti.py`,
+`scripts/test_vggt_long_kitti.py`): **OSMLoc** (Information Fusion 2026, the
+maploc fork with DINOv2+DepthAnything guidance) runs here on Windows but loses
+to OrienterNet-MGL on every clip under the identical oracle protocol — 1.9 vs
+1.3 m (0033), 3.4 vs 2.3 m (0009), 33–46 vs 15.2 m (comma) — its cross-area
+claim did not transfer, so OrienterNet stays. **VGGT-Long** (ICRA 2025,
+km-scale chunked VGGT) runs on Windows with loops disabled and produces a ~30 %
+better global trajectory shape than the default VO on the KITTI loop
+(148.6 vs 211.0 m Procrustes RMS) — promising as a `--trajectory-source`, but
+un-integrated: MapAnything's better-shape also failed to transfer end-to-end,
+so it needs its own gated A/B first. (For drift-free VO,
 **MASt3R-SLAM**, CVPR 2025, is the modern choice, but it needs the same `lietorch`
 CUDA build that fails on Blackwell/Windows; the 2026 successor "Coarse-to-Fine
 Monocular Re-Localization in OSM", arXiv 2603.01613, beats OrienterNet but has no

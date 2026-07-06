@@ -67,29 +67,81 @@ def _fetch_canvases(
     *,
     max_shared_span_m: float = 2000.0,
     retry_sleep_s: float = 20.0,
+    cache_dir=None,
+    fetch_deadline_s: float = 180.0,
 ) -> list:
     """Fetch one OSM canvas per keyframe, downloading OSM data ONCE.
 
-    ``TileManager.from_bbox`` is a full Overpass download; calling it per
-    keyframe means N heavily-overlapping ~tile-sized downloads, each with
+    ``TileManager.from_bbox`` is a full osm.org map.json download; calling it
+    per keyframe means N heavily-overlapping ~tile-sized downloads, each with
     its own HTTP-509 backoff. When the route's bbox is modest
     (span <= ``max_shared_span_m``) we fetch a single TileManager covering
     the whole route (+ tile margin) and ``query`` the per-keyframe bbox
     from it. The per-keyframe path is kept as fallback for very long
     routes and for keyframes the shared manager cannot serve.
+
+    Two hardening layers (added after a tile-256 run sat 35+ min inside one
+    request): every download runs in a daemon thread under a HARD wall-clock
+    deadline — osm.org streams large responses slowly enough that urllib3's
+    per-op ``timeout=10`` never fires — and ``cache_dir`` persists the raw
+    OSM JSON per (origin, bbox) through ``from_bbox``'s native ``path=``
+    cache, so warm reruns never touch the network at all.
     """
+    import hashlib
+    import queue
+    import threading
     import time
+
+    def _with_deadline(fn):
+        q: queue.Queue = queue.Queue()
+
+        def run():
+            try:
+                q.put(("ok", fn()))
+            except Exception as e:
+                q.put(("err", e))
+
+        threading.Thread(target=run, daemon=True).start()
+        try:
+            kind, val = q.get(timeout=fetch_deadline_s)
+        except queue.Empty:
+            raise TimeoutError(
+                f"OSM fetch exceeded {fetch_deadline_s:.0f} s")
+        if kind == "err":
+            raise val
+        return val
 
     def _retry(fn):
         # Backoff retry: the OSM API returns HTTP 509 under bursty load.
         for attempt in range(5):
             try:
-                return fn()
+                return _with_deadline(fn)
             except ValueError as e:
                 if "509" in str(e) and attempt < 4:
                     time.sleep(retry_sleep_s)
                     continue
                 raise
+
+    def _json_cache(bbox):
+        if cache_dir is None:
+            return None
+        origin = np.round(np.asarray(proj.latlonalt[:2], dtype=float), 5)
+        key = hashlib.sha1(
+            f"{origin.tolist()}|{np.round(bbox.min_, 1).tolist()}|"
+            f"{np.round(bbox.max_, 1).tolist()}".encode()).hexdigest()[:16]
+        p = Path(cache_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        return p / f"osm_{key}.json"
+
+    def _manager(bbox):
+        path = _json_cache(bbox)
+        if path is not None and path.exists():
+            try:  # the containment assert can trip on sub-metre bbox drift
+                return tile_manager_cls.from_bbox(proj, bbox, ppm, path=path)
+            except Exception:
+                path.unlink(missing_ok=True)
+        return _retry(lambda: tile_manager_cls.from_bbox(
+            proj, bbox, ppm, path=path))
 
     mn = xy_all.min(axis=0)
     mx = xy_all.max(axis=0)
@@ -98,11 +150,11 @@ def _fetch_canvases(
     shared = None
     if span <= max_shared_span_m:
         try:
-            shared = _retry(lambda: tile_manager_cls.from_bbox(
-                proj, boundary_box_cls(mn, mx) + (tile_m + 10), ppm,
-            ))
-        except Exception:
-            shared = None  # fall back to per-keyframe fetching
+            shared = _manager(boundary_box_cls(mn, mx) + (tile_m + 10))
+        except Exception as e:
+            print(f"      -> shared OSM fetch unavailable ({e}); "
+                  f"falling back to per-keyframe tiles")
+            shared = None
 
     canvases = []
     for center in xy_all:
@@ -114,9 +166,7 @@ def _fetch_canvases(
             except Exception:
                 canvas = None
         if canvas is None:
-            canvas = _retry(
-                lambda b=bbox: tile_manager_cls.from_bbox(proj, b + 10, ppm)
-            ).query(bbox)
+            canvas = _manager(bbox + 10).query(bbox)
         canvases.append(canvas)
     return canvases
 
@@ -145,6 +195,7 @@ def refine_route(
     tile_m: float = 160.0,
     gravity: tuple | None = None,
     device=None,
+    cache_dir=None,
 ) -> np.ndarray | None:
     """Refine a coarse per-keyframe route with OrienterNet sequential fusion.
 
@@ -192,7 +243,8 @@ def refine_route(
         # Pre-fetch the OSM canvases (ONE Overpass download covering the
         # whole route bbox when it is small enough; per-keyframe fallback
         # otherwise) + the RGB image per keyframe once.
-        canvases = _fetch_canvases(TileManager, BoundaryBox, proj, xy_all, tile_m, ppm)
+        canvases = _fetch_canvases(TileManager, BoundaryBox, proj, xy_all,
+                                   tile_m, ppm, cache_dir=cache_dir)
         prepped = []
         for i, bgr in enumerate(frames_bgr):
             image = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)

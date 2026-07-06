@@ -94,6 +94,11 @@ class PipelineConfig:
     use_mapanything_trajectory: bool = False
     openvo_trajectory_path: "Path | None" = None
     prefer_openvo_trajectory: bool = True   # default: auto-use a staged OpenVO path, VO fallback
+    # VGGT-Long chunked-VGGT trajectory (ICRA'25): ~30% lower Procrustes RMS
+    # than OpenVO on KITTI 0033 (148.6 vs 211.0 m). EXPLICIT opt-in only —
+    # better shape has not historically implied better end-to-end
+    # (MapAnything), so it must earn a default via the GT sweep.
+    vggt_long_trajectory_path: "Path | None" = None
     da3_keyframes: int = 32
     enable_full_splat: bool = False
     full_splat_scale: float = 1.4
@@ -154,6 +159,21 @@ class PipelineConfig:
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.
     use_vpr_sequence: bool = False
+    # Viterbi sequence decode of the VPR track (continuity-constrained states
+    # instead of per-frame argmax). Offline: median better on all 5 GT clips,
+    # p90 tail collapses ~5-8x. E2e (sweep 2026-07-04): transforms the weak
+    # clips (0009 mean 80->36, 0033 pins unlock: start 246->228) at a small
+    # cost on London (start 31->51) — fleet mean 109.6->90.2 m, best
+    # recorded. Default on; kill-switch for A/Bs.
+    vpr_viterbi: bool = True
+    # Two-pass VPR scale arbitration: match at both the VO scale and a scale
+    # pinned to the VPR track extent, keep whichever candidates better explain
+    # the full VPR track. Fixes candidate SHAPE where the VO scale is wrong
+    # (London mean 355->76 m), but the anchor placement's scale retry +
+    # orientation refine reach the same headline without the second matching
+    # pass (A/B 2026-07-04: identical anchored errors on London/Ulm/comma) —
+    # so off by default.
+    vpr_two_pass_scale: bool = False
     # License-plate registration-district anchor: read EU plate region prefixes,
     # vote, geocode the modal district -> re-rank penalty (src/plate_anchor.py).
     # (A hard region gate was refuted; the penalty free-radius lives in
@@ -599,6 +619,331 @@ def _vpr_sequence_median_m(
     return float(d[order][min(k, len(d) - 1)])
 
 
+def _vpr_track_geometry(vpr_track, crs):
+    """Sorted per-frame VPR track plus projected robust endpoint centres.
+
+    Returns ``(frame_idx, latlon, sims, start_xy, end_xy)`` with the track
+    sorted by frame index and the START-/END-region robust centres
+    (:func:`kartaview_vpr._robust_center` over the first/last ``len/16``
+    frames — wider windows drift on fast clips: comma start 43 m at k=5 vs
+    164 m at k=10) projected into ``crs``; ``None`` when there is no track.
+    One home for the sort -> robust-centre -> project dance that the two-pass
+    scale, the chord diagnostic and the anchor placement all need.
+    """
+    if vpr_track is None:
+        return None
+    from .kartaview_vpr import _robust_center
+    from .position import latlon_to_xy
+    vi, vll, vs = vpr_track
+    vi = np.asarray(vi)
+    if len(vi) == 0:
+        return None
+    o = np.argsort(vi)
+    vll = np.asarray(vll, dtype=np.float64)[o]
+    vs = np.asarray(vs, dtype=np.float64)[o]
+    k = max(5, len(vll) // 16)
+    s = _robust_center(vll[:k], vs[:k])
+    e = _robust_center(vll[-k:], vs[-k:])
+    ends = latlon_to_xy(np.asarray([s, e], dtype=np.float64), crs)
+    return vi[o], vll, vs, ends[0], ends[1]
+
+
+# Anchor-orientation refine (_rotation_refine_about_start): accept a rotation
+# only when it beats no-rotation on the full-track median by BOTH margins AND
+# the rotated fit lands inside the explain gate — i.e. the route genuinely
+# lies ON the track, not merely less far from it. Clean, ambiguous, or
+# wrong-scale runs all fail a gate and keep the matcher's heading.
+_ROT_MIN_TRACK_PTS = 8
+_ROT_MIN_EXTENT_M = 100.0          # rotation unobservable on a stub route
+_ROT_MARGIN_RATIO = 0.75
+_ROT_MARGIN_ABS_M = 20.0
+_ROT_EXPLAIN_M = 2.0 * _VPR_FREE_RADIUS_M
+
+
+def _rotation_refine_about_start(traj_xy, track_frame_idx, track_xy, sims,
+                                 n_frames):
+    """Best rotation of ``traj_xy`` about its START to fit the per-frame VPR
+    track — the orientation residual that start-pinning leaves.
+
+    The start pin fixes position and along-track phase but inherits the
+    matcher's heading, and a wrong heading swings the far end of the route
+    off by up to twice its extent. With the pinned start as the trusted datum
+    this is a 1-DOF search, scored by the similarity-weighted MEDIAN track
+    distance (:func:`_vpr_sequence_median_m`) over the whole ~80-frame track —
+    robust to the confident-but-wrong minority matches that sank the
+    endpoint-based 2-point rigid fit (one noisy END estimate owned the whole
+    rotation there). Coarse 2-deg full-circle grid, then a 0.25-deg local
+    refine.
+
+    Returns ``(rotated_traj, theta_deg, base_median_m, best_median_m)`` only
+    when the best rotation clears every gate in the constants block above;
+    ``None`` otherwise, so callers can only no-op, never regress.
+    """
+    traj = np.asarray(traj_xy, dtype=np.float64)
+    track_xy = np.asarray(track_xy, dtype=np.float64)
+    if len(traj) < 2 or len(track_xy) < _ROT_MIN_TRACK_PTS:
+        return None
+    rel = traj - traj[0]
+    if float(np.linalg.norm(rel, axis=1).max()) < _ROT_MIN_EXTENT_M:
+        return None
+
+    def _med(theta):
+        c, s = float(np.cos(theta)), float(np.sin(theta))
+        rot = rel @ np.array([[c, s], [-s, c]]) + traj[0]
+        return _vpr_sequence_median_m(rot, track_frame_idx, track_xy, sims,
+                                      n_frames)
+
+    base = _med(0.0)
+    if base is None:
+        return None
+    coarse = np.radians(np.arange(-180.0, 180.0, 2.0))
+    fine = coarse[int(np.argmin([_med(t) for t in coarse]))] + np.radians(
+        np.arange(-2.0, 2.0 + 1e-9, 0.25))
+    fmeds = [_med(t) for t in fine]
+    j = int(np.argmin(fmeds))
+    theta, best = float(fine[j]), float(fmeds[j])
+    if (best < _ROT_MARGIN_RATIO * base
+            and base - best >= _ROT_MARGIN_ABS_M
+            and best <= _ROT_EXPLAIN_M):
+        c, s = float(np.cos(theta)), float(np.sin(theta))
+        return (rel @ np.array([[c, s], [-s, c]]) + traj[0],
+                float(np.degrees(theta)), float(base), float(best))
+    return None
+
+
+def _place_candidate_on_track(traj, s_xy, e_xy, vpr_xy, vi, track_xy, vs,
+                              n_frames):
+    """The full placement chain for ONE candidate: start-pin -> scale retry
+    -> orientation refine -> elastic fusion, all against the per-frame VPR
+    track. Returns ``(placed, mode, rot_deg, track_median_m, notes)`` or
+    ``None`` when every pin path fails the 400 m centroid guard (the caller
+    falls back to a centroid translation). ``notes`` carries the human log
+    lines so the caller prints only the WINNING candidate's steps."""
+    notes: list[str] = []
+    placed, mode, rot_deg = None, None, None
+    cand2 = None
+    cand = traj + (s_xy - traj[0])                  # (1) plain start-pin
+    if np.linalg.norm(cand.mean(axis=0) - vpr_xy) <= 400.0:
+        placed, mode = cand, "vpr_startpin"
+    else:
+        # (2) the candidate's LENGTH is wrong: rescale from the VPR extent.
+        vpr_ext = float(np.linalg.norm(e_xy - s_xy))
+        cand_ext = float(np.linalg.norm(traj[-1] - traj[0]))
+        if vpr_ext > 200.0 and cand_ext > 1.0:
+            sc = float(np.clip(vpr_ext / cand_ext, 0.5, 2.0))
+            cand2 = (traj - traj[0]) * sc + s_xy
+            if np.linalg.norm(cand2.mean(axis=0) - vpr_xy) <= 400.0:
+                placed, mode = cand2, "vpr_startpin_scaled"
+    # (3) orientation refine — polish, or rescue guard-failing pins.
+    tries = ([(placed, mode)] if placed is not None else
+             [(t, m) for t, m in ((cand2, "vpr_startpin_scaled"),
+                                  (cand, "vpr_startpin")) if t is not None])
+    for t, m in tries:
+        r = _rotation_refine_about_start(t, vi, track_xy, vs, n_frames)
+        if r is None:
+            continue
+        if np.linalg.norm(r[0].mean(axis=0) - vpr_xy) <= 400.0:
+            placed, mode, rot_deg = r[0], m + "+rot", r[1]
+            notes.append(f"orientation refine: {r[1]:+.1f} deg "
+                         f"(track median {r[2]:.0f} -> {r[3]:.0f} m)")
+        break
+    # (4) elastic fusion — bend out low-frequency drift.
+    if placed is not None and "startpin" in mode:
+        fu = _elastic_fuse_track(placed, vi, track_xy, vs, n_frames)
+        if fu is not None and np.linalg.norm(
+                fu[0].mean(axis=0) - vpr_xy) <= 400.0:
+            placed = fu[0]
+            mode += "+fuse"
+            notes.append(f"elastic fusion: track median "
+                         f"{fu[1]:.0f} -> {fu[2]:.0f} m")
+    if placed is None:
+        return None
+    med = _vpr_sequence_median_m(placed, vi, track_xy, vs, n_frames)
+    return placed, mode, rot_deg, med, notes
+
+
+def _pick_top_k_placement(entries):
+    """Select among per-candidate placement results ``[(rank, med), ...]``.
+
+    The matcher's ranking cannot see PLACEMENT quality, and a re-rank change
+    can promote a candidate that scores better but places worse (London with
+    the Viterbi track: matcher mean 901 -> 221 m while the anchored headline
+    regressed 42.7 -> 70 m). The fused track median — the finest instrument —
+    arbitrates instead, with the usual margin discipline: a challenger must
+    beat rank 0's median by >=10% AND >=10 m, else rank 0 keeps the answer
+    (rank 0 always wins ties; a missing rank 0 hands it to the best
+    challenger). Returns the winning rank."""
+    if not entries:
+        return None
+    by_rank = dict(entries)
+    base_med = by_rank.get(0)
+    best_rank, best_med = min(
+        entries, key=lambda e: (np.inf if e[1] is None else e[1], e[0]))
+    if 0 not in by_rank:
+        return best_rank
+    if (best_rank != 0 and base_med is not None and best_med is not None
+            and best_med < 0.9 * base_med and base_med - best_med >= 10.0):
+        return best_rank
+    return 0
+
+
+# Elastic fusion (_elastic_fuse_track): bend the rigidly-placed trajectory
+# toward the full VPR track. Gates mirror the rotation refine's: a clear
+# margin win AND an absolute explain bound AND a bounded deformation — a
+# noisy track can only no-op. The start is hard-pinned: fusion corrects
+# DRIFT, it must never move the finest instrument we have.
+_FUSE_MIN_TRACK_PTS = 20
+_FUSE_MARGIN_RATIO = 0.85
+_FUSE_MARGIN_ABS_M = 15.0
+_FUSE_MAX_DEFORM_M = 300.0
+_FUSE_HUBER_M = 30.0
+_FUSE_SMOOTH_D1 = 0.1
+_FUSE_SMOOTH_D2 = 1000.0
+
+
+def _elastic_fuse_track(traj_xy, track_frame_idx, track_xy, sims, n_frames):
+    """Bend the placed trajectory toward the per-frame VPR track — the
+    ELASTIC step after the rigid pin/scale/rotate chain.
+
+    Rigid placement fixes position, phase, scale and heading but cannot
+    touch the low-frequency VO DRIFT baked into the shape; the ~80-frame
+    track can. Solves per-vertex offsets ``d`` minimising a similarity- and
+    Huber-weighted data term at the matched arc rows plus first/second-
+    difference smoothness (drift is low-frequency: the curvature prior is
+    stiff, rigid translations/ramps of ``d`` are free), with ``d[0] = 0``
+    hard-pinned. IRLS over the Huber weights, separable x/y solves.
+
+    Returns ``(fused_traj, rigid_median_m, fused_median_m)`` only when the
+    fused track fit clears the margin gates, stays inside the explain bound
+    (``_ROT_EXPLAIN_M``) and the deformation stays under
+    ``_FUSE_MAX_DEFORM_M``; ``None`` otherwise (keep the rigid placement).
+    """
+    traj = np.asarray(traj_xy, dtype=np.float64)
+    track_xy = np.asarray(track_xy, dtype=np.float64)
+    n = len(traj)
+    if n < 8 or len(track_xy) < _FUSE_MIN_TRACK_PTS:
+        return None
+    rigid_med = _vpr_sequence_median_m(traj, track_frame_idx, track_xy, sims,
+                                       n_frames)
+    if rigid_med is None:
+        return None
+    frac = np.asarray(track_frame_idx, dtype=np.float64) / max(n_frames - 1, 1)
+    rows = np.clip(np.round(frac * (n - 1)).astype(int), 0, n - 1)
+    w_sim = np.clip(np.asarray(sims, dtype=np.float64), 0.0, None)
+    if w_sim.sum() <= 0:
+        w_sim = np.ones_like(w_sim)
+    # Observations farther from the RIGID placement than the deformation
+    # bound can never be explained by an admissible solution — they are
+    # outliers by definition, and Huber alone is not enough: its influence
+    # is CONSTANT with distance, so a contiguous far-off block acts as a
+    # steady lateral force on an unobserved stretch and bows it hundreds of
+    # metres (observed 640 m on the synthetic outlier case). Hard-zero them.
+    dist0 = np.linalg.norm(traj[rows] - track_xy, axis=1)
+    w_sim = np.where(dist0 <= _FUSE_MAX_DEFORM_M, w_sim, 0.0)
+    if float(w_sim.sum()) <= 0 or int((w_sim > 0).sum()) < _FUSE_MIN_TRACK_PTS:
+        return None
+
+    # Smoothness normal-matrix blocks (constant across IRLS rounds).
+    d1 = np.zeros((n - 1, n))
+    d1[np.arange(n - 1), np.arange(n - 1)] = -1.0
+    d1[np.arange(n - 1), np.arange(1, n)] = 1.0
+    d2 = np.zeros((n - 2, n))
+    d2[np.arange(n - 2), np.arange(n - 2)] = 1.0
+    d2[np.arange(n - 2), np.arange(1, n - 1)] = -2.0
+    d2[np.arange(n - 2), np.arange(2, n)] = 1.0
+    reg = _FUSE_SMOOTH_D1 * d1.T @ d1 + _FUSE_SMOOTH_D2 * d2.T @ d2
+
+    d = np.zeros((n, 2))
+    misfit = track_xy - traj[rows]         # raw data term, fixed across IRLS
+    w_cap = np.full(len(rows), np.inf)
+    for _ in range(5):
+        # Huber weights from the current iterate, but MONOTONE: capped by the
+        # previous round's weight. Without the cap, a contiguous block of
+        # confident-but-wrong observations captures the solve — moving toward
+        # them shrinks their residual, which RAISES their weight, which pulls
+        # harder (observed: max|d| 640 -> 1842 m across rounds). With the cap
+        # an observation's influence can only decay.
+        dist = np.linalg.norm(traj[rows] + d[rows] - track_xy, axis=1)
+        w = np.minimum(
+            w_cap,
+            w_sim * np.minimum(1.0, _FUSE_HUBER_M / np.maximum(dist, 1e-9)))
+        w_cap = w
+        A = reg.copy()
+        b = np.zeros((n, 2))
+        np.add.at(A, (rows, rows), w)
+        np.add.at(b, rows, w[:, None] * misfit)
+        A[0, :] = 0.0
+        A[:, 0] = 0.0
+        A[0, 0] = 1.0                      # hard pin: d[0] = 0
+        b[0] = 0.0
+        try:
+            d = np.linalg.solve(A, b)
+        except np.linalg.LinAlgError:
+            return None
+    if float(np.linalg.norm(d, axis=1).max()) > _FUSE_MAX_DEFORM_M:
+        return None
+    fused = traj + d
+    fused_med = _vpr_sequence_median_m(fused, track_frame_idx, track_xy, sims,
+                                       n_frames)
+    if (fused_med is not None
+            and fused_med < _FUSE_MARGIN_RATIO * rigid_med
+            and rigid_med - fused_med >= _FUSE_MARGIN_ABS_M
+            and fused_med <= _ROT_EXPLAIN_M):
+        return fused, float(rigid_med), float(fused_med)
+    return None
+
+
+def _vpr_alt_scale(match_xz, vpr_track, vpr_center, road, locked_scale,
+                   estimated_length_m, scale_lock):
+    """Alternate matching scale pinned to the VPR track's start->end extent.
+
+    Returns ``(locked_scale, estimated_length_m, factor)`` for a second match
+    pass, or ``None`` when unavailable / not meaningfully different from the
+    base scale / outside a sane band. The caller matches at both scales and
+    keeps whichever candidates better explain the full per-frame VPR track —
+    so a noisy single endpoint can't force a bad scale (it only proposes one).
+    """
+    if vpr_center is None or vpr_track is None:
+        return None
+    try:
+        from .visual_odometry import trajectory_arc_length as _tal
+        geo = _vpr_track_geometry(vpr_track, road.crs)
+        if geo is None:
+            return None
+        vpr_chord = float(np.linalg.norm(geo[4] - geo[3]))
+        mxz = np.asarray(match_xz, dtype=np.float64)
+        vo_chord = float(np.linalg.norm(mxz[-1] - mxz[0]))
+        arc = float(_tal(mxz)[-1])
+        if vpr_chord <= 200.0 or vo_chord <= 1e-6 or arc <= 1e-6:
+            return None
+        tgt = vpr_chord / vo_chord                      # m per VO unit
+        cur = locked_scale if locked_scale is not None else estimated_length_m / arc
+        fac = tgt / cur if cur > 1e-9 else 1.0
+        if 0.33 <= fac <= 3.0 and abs(fac - 1.0) > 0.15:
+            return (tgt if scale_lock else None, float(tgt * arc), float(fac))
+    except Exception:
+        return None
+    return None
+
+
+def _pose_txt_xz(path) -> np.ndarray | None:
+    """Top-down ``(tx, tz)`` path from a pose text file: KITTI 3x4 rows
+    (12 columns) or flattened 4x4 C2W rows (16 columns, VGGT-Long's
+    ``camera_poses.txt``). In both row-major layouts the translation sits at
+    columns 3/7/11, so the ground projection is columns ``[3, 11]``.
+    Returns ``None`` for unreadable/degenerate files."""
+    try:
+        P = np.loadtxt(str(path))
+        if P.ndim != 2 or P.shape[1] not in (12, 16):
+            return None
+        xz = P[:, [3, 11]].astype(np.float64)
+        if len(xz) < 2 or not bool(np.isfinite(xz).all()):
+            return None
+        return xz
+    except Exception:
+        return None
+
+
 def _mean_bearing_deg(xy: np.ndarray) -> float | None:
     """Length-weighted circular mean compass bearing (0=N, 90=E) of a
     projected polyline, or ``None`` when degenerate."""
@@ -687,13 +1032,21 @@ def _final_position_reports(
     return headline, matcher_position
 
 
-def _orienternet_refine(cfg, frames, cand, road, position, result) -> None:
+def _orienternet_refine(cfg, frames, cand, road, position, result,
+                        vpr_track=None) -> None:
     """Refine the shape-matched coarse position with OrienterNet (BEV->OSM).
 
     Samples keyframes across the analyzed window, maps each to a coarse
     lat/lon from the shape-matched route, and runs OrienterNet sequential
     fusion. Updates ``position`` in place (keeps the coarse estimate under
     ``coarse_*``) and records the refined-vs-GT error when GT is present.
+
+    GUARDED when a per-frame VPR track exists: the refinement must explain
+    the track at least as well as the route it started from, or it is
+    rejected. The integration predates the anchored placement — its prior
+    used to be 500+ m off and any refinement helped; now the anchored route
+    can be 15-31 m from GT and an unguarded diffuse BEV->OSM belief drags it
+    off (validated 2026-07-04: London start 31 -> 190 m, comma 15 -> 160 m).
     """
     print("[10c] OrienterNet metric refinement (neural BEV->OSM)")
     try:
@@ -714,10 +1067,62 @@ def _orienternet_refine(cfg, frames, cand, road, position, result) -> None:
         rfrac = (idxs / max(len(fr) - 1, 1) * (len(route_ll) - 1)).round().astype(int)
         prior_ll = route_ll[rfrac]
         # focal_px=None -> OrienterNet auto-calibrates the camera FOV.
-        refined = refine_route(kf, prior_ll, None, tile_m=cfg.orienternet_tile_m)
+        # cache_dir persists the raw OSM JSON per bbox, so sweep reruns and
+        # tile experiments stop depending on osm.org's mood (a tile-256
+        # fetch once stalled 35+ min and killed the whole experiment).
+        refined = refine_route(kf, prior_ll, None, tile_m=cfg.orienternet_tile_m,
+                               cache_dir=cfg.data_dir / "osm_tiles")
         if refined is None:
             print("      -> OrienterNet unavailable; keeping shape-match position")
             return
+        if vpr_track is not None:
+            try:
+                from .position import latlon_to_xy
+                tk_xy = latlon_to_xy(np.asarray(vpr_track[1], dtype=np.float64),
+                                     road.crs)
+                base_med = _vpr_sequence_median_m(
+                    np.asarray(cand.aligned_traj_xy, dtype=np.float64),
+                    vpr_track[0], tk_xy, vpr_track[2], len(fr))
+                ref_xy = latlon_to_xy(np.asarray(refined, dtype=np.float64),
+                                      road.crs)
+                ref_med = _vpr_sequence_median_m(
+                    ref_xy, vpr_track[0], tk_xy, vpr_track[2], len(fr))
+                reject = None
+                if (base_med is not None and ref_med is not None
+                        and ref_med > 1.10 * base_med):
+                    reject = (f"track fit {ref_med:.0f} m vs route "
+                              f"{base_med:.0f} m")
+                # START gate: a pinned start is the pipeline's most accurate
+                # statistic (offline 15-135 m), and the ~100-200 m-median VPR
+                # track cannot see a 30 m start error — on London the refined
+                # route passed the track gate while dragging the pinned start
+                # 159 m (GT 31 -> 190 m). No track-fit escape hatch: on comma
+                # a ">=25% better track fit" excuse let the refinement move a
+                # 15 m-accurate pin to a 160 m answer (self-similar highway
+                # track = the NOISY statistic; it must never overrule the
+                # pin). On pinned runs a big start move is simply rejected.
+                _start_shift = float(np.linalg.norm(
+                    ref_xy[0]
+                    - np.asarray(cand.aligned_traj_xy, dtype=np.float64)[0]))
+                _pinned = "startpin" in str(
+                    (result.get("anchored_position") or {}).get("source", ""))
+                if reject is None and _pinned and _start_shift > 100.0:
+                    reject = (f"start moved {_start_shift:.0f} m off the "
+                              f"pinned start")
+                if reject is not None:
+                    print(f"      -> OrienterNet refinement REJECTED ({reject}); "
+                          f"keeping prior route")
+                    result["orienternet"] = {
+                        "applied": False, "reason": reject,
+                        "track_fit_refined_m": (round(ref_med, 1)
+                                                if ref_med is not None else None),
+                        "track_fit_route_m": (round(base_med, 1)
+                                              if base_med is not None else None),
+                    }
+                    return
+            except Exception as e:
+                print(f"      -> OrienterNet track gate unavailable ({e}); "
+                      f"accepting refinement ungated")
         lat0, lon0 = float(refined[0][0]), float(refined[0][1])
         position["coarse_latitude"] = position["latitude"]
         position["coarse_longitude"] = position["longitude"]
@@ -727,7 +1132,8 @@ def _orienternet_refine(cfg, frames, cand, road, position, result) -> None:
         position["google_maps_url"] = google_maps_url(lat0, lon0)
         position["orienternet_route_latlon"] = [
             [round(float(a), 6), round(float(b), 6)] for a, b in refined]
-        result["orienternet"] = {"keyframes": len(kf), "tile_m": cfg.orienternet_tile_m}
+        result["orienternet"] = {"applied": True, "keyframes": len(kf),
+                                 "tile_m": cfg.orienternet_tile_m}
         print(f"      -> refined start: {lat0:.6f}, {lon0:.6f}")
         if cfg.ground_truth_waypoints:
             from .evaluator import _segment_to_polyline_distance, load_gt_waypoints
@@ -738,6 +1144,15 @@ def _orienternet_refine(cfg, frames, cand, road, position, result) -> None:
             dm = float(np.mean([_segment_to_polyline_distance(w_, rt_xy) for w_ in wp_xy]))
             position["orienternet_gt_start_error_m"] = round(d0, 1)
             position["orienternet_gt_mean_route_error_m"] = round(dm, 1)
+            # The refinement replaced the reported coordinates, so the
+            # headline gt_* keys must describe THEM — leaving the anchored
+            # eval there made the sweep table report the anchored error for
+            # an OrienterNet position (stale-looking 30 m rows for 190 m
+            # answers).
+            if "gt_start_error_m" in position:
+                position["gt_start_error_m"] = round(d0, 1)
+            if "gt_mean_route_error_m" in position:
+                position["gt_mean_route_error_m"] = round(dm, 1)
             print(f"      -> OrienterNet vs GT: start {d0:.1f} m, mean route {dm:.1f} m")
     except Exception as e:
         print(f"      -> OrienterNet refine failed ({e})")
@@ -1047,9 +1462,17 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 _vpr_device = None
             _vpr_token = _os.environ.get("MLY_TOKEN") if _vpr_src == "mapillary" else None
             if _vpr_src == "mapillary" and not _vpr_token:
-                print("      -> mapillary source needs MLY_TOKEN env var; "
-                      "falling back to kartaview")
-                _vpr_src = "kartaview"
+                # A warm ref cache serves without the API, so only fall back
+                # when there is no cache either — offline regression sweeps
+                # (cached refs + cached VO) must not silently switch source.
+                from .kartaview_vpr import has_mapillary_cache
+                if has_mapillary_cache(str(cfg.data_dir / _vpr_src)):
+                    print("      -> no MLY_TOKEN; serving Mapillary refs "
+                          "from the warm cache")
+                else:
+                    print("      -> mapillary source needs MLY_TOKEN env var; "
+                          "falling back to kartaview")
+                    _vpr_src = "kartaview"
             # Never search VPR wider than the OSM graph disc: on SPARSE-coverage
             # areas (e.g. KITTI Karlsruhe) a 3 km disc dilutes the few on-route
             # refs under the ref cap and the robust-centre drifts off-route
@@ -1059,11 +1482,20 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             _vpr_radius = cfg.vpr_search_radius_m
             if osm_around is not None:
                 _vpr_radius = min(_vpr_radius, max(800.0, float(osm_around[2])))
+            # Real seconds between the ~80 query frames — sets the Viterbi
+            # transition free radius (sequence decode kills the confident-
+            # but-wrong retrievals at the source; offline A/B: median better
+            # on all 5 GT clips, p90 tail collapses ~5-8x).
+            _ts = np.asarray(frames.timestamps, dtype=np.float64)
+            _qn = max(min(80, len(frames.frames)) - 1, 1)
+            _qdt = float((_ts[-1] - _ts[0]) / _qn) if len(_ts) >= 2 else 4.0
             tr = kartaview_vpr_track(frames.frames, center,
                                      radius_m=_vpr_radius,
                                      cache_dir=str(cfg.data_dir / _vpr_src),
                                      device=_vpr_device,
-                                     source=_vpr_src, token=_vpr_token)
+                                     source=_vpr_src, token=_vpr_token,
+                                     sequence_decode=cfg.vpr_viterbi,
+                                     query_dt_s=_qdt)
             if tr is not None:
                 vpr_track = tr
                 v_idx, v_ll, v_sims = tr
@@ -1196,6 +1628,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # We keep the VO `traj` for the splat/IPM renders (those are tied to
     # the per-frame VO poses) and only swap the matcher's input here.
     match_xz = traj.xz
+    _staged_traj_source = "vo"     # relabelled by whichever staging block wins
     if cfg.use_mapanything_trajectory:
         print("[4b'] MapAnything submap-stitched trajectory (matcher input)")
         from .mapanything_trajectory import mapanything_trajectory_xy
@@ -1203,6 +1636,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         ma = mapanything_trajectory_xy(str(video_path), cfg.vo_start_sec, end_s)
         if ma is not None and len(ma[0]) >= 2 and bool(np.isfinite(ma[0]).all()):
             match_xz = ma[0]
+            _staged_traj_source = "mapanything"
             _plot_xy(match_xz, cfg.output_dir / "trajectory_mapanything.png",
                      "MapAnything submap-stitched trajectory (matcher input)")
             print(f"      -> using MapAnything trajectory: {len(match_xz)} stitched poses")
@@ -1220,18 +1654,33 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             ov_path = cand
     if ov_path is not None:
         print(f"[4b''] OpenVO metric trajectory (matcher input): {ov_path}")
-        try:
-            P = np.loadtxt(str(ov_path))
-            ov = P[:, [3, 11]].astype(float)
-            if len(ov) >= 2 and bool(np.isfinite(ov).all()):
-                match_xz = ov
-                _plot_xy(ov, cfg.output_dir / "trajectory_openvo.png",
-                         "OpenVO metric trajectory (matcher input)")
-                print(f"      -> using OpenVO trajectory: {len(ov)} poses")
-            else:
-                print("      -> OpenVO trajectory invalid; keeping VO path")
-        except Exception as e:
-            print(f"      -> OpenVO trajectory load failed ({e}); keeping VO path")
+        ov = _pose_txt_xz(ov_path)
+        if ov is not None:
+            match_xz = ov
+            _staged_traj_source = "openvo"
+            _plot_xy(ov, cfg.output_dir / "trajectory_openvo.png",
+                     "OpenVO metric trajectory (matcher input)")
+            print(f"      -> using OpenVO trajectory: {len(ov)} poses")
+        else:
+            print("      -> OpenVO trajectory invalid/unreadable; keeping VO path")
+    # VGGT-Long chunked-VGGT trajectory (ICRA'25): explicit opt-in, takes
+    # precedence over the staged OpenVO default when given. ~30% lower
+    # Procrustes shape RMS than OpenVO on KITTI 0033 (148.6 vs 211.0 m,
+    # scripts/test_vggt_long_kitti.py) — but better shape has NOT implied
+    # better end-to-end before (MapAnything), hence flag-gated for A/B.
+    if cfg.vggt_long_trajectory_path is not None:
+        print(f"[4b'''] VGGT-Long trajectory (matcher input): "
+              f"{cfg.vggt_long_trajectory_path}")
+        vl = _pose_txt_xz(cfg.vggt_long_trajectory_path)
+        if vl is not None:
+            match_xz = vl
+            _staged_traj_source = "vggt_long"
+            _plot_xy(vl, cfg.output_dir / "trajectory_vggt_long.png",
+                     "VGGT-Long trajectory (matcher input)")
+            print(f"      -> using VGGT-Long trajectory: {len(vl)} poses")
+        else:
+            print("      -> VGGT-Long trajectory invalid/unreadable; "
+                  "keeping prior path")
     da3_rec = None
     result_scale_recovery: dict | None = None   # set by DA3 (4b) or anchors (4c)
     if cfg.use_da3_trajectory:
@@ -1284,13 +1733,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             else:
                 if len(da3_xy) < 2 or not bool(np.isfinite(da3_xy).all()):
                     print("      -> DA3 trajectory invalid; falling back to VO path")
-                result_traj_source = "vo"
+                result_traj_source = _staged_traj_source
         except Exception as e:
             print(f"      -> DA3 trajectory failed ({e}); falling back to VO path")
             da3_rec = None
-            result_traj_source = "vo"
+            result_traj_source = _staged_traj_source
     else:
-        result_traj_source = "vo"
+        result_traj_source = _staged_traj_source
 
     # Timestamp axis aligned to the matcher trajectory. The staged
     # OpenVO/DA3/MapAnything paths have FEWER rows than extracted frames
@@ -1608,22 +2057,58 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     else:
         print(f"[5/5] Matching trajectory against {road.graph.number_of_nodes()} candidate starts")
     _pool_k = max(cfg.top_k, _HYP_POOL)
-    candidates = match_trajectory(
-        match_xz,
-        road,
-        final_top_k=_pool_k,
-        sample_every=cfg.sample_every,
-        estimated_length_m=estimated_length_m,
-        extra_start_nodes=seed or None,
-        restrict_to_start_nodes=gated,
-        locked_scale=locked_scale,
-    )
-    if gated and not candidates:
-        print("      -> gated match found nothing; falling back to full scan")
-        candidates = match_trajectory(
+    vpr_scale_applied = None
+
+    def _run_match(loc_scale, est_len):
+        c = match_trajectory(
             match_xz, road, final_top_k=_pool_k, sample_every=cfg.sample_every,
-            estimated_length_m=estimated_length_m, locked_scale=locked_scale,
-        )
+            estimated_length_m=est_len, extra_start_nodes=seed or None,
+            restrict_to_start_nodes=gated, locked_scale=loc_scale)
+        if gated and not c:
+            print("      -> gated match found nothing; falling back to full scan")
+            c = match_trajectory(
+                match_xz, road, final_top_k=_pool_k, sample_every=cfg.sample_every,
+                estimated_length_m=est_len, locked_scale=loc_scale)
+        return c
+
+    candidates = _run_match(locked_scale, estimated_length_m)
+
+    # Two-pass VPR scale arbitration: every candidate inherits ONE scale, so a
+    # wrong VO scale makes them all the wrong length (Ulm all 534 m vs a VPR
+    # extent of 1134 m; London 1453 vs 1022). The VPR track's start->end extent
+    # gives an ALTERNATE scale; match at it too and keep whichever set's
+    # candidates better explain the FULL per-frame VPR track (median over ~80
+    # frames -> robust to the single confident-but-wrong endpoint that sank the
+    # endpoint-chord-only version on comma's self-similar highway).
+    _vpr_alt = (_vpr_alt_scale(match_xz, vpr_track, vpr_center, road,
+                               locked_scale, estimated_length_m, cfg.scale_lock)
+                if cfg.vpr_two_pass_scale else None)
+    if _vpr_alt is not None and candidates:
+        _alt = _run_match(_vpr_alt[0], _vpr_alt[1])
+        if _alt:
+            try:
+                from .position import latlon_to_xy as _t2xy
+                _tk_xy = _t2xy(np.asarray(vpr_track[1], dtype=np.float64), road.crs)
+
+                def _setscore(cs):
+                    ds = [_vpr_sequence_median_m(
+                        c.aligned_traj_xy, vpr_track[0], _tk_xy, vpr_track[2],
+                        len(frames.frames)) for c in cs[:5]]
+                    ds = [d for d in ds if d is not None]
+                    return min(ds) if ds else float("inf")
+
+                _bs, _as = _setscore(candidates), _setscore(_alt)
+                if _as < 0.9 * _bs:
+                    candidates = _alt
+                    locked_scale, estimated_length_m = _vpr_alt[0], _vpr_alt[1]
+                    vpr_scale_applied = round(_vpr_alt[2], 3)
+                    print(f"      -> VPR two-pass: corrected scale x{_vpr_alt[2]:.2f} "
+                          f"wins (track fit {_as:.0f} m < base {_bs:.0f} m)")
+                else:
+                    print(f"      -> VPR two-pass: base scale kept (alt track "
+                          f"fit {_as:.0f} m not <90% of base {_bs:.0f} m)")
+            except Exception as e:
+                print(f"      -> VPR two-pass compare failed ({e}); keeping base")
     # Keep the wider geometric pool for the calibrated multi-hypothesis
     # output, but run the rest of the pipeline (heavy channels, headline
     # pick, GT eval) on the top_k slice exactly as before.
@@ -1653,6 +2138,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 candidate_geographic_summary(c, road.graph) for c in candidates
             ],
         }
+        if vpr_scale_applied is not None:
+            result["vpr_scale_correction"] = vpr_scale_applied
         if cfg.enable_ocr_anchor:
             from .text_anchor import anchors_to_json, street_anchors_to_json
             result["ocr_anchors"] = anchors_to_json(ocr_anchors)
@@ -2011,6 +2498,26 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         else:
             vpr_penalty = {i: 0.0 for i in range(len(candidates))}
 
+        # VPR chord diagnostic: the VPR track's start->end straight-line extent
+        # is a scale-locked estimate of the true route's endpoint distance.
+        # Candidate re-ranking by chord is a NO-OP here (every candidate
+        # inherits the VO trajectory's shape+scale, so they share one chord —
+        # Ulm all 534 m vs a VPR extent of 1134 m; London all 1453 m vs
+        # 1022 m). So the chord mismatch is a VO-TRAJECTORY error, not a
+        # selection one; we store both as a diagnostic for the VO-scale fix.
+        if vpr_center is not None and vpr_track is not None and candidates:
+            try:
+                _g = _vpr_track_geometry(vpr_track, road.crs)
+                _vpr_chord = (float(np.linalg.norm(_g[4] - _g[3]))
+                              if _g is not None else 0.0)
+                if _vpr_chord > 200.0:
+                    _t0 = np.asarray(candidates[0].aligned_traj_xy, dtype=np.float64)
+                    result["vpr_chord_m"] = round(_vpr_chord, 1)
+                    result["candidate_chord_m"] = round(
+                        float(np.linalg.norm(_t0[-1] - _t0[0])), 1)
+            except Exception:
+                pass
+
         # Sun-heading channel: penalise candidates whose overall bearing
         # contradicts the sun-derived absolute heading. Orientation is
         # exactly what shape RMS cannot fix, so a confident sun estimate
@@ -2364,25 +2871,78 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # Orientation/shape come from the matcher; absolute position from the prior.
     anchored_cand = None
     if vpr_center is not None and candidates:
-        # Place the top candidate's trajectory so its CENTROID sits on the robust
-        # VPR centre, keeping the matcher's (clean) orientation. This beat fitting
-        # to the per-frame VPR track (top-1 matches are too noisy: 334 vs 227 m
-        # mean route error on Ulm), so the single robust centre wins.
+        # Place the top candidate's trajectory on the VPR prior. START-PIN
+        # (default): the per-frame VPR track's START-region robust centre
+        # estimates the true route start well (offline: 15-135 m vs a
+        # centroid-only start error of 147-1084 m), so translate the trajectory
+        # to put its START there — fixing the along-track PHASE the centroid
+        # leaves free (comma start 1120 -> 15 m). If that drifts the centroid
+        # past a sanity guard, the candidate's LENGTH is wrong, so correct the
+        # scale from the VPR end-to-end extent and retry. The pinned candidate
+        # then gets an ORIENTATION refine — rotate about the trusted start to
+        # best explain the full per-frame track (the one residual position,
+        # phase and scale leave; a 2-point rigid fit that handed the noisy END
+        # estimate the rotation regressed clips, so the refine scores the
+        # whole track's robust median instead and is margin-gated: it no-ops
+        # unless it demonstrably locks on). Anything that fails every guard
+        # falls back to the plain centroid translation.
         import dataclasses
         from .position import latlon_to_xy as _ll2xy, xy_to_latlon as _xy2ll2
-        _traj = np.asarray(candidates[0].aligned_traj_xy, dtype=np.float64)
         _vpr_xy = _ll2xy(np.asarray([[vpr_center[0], vpr_center[1]]], float), road.crs)[0]
-        _shift = _vpr_xy - _traj.mean(axis=0)
-        anchored_cand = dataclasses.replace(candidates[0], aligned_traj_xy=_traj + _shift)
-        _astart = _xy2ll2((_traj[:1] + _shift), road.crs)[0]
-        # The source must name the channel that produced the prior: a VLM
-        # district centroid is a far coarser prior than a MegaLoc VPR fit,
-        # and per-channel accuracy studies need to tell them apart.
-        _anchor_src = "vlm_geocode" if anchor_origin == "vlm" else "vpr_centroid"
+        _placed, _mode, _rot_deg, _best_rank = None, "vpr_centroid", None, 0
+        _geo = (_vpr_track_geometry(vpr_track, road.crs)
+                if anchor_origin == "vpr" else None)
+        if _geo is not None:
+            try:
+                _vi, _vll, _vs, _s_xy, _e_xy = _geo
+                _track_xy = _ll2xy(_vll, road.crs)
+                # TOP-K placement selection: run the full pin -> scale ->
+                # rotate -> fuse chain for the top 3 candidates and let the
+                # fused track median arbitrate (with a >=10%+10 m challenger
+                # margin — see _pick_top_k_placement for why the matcher's
+                # own ranking cannot be trusted with this decision).
+                _pk = {}
+                for _ci, _c in enumerate(candidates[:3]):
+                    _res = _place_candidate_on_track(
+                        np.asarray(_c.aligned_traj_xy, dtype=np.float64),
+                        _s_xy, _e_xy, _vpr_xy, _vi, _track_xy, _vs,
+                        len(frames.frames))
+                    if _res is not None:
+                        _pk[_ci] = _res
+                _win = _pick_top_k_placement(
+                    [(ci, r[3]) for ci, r in _pk.items()])
+                if _win is not None:
+                    _best_rank = _win
+                    _placed, _mode, _rot_deg, _med, _notes = _pk[_win]
+                    for _n in _notes:
+                        print(f"      -> {_n}")
+                    if _win != 0:
+                        _m0 = _pk[0][3] if 0 in _pk else None
+                        print(f"      -> placement pick: candidate #{_win + 1} "
+                              f"(track median {_med:.0f} m vs #1's "
+                              f"{'unplaceable' if _m0 is None else f'{_m0:.0f} m'})")
+            except Exception as e:
+                print(f"      -> start-pin placement failed ({e}); "
+                      f"falling back to centroid")
+                _placed = None
+        if _placed is None:
+            _best_rank = 0
+            _traj0 = np.asarray(candidates[0].aligned_traj_xy, dtype=np.float64)
+            _placed = _traj0 + (_vpr_xy - _traj0.mean(axis=0))
+        anchored_cand = dataclasses.replace(candidates[_best_rank],
+                                            aligned_traj_xy=_placed)
+        _astart = _xy2ll2(_placed[:1], road.crs)[0]
+        # The source names the channel + placement mode: a VLM district centroid
+        # is far coarser than a MegaLoc VPR endpoint fit; accuracy studies need
+        # to tell them apart.
+        _anchor_src = "vlm_geocode" if anchor_origin == "vlm" else _mode
         result["anchored_position"] = {
             "lat": float(_astart[0]), "lon": float(_astart[1]), "source": _anchor_src,
             "prior_latlon": [float(vpr_center[0]), float(vpr_center[1])],
+            "candidate_rank": int(_best_rank) + 1,
         }
+        if _rot_deg is not None:
+            result["anchored_position"]["rotation_deg"] = round(float(_rot_deg), 1)
         print(f"[10a*] ANCHOR-PRIMARY ({_anchor_src}): start "
               f"{_astart[0]:.5f}, {_astart[1]:.5f}")
 
@@ -2626,7 +3186,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 _orienternet_refine(
                     cfg, frames,
                     anchored_cand if anchored_cand is not None else candidates[0],
-                    road, position, result)
+                    road, position, result, vpr_track=vpr_track)
 
             result["position"] = position
             print()

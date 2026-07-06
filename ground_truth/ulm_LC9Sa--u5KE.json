@@ -1,0 +1,24 @@
+{
+  "video_id": "LC9Sa--u5KE",
+  "video_url": "https://www.youtube.com/watch?v=LC9Sa--u5KE",
+  "city": "Ulm, Germany",
+  "vo_segment": "0:500",
+  "description": "User-provided GPS waypoints (2026-07-04) for a second Ulm drive: south along the 9.9996 corridor, west near 48.4025, then the 48.397 east-west stretch ending with a small northward hook. 1:00 and 1:30 share a fix (stationary). 6th GT clip - the first added AFTER the July-2026 placement stack (Viterbi + fusion + gated OrienterNet) was tuned, so it doubles as a held-out generalization test.",
+  "waypoints": [
+    {"t_sec": 0,   "lat": 48.407536, "lon": 9.999614},
+    {"t_sec": 30,  "lat": 48.405302, "lon": 9.999987},
+    {"t_sec": 60,  "lat": 48.403567, "lon": 9.999626},
+    {"t_sec": 90,  "lat": 48.403567, "lon": 9.999626},
+    {"t_sec": 120, "lat": 48.402881, "lon": 9.999523},
+    {"t_sec": 150, "lat": 48.402489, "lon": 9.996789},
+    {"t_sec": 180, "lat": 48.401460, "lon": 9.996797},
+    {"t_sec": 210, "lat": 48.401636, "lon": 9.996760},
+    {"t_sec": 240, "lat": 48.398778, "lon": 9.996391},
+    {"t_sec": 270, "lat": 48.397766, "lon": 9.995819},
+    {"t_sec": 300, "lat": 48.397369, "lon": 9.994275},
+    {"t_sec": 360, "lat": 48.397284, "lon": 9.992920},
+    {"t_sec": 426, "lat": 48.397093, "lon": 9.988580},
+    {"t_sec": 472, "lat": 48.396961, "lon": 9.987170},
+    {"t_sec": 500, "lat": 48.396531, "lon": 9.988638}
+  ]
+}

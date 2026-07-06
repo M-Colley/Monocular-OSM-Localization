@@ -34,7 +34,7 @@ class FakeTileManager:
         self.query_calls = []
 
     @classmethod
-    def from_bbox(cls, proj, bbox, ppm):
+    def from_bbox(cls, proj, bbox, ppm, path=None):
         cls.from_bbox_calls.append(bbox)
         return cls(bbox)
 
@@ -93,11 +93,11 @@ def test_shared_manager_failure_falls_back_per_keyframe() -> None:
         first = True
 
         @classmethod
-        def from_bbox(cls, proj, bbox, ppm):
+        def from_bbox(cls, proj, bbox, ppm, path=None):
             if cls.first:
                 cls.first = False
                 raise ValueError("HTTP 400: bbox too large")
-            return super().from_bbox(proj, bbox, ppm)
+            return super().from_bbox(proj, bbox, ppm, path=path)
 
     FlakyManager.from_bbox_calls = []
     xy = np.array([[0.0, 0.0], [100.0, 0.0]])
@@ -108,3 +108,56 @@ def test_shared_manager_failure_falls_back_per_keyframe() -> None:
     assert len(canvases) == 2
     # The failed shared attempt is followed by two per-keyframe fetches.
     assert len(FlakyManager.from_bbox_calls) == 2
+
+
+def test_hung_shared_download_hits_deadline_then_falls_back() -> None:
+    """A download that streams forever (osm.org's slow-trickle mode, which
+    urllib3's per-op timeout never catches) must be abandoned at the hard
+    deadline instead of stalling the refine for 35+ minutes."""
+    import time as _time
+
+    class HungOnSharedManager(FakeTileManager):
+        calls = 0
+
+        @classmethod
+        def from_bbox(cls, proj, bbox, ppm, path=None):
+            cls.calls += 1
+            if cls.calls == 1:          # the shared whole-route fetch hangs
+                _time.sleep(30.0)
+            return super().from_bbox(proj, bbox, ppm, path=path)
+
+    HungOnSharedManager.from_bbox_calls = []
+    xy = np.array([[0.0, 0.0], [100.0, 0.0]])
+    t0 = _time.monotonic()
+    canvases = _fetch_canvases(
+        HungOnSharedManager, FakeBBox, proj=None, xy_all=xy,
+        tile_m=160.0, ppm=2, fetch_deadline_s=0.4,
+    )
+    assert _time.monotonic() - t0 < 10.0     # nowhere near the 30 s hang
+    assert len(canvases) == 2                # per-keyframe fallback served
+
+
+def test_json_cache_makes_second_run_offline(tmp_path) -> None:
+    """With cache_dir set, the first run writes the raw OSM JSON per bbox
+    and the second run performs ZERO downloads."""
+    from types import SimpleNamespace
+
+    class CachingManager(FakeTileManager):
+        downloads = 0
+
+        @classmethod
+        def from_bbox(cls, proj, bbox, ppm, path=None):
+            if path is not None and path.exists():
+                return cls(bbox)             # cache hit: no download
+            cls.downloads += 1
+            if path is not None:
+                path.write_text("{}", encoding="utf-8")
+            return cls(bbox)
+
+    proj = SimpleNamespace(latlonalt=(48.4, 9.99, 0.0))
+    xy = np.array([[0.0, 0.0], [100.0, 0.0], [200.0, 50.0]])
+    for expected_downloads in (1, 1):        # 2nd pass adds none
+        _fetch_canvases(CachingManager, FakeBBox, proj=proj, xy_all=xy,
+                        tile_m=160.0, ppm=2, cache_dir=tmp_path)
+        assert CachingManager.downloads == expected_downloads
+    assert len(list(tmp_path.glob("osm_*.json"))) == 1

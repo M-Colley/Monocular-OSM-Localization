@@ -52,6 +52,15 @@ CLIPS = [
         "--osm-around", "37.672466,-122.465576,1272", "--vo-segment", "0:240",
         "--ground-truth-waypoints", "ground_truth/comma_148.json",
         "--scale-lock", "--no-splat", "--no-aerial"]),
+    # Ulm #2 (LC9Sa--u5KE): added 2026-07-04 AFTER the Viterbi/fusion/top-K
+    # placement stack was tuned on the other clips — a held-out
+    # generalization check. Mapillary cache seeded from the Ulm-4K clip
+    # (same geocode centre/radius/cap -> same fetch signature).
+    ("Ulm #2 (held-out)", "lc9sa-u5ke-ulm-de-centre-ville-dashcam-4k-zhiroad-deutschland-ulmcity-ulm-german", [
+        "--url", "https://www.youtube.com/watch?v=LC9Sa--u5KE", "--skip-download",
+        "--city", "Ulm, Germany", "--vo-segment", "0:500", "--scale-lock",
+        "--ground-truth-waypoints", "ground_truth/ulm_LC9Sa--u5KE.json",
+        "--no-splat"]),
     # London: OCR super-res + the local OSM gazetteer (default on) recover the
     # sub-300 m anchors the rate-limited Nominatim path missed on this 720p
     # clip, dropping start error 1728 -> 295 m vs shape-only 1325 m.
@@ -68,6 +77,21 @@ CLIPS = [
 # full-city London graph is not enumerable, so the disc is an infra
 # necessity there, not a GT leak we can drop.
 MEGA_CITY_CLIPS = {"London (Bloomsbury)"}
+
+# Per-clip VGGT-Long trajectory override for --vggt-best. Only the clips where
+# a staged VGGT-Long trajectory BEATS the default end-to-end (A/B 2026-07-05):
+# London mean 70->43 / start 51->31, 0033 mean 137->118. Ulm-4K (172 vs 106)
+# and comma (170 vs 102) REGRESS with VGGT-Long — its globally-consistent
+# shape does not always yield a better matcher candidate pool — so they keep
+# the default. Poses must be pre-staged (scratchpad/vggt_fleet.sh); a missing
+# file makes the run fall back to the default trajectory (a warning, not an
+# error), so the flag is safe on a fresh checkout.
+VGGT_BEST = {
+    "KITTI drive_0033":
+        "data/local-36a50c34107a-drive-0033-karlsruhe-germany/vggt_long_poses.txt",
+    "London (Bloomsbury)":
+        "data/local-73200bdd8068-input-london-uk/vggt_long_poses.txt",
+}
 
 
 def _strip_osm_around(args: list[str]) -> list[str]:
@@ -144,18 +168,37 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--no-vpr", action="store_true",
                     help="skip the Mapillary VPR prior (on by default now — it "
                          "is the strongest blind lever; needs MLY_TOKEN env)")
+    ap.add_argument("--orienternet", action="store_true",
+                    help="add the gated OrienterNet metric head to every clip "
+                         "(track+start-pin gated, so it can only help or "
+                         "no-op; costs model load + Overpass tiles per run)")
+    ap.add_argument("--vggt-best", action="store_true",
+                    help="use a staged VGGT-Long trajectory on the clips where "
+                         "it beats the default e2e (0033, London — see "
+                         "VGGT_BEST); best-achievable benchmark, needs the "
+                         "poses pre-staged (scratchpad/vggt_fleet.sh)")
     opts = ap.parse_args(argv)
 
     # Mapillary VPR is the best blind prior we have (3-31 m to route on every
     # clip); on by default. Search radius auto-caps to the osm_around disc.
     vpr = [] if opts.no_vpr else ["--use-vpr-prior", "--vpr-source", "mapillary"]
     if vpr and not os.environ.get("MLY_TOKEN"):
-        print("WARNING: MLY_TOKEN not set — Mapillary VPR will fall back to "
-              "kartaview. Set it or pass --no-vpr.", flush=True)
+        print("NOTE: MLY_TOKEN not set — Mapillary refs are served from each "
+              "clip's warm cache; clips without one fall back to kartaview.",
+              flush=True)
 
     rows = []
     for name, slug, args in CLIPS:
         args = args + vpr
+        if opts.orienternet:
+            args = args + ["--use-orienternet"]
+        if opts.vggt_best and name in VGGT_BEST:
+            traj = ROOT / VGGT_BEST[name]
+            if traj.exists():
+                args = args + ["--vggt-long-trajectory", str(traj)]
+            else:
+                print(f"NOTE: {name} VGGT-Long poses not staged "
+                      f"({traj}); using default trajectory.", flush=True)
         if opts.blind and name not in MEGA_CITY_CLIPS:
             args = _strip_osm_around(args)
         print(f"\n{'='*70}\nRUNNING: {name}{' [blind]' if opts.blind else ''}\n{'='*70}",

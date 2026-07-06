@@ -81,6 +81,179 @@ def _refs(coords):
 
 
 # ---------------------------------------------------------------------------
+# _fetch_refs_mapillary — warm cache must serve WITHOUT a token (offline sweeps)
+# ---------------------------------------------------------------------------
+
+
+def _write_mly_cache(tmp_path: Path, center, radius_m, cap=1500) -> list[dict]:
+    refs = [{"id": i, "lat": center[0], "lon": center[1], "url": None}
+            for i in range(3)]
+    sig = kv._fetch_signature(center, radius_m, cap)
+    (tmp_path / "mly_ref_meta.json").write_text(
+        json.dumps({"signature": sig, "refs": refs}), encoding="utf-8")
+    (tmp_path / "ref_imgs.npz").write_bytes(b"placeholder")
+    return refs
+
+
+def test_fetch_refs_mapillary_warm_cache_needs_no_token(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A signature-matching ref cache is served before the token guard, with
+    zero network — offline GT sweeps must not silently lose the VPR prior."""
+    refs = _write_mly_cache(tmp_path, ULM, 500.0)
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    assert [r["id"] for r in got] == [r["id"] for r in refs]
+
+
+def test_fetch_refs_mapillary_no_token_no_cache_returns_empty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    assert kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None) == []
+
+
+def test_fetch_refs_mapillary_stale_signature_still_needs_token(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A cache built for OTHER params cannot cover the query: without a token
+    the fetch degrades to no refs instead of serving the wrong disc."""
+    _write_mly_cache(tmp_path, ULM, 500.0)
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    assert kv._fetch_refs_mapillary(ULM, 900.0, str(tmp_path), token=None) == []
+
+
+def test_has_mapillary_cache(tmp_path: Path) -> None:
+    assert not kv.has_mapillary_cache(None)
+    assert not kv.has_mapillary_cache(str(tmp_path))
+    _write_mly_cache(tmp_path, ULM, 500.0)
+    assert kv.has_mapillary_cache(str(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# _viterbi_decode — continuity kills confident-but-wrong retrievals
+# ---------------------------------------------------------------------------
+
+
+def test_viterbi_overrides_confident_outlier() -> None:
+    """Refs A0..A4 lie along a street ~100 m apart; ref B sits 3 km away.
+    Frame 2's argmax confidently picks B; its neighbours pick the A-chain.
+    The decode must keep frame 2 on the street."""
+    lat0 = 48.4
+    step = 100.0 / 111320.0
+    ref_ll = np.array([[lat0 + i * step, 9.99] for i in range(5)]
+                      + [[lat0 + 3000.0 / 111320.0, 9.99]])
+    sims = np.full((5, 6), 0.1)
+    for q in range(5):
+        sims[q, q] = 0.8                  # true chain
+    sims[2, 5] = 0.95                     # confident outlier at frame 2
+    sims[2, 2] = 0.60
+    path = kv._viterbi_decode(sims, ref_ll, dt_s=2.0)
+    assert path[2] == 2                   # continuity beats the outlier
+    assert list(path) == [0, 1, 2, 3, 4]
+    # per-frame argmax WOULD have taken the bait
+    assert int(sims[2].argmax()) == 5
+
+
+def test_viterbi_free_radius_allows_normal_motion() -> None:
+    """Consecutive refs within the plausible-drive radius carry no penalty:
+    a clean argmax chain is returned unchanged."""
+    lat0 = 48.4
+    step = 60.0 / 111320.0
+    ref_ll = np.array([[lat0 + i * step, 9.99] for i in range(4)])
+    sims = np.eye(4) * 0.9 + 0.05
+    path = kv._viterbi_decode(sims, ref_ll, dt_s=2.0)
+    assert list(path) == [0, 1, 2, 3]
+
+
+# ---------------------------------------------------------------------------
+# _fetch_refs_panoramax — STAC search, signed cache, stable ordering
+# ---------------------------------------------------------------------------
+
+
+class _FakePanoramax:
+    """requests stand-in for the Panoramax STAC ``/search`` endpoint."""
+
+    def __init__(self, features=None, fail=False):
+        self.features = features or []
+        self.fail = fail
+        self.calls: list[dict] = []
+
+    def Session(self):  # noqa: N802 - mimics requests API
+        outer = self
+
+        class _Resp:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def json(self):
+                return self._payload
+
+        class _Sess:
+            def get(self, url, params=None, timeout=None):
+                if outer.fail:
+                    raise AssertionError("network must not be hit")
+                outer.calls.append(dict(params or {}))
+                return _Resp({"features": outer.features})
+
+        return _Sess()
+
+
+def _pnx_feature(fid, lat, lon, assets=None):
+    if assets is None:
+        assets = {"sd": {"href": f"http://pnx/{fid}/sd.jpg"},
+                  "hd": {"href": f"http://pnx/{fid}/hd.jpg"}}
+    return {"id": fid, "geometry": {"type": "Point", "coordinates": [lon, lat]},
+            "assets": assets}
+
+
+def test_fetch_refs_panoramax_parses_and_sorts(tmp_path: Path, monkeypatch) -> None:
+    fake = _FakePanoramax(features=[
+        _pnx_feature("b", 48.40, 9.99),
+        _pnx_feature("a", 48.41, 9.98),
+        {"id": "broken", "geometry": {"coordinates": [9.97, 48.39]}, "assets": {}},
+    ])
+    monkeypatch.setitem(sys.modules, "requests", fake)
+    refs = kv._fetch_refs_panoramax(ULM, 500.0, str(tmp_path))
+    # sorted by id, the asset-less feature dropped, sd asset preferred
+    assert [r["id"] for r in refs] == ["a", "b"]
+    assert refs[0]["url"].endswith("/a/sd.jpg")
+    assert refs[0]["lat"] == pytest.approx(48.41)
+    assert len(fake.calls) > 0 and "bbox" in fake.calls[0]
+
+
+def test_fetch_refs_panoramax_cache_hit_and_invalidation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    fake = _FakePanoramax(features=[_pnx_feature("x", 48.40, 9.99)])
+    monkeypatch.setitem(sys.modules, "requests", fake)
+    refs = kv._fetch_refs_panoramax(ULM, 500.0, str(tmp_path))
+    assert [r["id"] for r in refs] == ["x"]
+    # warm hit: same params, network forbidden
+    monkeypatch.setitem(sys.modules, "requests", _FakePanoramax(fail=True))
+    assert kv._fetch_refs_panoramax(ULM, 500.0, str(tmp_path)) == refs
+    # different radius -> signature mismatch -> refetch
+    fake2 = _FakePanoramax(features=[_pnx_feature("y", 48.40, 9.99)])
+    monkeypatch.setitem(sys.modules, "requests", fake2)
+    assert [r["id"] for r in
+            kv._fetch_refs_panoramax(ULM, 900.0, str(tmp_path))] == ["y"]
+
+
+def test_fetch_refs_panoramax_caps_deterministically(
+    tmp_path: Path, monkeypatch
+) -> None:
+    feats = [_pnx_feature(f"id{i:04d}", 48.40 + i * 1e-5, 9.99) for i in range(40)]
+    fake = _FakePanoramax(features=feats)
+    monkeypatch.setitem(sys.modules, "requests", fake)
+    refs = kv._fetch_refs_panoramax(ULM, 500.0, str(tmp_path), cap=10)
+    assert len(refs) == 10
+    assert refs == sorted(refs, key=lambda r: r["id"])   # subsample keeps order
+
+
+# ---------------------------------------------------------------------------
 # _fetch_refs — cache must be keyed by (center, radius, cap)
 # ---------------------------------------------------------------------------
 

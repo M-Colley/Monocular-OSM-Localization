@@ -248,6 +248,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "intrinsic-free metric dashcam VO with lower drift than our VO "
                         "(196 vs 241 m global-fit RMS on Ulm). Tests whether a better "
                         "trajectory improves end-to-end OSM selection.")
+    p.add_argument("--vggt-long-trajectory", type=Path, default=None,
+                   help="Use a VGGT-Long camera_poses.txt (flattened 4x4 C2W "
+                        "rows; 12-col KITTI rows also accepted) as the matcher "
+                        "trajectory. ~30%% lower shape RMS than OpenVO on KITTI "
+                        "0033 (148.6 vs 211.0 m) but flag-gated: better shape "
+                        "has not implied better end-to-end before "
+                        "(MapAnything). Takes precedence over staged OpenVO.")
     p.add_argument("--no-openvo-default", action="store_true",
                    help="disable the default of auto-using a staged OpenVO trajectory "
                         "(<data_dir>/openvo_trajectory.txt) as the matcher input; force "
@@ -350,13 +357,31 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--vpr-search-radius", type=float, default=3000.0,
                    help="Radius (m) around the city centre to fetch VPR reference "
                         "photos for --use-vpr-prior (default 3000).")
-    p.add_argument("--vpr-source", choices=["kartaview", "mapillary"],
+    p.add_argument("--vpr-source", choices=["kartaview", "mapillary", "panoramax"],
                    default="kartaview",
                    help="VPR reference imagery source. 'kartaview' is open and "
                         "tokenless. 'mapillary' is much denser (needs a free "
                         "MLY_TOKEN env var) and gave a 3-31 m prior on every GT "
                         "clip, including London/comma/KITTI that KartaView could "
-                        "not cover.")
+                        "not cover. 'panoramax' is the federated open network "
+                        "(tokenless, 105M+ images 2026, strongest in EU) — a "
+                        "coverage complement where Mapillary is thin.")
+    p.add_argument("--vpr-two-pass", action="store_true",
+                   help="Match at both the VO scale and a scale pinned to the "
+                        "VPR track extent, keeping whichever candidates better "
+                        "explain the full VPR track. Fixes candidate SHAPE "
+                        "where the VO scale is wrong (London mean 355->76 m), "
+                        "but the anchor placement's own scale retry + "
+                        "orientation refine now reach the same headline "
+                        "without the second matching pass (A/B 2026-07-04: "
+                        "identical on London/Ulm/comma) — so off by default. "
+                        "Needs --use-vpr-prior.")
+    p.add_argument("--no-vpr-viterbi", action="store_true",
+                   help="Disable the Viterbi sequence decode of the VPR track "
+                        "(fall back to per-frame argmax retrieval). The decode "
+                        "is on by default: it transformed the weak clips "
+                        "(0009 mean 80->36 m, 0033 pins unlocked) for a small "
+                        "London cost (start 31->51 m); fleet mean 109.6->90.2 m.")
     p.add_argument("--use-vpr-sequence", action="store_true",
                    help="EXPERIMENTAL: score candidates against the per-frame VPR track "
                         "(sequence-median distance at matched arc fractions) instead of "
@@ -548,6 +573,7 @@ def main() -> None:
             use_mapanything_trajectory=args.use_mapanything_trajectory,
             openvo_trajectory_path=args.openvo_trajectory,
             prefer_openvo_trajectory=not args.no_openvo_default,
+            vggt_long_trajectory_path=args.vggt_long_trajectory,
             da3_keyframes=args.da3_keyframes,
             enable_full_splat=args.full_splat,
             full_splat_scale=args.full_splat_scale,
@@ -577,6 +603,8 @@ def main() -> None:
             use_vpr_prior=args.use_vpr_prior,
             vpr_source=args.vpr_source,
             use_vpr_sequence=args.use_vpr_sequence,
+            vpr_viterbi=not args.no_vpr_viterbi,
+            vpr_two_pass_scale=args.vpr_two_pass,
             use_plate_anchor=args.use_plate_anchor,
             use_vlm_anchor=args.use_vlm_anchor,
             vpr_search_radius_m=args.vpr_search_radius,

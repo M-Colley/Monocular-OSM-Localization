@@ -601,3 +601,370 @@ def test_drop_direction_anchors_noop_when_all_here(monkeypatch) -> None:
 def test_drop_direction_anchors_empty_input() -> None:
     kept, dropped = pipeline._drop_direction_anchors([], [], "x.mp4")
     assert kept == [] and dropped == []
+
+
+# ---------------------------------------------------------------------------
+# _vpr_track_geometry — shared sort -> robust-centre -> project helper
+# ---------------------------------------------------------------------------
+
+
+_UTM32N = "EPSG:32632"  # Ulm sits in UTM zone 32N
+
+
+def _cluster_track(n_side: int = 16, jitter_deg: float = 0.00005):
+    """Synthetic VPR track: a start cluster near (48.40, 9.98) and an end
+    cluster near (48.40, 10.00), returned in SHUFFLED frame order."""
+    rng = np.random.default_rng(7)
+    start = np.array([48.40, 9.98])
+    end = np.array([48.40, 10.00])
+    ll = np.vstack([
+        start + rng.normal(0, jitter_deg, (n_side, 2)),
+        end + rng.normal(0, jitter_deg, (n_side, 2)),
+    ])
+    idx = np.arange(2 * n_side)
+    sims = np.linspace(0.5, 0.9, 2 * n_side)
+    perm = rng.permutation(2 * n_side)
+    return (idx[perm], ll[perm], sims[perm]), start, end
+
+
+def test_vpr_track_geometry_sorts_and_projects() -> None:
+    track, start, end = _cluster_track()
+    geo = pipeline._vpr_track_geometry(track, _UTM32N)
+    assert geo is not None
+    vi, vll, vs, s_xy, e_xy = geo
+    # sorted by frame index, arrays kept parallel
+    assert list(vi) == sorted(vi)
+    assert vll.shape == (32, 2) and vs.shape == (32,)
+    from src.position import latlon_to_xy
+    true_ends = latlon_to_xy(np.vstack([start, end]), _UTM32N)
+    # robust centres land on the cluster centres (jitter is ~5 m)
+    assert np.linalg.norm(s_xy - true_ends[0]) < 30.0
+    assert np.linalg.norm(e_xy - true_ends[1]) < 30.0
+    # chord ~= 0.02 deg of longitude at 48.4N ~= 1.48 km
+    chord = np.linalg.norm(e_xy - s_xy)
+    assert 1300.0 < chord < 1650.0
+
+
+def test_vpr_track_geometry_none_on_missing_or_empty() -> None:
+    assert pipeline._vpr_track_geometry(None, _UTM32N) is None
+    empty = (np.array([]), np.zeros((0, 2)), np.array([]))
+    assert pipeline._vpr_track_geometry(empty, _UTM32N) is None
+
+
+# ---------------------------------------------------------------------------
+# _rotation_refine_about_start — orientation residual on the pinned candidate
+# ---------------------------------------------------------------------------
+
+
+def _l_route(n: int = 200) -> np.ndarray:
+    """L-shaped ~1.5 km route in local metres, start at the origin."""
+    a = np.linspace([0.0, 0.0], [1000.0, 0.0], n // 2)
+    b = np.linspace([1000.0, 0.0], [1000.0, 500.0], n - n // 2)
+    return np.vstack([a, b])
+
+
+def _track_for(traj: np.ndarray, n_frames: int = 300, n_track: int = 40,
+               noise_m: float = 20.0, seed: int = 3):
+    """Per-frame 'VPR' observations of ``traj`` at uniform frame fractions."""
+    rng = np.random.default_rng(seed)
+    idx = np.linspace(0, n_frames - 1, n_track).astype(int)
+    rows = np.round(idx / (n_frames - 1) * (len(traj) - 1)).astype(int)
+    track = traj[rows] + rng.normal(0, noise_m, (n_track, 2))
+    return idx, track, np.ones(n_track)
+
+
+def _rot_about_start(traj: np.ndarray, deg: float) -> np.ndarray:
+    t = np.radians(deg)
+    c, s = np.cos(t), np.sin(t)
+    R = np.array([[c, -s], [s, c]])
+    return (R @ (traj - traj[0]).T).T + traj[0]
+
+
+def test_rotation_refine_recovers_true_heading() -> None:
+    """A candidate rotated 60 deg off the track's heading is rotated back:
+    the far end returns to truth and both margin gates pass."""
+    truth = _l_route()
+    idx, track, sims = _track_for(truth)
+    cand = _rot_about_start(truth, 60.0)
+    out = pipeline._rotation_refine_about_start(cand, idx, track, sims, 300)
+    assert out is not None
+    rot, deg, base, best = out
+    assert best < 0.75 * base and base - best >= 20.0
+    # recovered angle cancels the applied one (circular diff)
+    assert abs(((deg + 60.0) + 180.0) % 360.0 - 180.0) < 1.5
+    assert np.linalg.norm(rot[-1] - truth[-1]) < 60.0
+    # the pivot never moves: start stays pinned
+    assert np.allclose(rot[0], cand[0], atol=1e-9)
+
+
+def test_rotation_refine_robust_to_confident_outliers() -> None:
+    """25% confident-but-wrong track points (the failure mode that sank the
+    endpoint-based 2-point fit) do not break the median objective."""
+    truth = _l_route()
+    idx, track, sims = _track_for(truth)
+    n_bad = len(track) // 4
+    track[:n_bad] = track[:n_bad] + np.array([2500.0, -1800.0])
+    sims[:n_bad] = 1.2                      # outliers claim top confidence
+    cand = _rot_about_start(truth, -75.0)
+    out = pipeline._rotation_refine_about_start(cand, idx, track, sims, 300)
+    assert out is not None
+    rot, deg, base, best = out
+    assert abs(((deg - 75.0) + 180.0) % 360.0 - 180.0) < 3.0
+    assert np.linalg.norm(rot[-1] - truth[-1]) < 100.0
+
+
+def test_rotation_refine_noop_when_already_aligned() -> None:
+    """A correctly-oriented candidate gains nothing worth the margin gates ->
+    None (keep the matcher's heading; never chase track noise)."""
+    truth = _l_route()
+    idx, track, sims = _track_for(truth)
+    assert pipeline._rotation_refine_about_start(truth, idx, track, sims, 300) is None
+
+
+def test_rotation_refine_rejects_unexplainable_track() -> None:
+    """A track the route cannot lie on at ANY rotation (translated 1.2 km off
+    the pinned start) fails the explain gate even if some rotation helps."""
+    truth = _l_route()
+    idx, track, sims = _track_for(truth)
+    track = track + np.array([1200.0, 900.0])
+    out = pipeline._rotation_refine_about_start(truth, idx, track, sims, 300)
+    assert out is None
+
+
+# ---------------------------------------------------------------------------
+# _pick_top_k_placement — the fused track median arbitrates candidate choice
+# ---------------------------------------------------------------------------
+
+
+def test_top_k_placement_challenger_needs_the_margin() -> None:
+    # 28 vs 30 m: inside the 10%+10 m margin -> rank 0 keeps the answer
+    assert pipeline._pick_top_k_placement([(0, 30.0), (1, 28.0)]) == 0
+    # 60 vs 200 m: decisive -> the challenger wins
+    assert pipeline._pick_top_k_placement([(0, 200.0), (2, 60.0)]) == 2
+
+
+def test_top_k_placement_rank0_wins_ties_and_none_challengers() -> None:
+    assert pipeline._pick_top_k_placement([(0, 50.0), (1, 50.0)]) == 0
+    assert pipeline._pick_top_k_placement([(0, 50.0), (1, None)]) == 0
+    assert pipeline._pick_top_k_placement([]) is None
+
+
+def test_top_k_placement_unplaceable_rank0_hands_off() -> None:
+    """When rank 0 failed every pin guard, the best challenger takes it."""
+    assert pipeline._pick_top_k_placement([(1, 90.0), (2, 40.0)]) == 2
+
+
+def test_place_candidate_on_track_full_chain() -> None:
+    """A drifted candidate runs the whole pin->rotate->fuse chain and comes
+    back with a finite track median + the winner's log notes."""
+    truth = _l_route()
+    idx, track, sims = _track_for(truth, n_track=40, noise_m=15.0)
+    drifted = _rot_about_start(_drifted(truth, 120.0), 60.0)
+    s_xy, e_xy = truth[0], truth[-1]
+    vpr_xy = truth.mean(axis=0)
+    res = pipeline._place_candidate_on_track(
+        drifted, s_xy, e_xy, vpr_xy, idx, track, sims, 300)
+    assert res is not None
+    placed, mode, rot_deg, med, notes = res
+    assert "startpin" in mode and "+rot" in mode and "+fuse" in mode
+    assert med is not None and med < 60.0
+    assert np.allclose(placed[0], s_xy, atol=1e-6)   # pin survives the chain
+    assert len(notes) == 2
+
+
+# ---------------------------------------------------------------------------
+# _pose_txt_xz — KITTI 3x4 and VGGT-Long 4x4 pose files -> top-down path
+# ---------------------------------------------------------------------------
+
+
+def test_pose_txt_xz_reads_both_layouts(tmp_path: Path) -> None:
+    tx, tz = [1.0, 2.0, 3.0], [10.0, 20.0, 30.0]
+    kitti = tmp_path / "openvo_trajectory.txt"
+    kitti.write_text("\n".join(
+        " ".join(str(v) for v in [1, 0, 0, tx[i], 0, 1, 0, 0.5, 0, 0, 1, tz[i]])
+        for i in range(3)), encoding="utf-8")
+    c2w = tmp_path / "camera_poses.txt"
+    c2w.write_text("\n".join(
+        " ".join(str(v) for v in [1, 0, 0, tx[i], 0, 1, 0, 0.5,
+                                  0, 0, 1, tz[i], 0, 0, 0, 1])
+        for i in range(3)), encoding="utf-8")
+    for f in (kitti, c2w):
+        xz = pipeline._pose_txt_xz(f)
+        assert xz is not None and xz.shape == (3, 2)
+        assert np.allclose(xz[:, 0], tx) and np.allclose(xz[:, 1], tz)
+
+
+def test_pose_txt_xz_rejects_bad_files(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.txt"
+    bad.write_text("1 2 3\n4 5 6\n", encoding="utf-8")      # wrong width
+    assert pipeline._pose_txt_xz(bad) is None
+    nan = tmp_path / "nan.txt"
+    nan.write_text(" ".join(["nan"] * 16) + "\n" + " ".join(["1"] * 16),
+                   encoding="utf-8")
+    assert pipeline._pose_txt_xz(nan) is None
+    assert pipeline._pose_txt_xz(tmp_path / "missing.txt") is None
+
+
+# ---------------------------------------------------------------------------
+# _elastic_fuse_track — bend out low-frequency VO drift toward the VPR track
+# ---------------------------------------------------------------------------
+
+
+def _drifted(truth: np.ndarray, amp_m: float) -> np.ndarray:
+    """Truth plus a smooth quadratic drift growing to ``amp_m`` at the end —
+    the low-frequency VO error no rigid transform can express."""
+    s = np.linspace(0.0, 1.0, len(truth))[:, None]
+    return truth + np.array([[0.0, 1.0]]) * amp_m * s ** 2
+
+
+def test_elastic_fuse_recovers_smooth_drift() -> None:
+    truth = _l_route()
+    idx, track, sims = _track_for(truth, n_track=40, noise_m=15.0)
+    drifted = _drifted(truth, 120.0)
+    out = pipeline._elastic_fuse_track(drifted, idx, track, sims, 300)
+    assert out is not None
+    fused, rigid_med, fused_med = out
+    assert fused_med < rigid_med
+    # the drifted end sits 120 m off; fusion pulls it most of the way back
+    assert np.linalg.norm(drifted[-1] - truth[-1]) > 100.0
+    assert np.linalg.norm(fused[-1] - truth[-1]) < 45.0
+    # the pinned start never moves
+    assert np.allclose(fused[0], drifted[0], atol=1e-9)
+
+
+def test_elastic_fuse_noop_when_already_on_track() -> None:
+    """No drift to fix -> the margin gates reject chasing track noise."""
+    truth = _l_route()
+    idx, track, sims = _track_for(truth, n_track=40, noise_m=15.0)
+    assert pipeline._elastic_fuse_track(truth, idx, track, sims, 300) is None
+
+
+def test_elastic_fuse_robust_to_confident_outliers() -> None:
+    truth = _l_route()
+    idx, track, sims = _track_for(truth, n_track=40, noise_m=15.0)
+    n_bad = len(track) // 4
+    track[10:10 + n_bad] += np.array([1800.0, -2200.0])
+    sims[10:10 + n_bad] = 1.5
+    drifted = _drifted(truth, 120.0)
+    out = pipeline._elastic_fuse_track(drifted, idx, track, sims, 300)
+    assert out is not None
+    assert np.linalg.norm(out[0][-1] - truth[-1]) < 60.0
+
+
+def test_elastic_fuse_rejects_oversized_deformation() -> None:
+    """A track offset 500 m from the route needs a >300 m bend -> None
+    (that is a wrong-hypothesis signal, not drift)."""
+    truth = _l_route()
+    idx, track, sims = _track_for(truth, n_track=40, noise_m=10.0)
+    track = track + np.array([500.0, 0.0])
+    assert pipeline._elastic_fuse_track(truth, idx, track, sims, 300) is None
+
+
+def test_elastic_fuse_degenerate_inputs() -> None:
+    truth = _l_route()
+    idx, track, sims = _track_for(truth, n_track=10)   # < min track pts
+    assert pipeline._elastic_fuse_track(truth, idx, track, sims, 300) is None
+
+
+# ---------------------------------------------------------------------------
+# _orienternet_refine — track-gated acceptance of the neural refinement
+# ---------------------------------------------------------------------------
+
+
+def _onet_setup(tmp_path: Path, refined_shift_m: float, track_noise_m: float):
+    """Build the fixtures for an _orienternet_refine call: a 1 km route near
+    Ulm in EPSG:32632, a VPR track observing it, and a fake refine_route that
+    returns the route shifted east by ``refined_shift_m``."""
+    from types import SimpleNamespace
+
+    from src.position import xy_to_latlon
+
+    rng = np.random.default_rng(11)
+    xy = np.column_stack([np.linspace(570000.0, 571000.0, 60),
+                          np.full(60, 5360000.0)])
+    n_frames = 300
+    t_idx = np.linspace(0, n_frames - 1, 40).astype(int)
+    rows = np.round(t_idx / (n_frames - 1) * (len(xy) - 1)).astype(int)
+    track_ll = xy_to_latlon(
+        xy[rows] + rng.normal(0, track_noise_m, (len(rows), 2)), _UTM32N)
+    vpr_track = (t_idx, track_ll, np.ones(len(t_idx)))
+    refined_ll = xy_to_latlon(xy + np.array([refined_shift_m, 0.0]), _UTM32N)
+
+    cfg = _cfg(tmp_path)
+    frames = SimpleNamespace(frames=list(range(n_frames)))
+    cand = SimpleNamespace(aligned_traj_xy=xy)
+    road = SimpleNamespace(crs=_UTM32N)
+    position = {"latitude": 1.0, "longitude": 2.0}
+    result: dict = {}
+    return cfg, frames, cand, road, position, result, vpr_track, refined_ll
+
+
+def test_orienternet_gate_rejects_off_track_refinement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refinement that explains the VPR track worse than the route it
+    started from must NOT overwrite the position (London: 31 -> 190 m)."""
+    import src.orienternet_localizer as onl
+
+    cfg, frames, cand, road, position, result, vpr_track, refined_ll = \
+        _onet_setup(tmp_path, refined_shift_m=500.0, track_noise_m=5.0)
+    monkeypatch.setattr(onl, "refine_route", lambda *a, **k: refined_ll)
+    pipeline._orienternet_refine(cfg, frames, cand, road, position, result,
+                                 vpr_track=vpr_track)
+    assert position == {"latitude": 1.0, "longitude": 2.0}   # untouched
+    assert result["orienternet"]["applied"] is False
+    assert result["orienternet"]["track_fit_refined_m"] > \
+        result["orienternet"]["track_fit_route_m"]
+
+
+def test_orienternet_start_gate_rejects_dragged_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The London failure shape: the refined route's BODY still fits the track
+    (track gate passes) but the START is dragged far off the pinned start ->
+    rejected on start-pinned runs."""
+    import src.orienternet_localizer as onl
+
+    from src.position import xy_to_latlon
+
+    cfg, frames, cand, road, position, result, vpr_track, _ = \
+        _onet_setup(tmp_path, refined_shift_m=0.0, track_noise_m=40.0)
+    result["anchored_position"] = {"source": "vpr_startpin+rot"}
+    warped = np.asarray(cand.aligned_traj_xy, dtype=np.float64).copy()
+    warped[:4] += np.array([300.0, 0.0])   # drag only the very start: the
+    # body still fits the ~40 m-noise track (median barely moves, track gate
+    # passes) — exactly how London slipped through on the track gate alone
+    refined_ll = xy_to_latlon(warped, _UTM32N)
+    monkeypatch.setattr(onl, "refine_route", lambda *a, **k: refined_ll)
+    pipeline._orienternet_refine(cfg, frames, cand, road, position, result,
+                                 vpr_track=vpr_track)
+    assert position == {"latitude": 1.0, "longitude": 2.0}   # untouched
+    assert result["orienternet"]["applied"] is False
+    assert "pinned start" in result["orienternet"]["reason"]
+
+
+def test_orienternet_gate_accepts_on_track_refinement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refinement that fits the track as well as the prior route is applied
+    (position overwritten, coarse kept)."""
+    import src.orienternet_localizer as onl
+
+    cfg, frames, cand, road, position, result, vpr_track, refined_ll = \
+        _onet_setup(tmp_path, refined_shift_m=3.0, track_noise_m=30.0)
+    monkeypatch.setattr(onl, "refine_route", lambda *a, **k: refined_ll)
+    pipeline._orienternet_refine(cfg, frames, cand, road, position, result,
+                                 vpr_track=vpr_track)
+    assert result["orienternet"]["applied"] is True
+    assert position["coarse_latitude"] == 1.0
+    assert position["latitude"] == pytest.approx(refined_ll[0][0], abs=1e-4)
+
+
+def test_rotation_refine_degenerate_inputs() -> None:
+    """Too few track points or a stub route -> None (unobservable)."""
+    truth = _l_route()
+    idx, track, sims = _track_for(truth, n_track=5)
+    assert pipeline._rotation_refine_about_start(truth, idx, track, sims, 300) is None
+    stub = np.array([[0.0, 0.0], [30.0, 0.0], [60.0, 0.0]])
+    idx2, track2, sims2 = _track_for(stub, n_track=12)
+    assert pipeline._rotation_refine_about_start(stub, idx2, track2, sims2, 300) is None

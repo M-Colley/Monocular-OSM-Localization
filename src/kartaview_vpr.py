@@ -107,23 +107,22 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
     a *much* denser source than KartaView on most areas (validated: a MegaLoc
     prior from these lands 3-31 m from the GT route on all clips, incl. the
     ones KartaView could not cover). Needs a free access token (``MLY_TOKEN``
-    env var or ``token=``). Returns [] with no token / on error.
+    env var or ``token=``) unless a warm ref cache covers the query. Returns
+    [] with no token and no warm cache / on error.
 
     No metadata cache: Mapillary thumbnail URLs are signed and expire, so we
     re-query metadata each run (cheap) and rely on the fingerprinted image
     cache (``ref_imgs.npz``) to skip the expensive download+embed on warm runs.
     Refs are sorted by id so that fingerprint is stable across runs.
     """
-    import requests
-    token = token or os.environ.get("MLY_TOKEN")
-    if not token:
-        return []
     # Persistent ref cache (id/lat/lon only — NOT the expiring thumb URLs) so
     # the ref set (hence the prior) is REPRODUCIBLE across runs. Without it,
     # Mapillary returns a slightly different id-set each query, the image-cache
     # fingerprint drifts, and a different subsample is used run-to-run (seen:
     # London prior wandered 91 m vs 356 m). On a warm hit with the embedded-
     # image cache present, we reuse the cached refs and never re-download.
+    # Checked BEFORE the token guard: a warm cache needs no API access, so
+    # offline regression sweeps run without MLY_TOKEN.
     sig = _fetch_signature(center, radius_m, cap)
     meta = os.path.join(cache_dir, "mly_ref_meta.json") if cache_dir else None
     npz = os.path.join(cache_dir, "ref_imgs.npz") if cache_dir else None
@@ -134,6 +133,10 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
                 return blob["refs"]  # url=None; the npz image cache is used
         except Exception:
             pass
+    import requests
+    token = token or os.environ.get("MLY_TOKEN")
+    if not token:
+        return []
     clat, clon = center
     dlat = radius_m / 111320.0
     dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
@@ -184,10 +187,88 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
     return out
 
 
+def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):
+    """Panoramax street-level refs (federated open imagery, STAC ``/search``)
+    as ``[{id,lat,lon,url}]`` — tokenless and openly licensed; the coverage
+    complement to Mapillary (105M+ images across 12 instances by mid-2026,
+    strongest in France/EU; probe 2026-07-04: 500+ hits on Ulm, both
+    Karlsruhe sites and London, zero on Daly City). Same signed metadata
+    cache pattern as the other sources (``pnx_ref_meta.json``), so warm
+    reruns are reproducible and offline.
+    """
+    import requests
+    sig = _fetch_signature(center, radius_m, cap)
+    meta = os.path.join(cache_dir, "pnx_ref_meta.json") if cache_dir else None
+    if meta and os.path.exists(meta):
+        try:
+            blob = json.load(open(meta))
+            if isinstance(blob, dict) and blob.get("signature") == sig:
+                return blob["refs"]
+        except Exception:
+            pass
+    clat, clon = center
+    dlat = radius_m / 111320.0
+    dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
+    # The meta-catalog serves at most ~500 features per search and (observed)
+    # no next-page link, so tile the disc into sub-bboxes small enough that
+    # each stays under that ceiling in dense areas.
+    n = max(1, int(np.ceil(2.0 * radius_m / 700.0)))
+    las = np.linspace(clat - dlat, clat + dlat, n + 1)
+    los = np.linspace(clon - dlon, clon + dlon, n + 1)
+    cells = [(los[j], las[i], los[j + 1], las[i + 1])
+             for i in range(n) for j in range(n)]
+    sess = requests.Session()
+
+    def query(cell):
+        try:
+            r = sess.get("https://api.panoramax.xyz/api/search",
+                         params={"bbox": ",".join(f"{v:.6f}" for v in cell),
+                                 "limit": 500}, timeout=30)
+            return r.json().get("features", [])
+        except Exception:
+            return []
+
+    refs = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for feats in ex.map(query, cells):
+            for f in feats:
+                try:
+                    lon, lat = f["geometry"]["coordinates"][:2]
+                    assets = f.get("assets", {})
+                    a = assets.get("sd") or assets.get("thumb") or assets.get("hd")
+                    if not a or not a.get("href"):
+                        continue
+                    refs[str(f["id"])] = {"lat": float(lat), "lon": float(lon),
+                                          "url": a["href"]}
+                except Exception:
+                    continue
+    # Sort by id so the subsample (hence the image-cache fingerprint and the
+    # prior) is reproducible run-to-run, like the Mapillary fetcher.
+    refs = [{"id": k, **refs[k]} for k in sorted(refs)]
+    if len(refs) > cap:
+        refs = [refs[i] for i in np.linspace(0, len(refs) - 1, cap).astype(int)]
+    if meta and refs:
+        os.makedirs(cache_dir, exist_ok=True)
+        json.dump({"signature": sig, "refs": refs}, open(meta, "w"))
+    return refs
+
+
+def has_mapillary_cache(cache_dir) -> bool:
+    """True when a reusable Mapillary ref cache (metadata + image blob)
+    exists, so a warm rerun can skip the MLY_TOKEN requirement entirely.
+    (Whether it actually COVERS the query is decided by the signature check
+    in :func:`_fetch_refs_mapillary`; a mismatch degrades to no refs.)"""
+    return bool(cache_dir) and all(
+        os.path.exists(os.path.join(cache_dir, f))
+        for f in ("mly_ref_meta.json", "ref_imgs.npz"))
+
+
 def _fetch_refs_for(source, center, radius_m, cache_dir, cap, token):
     """Dispatch to the requested VPR reference source."""
     if source == "mapillary":
         return _fetch_refs_mapillary(center, radius_m, cache_dir, cap=cap, token=token)
+    if source == "panoramax":
+        return _fetch_refs_panoramax(center, radius_m, cache_dir, cap=cap)
     return _fetch_refs(center, radius_m, cache_dir, cap=cap)
 
 
@@ -371,15 +452,52 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         return None
 
 
+def _viterbi_decode(sims: np.ndarray, ref_latlon: np.ndarray,
+                    dt_s: float) -> np.ndarray:
+    """Continuity-constrained reference sequence for the query frames.
+
+    Per-frame argmax retrieval produces the confident-but-wrong matches that
+    every downstream gate exists to survive; a Viterbi decode with a
+    transition penalty per metre beyond what a vehicle plausibly drives
+    between query frames kills them at the SOURCE. Offline A/B
+    (scripts/test_vpr_viterbi.py, all 5 GT clips): per-frame median improves
+    everywhere (London 127->52 m, KITTI-0033 505->212 m), the p90 outlier
+    tail collapses ~5-8x (Ulm 1198->208 m), the start-region robust centre
+    is unchanged. Returns the per-query reference indices.
+    """
+    n_q, n_r = sims.shape
+    lat0 = float(np.mean(ref_latlon[:, 0]))
+    xy = np.column_stack([
+        ref_latlon[:, 1] * 111320.0 * np.cos(np.radians(lat0)),
+        ref_latlon[:, 0] * 111320.0])
+    d = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=2)
+    free = 30.0 + 40.0 * max(dt_s, 0.5)          # generous urban speed cap
+    trans = -0.02 * np.maximum(0.0, d - free)    # sim-points per excess metre
+    score = sims[0].astype(np.float64).copy()
+    back = np.zeros((n_q, n_r), dtype=np.int32)
+    for q in range(1, n_q):
+        cand = score[:, None] + trans
+        back[q] = np.argmax(cand, axis=0)
+        score = cand[back[q], np.arange(n_r)] + sims[q]
+    path = np.zeros(n_q, dtype=np.int32)
+    path[-1] = int(np.argmax(score))
+    for q in range(n_q - 2, -1, -1):
+        path[q] = back[q + 1][path[q + 1]]
+    return path
+
+
 def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
                         cache_dir=None, n_query=80, device=None,
                         model_name="megaloc", source="kartaview", token=None,
-                        cap=1500):
+                        cap=1500, sequence_decode=True, query_dt_s=4.0):
     """Per-frame VPR positions: a sparse, noisy 'GPS' track to fit the trajectory
     to (anchor-primary v2). Returns ``(query_indices, latlons[N,2], sims[N])`` for
     ``n_query`` frames sampled uniformly across the clip, or ``None``. Unlike the
     single-point prior, this constrains the trajectory's ORIENTATION + start, not
-    just its centre. ``source`` selects ``"kartaview"`` or ``"mapillary"``.
+    just its centre. ``source`` selects ``"kartaview"``/``"mapillary"``/
+    ``"panoramax"``. ``sequence_decode`` (default on) replaces per-frame argmax
+    with the continuity-constrained Viterbi decode; ``query_dt_s`` is the real
+    seconds between query frames (sets the transition free radius).
     """
     global _MEAN, _STD, _MODEL
     try:
@@ -413,7 +531,13 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
         q_emb = _embed(device, [_prep(frames_bgr[i]) for i in idx])
         sims = (q_emb @ ref_emb.T).numpy()
         top1 = sims.argmax(1)
-        maxsim = sims.max(1)
+        if sequence_decode and len(idx) >= 3:
+            try:
+                top1 = _viterbi_decode(sims, np.asarray(ref_xy, float),
+                                       float(query_dt_s))
+            except Exception:
+                pass                      # keep the argmax track
+        maxsim = sims[np.arange(len(idx)), top1]
         return idx, ref_xy[top1].astype(float), maxsim.astype(float)
     except Exception:
         return None
