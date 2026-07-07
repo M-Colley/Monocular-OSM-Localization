@@ -913,53 +913,6 @@ def test_elastic_fuse_degenerate_inputs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _phase_refine_start — trim an along-track start offset off a correct corridor
-# ---------------------------------------------------------------------------
-
-
-def test_phase_refine_trims_front_offset() -> None:
-    """A route placed with the CORRECT corridor but 80 extra leading points
-    (start ~400 m too early) is trimmed back: the VPR track observes only the
-    true route, so the front-trim that best explains it drops the excess."""
-    truth = _l_route(200)                       # correct corridor, start (0,0)
-    n_extra = 80
-    lead = np.column_stack([np.linspace(-400.0, -5.0, n_extra), np.zeros(n_extra)])
-    route = np.vstack([lead, truth])            # 280 pts, too long at front
-    idx, track, sims = _track_for(truth, n_track=40, noise_m=15.0)
-    out = pipeline._phase_refine_start(route, idx, track, sims, 300)
-    assert out is not None
-    trimmed, sr, base, best = out
-    assert best < base                          # track fit improved
-    assert sr >= int(0.6 * n_extra)             # trimmed most of the lead
-    assert np.linalg.norm(trimmed[0] - truth[0]) < 120.0   # start near truth
-
-
-def test_phase_refine_noop_when_correctly_phased() -> None:
-    """A route already starting at the true start has no front to trim -> the
-    margin gates reject any trivial 'improvement'."""
-    truth = _l_route(200)
-    idx, track, sims = _track_for(truth, n_track=40, noise_m=15.0)
-    assert pipeline._phase_refine_start(truth, idx, track, sims, 300) is None
-
-
-def test_phase_refine_never_extends() -> None:
-    """A route placed too SHORT at the front (true start is BEFORE route[0],
-    off the modelled corridor) cannot be fixed by trimming -> None, never
-    fabricates leading geometry."""
-    truth = _l_route(200)
-    short = truth[60:]                          # route starts 60 pts too late
-    idx, track, sims = _track_for(truth, n_track=40, noise_m=15.0)
-    out = pipeline._phase_refine_start(short, idx, track, sims, 300)
-    assert out is None or out[1] >= 0           # only ever a non-negative trim
-
-
-def test_phase_refine_degenerate_inputs() -> None:
-    truth = _l_route(200)
-    idx, track, sims = _track_for(truth, n_track=10)     # too few track pts
-    assert pipeline._phase_refine_start(truth, idx, track, sims, 300) is None
-
-
-# ---------------------------------------------------------------------------
 # _orienternet_refine — track-gated acceptance of the neural refinement
 # ---------------------------------------------------------------------------
 

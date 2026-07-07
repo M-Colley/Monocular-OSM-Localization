@@ -357,6 +357,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--vpr-search-radius", type=float, default=3000.0,
                    help="Radius (m) around the city centre to fetch VPR reference "
                         "photos for --use-vpr-prior (default 3000).")
+    p.add_argument("--vpr-cap", type=int, default=1500,
+                   help="Max VPR reference photos fetched+embedded per clip "
+                        "(default 1500). The fetch uniform-subsamples to this "
+                        "cap, so a low cap thins dense areas; raise it to "
+                        "densify retrieval-bound starts (cold-cache refetch).")
     p.add_argument("--vpr-source", choices=["kartaview", "mapillary", "panoramax"],
                    default="kartaview",
                    help="VPR reference imagery source. 'kartaview' is open and "
@@ -613,6 +618,7 @@ def main() -> None:
             use_plate_anchor=args.use_plate_anchor,
             use_vlm_anchor=args.use_vlm_anchor,
             vpr_search_radius_m=args.vpr_search_radius,
+            vpr_ref_cap=args.vpr_cap,
             use_sun_heading=args.use_sun_heading,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,
