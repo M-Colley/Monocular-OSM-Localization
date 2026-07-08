@@ -1,0 +1,90 @@
+[
+ {
+  "name": "Ulm 4K",
+  "city": "Ulm, Germany",
+  "city_center": [
+   48.3984968,
+   9.9912458
+  ],
+  "city_start_err": 998.8018999540319,
+  "city_centroid_err": 394.031178297734,
+  "plate": [
+   48.3984968,
+   9.9912458,
+   "UL",
+   "Ulm"
+  ],
+  "plate_start_err": 998.8018999540319,
+  "plate_radius_m": 20000.0
+ },
+ {
+  "name": "KITTI 0009",
+  "city": "Karlsruhe, Germany",
+  "city_center": [
+   49.0068705,
+   8.4034195
+  ],
+  "city_start_err": 2477.1923021165417,
+  "city_centroid_err": 2639.294373291281,
+  "plate": null,
+  "plate_start_err": null,
+  "plate_radius_m": null
+ },
+ {
+  "name": "KITTI 0033",
+  "city": "Karlsruhe, Germany",
+  "city_center": [
+   49.0068705,
+   8.4034195
+  ],
+  "city_start_err": 6574.265040545754,
+  "city_centroid_err": 6837.874756004239,
+  "plate": null,
+  "plate_start_err": null,
+  "plate_radius_m": null
+ },
+ {
+  "name": "comma2k19",
+  "city": "Daly City, California, USA",
+  "city_center": [
+   37.6904826,
+   -122.47267
+  ],
+  "city_start_err": 2013.9036848064884,
+  "city_centroid_err": 2061.4034838192765,
+  "plate": null,
+  "plate_start_err": null,
+  "plate_radius_m": null
+ },
+ {
+  "name": "Ulm #2",
+  "city": "Ulm, Germany",
+  "city_center": [
+   48.3984968,
+   9.9912458
+  ],
+  "city_start_err": 1181.0713781252869,
+  "city_centroid_err": 397.5446123821211,
+  "plate": [
+   48.3984968,
+   9.9912458,
+   "UL",
+   "Ulm"
+  ],
+  "plate_start_err": 1181.0713781252869,
+  "plate_radius_m": 20000.0
+ },
+ {
+  "name": "London",
+  "city": "London, UK",
+  "city_center": [
+   51.5074456,
+   -0.1277653
+  ],
+  "city_start_err": 2200.058969199254,
+  "city_centroid_err": 1741.302183440231,
+  "plate": null,
+  "plate_start_err": null,
+  "plate_radius_m": null
+ }
+]

@@ -1,0 +1,84 @@
+[
+ {
+  "name": "Ulm 4K",
+  "gt0": [
+   48.405933,
+   9.983683
+  ],
+  "vlm": [
+   48.4030832,
+   9.9914587,
+   "Schaffnerstra\u00dfe"
+  ],
+  "vlm_start_err": 656.3770931609455,
+  "plate": null,
+  "plate_start_err": null
+ },
+ {
+  "name": "KITTI 0009",
+  "gt0": [
+   49.009348,
+   8.437134
+  ],
+  "vlm": null,
+  "vlm_start_err": null,
+  "plate": [
+   49.0068705,
+   8.4034195,
+   "Karlsruhe"
+  ],
+  "plate_start_err": 2477.1923021165417
+ },
+ {
+  "name": "KITTI 0033",
+  "gt0": [
+   48.972105,
+   8.476147
+  ],
+  "vlm": null,
+  "vlm_start_err": null,
+  "plate": null,
+  "plate_start_err": null
+ },
+ {
+  "name": "comma2k19",
+  "gt0": [
+   37.674993,
+   -122.460861
+  ],
+  "vlm": null,
+  "vlm_start_err": null,
+  "plate": null,
+  "plate_start_err": null
+ },
+ {
+  "name": "Ulm #2",
+  "gt0": [
+   48.407536,
+   9.999614
+  ],
+  "vlm": null,
+  "vlm_start_err": null,
+  "plate": [
+   48.3984968,
+   9.9912458,
+   "Ulm"
+  ],
+  "plate_start_err": 1181.0713781252869
+ },
+ {
+  "name": "London",
+  "gt0": [
+   51.527047,
+   -0.131824
+  ],
+  "vlm": [
+   51.4966697,
+   -0.1413081,
+   "Victoria Street"
+  ],
+  "vlm_start_err": 3444.802926821392,
+  "plate": null,
+  "plate_start_err": null
+ }
+]
