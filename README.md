@@ -277,7 +277,10 @@ Useful flags:
 | `--geotessera-year`     | `2024`       | GeoTessera tile year when `geotessera` retrieval is enabled |
 | `--use-vpr-prior`       | off          | Street-level **VPR anchor** (MegaLoc retrieval against Mapillary/KartaView photos): a per-frame "noisy GPS" track that re-ranks candidates AND places the headline answer (start-pin → scale retry → orientation refine about the pinned start). The strongest blind lever: prior lands 3–31 m from the route on every GT clip. Refs + embeddings are cached per clip, so warm reruns need no `MLY_TOKEN`. |
 | `--vpr-source`          | `kartaview`  | VPR reference source; `mapillary` (needs free `MLY_TOKEN` env var on cold runs) is far denser and is what the GT sweep uses. |
-| `--vpr-two-pass`        | off          | Match at both the VO scale and a scale pinned to the VPR track extent; keep whichever candidate set better explains the full per-frame track. Fixes candidate SHAPE where the VO scale is wrong. |
+| `--vpr-two-pass`        | off          | Match at both the VO scale and a scale pinned to the VPR track extent; keep whichever candidate set better explains the full per-frame track. Fixes candidate SHAPE where the VO scale is wrong. (Distinct from `--vpr-coarse-to-fine`, which refines the *location* disc.) |
+| `--vpr-cap`             | `1500`       | Max VPR reference photos fetched+embedded per clip. The fetch uniform-subsamples to this cap, so a low cap thins dense areas (the 0009 start had 37 images within 50 m but the capped cache kept 2); raising it is a cold-cache refetch. |
+| `--vpr-coarse-to-fine`  | off          | Two-pass VPR for deployable (no-GT) runs: pass 1 over the wide coarse-prior disc, then a tight second-pass disc + re-centred graph around the pass-1 centre. Fires only when pass 1 was wider than 1.2× the tight radius; the tight radius is floored by the route-length prior. |
+| `--vpr-c2f-radius`      | `2000`       | Tight second-pass disc radius (m) for `--vpr-coarse-to-fine`. |
 | `--enable-ocr-anchor`   | off          | OCR scene text and turn it into absolute anchors that **gate** enumeration + re-rank. Two anchor kinds: geocoded **POI/landmark** names (work at 720p) and **street-name plates matched to the OSM graph** (route-relevant, strongest — need legible plates, i.e. a 4K source). Needs `easyocr` + network geocoding (both cached). |
 | `--ocr-sample-interval-sec` | `6.0`    | Seconds between frames sampled for OCR |
 | `--ocr-min-confidence`  | `0.5`        | Min OCR confidence for a detection to be used |
@@ -705,6 +708,34 @@ fleet mean:
   Viterbi track's mid-route points drift its rotation+fusion, so it is the one
   clip where the otherwise-helpful Viterbi decode is turned off. London needs
   no VGGT-Long staging — the argmax toggle alone recovers it.
+
+### Honest note: the headline is GT-seeded; deployable accuracy via coarse-to-fine
+
+The numbers above center the VPR reference fetch (and the OSM graph) on
+`--osm-around`, which for the GT clips is set near the true location — a coarse
+**location leak** (you would not have it in deployment). Fetching references
+around a *video-derived* prior instead — OCR'd place/street signs, the VLM
+district, or just the city geocode — measures the honest GPS-free accuracy.
+Measured deployable coarse-prior accuracy (no GT): OCR place-names give
+~0.5–1.2 km where signage is legible (London 0.5 km, Ulm ~1 km); license plates
+only resolve to city/district scale and only on EU plates; the city geocode
+alone is 2–6.6 km. So a deployable prior is tight on sign-rich urban footage and
+coarse on sign-poor residential/highway stretches.
+
+A single wide-disc VPR pass from a coarse prior dilutes badly (the route is a
+needle in a city-scale haystack). **`--vpr-coarse-to-fine`** fixes this: pass 1
+over the wide disc yields a robust center that is far tighter than the seed
+(0.2–0.76 km on 5/6 clips — VPR appearance-matching localizes well even in a
+large reference set), then a tight second-pass disc around it (and a
+re-centered graph) localizes cleanly. This makes the fully-deployable (no-GT)
+result reach the GT-seeded *ballpark* on the clips with enough visual coverage
+(London/Ulm/comma/0009 land ~85–250 m, matching or approaching their leaked
+numbers), with run-to-run variance from cold Mapillary fetches. It **fails only**
+where pass 1 lands in the wrong area for lack of any signal — KITTI 0033
+(low-res residential, no signage), which stays ~6 km off. Net: the pipeline is
+genuinely GPS-free deployable on footage with legible signage or dense
+street-level coverage; the coverage/dilution wall is an input limitation, not an
+algorithm one.
 
 ### Calibrated multi-hypothesis output
 

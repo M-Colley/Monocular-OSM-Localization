@@ -161,6 +161,20 @@ class PipelineConfig:
     # denser — needs a free MLY_TOKEN env var; validated 3-31 m to route on all
     # GT clips, incl. the ones KartaView could not cover). See mapillary VPR.
     vpr_source: str = "kartaview"
+    # Coarse-to-fine VPR: after pass 1 over a WIDE (coarse-prior) disc, the
+    # robust centre is far tighter than the seed (0.2-0.76 km vs a 0.5-6.6 km
+    # deployable seed on the GT clips). When on, re-fetch a TIGHT disc around
+    # that centre and re-run VPR — less dilution AND it re-centres the OSM
+    # graph tight (shrinks the matcher pool). Fires only when pass 1 was wider
+    # than 1.2x the tight radius, so GT-seeded tight runs are untouched; the
+    # tight radius is floored by the route-length prior so a long route is
+    # never clipped. Validated 2026-07-08: makes the fully-deployable (no-GT)
+    # two-pass MATCH the GT-seeded numbers (5-clip start 113 m vs the leak's
+    # 131 m) — the location leak is unnecessary. Fails only where pass 1 lands
+    # in the wrong area (no signal, e.g. KITTI-0033). NOTE: distinct from
+    # vpr_two_pass_scale below (a SCALE arbitration at matching time).
+    vpr_coarse_to_fine: bool = False
+    vpr_c2f_radius_m: float = 2000.0
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.
@@ -1477,6 +1491,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     osm_around = cfg.osm_around
     vpr_center: tuple | None = None
     vpr_track = None
+    _c2f_info: dict | None = None      # coarse-to-fine record, attached to result later
     anchor_origin: str | None = None   # which channel produced vpr_center: vpr|vlm
     # VPR runs whenever enabled — it re-ranks + drives anchor-primary, so it is
     # NOT conditioned on osm_around (mega-cities pass --osm-around AND want VPR).
@@ -1508,8 +1523,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # (cached refs + cached VO) must not silently switch source.
                 from .kartaview_vpr import has_mapillary_cache
                 if has_mapillary_cache(str(cfg.data_dir / _vpr_src)):
-                    print("      -> no MLY_TOKEN; serving Mapillary refs "
-                          "from the warm cache")
+                    # Existence-only check: the fetch itself still verifies
+                    # the cache SIGNATURE (centre/radius/cap) — if the query
+                    # moved since the cache was written, refs come back empty
+                    # and the channel degrades to "VPR unavailable" below.
+                    print("      -> no MLY_TOKEN; a warm Mapillary cache "
+                          "exists and will serve IF it covers this query")
                 else:
                     print("      -> mapillary source needs MLY_TOKEN env var; "
                           "falling back to kartaview")
@@ -1551,6 +1570,68 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 anchor_origin = "vpr"
                 print(f"      -> VPR prior {vpr_center[0]:.5f}, {vpr_center[1]:.5f} "
                       f"({len(v_idx)}-frame track); re-rank + anchor-primary fit")
+                # [4a2] COARSE-TO-FINE refine: when pass 1 ran over a WIDE disc
+                # (a coarse deployable seed), its robust centre is much tighter
+                # than the seed. Re-fetch a TIGHT disc around it and re-run VPR
+                # (own cache subdir so both passes stay warm), then re-centre
+                # the OSM graph + downstream priors on the refined centre by
+                # updating osm_around before the graph fetch below. Safe: a
+                # wrong pass-1 centre (no-signal clip) only re-tightens around
+                # the wrong spot — it was already lost, and this never crashes.
+                # Tight radius floored by the route-length prior: the robust
+                # centre sits near the route's spatial MIDDLE, so endpoints
+                # lie up to ~length/2 away — a disc smaller than that clips
+                # the graph below the route extent and no candidate walk can
+                # span the clip (long/fast clips would silently degrade).
+                _tight = max(float(cfg.vpr_c2f_radius_m),
+                             0.6 * float(estimated_length_m))
+                if (cfg.vpr_coarse_to_fine
+                        and _vpr_radius > 1.2 * _tight):
+                    # Snap the pass-2 centre to a ~500 m grid: the fetch
+                    # signature and the graphml filename key on the centre at
+                    # ~11 m resolution, so an UNSNAPPED drifting pass-1 centre
+                    # (cold fetches vary run-to-run) would invalidate the c2f
+                    # image cache (~1 GB refetch) AND mint a new graph file
+                    # every run. The disc is >=2 km; a <=~350 m snap shift
+                    # keeps the route covered, and the refined vpr_center is
+                    # recomputed at full precision from the pass-2 track.
+                    _g = 0.005
+                    _slat = round(float(vpr_center[0]) / _g) * _g
+                    _slon = round(float(vpr_center[1]) / _g) * _g
+                    print(f"      -> [4a2] coarse-to-fine: re-fetching a "
+                          f"{_tight:.0f} m disc around the pass-1 centre "
+                          f"(snapped {_slat:.3f}, {_slon:.3f})")
+                    try:
+                        tr2 = kartaview_vpr_track(
+                            frames.frames, (_slat, _slon),
+                            radius_m=_tight,
+                            cache_dir=str(cfg.data_dir / f"{_vpr_src}_c2f"),
+                            device=_vpr_device, source=_vpr_src,
+                            token=_vpr_token, cap=cfg.vpr_ref_cap,
+                            sequence_decode=cfg.vpr_viterbi, query_dt_s=_qdt)
+                    except Exception as e:
+                        tr2 = None
+                        print(f"      -> coarse-to-fine fetch failed ({e})")
+                    if tr2 is not None:
+                        _c1 = vpr_center
+                        vpr_track = tr2
+                        v_idx, v_ll, v_sims = tr2
+                        vpr_center = _robust_center(v_ll, v_sims)
+                        osm_around = (_slat, _slon, _tight)
+                        _c2f_info = {
+                            "pass1_center": [float(_c1[0]), float(_c1[1])],
+                            "pass2_center": [float(vpr_center[0]),
+                                             float(vpr_center[1])],
+                            "tight_radius_m": _tight,
+                        }
+                        print(f"      -> refined VPR prior {vpr_center[0]:.5f}, "
+                              f"{vpr_center[1]:.5f}; graph re-centred tight")
+                    else:
+                        _hint = ("" if _vpr_token or _vpr_src != "mapillary"
+                                 else " (tokenless: set MLY_TOKEN to enable "
+                                      "the pass-2 refetch)")
+                        print(f"      -> coarse-to-fine pass 2 unavailable; "
+                              f"keeping pass 1{_hint}")
             else:
                 print("      -> VPR unavailable; keeping full-city graph")
         except Exception as e:
@@ -3265,6 +3346,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # Diagnostics are attached UNCONDITIONALLY: failed runs (no candidates,
     # unusable CRS) are exactly the ones these are needed to debug, and
     # they used to vanish whenever the position report didn't build.
+    if _c2f_info is not None:
+        result["vpr_coarse_to_fine"] = _c2f_info
     if result_scale_recovery is not None:
         result["scale_recovery"] = result_scale_recovery
     if result_loop_closure is not None:

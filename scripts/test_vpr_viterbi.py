@@ -33,9 +33,14 @@ from src.kartaview_vpr import _robust_center  # noqa: E402
 MPD = 111320.0
 
 CLIPS = [
+    # seg_end MUST match the GT waypoint span: with None the query frames run
+    # to the full video length while GT interpolation clamps at the last
+    # waypoint, scoring the tail frames against a frozen GT point (bug
+    # 2026-07-08: Ulm sampled to 480 s vs GT ending at 415 s -> ~11/80 frames
+    # mis-scored).
     ("Ulm 4K", "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/input_4k.webm",
      "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/mapillary",
-     "ground_truth/ulm_ULl8s4qydrk.json", None),
+     "ground_truth/ulm_ULl8s4qydrk.json", 415.0),
     ("KITTI 0009", "data/kitti/drive_0009.mp4",
      "data/local-05c0f063c75b-drive-0009-karlsruhe-germany/mapillary",
      "ground_truth/kitti_drive_0009.json", 47.0),

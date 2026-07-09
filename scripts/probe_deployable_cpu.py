@@ -81,7 +81,8 @@ def main():
             city_err0 = err_m(cc, gt0) if cc else None
             city_errc = err_m(cc, gtc) if cc else None
         except Exception as e:
-            cc, city_err0, city_errc = None, None, str(e)
+            print(f"  {name} city geocode error: {e}")
+            cc, city_err0, city_errc = None, None, None
         # 2) Licence-plate registration district (CPU ALPR)
         t0 = time.time()
         try:

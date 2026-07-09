@@ -347,13 +347,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "where fetching the full place is infeasible.")
     p.add_argument("--use-vpr-prior", action="store_true",
                    help="Blind coarse-location prior via Visual Place Recognition on "
-                        "KartaView street imagery (open API, no token) + EigenPlaces "
-                        "(src/kartaview_vpr.py). Shape-INDEPENDENT — the fix for the "
-                        "selection wall; ~53 m prior on Ulm 4K vs ~530 m for chance. Used "
-                        "as a re-rank centre + the anchor-primary placement prior; runs "
-                        "with or without --osm-around. (Gating the OSM graph to the prior "
-                        "was refuted by experiment, so there is no gate knob.) Needs "
-                        "requests + EigenPlaces weights; no-op if unavailable.")
+                        "street imagery (--vpr-source) + MegaLoc retrieval (EigenPlaces "
+                        "is the offline fallback if MegaLoc's hub fetch fails; "
+                        "src/kartaview_vpr.py). Shape-INDEPENDENT — the fix for the "
+                        "selection wall; 3-31 m to route on all GT clips with Mapillary. "
+                        "Used as a re-rank centre + the anchor-primary placement prior; "
+                        "runs with or without --osm-around. (Gating the OSM graph to the "
+                        "prior was refuted by experiment, so there is no gate knob.) "
+                        "Needs requests + model weights; no-op if unavailable.")
     p.add_argument("--vpr-search-radius", type=float, default=3000.0,
                    help="Radius (m) around the city centre to fetch VPR reference "
                         "photos for --use-vpr-prior (default 3000).")
@@ -362,6 +363,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "(default 1500). The fetch uniform-subsamples to this "
                         "cap, so a low cap thins dense areas; raise it to "
                         "densify retrieval-bound starts (cold-cache refetch).")
+    p.add_argument("--vpr-coarse-to-fine", action="store_true",
+                   help="Two-pass VPR: after pass 1 over the (wide) coarse-prior "
+                        "disc, re-fetch a TIGHT disc around the resulting centre "
+                        "and re-run VPR, re-centring the OSM graph tight too. "
+                        "Lets a coarse deployable prior (city/OCR/VLM, no GT) "
+                        "reach GT-seeded accuracy where pass 1 lands within "
+                        "~1 km. Fires only when pass 1 was wider than 1.2x the "
+                        "tight radius (which is itself floored by the route-"
+                        "length prior), so GT-seeded tight runs are untouched.")
+    p.add_argument("--vpr-c2f-radius", type=float, default=2000.0,
+                   help="Tight second-pass disc radius (m) for "
+                        "--vpr-coarse-to-fine (default 2000).")
     p.add_argument("--vpr-source", choices=["kartaview", "mapillary", "panoramax"],
                    default="kartaview",
                    help="VPR reference imagery source. 'kartaview' is open and "
@@ -619,6 +632,8 @@ def main() -> None:
             use_vlm_anchor=args.use_vlm_anchor,
             vpr_search_radius_m=args.vpr_search_radius,
             vpr_ref_cap=args.vpr_cap,
+            vpr_coarse_to_fine=args.vpr_coarse_to_fine,
+            vpr_c2f_radius_m=args.vpr_c2f_radius,
             use_sun_heading=args.use_sun_heading,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,

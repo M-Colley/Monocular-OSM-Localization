@@ -47,6 +47,12 @@ CLIPS = [
         "--osm-around", "48.970155,8.478770,968", "--vo-segment", "0:166",
         "--ground-truth-waypoints", "ground_truth/kitti_drive_0033.json",
         "--scale-lock", "--no-splat", "--no-aerial"]),
+    # NOTE: --city here says "San Francisco" (kept for graph/geocode cache
+    # continuity in these GT-seeded runs, where --osm-around overrides the
+    # centre anyway), but the DEPLOYABLE-prior evaluation used the correct
+    # local name "Daly City, California, USA" — SF's centroid is 14 km from
+    # this route vs Daly City's 2 km, so the fair no-GT numbers assume the
+    # operator names the right town, not the metro.
     ("comma2k19 (Daly City)", "local-88d9fe89bc4d-route-148-san-francisco-california-usa", [
         "--video", "data/comma/route_148.mp4", "--city", "San Francisco, California, USA",
         "--osm-around", "37.672466,-122.465576,1272", "--vo-segment", "0:240",

@@ -131,7 +131,20 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
         try:
             blob = json.load(open(meta))
             if isinstance(blob, dict) and blob.get("signature") == sig:
-                return blob["refs"]  # url=None; the npz image cache is used
+                # The cached refs carry NO thumb urls (they expire), so they
+                # are only servable if the image npz REALLY matches them.
+                # Existence is not enough: the meta is written before the
+                # downloads and the npz only after they all succeed, so an
+                # interrupted rebuild leaves new-meta + stale-npz — serving
+                # the url-less refs then wedges the channel permanently
+                # (every image fetch KeyErrors on the missing url, and the
+                # token-gated fresh fetch below is never reached).
+                with np.load(npz, allow_pickle=True) as d:
+                    if ("fingerprint" in d.files
+                            and str(d["fingerprint"])
+                            == _refs_fingerprint(blob["refs"])):
+                        return blob["refs"]   # npz image cache serves these
+                # fingerprint mismatch -> fall through to a fresh fetch
         except Exception:
             pass
     import requests
@@ -220,14 +233,28 @@ def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):
              for i in range(n) for j in range(n)]
     sess = requests.Session()
 
-    def query(cell):
+    def query(cell, depth=0):
         try:
             r = sess.get("https://api.panoramax.xyz/api/search",
                          params={"bbox": ",".join(f"{v:.6f}" for v in cell),
                                  "limit": 500}, timeout=30)
-            return r.json().get("features", [])
+            feats = r.json().get("features", [])
         except Exception:
             return []
+        # A FULL page means the cell was truncated (the API returns at most
+        # ~500 features and no next-page link) — silently keeping it would
+        # spatially bias the ref set exactly where coverage is densest.
+        # Subdivide the cell (bounded depth) and take the union instead.
+        if len(feats) >= 500 and depth < 2:
+            w, s, e, nn = cell
+            mx, my = (w + e) / 2.0, (s + nn) / 2.0
+            sub = [(w, s, mx, my), (mx, s, e, my),
+                   (w, my, mx, nn), (mx, my, e, nn)]
+            out = []
+            for c in sub:
+                out.extend(query(c, depth + 1))
+            return out
+        return feats
 
     refs = {}
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -505,14 +532,21 @@ def _viterbi_decode(sims: np.ndarray, ref_latlon: np.ndarray,
     is unchanged. Returns the per-query reference indices.
     """
     n_q, n_r = sims.shape
+    # O(n_ref^2) matrices: float32 at n_r=6000 is ~144 MB each (d/trans/cand
+    # live simultaneously). --vpr-cap makes larger sets reachable from the
+    # CLI; beyond this bound a MemoryError could kill the whole run, so bail
+    # to the caller's argmax fallback instead.
+    if n_r > 6000:
+        raise ValueError(f"viterbi decode skipped: {n_r} refs exceeds the "
+                         f"O(n^2) memory bound (6000); using argmax track")
     lat0 = float(np.mean(ref_latlon[:, 0]))
     xy = np.column_stack([
         ref_latlon[:, 1] * 111320.0 * np.cos(np.radians(lat0)),
-        ref_latlon[:, 0] * 111320.0])
+        ref_latlon[:, 0] * 111320.0]).astype(np.float32)
     d = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=2)
     free = 30.0 + 40.0 * max(dt_s, 0.5)          # generous urban speed cap
     trans = -0.02 * np.maximum(0.0, d - free)    # sim-points per excess metre
-    score = sims[0].astype(np.float64).copy()
+    score = sims[0].astype(np.float32).copy()
     back = np.zeros((n_q, n_r), dtype=np.int32)
     for q in range(1, n_q):
         cand = score[:, None] + trans

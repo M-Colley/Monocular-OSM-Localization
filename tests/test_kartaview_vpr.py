@@ -85,13 +85,24 @@ def _refs(coords):
 # ---------------------------------------------------------------------------
 
 
-def _write_mly_cache(tmp_path: Path, center, radius_m, cap=1500) -> list[dict]:
+def _write_mly_cache(tmp_path: Path, center, radius_m, cap=1500,
+                     npz_fingerprint: str | None = "match") -> list[dict]:
+    """Write a warm Mapillary cache. ``npz_fingerprint``: "match" writes an
+    image npz whose fingerprint matches the refs (a genuine warm cache);
+    any other string writes a MISMATCHED npz (the interrupted-rebuild state);
+    None writes no npz at all."""
     refs = [{"id": i, "lat": center[0], "lon": center[1], "url": None}
             for i in range(3)]
     sig = kv._fetch_signature(center, radius_m, cap)
     (tmp_path / "mly_ref_meta.json").write_text(
         json.dumps({"signature": sig, "refs": refs}), encoding="utf-8")
-    (tmp_path / "ref_imgs.npz").write_bytes(b"placeholder")
+    if npz_fingerprint is not None:
+        fp = (kv._refs_fingerprint(refs) if npz_fingerprint == "match"
+              else npz_fingerprint)
+        np.savez(tmp_path / "ref_imgs.npz",
+                 raw=np.zeros((3, 4, 4, 3), np.uint8),
+                 ref_xy=np.array([[r["lat"], r["lon"]] for r in refs]),
+                 fingerprint=fp)
     return refs
 
 
@@ -113,6 +124,26 @@ def test_fetch_refs_mapillary_no_token_no_cache_returns_empty(
     monkeypatch.delenv("MLY_TOKEN", raising=False)
     monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
     assert kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None) == []
+
+
+def test_fetch_refs_mapillary_desynced_npz_falls_through_to_fresh_fetch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression (bug 2026-07-08): an interrupted rebuild leaves a NEW meta
+    beside a STALE npz. The warm branch used to serve the url-less refs on npz
+    EXISTENCE alone — _load_ref_images then discards the npz on fingerprint
+    mismatch and every image fetch KeyErrors on the missing url, wedging the
+    channel permanently even with a valid token. The fixed branch must detect
+    the fingerprint mismatch and fall through to the token-gated fresh fetch."""
+    _write_mly_cache(tmp_path, ULM, 500.0, npz_fingerprint="stale-other-refs")
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
+    # tokenless: must NOT serve the desynced cache; degrades to [] gracefully
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    assert kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None) == []
+    # matched npz: warm serve still works tokenless (the original contract)
+    _write_mly_cache(tmp_path, ULM, 500.0, npz_fingerprint="match")
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    assert [r["id"] for r in got] == [0, 1, 2]
 
 
 def test_fetch_refs_mapillary_stale_signature_still_needs_token(
