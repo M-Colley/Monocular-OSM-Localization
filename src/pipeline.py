@@ -825,6 +825,15 @@ _FUSE_HUBER_M = 30.0
 _FUSE_SMOOTH_D1 = 0.1
 _FUSE_SMOOTH_D2 = 1000.0
 
+# Coarse-to-fine pass-1 city-extent sizing (deployable, city-name-only mode):
+# cap on the enlarged coarse VPR disc, and the ref cap used when it is enlarged.
+# 8 km covers the observed peripheral drives (Málaga 5.4 km, Vaughan 4.2 km from
+# the centroid) with margin while diluting less than the full municipality bbox
+# (which reaches 12-37 km incl. rural/coastal fringe): Málaga 10 km -> 16 m vs
+# 8 km -> 11 m, and the central-drive Ulm regression shrinks too.
+_PASS1_COVER_MAX_M = 8000.0
+_PASS1_COVER_CAP = 3000
+
 
 def _elastic_fuse_track(traj_xy, track_frame_idx, track_xy, sims, n_frames):
     """Bend the placed trajectory toward the per-frame VPR track — the
@@ -1540,8 +1549,30 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # -> prior on-route -> anchor start 517->95 m). Dense areas
             # (London/comma) are unaffected. Floor 800 m to keep enough refs.
             _vpr_radius = cfg.vpr_search_radius_m
+            _vpr_cap_eff = cfg.vpr_ref_cap
             if osm_around is not None:
                 _vpr_radius = min(_vpr_radius, max(800.0, float(osm_around[2])))
+            elif cfg.vpr_coarse_to_fine:
+                # City-name-only + coarse-to-fine (the deployable mode): size
+                # the COARSE pass to cover the whole municipality so a drive in
+                # a peripheral district is INSIDE the search disc. A centroid +
+                # 3 km default misses a drive 5 km out, forcing pass-1 to match
+                # the wrong dense area (verified: Málaga 5169 m -> 11 m, Vaughan
+                # 6413 m, once the disc covers the drive). Capped to bound
+                # dilution; the ref cap is bumped so the bigger disc keeps
+                # enough on-route refs. Coarse-to-fine then tightens. Uses the
+                # OSM place polygon, NOT ground truth.
+                from .text_anchor import city_extent_radius as _cext
+                _ext = _cext(cfg.city, cfg.data_dir / "geocode_cache.json")
+                if _ext is not None:
+                    _cover = float(np.clip(_ext[2], cfg.vpr_search_radius_m,
+                                           _PASS1_COVER_MAX_M))
+                    if _cover > _vpr_radius + 1.0:
+                        _vpr_radius = _cover
+                        _vpr_cap_eff = max(cfg.vpr_ref_cap, _PASS1_COVER_CAP)
+                        print(f"      -> coarse-to-fine: sizing pass-1 disc to "
+                              f"the city extent ({_vpr_radius:.0f} m, "
+                              f"cap {_vpr_cap_eff})")
             # Real seconds between the ~80 query frames — sets the Viterbi
             # transition free radius (sequence decode kills the confident-
             # but-wrong retrievals at the source; offline A/B: median better
@@ -1554,7 +1585,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                                      cache_dir=str(cfg.data_dir / _vpr_src),
                                      device=_vpr_device,
                                      source=_vpr_src, token=_vpr_token,
-                                     cap=cfg.vpr_ref_cap,
+                                     cap=_vpr_cap_eff,
                                      sequence_decode=cfg.vpr_viterbi,
                                      query_dt_s=_qdt)
             if tr is not None:

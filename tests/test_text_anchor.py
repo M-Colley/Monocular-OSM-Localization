@@ -212,6 +212,48 @@ def test_geocode_cache_memoizes_genuine_not_found(tmp_path, monkeypatch) -> None
     assert fn2("Nowhereplatz, Ulm") is None
 
 
+def test_city_extent_radius_bbox_and_cache(tmp_path, monkeypatch) -> None:
+    """city_extent_radius returns the OSM bbox half-diagonal (used to size the
+    coarse VPR disc so a peripheral-district drive is inside it — the fix for
+    Málaga's 5169 m deployable miss) and caches it; a transient lookup failure
+    is NOT cached (so it retries next run)."""
+    import json
+    import math
+
+    ox = pytest.importorskip("osmnx")
+    from src.text_anchor import city_extent_radius
+
+    class _Gdf:
+        def __init__(self, bounds):
+            self.total_bounds = bounds
+
+    calls = []
+
+    def ok(city):
+        calls.append(city)
+        return _Gdf((-4.5, 36.6, -4.3, 36.8))  # min_lon, min_lat, max_lon, max_lat
+
+    monkeypatch.setattr(ox, "geocode_to_gdf", ok)
+    cp = tmp_path / "geocode_cache.json"
+    r = city_extent_radius("Málaga, Spain", cp)
+    assert r is not None
+    clat, clon, half = r
+    assert abs(clat - 36.7) < 1e-6 and abs(clon + 4.4) < 1e-6
+    exp = math.hypot(0.2 * 111320, 0.2 * 111320 * math.cos(math.radians(36.7))) / 2
+    assert abs(half - exp) < 1.0
+    # cached: a second call does not re-invoke the (rate-limited) lookup
+    city_extent_radius("Málaga, Spain", cp)
+    assert calls == ["Málaga, Spain"]
+
+    # transient failure -> None and NOT written to the cache
+    def boom(city):
+        raise ConnectionError("network down")
+
+    monkeypatch.setattr(ox, "geocode_to_gdf", boom)
+    assert city_extent_radius("Nowhere City", cp) is None
+    assert "__extent__Nowhere City" not in json.loads(cp.read_text(encoding="utf-8"))
+
+
 def test_geocode_cache_memoizes_hits(tmp_path, monkeypatch) -> None:
     ox = pytest.importorskip("osmnx")
     from src.text_anchor import default_geocode_fn

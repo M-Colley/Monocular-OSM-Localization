@@ -1,0 +1,80 @@
+{
+ "video_id": "boreas-glenshields-vaughan-canada",
+ "video_url": "https://www.boreas.utias.utoronto.ca/",
+ "city": "Vaughan, Ontario, Canada",
+ "vo_segment": "0:179",
+ "description": "Auto-extracted from a burned-in GPS overlay via OCR (3591 fixes \u2192 14 waypoints). Verify before trusting.",
+ "source": "gps_overlay_ocr",
+ "waypoints": [
+  {
+   "t_sec": 0.0,
+   "lat": 43.792215,
+   "lon": -79.474843
+  },
+  {
+   "t_sec": 13.8,
+   "lat": 43.79166,
+   "lon": -79.477027
+  },
+  {
+   "t_sec": 27.7,
+   "lat": 43.791371,
+   "lon": -79.478904
+  },
+  {
+   "t_sec": 41.6,
+   "lat": 43.791278,
+   "lon": -79.480048
+  },
+  {
+   "t_sec": 55.5,
+   "lat": 43.791172,
+   "lon": -79.481987
+  },
+  {
+   "t_sec": 69.3,
+   "lat": 43.791705,
+   "lon": -79.48276
+  },
+  {
+   "t_sec": 83.1,
+   "lat": 43.792943,
+   "lon": -79.482569
+  },
+  {
+   "t_sec": 97.0,
+   "lat": 43.793463,
+   "lon": -79.48199
+  },
+  {
+   "t_sec": 110.8,
+   "lat": 43.794477,
+   "lon": -79.481128
+  },
+  {
+   "t_sec": 124.6,
+   "lat": 43.796052,
+   "lon": -79.480879
+  },
+  {
+   "t_sec": 138.5,
+   "lat": 43.797259,
+   "lon": -79.479696
+  },
+  {
+   "t_sec": 152.3,
+   "lat": 43.797742,
+   "lon": -79.479168
+  },
+  {
+   "t_sec": 166.2,
+   "lat": 43.799271,
+   "lon": -79.478046
+  },
+  {
+   "t_sec": 180.0,
+   "lat": 43.800211,
+   "lon": -79.477171
+  }
+ ]
+}

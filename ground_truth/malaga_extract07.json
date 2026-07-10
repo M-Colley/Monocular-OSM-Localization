@@ -1,0 +1,80 @@
+{
+ "video_id": "malaga-urban-extract07-spain",
+ "video_url": "https://www.mrpt.org/MalagaUrbanDataset",
+ "city": "M\u00e1laga, Spain",
+ "vo_segment": "0:105",
+ "description": "Auto-extracted from a burned-in GPS overlay via OCR (106 fixes \u2192 14 waypoints). Verify before trusting.",
+ "source": "gps_overlay_ocr",
+ "waypoints": [
+  {
+   "t_sec": 0.0,
+   "lat": 36.724242,
+   "lon": -4.476207
+  },
+  {
+   "t_sec": 8.0,
+   "lat": 36.724153,
+   "lon": -4.475523
+  },
+  {
+   "t_sec": 16.0,
+   "lat": 36.724143,
+   "lon": -4.474778
+  },
+  {
+   "t_sec": 24.0,
+   "lat": 36.724132,
+   "lon": -4.473977
+  },
+  {
+   "t_sec": 32.0,
+   "lat": 36.724132,
+   "lon": -4.473305
+  },
+  {
+   "t_sec": 40.0,
+   "lat": 36.724305,
+   "lon": -4.47287
+  },
+  {
+   "t_sec": 48.0,
+   "lat": 36.724463,
+   "lon": -4.473378
+  },
+  {
+   "t_sec": 57.0,
+   "lat": 36.724478,
+   "lon": -4.474338
+  },
+  {
+   "t_sec": 65.0,
+   "lat": 36.724493,
+   "lon": -4.47525
+  },
+  {
+   "t_sec": 73.0,
+   "lat": 36.724515,
+   "lon": -4.476
+  },
+  {
+   "t_sec": 81.0,
+   "lat": 36.724245,
+   "lon": -4.4762
+  },
+  {
+   "t_sec": 89.0,
+   "lat": 36.724167,
+   "lon": -4.475357
+  },
+  {
+   "t_sec": 97.0,
+   "lat": 36.72412,
+   "lon": -4.47459
+  },
+  {
+   "t_sec": 105.0,
+   "lat": 36.724107,
+   "lon": -4.473692
+  }
+ ]
+}

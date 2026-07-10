@@ -77,6 +77,26 @@ CLIPS = [
         "--enable-ocr-anchor", "--ocr-super-res",
         "--ocr-video", "data/london_T4wTL3LpLqU/input_4k.webm",
         "--scale-lock", "--no-splat", "--no-aerial"]),
+    # Fleet extension 2026-07-10 (src/ext_datasets.py adapters). Both localise
+    # GT-seeded but FAIL the deployable (city-name-seed) coarse-to-fine — see
+    # memory ext-datasets-2026-07. Málaga (Spain, W. district) is the cleanest
+    # new success: GT-seeded start 8.9 / mean 23.8 m (best of any clip). GPS
+    # lat/lon were in RADIANS in the source.
+    ("Málaga (Spain)", "malaga-urban-extract07-spain", [
+        "--video", "data/malaga-urban-extract07-spain/input.mp4", "--city", "Málaga, Spain",
+        "--osm-around", "36.72424,-4.47621,1100", "--vo-segment", "0:105",
+        "--ground-truth-waypoints", "ground_truth/malaga_extract07.json",
+        "--scale-lock", "--no-splat", "--no-aerial"]),
+    # Boreas Glen Shields (Vaughan, Canada): a signage-poor self-similar
+    # suburb — a deliberate failure-mode probe. GT-seeded finds the right
+    # streets but only reaches start 1298 / mean 1317 m (matcher pick 587);
+    # deployable lands 6.4 km off. Confirms the KITTI-0033 failure mode in
+    # Canada (not German-specific).
+    ("Boreas (Vaughan, CA)", "boreas-glenshields-vaughan-canada", [
+        "--video", "data/boreas-glenshields-vaughan-canada/input.mp4", "--city", "Vaughan, Ontario, Canada",
+        "--osm-around", "43.796,-79.476,1300", "--vo-segment", "0:179",
+        "--ground-truth-waypoints", "ground_truth/boreas_glenshields.json",
+        "--scale-lock", "--no-splat", "--no-aerial"]),
 ]
 
 # Mega-cities keep their point+radius graph fetch even in --blind mode: a

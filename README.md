@@ -730,12 +730,25 @@ large reference set), then a tight second-pass disc around it (and a
 re-centered graph) localizes cleanly. This makes the fully-deployable (no-GT)
 result reach the GT-seeded *ballpark* on the clips with enough visual coverage
 (London/Ulm/comma/0009 land ~85–250 m, matching or approaching their leaked
-numbers), with run-to-run variance from cold Mapillary fetches. It **fails only**
-where pass 1 lands in the wrong area for lack of any signal — KITTI 0033
-(low-res residential, no signage), which stays ~6 km off. Net: the pipeline is
-genuinely GPS-free deployable on footage with legible signage or dense
-street-level coverage; the coverage/dilution wall is an input limitation, not an
-algorithm one.
+numbers), with run-to-run variance from cold Mapillary fetches.
+
+One prerequisite the coarse pass has to satisfy: the drive must be *inside* the
+pass-1 disc. A city name geocodes to the *centroid*, but a drive can be in a
+peripheral district well outside a fixed 3 km disc (Málaga's centroid is 5.4 km
+from a western-district test drive, Vaughan's 4.2 km from Glen Shields) — pass 1
+then can only match the wrong central area (Málaga's deployable error was 5.2 km).
+So in coarse-to-fine + city-name mode the coarse disc is auto-sized to the city's
+OSM bounding box (`city_extent_radius`, capped at 8 km, derived from the place
+polygon — no GT). That alone takes Málaga from 5169 m → **11 m**. The cost is a
+mild dilution penalty for drives that *were* central (Ulm 93 → 112 m), accepted
+because there is no GT-free way to tell a central drive from a peripheral one.
+
+It still **fails** where pass 1 lands wrong for lack of any signal even when the
+disc covers the drive — KITTI 0033 and Boreas Glen Shields (low-res / self-similar
+residential, no signage), which stay ~6–7 km off regardless of disc size. Net:
+the pipeline is genuinely GPS-free deployable on footage with legible signage or
+distinctive dense coverage; the remaining wall is self-similar signal-poor
+scenes, an input limitation, not an algorithm one.
 
 ### Calibrated multi-hypothesis output
 

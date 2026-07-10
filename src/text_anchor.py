@@ -150,6 +150,54 @@ def default_geocode_fn(cache_path: Path | None = None) -> GeocodeFn:
     return _fn
 
 
+def city_extent_radius(
+    city: str, cache_path: Path | None = None,
+) -> tuple[float, float, float] | None:
+    """``(center_lat, center_lon, half_diagonal_m)`` of the named city's OSM
+    bounding box, or ``None`` on failure.
+
+    The coarse VPR search is otherwise a fixed disc around the city *centroid*
+    (``--vpr-search-radius``, default 3 km). A drive in a peripheral district
+    can sit well outside that disc — Málaga's centroid is 5.4 km from a western
+    drive, Vaughan's 4.2 km from Glen Shields — so pass-1 VPR cannot possibly
+    find it. Sizing the coarse disc to the whole municipality (this radius,
+    capped by the caller to bound dilution) puts peripheral drives inside the
+    search; coarse-to-fine then tightens. Derived from the OSM place polygon,
+    so it uses NO ground truth. Cached to JSON like the geocoder.
+    """
+    import osmnx as ox
+
+    cp = Path(cache_path) if cache_path else None
+    cache: dict = {}
+    if cp and cp.exists():
+        try:
+            cache = json.loads(cp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cache = {}
+    key = f"__extent__{city}"
+    if key in cache:
+        v = cache[key]
+        return (v[0], v[1], v[2]) if v else None
+    result: tuple[float, float, float] | None = None
+    cacheable = True
+    try:
+        gdf = ox.geocode_to_gdf(city)
+        min_lon, min_lat, max_lon, max_lat = (float(x) for x in gdf.total_bounds)
+        clat = (min_lat + max_lat) / 2.0
+        clon = (min_lon + max_lon) / 2.0
+        half_diag = float(np.hypot(
+            (max_lat - min_lat) * 111320.0,
+            (max_lon - min_lon) * 111320.0 * np.cos(np.radians(clat))) / 2.0)
+        result = (clat, clon, half_diag)
+        cache[key] = [clat, clon, half_diag]
+    except Exception:
+        cacheable = False        # transient/lookup failure -> retry next run
+    if cacheable and cp is not None:
+        cp.parent.mkdir(parents=True, exist_ok=True)
+        cp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    return result
+
+
 def _graph_bbox_latlon(road: RoadGraph) -> tuple[float, float, float, float]:
     """(min_lat, min_lon, max_lat, max_lon) of the graph, with a small
     margin, used to reject geocodes that land outside the city."""
