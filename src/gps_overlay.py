@@ -257,12 +257,17 @@ def track_to_ground_truth(
     video_url: str,
     city: str,
     n_waypoints: int = 10,
+    source: str = "gps_overlay_ocr",
+    description: str | None = None,
 ) -> dict:
     """Convert an extracted track into the project's GT-JSON schema.
 
     Subsamples to ``n_waypoints`` evenly-spaced fixes (endpoints kept),
     matching ``ground_truth/*.json`` so the clip drops into the existing
-    ``--ground-truth-waypoints`` evaluation.
+    ``--ground-truth-waypoints`` evaluation. ``source``/``description``
+    default to this module's OCR-overlay provenance; dataset adapters with
+    real (RTK/INS) GT MUST pass their own so the JSON does not claim an
+    OCR origin it doesn't have.
     """
     if not fixes:
         raise ValueError("no GPS fixes to write")
@@ -276,11 +281,11 @@ def track_to_ground_truth(
         "video_url": video_url,
         "city": city,
         "vo_segment": f"{int(sel[0].t_sec)}:{int(sel[-1].t_sec)}",
-        "description": (
+        "description": description if description is not None else (
             f"Auto-extracted from a burned-in GPS overlay via OCR "
             f"({len(fixes)} fixes → {len(sel)} waypoints). Verify before trusting."
         ),
-        "source": "gps_overlay_ocr",
+        "source": source,
         "waypoints": [
             {"t_sec": round(f.t_sec, 1), "lat": round(f.lat, 6), "lon": round(f.lon, 6)}
             for f in sel

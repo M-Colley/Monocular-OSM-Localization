@@ -1562,10 +1562,27 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # dilution; the ref cap is bumped so the bigger disc keeps
                 # enough on-route refs. Coarse-to-fine then tightens. Uses the
                 # OSM place polygon, NOT ground truth.
-                from .text_anchor import city_extent_radius as _cext
-                _ext = _cext(cfg.city, cfg.data_dir / "geocode_cache.json")
+                try:
+                    from .text_anchor import city_extent_radius as _cext
+                    _ext = _cext(cfg.city, cfg.data_dir / "geocode_cache.json")
+                except Exception as e:
+                    # A sizing hiccup must cost only the enlargement, never
+                    # the whole VPR channel (the enclosing try's except would
+                    # otherwise skip the fetch entirely).
+                    _ext = None
+                    print(f"      -> city-extent sizing failed ({e}); "
+                          f"keeping the default pass-1 disc")
                 if _ext is not None:
-                    _cover = float(np.clip(_ext[2], cfg.vpr_search_radius_m,
+                    # The disc is centred on the GEOCODE CENTROID, but the
+                    # extent is measured about the BBOX centre — cover the
+                    # bbox from the centroid: dist(centroid, bbox centre) +
+                    # half-diagonal (triangle inequality).
+                    _dc = float(np.hypot(
+                        (center[0] - _ext[0]) * 111320.0,
+                        (center[1] - _ext[1]) * 111320.0
+                        * np.cos(np.radians(center[0]))))
+                    _cover = float(np.clip(_dc + _ext[2],
+                                           cfg.vpr_search_radius_m,
                                            _PASS1_COVER_MAX_M))
                     if _cover > _vpr_radius + 1.0:
                         _vpr_radius = _cover
@@ -1573,6 +1590,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         print(f"      -> coarse-to-fine: sizing pass-1 disc to "
                               f"the city extent ({_vpr_radius:.0f} m, "
                               f"cap {_vpr_cap_eff})")
+                        if _vpr_src == "mapillary" and not _vpr_token:
+                            # The enlarged radius/cap changes the fetch
+                            # signature: a warm (default-sized) cache will NOT
+                            # serve this query, and tokenless the channel then
+                            # degrades to "VPR unavailable" — say why once.
+                            print("      -> note: enlarged disc has a new "
+                                  "cache signature; tokenless runs need one "
+                                  "MLY_TOKEN run to rewarm the pass-1 cache")
             # Real seconds between the ~80 query frames — sets the Viterbi
             # transition free radius (sequence decode kills the confident-
             # but-wrong retrievals at the source; offline A/B: median better

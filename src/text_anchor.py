@@ -177,7 +177,9 @@ def city_extent_radius(
     key = f"__extent__{city}"
     if key in cache:
         v = cache[key]
-        return (v[0], v[1], v[2]) if v else None
+        # len guard: a malformed/hand-edited entry must degrade to a fresh
+        # lookup, not IndexError out of the caller's VPR channel.
+        return (v[0], v[1], v[2]) if isinstance(v, list) and len(v) >= 3 else None
     result: tuple[float, float, float] | None = None
     cacheable = True
     try:
@@ -193,8 +195,11 @@ def city_extent_radius(
     except Exception:
         cacheable = False        # transient/lookup failure -> retry next run
     if cacheable and cp is not None:
-        cp.parent.mkdir(parents=True, exist_ok=True)
-        cp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        try:
+            cp.parent.mkdir(parents=True, exist_ok=True)
+            cp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass   # cache write failure must not cost the caller the result
     return result
 
 

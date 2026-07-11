@@ -53,6 +53,19 @@ def _refs_fingerprint(refs) -> str:
     return hashlib.sha1(blob.encode()).hexdigest()
 
 
+def _sig_tag(sig: dict) -> str:
+    """Short filename tag of a fetch signature, so caches for DIFFERENT query
+    shapes coexist in one dir. With a single untagged meta/npz pair, the
+    deployable (city-extent 8 km/cap-3000) and GT-seeded (3 km/1500) configs
+    of the same clip CLOBBER each other's cache — seen live 2026-07-11: the
+    auto-sizing runs overwrote Ulm's GT-seeded cache and every later tokenless
+    run lost the VPR channel ("VPR unavailable")."""
+    blob = json.dumps(sig, sort_keys=True)
+    return hashlib.sha1(blob.encode()).hexdigest()[:10]
+
+
+
+
 def _fetch_refs(center, radius_m, cache_dir, cap=1500):
     import requests
     sig = _fetch_signature(center, radius_m, cap)
@@ -125,26 +138,34 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
     # Checked BEFORE the token guard: a warm cache needs no API access, so
     # offline regression sweeps run without MLY_TOKEN.
     sig = _fetch_signature(center, radius_m, cap)
-    meta = os.path.join(cache_dir, "mly_ref_meta.json") if cache_dir else None
-    npz = os.path.join(cache_dir, "ref_imgs.npz") if cache_dir else None
-    if meta and os.path.exists(meta) and npz and os.path.exists(npz):
+    # Signature-TAGGED meta (variants coexist) with the legacy untagged file
+    # as a read fallback so pre-existing warm caches keep serving.
+    metas = ([os.path.join(cache_dir, f"mly_ref_meta_{_sig_tag(sig)}.json"),
+              os.path.join(cache_dir, "mly_ref_meta.json")]
+             if cache_dir else [])
+    meta = metas[0] if metas else None
+    # The cached refs carry NO thumb urls (they expire), so they are only
+    # servable when the per-id image store REALLY holds every one of their
+    # pixels — otherwise _load_ref_images would drop the url-less misses and
+    # silently serve a truncated set. Existence of the meta is not enough.
+    stored_ids: set[str] = set()
+    store_path = os.path.join(cache_dir, "ref_img_store.npz") if cache_dir else None
+    if store_path and os.path.exists(store_path):
         try:
-            blob = json.load(open(meta))
+            with np.load(store_path, allow_pickle=True) as d:
+                stored_ids = {str(x) for x in d["ids"]}
+        except Exception:
+            stored_ids = set()
+    for mpath in metas:
+        if not os.path.exists(mpath):
+            continue
+        try:
+            blob = json.load(open(mpath))
             if isinstance(blob, dict) and blob.get("signature") == sig:
-                # The cached refs carry NO thumb urls (they expire), so they
-                # are only servable if the image npz REALLY matches them.
-                # Existence is not enough: the meta is written before the
-                # downloads and the npz only after they all succeed, so an
-                # interrupted rebuild leaves new-meta + stale-npz — serving
-                # the url-less refs then wedges the channel permanently
-                # (every image fetch KeyErrors on the missing url, and the
-                # token-gated fresh fetch below is never reached).
-                with np.load(npz, allow_pickle=True) as d:
-                    if ("fingerprint" in d.files
-                            and str(d["fingerprint"])
-                            == _refs_fingerprint(blob["refs"])):
-                        return blob["refs"]   # npz image cache serves these
-                # fingerprint mismatch -> fall through to a fresh fetch
+                if blob["refs"] and all(str(r["id"]) in stored_ids
+                                        for r in blob["refs"]):
+                    return blob["refs"]   # per-id store has every pixel
+                # missing pixels -> fall through to the token-gated fetch
         except Exception:
             pass
     import requests
@@ -155,7 +176,17 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
     dlat = radius_m / 111320.0
     dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
     # Small cells: the Graph API rejects a bbox that covers too many images.
+    # To bound API cost on large radii we COARSEN the step so the grid stays
+    # under the cell budget while still covering the whole disc. (The old
+    # code linspace-DROPPED cells instead, which left striped ~0.5-1.2 km
+    # unqueried gaps across 70%+ of an 8 km disc — exactly the deployable
+    # city-extent mode whose entire point is that the drive is inside the
+    # disc; audit round-4 R3.)
     step_lat = 0.0022
+    _n_est = lambda s: (int(2 * dlat / s) + 1) * (  # noqa: E731
+        int(2 * dlon / (s / max(np.cos(np.radians(clat)), 0.2))) + 1)
+    while _n_est(step_lat) > 1200:
+        step_lat *= 1.3
     step_lon = step_lat / max(np.cos(np.radians(clat)), 0.2)
     cells = []
     la = clat - dlat
@@ -166,11 +197,9 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
                           min(la + step_lat, clat + dlat)))
             lo += step_lon
         la += step_lat
-    if len(cells) > 1200:  # bound API cost on large radii
-        cells = [cells[i] for i in np.linspace(0, len(cells) - 1, 1200).astype(int)]
     sess = requests.Session()
 
-    def query(cell):
+    def query(cell, _retried=False, _depth=0):
         w, s, e, n = cell
         try:
             r = sess.get("https://graph.mapillary.com/images",
@@ -178,9 +207,24 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
                                  "fields": "id,geometry,thumb_1024_url",
                                  "bbox": f"{w:.5f},{s:.5f},{e:.5f},{n:.5f}",
                                  "limit": 2000}, timeout=30)
-            return r.json().get("data", []) if r.status_code == 200 else []
+            data = r.json().get("data", []) if r.status_code == 200 else []
         except Exception:
+            # One retry: a single 30 s timeout otherwise silently drops this
+            # cell's patch of refs FOR THIS RUN ONLY — a direct source of the
+            # run-to-run variance in the deployable numbers.
+            if not _retried:
+                return query(cell, _retried=True, _depth=_depth)
             return []
+        # A FULL page means the (possibly coarsened) cell was truncated —
+        # subdivide and union, same pattern as the Panoramax fetcher.
+        if len(data) >= 2000 and _depth < 2:
+            mx, my = (w + e) / 2.0, (s + n) / 2.0
+            out = []
+            for sub in [(w, s, mx, my), (mx, s, e, my),
+                        (w, my, mx, n), (mx, my, e, n)]:
+                out.extend(query(sub, _depth=_depth + 1))
+            return out
+        return data
 
     refs = {}
     with ThreadPoolExecutor(max_workers=10) as ex:
@@ -190,12 +234,38 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
                 u = d.get("thumb_1024_url")
                 if g and u:
                     refs[d["id"]] = {"lat": float(g[1]), "lon": float(g[0]), "url": u}
-    out = [{"id": k, **v} for k, v in sorted(refs.items())]
-    if len(out) > cap:
-        out = [out[i] for i in np.linspace(0, len(out) - 1, cap).astype(int)]
+    # UNION the fetched ids into a persistent per-signature store so the ref
+    # set only ever GROWS across cold queries — the Graph API returns a
+    # slightly different id-set each time and cells occasionally fail, so
+    # without accumulation the served set (hence the prior) drifts +-100 m
+    # run-to-run (audit round-4 R1). The store holds id/lat/lon only.
+    store = os.path.join(cache_dir, f"mly_ref_store_{_sig_tag(sig)}.json") if cache_dir else None
+    union: dict[str, list] = {}
+    if store and os.path.exists(store):
+        try:
+            union = json.load(open(store))
+        except Exception:
+            union = {}
+    for k, v in refs.items():
+        union[str(k)] = [v["lat"], v["lon"]]
+    if store and union:
+        os.makedirs(cache_dir, exist_ok=True)
+        json.dump(union, open(store, "w"))
+    # Deterministic, insertion-STABLE subsample: keep the `cap` ids with the
+    # lowest sha1(id). Unlike linspace over a sorted list (one inserted/dropped
+    # id shifts every kept index -> a different served set each run), a sha1
+    # threshold keeps the SAME ids whenever they reappear; only ids near the
+    # cap-th sha1 quantile ever swap in/out. Combined with the union store the
+    # served set converges to a fixed point.
+    ids = list(union.keys())
+    if len(ids) > cap:
+        ids = sorted(ids, key=lambda i: hashlib.sha1(i.encode()).hexdigest())[:cap]
+    ids = sorted(ids)   # id order -> stable fingerprint
+    out = [{"id": i, "lat": union[i][0], "lon": union[i][1],
+            **({"url": refs[i]["url"]} if i in refs else {})} for i in ids]
     if meta and out:
         os.makedirs(cache_dir, exist_ok=True)
-        # store WITHOUT urls (they expire); the fingerprinted npz holds pixels
+        # store WITHOUT urls (they expire); the per-id image store holds pixels
         stable = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"]} for r in out]
         json.dump({"signature": sig, "refs": stable}, open(meta, "w"))
     return out
@@ -285,10 +355,13 @@ def has_mapillary_cache(cache_dir) -> bool:
     """True when a reusable Mapillary ref cache (metadata + image blob)
     exists, so a warm rerun can skip the MLY_TOKEN requirement entirely.
     (Whether it actually COVERS the query is decided by the signature check
-    in :func:`_fetch_refs_mapillary`; a mismatch degrades to no refs.)"""
-    return bool(cache_dir) and all(
-        os.path.exists(os.path.join(cache_dir, f))
-        for f in ("mly_ref_meta.json", "ref_imgs.npz"))
+    in :func:`_fetch_refs_mapillary`; a mismatch degrades to no refs.)
+    Matches both the signature-tagged filenames and the legacy untagged ones."""
+    import glob as _glob
+    if not cache_dir:
+        return False
+    return bool(_glob.glob(os.path.join(cache_dir, "mly_ref_meta*.json"))
+                and os.path.exists(os.path.join(cache_dir, "ref_img_store.npz")))
 
 
 def _fetch_refs_for(source, center, radius_m, cache_dir, cap, token):
@@ -310,10 +383,21 @@ def _prep(bgr):
 
 
 def _embed(device, imgs):
+    """Embed a list of PREPPED tensors, or a uint8 BGR array ``[N,H,W,3]``.
+
+    The array form preps lazily PER BATCH: materializing all prepped float32
+    tensors up front is ~3.15 MB each — ~9.4 GB at the 3000-ref deployable
+    cap, on top of the 2.4 GB raw array (audit round-4 f3/R2). Lazy prep
+    holds ~75 MB per 24-batch instead; results are identical.
+    """
     import torch
+    lazy = not isinstance(imgs, list)
     out = []
     for i in range(0, len(imgs), 24):
-        batch = torch.stack(imgs[i:i + 24]).to(device)
+        chunk = imgs[i:i + 24]
+        if lazy:
+            chunk = [_prep(chunk[j]) for j in range(len(chunk))]
+        batch = torch.stack(chunk).to(device)
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
             f = _MODEL(batch).float()
         out.append(torch.nn.functional.normalize(f, dim=1).cpu())
@@ -324,46 +408,82 @@ def _load_ref_images(refs, cache_dir):
     """Download (or load cached) reference images. Returns
     ``(raw[N,512,512,3], ref_xy[N,2], fingerprint)`` or ``(None, None, fp)``.
 
-    The npz is SELF-CONTAINED: it stores the kept photos' lat/lon plus a
-    fingerprint of the refs list it was built from. A stale npz paired with a
-    regenerated ref_meta.json would otherwise label every embedding with an
-    arbitrary other photo's GPS (audit kartaview:124) — on mismatch we discard
-    it and re-download.
+    Per-ID image store (``ref_img_store.npz`` = parallel ``ids``/``raw``):
+    each photo's pixels are cached by its own id, so a ref set that only
+    grew/shrank by a few ids reuses the rest instead of re-downloading all
+    (the old monolithic fingerprint-keyed npz discarded EVERYTHING on a 1-id
+    drift — a slow, nondeterministic refetch and the main cold-fetch variance
+    source; audit round-4 R1). Refs whose ``url`` is absent (accumulated by
+    the union store but not in the current metadata query) are served ONLY if
+    already stored. The fingerprint is over the SERVABLE subset, so it is
+    stable once the union/sha1 pick converges — warm embed reruns then hit.
     """
     import cv2
     import requests
-    fp = _refs_fingerprint(refs)
-    img_cache = os.path.join(cache_dir, "ref_imgs.npz") if cache_dir else None
-    if img_cache and os.path.exists(img_cache):
-        with np.load(img_cache, allow_pickle=True) as d:
-            if ("fingerprint" in d.files and str(d["fingerprint"]) == fp
-                    and "ref_xy" in d.files):
-                return np.asarray(d["raw"]), np.asarray(d["ref_xy"], float), fp
-        # legacy or mismatched cache -> refetch rather than mispair coords
+    store_path = os.path.join(cache_dir, "ref_img_store.npz") if cache_dir else None
+    have: dict[str, int] = {}
+    store_ids: list[str] = []
+    store_raw = store_xy = None
+    if store_path and os.path.exists(store_path):
+        try:
+            d = np.load(store_path, allow_pickle=True, mmap_mode="r")
+            store_ids = [str(x) for x in d["ids"]]
+            store_raw = d["raw"]          # memmapped — rows read on demand
+            store_xy = np.asarray(d["xy"], float)
+            have = {i: k for k, i in enumerate(store_ids)}
+        except Exception:
+            have, store_ids, store_raw, store_xy = {}, [], None, None
+
     sess = requests.Session()
 
     def fetch(ref):
         try:
             rr = sess.get(ref["url"], timeout=25)
             if rr.status_code == 200:
-                return cv2.imdecode(np.frombuffer(rr.content, np.uint8), cv2.IMREAD_COLOR)
+                img = cv2.imdecode(np.frombuffer(rr.content, np.uint8), cv2.IMREAD_COLOR)
+                return None if img is None else cv2.resize(img, (512, 512))
         except Exception:
             return None
         return None
 
-    raws, keep = [], []
-    with ThreadPoolExecutor(max_workers=16) as ex:
-        for j, a in enumerate(ex.map(fetch, refs)):
-            if a is not None:
-                raws.append(cv2.resize(a, (512, 512))); keep.append(j)
-    if not raws:
-        return None, None, fp
-    raw = np.stack(raws)
-    ref_xy = np.array([[refs[k]["lat"], refs[k]["lon"]] for k in keep], float)
-    if img_cache:
+    to_dl = [r for r in refs if str(r["id"]) not in have and r.get("url")]
+    new_imgs: dict[str, np.ndarray] = {}
+    if to_dl:
+        with ThreadPoolExecutor(max_workers=16) as ex:
+            for r, a in zip(to_dl, ex.map(fetch, to_dl)):
+                if a is not None:
+                    new_imgs[str(r["id"])] = a
+
+    # servable = refs with pixels available (already stored or just fetched)
+    servable = [r for r in refs
+                if str(r["id"]) in have or str(r["id"]) in new_imgs]
+    if not servable:
+        return None, None, _refs_fingerprint(refs)
+
+    # Each image keeps ITS OWN stored lat/lon (never the incoming ref's), so a
+    # cached photo can never be mislabelled with another ref's coordinates —
+    # the coordinate-mispairing failure the old fingerprint guard existed for.
+    out_raw, out_xy = [], []
+    for r in servable:
+        i = str(r["id"])
+        if i in have:
+            out_raw.append(np.asarray(store_raw[have[i]]))
+            out_xy.append(store_xy[have[i]])
+        else:
+            out_raw.append(new_imgs[i])
+            out_xy.append([r["lat"], r["lon"]])
+    raw = np.stack(out_raw)
+    ref_xy = np.array(out_xy, float)
+    del out_raw, out_xy
+    fp = _refs_fingerprint(servable)
+
+    # Persist the store as EXACTLY the current servable set (bounded at cap;
+    # evicts ids that left the sha1 pick) — but only rewrite when it changed,
+    # to avoid re-serialising ~2.4 GB every warm run.
+    if store_path and set(str(r["id"]) for r in servable) != set(store_ids):
         os.makedirs(cache_dir, exist_ok=True)
-        np.savez(img_cache, raw=raw, keep=np.array(keep), ref_xy=ref_xy,
-                 fingerprint=np.array(fp))
+        np.savez(store_path, ids=np.array([str(r["id"]) for r in servable]),
+                 raw=raw, xy=ref_xy)
     return raw, ref_xy, fp
 
 
@@ -373,14 +493,19 @@ def _embed_refs(refs, device, cache_dir, model_name="model"):
     if raw is None:
         return None, None
     # Embedding cache keyed by (image fingerprint, model): warm reruns skip
-    # the GPU embedding pass entirely.
-    emb_cache = (os.path.join(cache_dir, f"ref_emb_{model_name}.npz")
-                 if cache_dir else None)
-    if emb_cache and os.path.exists(emb_cache):
-        with np.load(emb_cache, allow_pickle=True) as d:
+    # the GPU embedding pass entirely. Fp-tagged filename (variants coexist)
+    # with the legacy untagged one as a verified read fallback.
+    emb_paths = ([os.path.join(cache_dir, f"ref_emb_{model_name}_{fp[:10]}.npz"),
+                  os.path.join(cache_dir, f"ref_emb_{model_name}.npz")]
+                 if cache_dir else [])
+    emb_cache = emb_paths[0] if emb_paths else None
+    for p in emb_paths:
+        if not os.path.exists(p):
+            continue
+        with np.load(p, allow_pickle=True) as d:
             if str(d["fingerprint"]) == fp and len(d["emb"]) == len(ref_xy):
                 return torch.from_numpy(np.asarray(d["emb"], np.float32)), ref_xy
-    emb = _embed(device, [_prep(raw[i]) for i in range(len(raw))])
+    emb = _embed(device, raw)   # lazy per-batch prep (see _embed)
     if emb_cache:
         os.makedirs(cache_dir, exist_ok=True)
         np.savez(emb_cache, emb=emb.numpy(), fingerprint=np.array(fp))

@@ -86,23 +86,33 @@ def _refs(coords):
 
 
 def _write_mly_cache(tmp_path: Path, center, radius_m, cap=1500,
-                     npz_fingerprint: str | None = "match") -> list[dict]:
-    """Write a warm Mapillary cache. ``npz_fingerprint``: "match" writes an
-    image npz whose fingerprint matches the refs (a genuine warm cache);
-    any other string writes a MISMATCHED npz (the interrupted-rebuild state);
-    None writes no npz at all."""
-    refs = [{"id": i, "lat": center[0], "lon": center[1], "url": None}
-            for i in range(3)]
+                     store: str | None = "match") -> list[dict]:
+    """Write a warm Mapillary cache: a signature-tagged meta + the per-id
+    image store. ``store``: "match" stores every ref's pixels (genuine warm
+    cache); "partial" stores only some (interrupted rebuild — warm serve must
+    decline); None writes no image store."""
+    refs = [{"id": i, "lat": center[0], "lon": center[1]} for i in range(3)]
     sig = kv._fetch_signature(center, radius_m, cap)
-    (tmp_path / "mly_ref_meta.json").write_text(
+    (tmp_path / f"mly_ref_meta_{kv._sig_tag(sig)}.json").write_text(
         json.dumps({"signature": sig, "refs": refs}), encoding="utf-8")
-    if npz_fingerprint is not None:
-        fp = (kv._refs_fingerprint(refs) if npz_fingerprint == "match"
-              else npz_fingerprint)
-        np.savez(tmp_path / "ref_imgs.npz",
-                 raw=np.zeros((3, 4, 4, 3), np.uint8),
-                 ref_xy=np.array([[r["lat"], r["lon"]] for r in refs]),
-                 fingerprint=fp)
+    if store is not None:
+        ids = [str(r["id"]) for r in refs]
+        if store == "partial":
+            ids = ids[:1]
+        # merge into any existing store so two signatures can share one
+        p = tmp_path / "ref_img_store.npz"
+        if p.exists():
+            with np.load(p, allow_pickle=True) as d:
+                have = [str(x) for x in d["ids"]]
+                raw0 = np.asarray(d["raw"])
+            add = [i for i in ids if i not in have]
+            allids = have + add
+            allraw = np.concatenate(
+                [raw0, np.zeros((len(add), 4, 4, 3), np.uint8)]) if add else raw0
+        else:
+            allids = ids
+            allraw = np.zeros((len(ids), 4, 4, 3), np.uint8)
+        np.savez(p, ids=np.array(allids), raw=allraw)
     return refs
 
 
@@ -126,22 +136,39 @@ def test_fetch_refs_mapillary_no_token_no_cache_returns_empty(
     assert kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None) == []
 
 
-def test_fetch_refs_mapillary_desynced_npz_falls_through_to_fresh_fetch(
+def test_fetch_refs_mapillary_two_signatures_coexist(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Regression (bug 2026-07-08): an interrupted rebuild leaves a NEW meta
-    beside a STALE npz. The warm branch used to serve the url-less refs on npz
-    EXISTENCE alone — _load_ref_images then discards the npz on fingerprint
-    mismatch and every image fetch KeyErrors on the missing url, wedging the
-    channel permanently even with a valid token. The fixed branch must detect
-    the fingerprint mismatch and fall through to the token-gated fresh fetch."""
-    _write_mly_cache(tmp_path, ULM, 500.0, npz_fingerprint="stale-other-refs")
+    """Regression (2026-07-11): with a single untagged meta the deployable
+    (wide-disc) and GT-seeded (tight-disc) configs of one clip CLOBBERED each
+    other's cache — the auto-sizing runs overwrote Ulm's GT-seeded cache and
+    every later tokenless run lost the VPR channel. Signature-tagged metas +
+    a shared per-id image store must let BOTH serve from one dir."""
     monkeypatch.delenv("MLY_TOKEN", raising=False)
-    # tokenless: must NOT serve the desynced cache; degrades to [] gracefully
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    _write_mly_cache(tmp_path, ULM, 500.0)               # variant A (tight)
+    _write_mly_cache(tmp_path, ULM, 8000.0, cap=3000)    # variant B (wide)
+    got_a = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    got_b = kv._fetch_refs_mapillary(ULM, 8000.0, str(tmp_path), token=None,
+                                     cap=3000)
+    assert [r["id"] for r in got_a] == [0, 1, 2]
+    assert [r["id"] for r in got_b] == [0, 1, 2]
+    assert kv.has_mapillary_cache(str(tmp_path))
+
+
+def test_fetch_refs_mapillary_partial_store_declines_tokenless(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The per-id image store must hold EVERY served id's pixels before the
+    tokenless warm serve fires — a partial store (interrupted rebuild) would
+    otherwise serve a meta whose missing ids get silently dropped downstream.
+    With only some pixels present and no token, degrade to [] gracefully."""
+    _write_mly_cache(tmp_path, ULM, 500.0, store="partial")
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
     monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
     assert kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None) == []
-    # matched npz: warm serve still works tokenless (the original contract)
-    _write_mly_cache(tmp_path, ULM, 500.0, npz_fingerprint="match")
+    # complete the store -> warm serve fires
+    _write_mly_cache(tmp_path, ULM, 500.0, store="match")
     got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
     assert [r["id"] for r in got] == [0, 1, 2]
 
@@ -421,25 +448,45 @@ def test_load_ref_images_serves_matching_cache_offline(tmp_path: Path, monkeypat
     np.testing.assert_allclose(ref_xy2, ref_xy)
 
 
-def test_load_ref_images_invalidates_on_refs_change(tmp_path: Path, monkeypatch) -> None:
-    """A regenerated refs list must NOT be paired with the stale npz (the old
-    code dereferenced stale keep-indices into the new list — silently wrong
-    GPS labels for every retrieval hit)."""
-    refs_a = _refs([(48.40, 9.99), (48.41, 9.98)])
+def test_load_ref_images_per_id_reuse_and_own_coords(tmp_path: Path, monkeypatch) -> None:
+    """Per-id store (R1): an overlapping ref set reuses the shared ids' pixels
+    (no re-download — the old monolithic cache refetched EVERYTHING on any
+    drift), and each image keeps ITS OWN stored lat/lon, so a cached photo can
+    never be mislabelled with another ref's coordinates."""
+    refs_a = _refs([(48.40, 9.99), (48.41, 9.98)])       # ids 0, 1
     monkeypatch.setitem(sys.modules, "requests",
                         _FakeRequests(image_bytes=_jpg_bytes()))
     _load_ref_images(refs_a, str(tmp_path))
 
-    # "User deleted ref_meta.json and refetched": different, longer refs list.
-    refs_b = _refs([(51.50, -0.12), (51.51, -0.10), (51.52, -0.09)])
+    # Overlap id 0 (a wrong coord claim it must IGNORE) + two genuinely new ids.
+    refs_b = [{"id": 0, "lat": 99.0, "lon": 99.0, "url": "http://x/0"},
+              {"id": 2, "lat": 48.50, "lon": 9.80, "url": "http://x/2"},
+              {"id": 3, "lat": 48.51, "lon": 9.81, "url": "http://x/3"}]
     fake_b = _FakeRequests(image_bytes=_jpg_bytes())
     monkeypatch.setitem(sys.modules, "requests", fake_b)
     raw, ref_xy, fp = _load_ref_images(refs_b, str(tmp_path))
-    assert len(fake_b.get_calls) == 3              # re-downloaded, not served stale
+    assert sorted(fake_b.get_calls) == ["http://x/2", "http://x/3"]  # id 0 reused
     assert raw.shape[0] == 3
+    # id 0 keeps its ORIGINAL (48.40, 9.99), NOT refs_b's bogus (99, 99)
     np.testing.assert_allclose(
-        ref_xy, [[51.50, -0.12], [51.51, -0.10], [51.52, -0.09]])
+        ref_xy, [[48.40, 9.99], [48.50, 9.80], [48.51, 9.81]])
     assert fp == _refs_fingerprint(refs_b)
+
+
+def test_load_ref_images_serves_url_less_refs_from_store(tmp_path: Path, monkeypatch) -> None:
+    """Union-store ids reach _load_ref_images with url=None; they must still be
+    served from the per-id store (the tokenless warm path depends on it), and
+    ids with neither a url nor a stored image are dropped, not fetched-as-None."""
+    refs = _refs([(48.40, 9.99), (48.41, 9.98)])
+    monkeypatch.setitem(sys.modules, "requests",
+                        _FakeRequests(image_bytes=_jpg_bytes()))
+    _load_ref_images(refs, str(tmp_path))
+    url_less = [{"id": 0, "lat": 48.40, "lon": 9.99},          # stored -> served
+                {"id": 9, "lat": 48.60, "lon": 9.70}]          # unknown -> dropped
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    raw, ref_xy, _ = _load_ref_images(url_less, str(tmp_path))
+    assert raw.shape[0] == 1
+    np.testing.assert_allclose(ref_xy, [[48.40, 9.99]])
 
 
 def test_load_ref_images_ignores_legacy_npz(tmp_path: Path, monkeypatch) -> None:

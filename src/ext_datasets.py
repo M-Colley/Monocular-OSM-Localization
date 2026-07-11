@@ -98,14 +98,23 @@ def enu_to_latlon(
 ) -> np.ndarray:
     """Convert local ENU metres (relative to a WGS84 origin) to ``[lat,lon]``.
 
-    A local-tangent-plane inverse: fine for the few-km extent of one drive
-    (sub-metre error vs a full geodetic solution). Boreas poses are ENU
-    relative to a per-sequence reference lat/lon.
+    A local-tangent-plane inverse using the LATITUDE-DEPENDENT WGS84 metre-
+    per-degree scales, not the spherical 111320 constant: at Toronto's 43.8°N
+    the meridian scale is 111108 m/deg (0.19% off the constant), which is a
+    2.3-3.6 m systematic error 1.8 km from the origin — the GT would be worse
+    than the Applanix data it comes from (audit round-4 EXT-1; with these
+    scales the in-window error vs the reference lat/lon columns is <0.3 m).
+    Boreas poses are ENU relative to a per-sequence reference lat/lon.
     """
     east_m = np.asarray(east_m, float)
     north_m = np.asarray(north_m, float)
-    lat = lat0 + (north_m / 111320.0)
-    lon = lon0 + (east_m / (111320.0 * np.cos(np.radians(lat0))))
+    la = np.radians(lat0)
+    m_per_deg_lat = (111132.954 - 559.822 * np.cos(2 * la)
+                     + 1.175 * np.cos(4 * la))
+    m_per_deg_lon = (np.pi / 180.0) * 6378137.0 * np.cos(la) / np.sqrt(
+        1.0 - 0.00669437999014 * np.sin(la) ** 2)
+    lat = lat0 + (north_m / m_per_deg_lat)
+    lon = lon0 + (east_m / m_per_deg_lon)
     return np.column_stack([lat, lon])
 
 
@@ -125,11 +134,17 @@ def subsample_fixes(fixes: list[GpsFix], every_n: int) -> list[GpsFix]:
 MALAGA_FPS = 20.0  # rectified camera is 20 Hz
 
 
-def malaga_track(gps_txt: Path) -> list[GpsFix]:
+def malaga_track(gps_txt: Path, *, t0_abs: float | None = None) -> list[GpsFix]:
     """Read a Málaga ``*_all-sensors_GPS.txt`` into a GpsFix track.
 
     Columns: ``Time Lat Lon Alt fix #sats ...`` — **Lat/Lon are in RADIANS**
     (WGS84), Time is UNIX seconds. A ``%`` header line is skipped.
+
+    ``t0_abs`` is the absolute UNIX time that becomes t_sec=0. Pass the FIRST
+    VIDEO FRAME's timestamp (from the image filename): the GPS log starts a
+    fraction of a second after the camera (verified 0.42 s on extract-07 ≈
+    3.5 m at urban speed), so rebasing to the GPS row 0 — the default — puts
+    a systematic along-track bias on every waypoint (audit round-4 EXT-2).
     """
     import math
     rows = []
@@ -149,7 +164,7 @@ def malaga_track(gps_txt: Path) -> list[GpsFix]:
         rows.append((t, lat, lon))
     if not rows:
         raise ValueError(f"no GPS rows in {gps_txt}")
-    t0 = rows[0][0]
+    t0 = rows[0][0] if t0_abs is None else float(t0_abs)
     return [GpsFix(t - t0, la, lo) for (t, la, lo) in rows]
 
 
@@ -158,20 +173,28 @@ def malaga_track(gps_txt: Path) -> list[GpsFix]:
 BOREAS_FPS = 20.0  # forward camera is 20 Hz
 
 
-def boreas_track(applanix_dir: Path) -> list[GpsFix]:
-    """Per-camera-frame GT from Boreas ``applanix/`` csvs.
+def boreas_pose_track(applanix_dir: Path) -> tuple[np.ndarray, np.ndarray]:
+    """``(t_seconds_from_first_frame[N], latlon[N,2])`` per camera frame.
 
     ``camera_poses.csv`` has one ENU pose per image (GPSTime in microseconds
     == the PNG filename / video frame order); ``gps_post_process.csv`` gives
     the WGS84 origin (its lat/lon columns are in RADIANS). We convert each
     frame's ENU (easting, northing) to lat/lon about that origin, so the GT
-    is aligned frame-for-frame with the camera video.
+    is aligned frame-for-frame with the camera video. The origin row must
+    itself sit at ENU (0,0) — guarded, because a sequence whose reference
+    origin is defined elsewhere would silently shift the whole track.
     """
     import csv
     import math
     ad = Path(applanix_dir)
     with open(ad / "gps_post_process.csv") as fh:
         r0 = next(csv.DictReader(fh))
+    if abs(float(r0["easting"])) > 1.0 or abs(float(r0["northing"])) > 1.0:
+        raise ValueError(
+            f"gps_post_process.csv row 0 is not the ENU origin "
+            f"(easting={r0['easting']}, northing={r0['northing']}); this "
+            f"sequence's reference frame is defined elsewhere — refusing to "
+            f"emit shifted ground truth")
     origin_lat = math.degrees(float(r0["latitude"]))
     origin_lon = math.degrees(float(r0["longitude"]))
     ts, easts, norths = [], [], []
@@ -183,9 +206,15 @@ def boreas_track(applanix_dir: Path) -> list[GpsFix]:
     if not ts:
         raise ValueError(f"no camera poses in {ad/'camera_poses.csv'}")
     latlon = enu_to_latlon(np.array(easts), np.array(norths), origin_lat, origin_lon)
-    t0 = ts[0]
-    return [GpsFix((t - t0) / 1e6, float(latlon[i, 0]), float(latlon[i, 1]))
-            for i, t in enumerate(ts)]
+    tp = (np.asarray(ts, float) - ts[0]) / 1e6
+    return tp, latlon
+
+
+def boreas_track(applanix_dir: Path) -> list[GpsFix]:
+    """:func:`boreas_pose_track` as the project's GpsFix list."""
+    tp, latlon = boreas_pose_track(applanix_dir)
+    return [GpsFix(float(tp[i]), float(latlon[i, 0]), float(latlon[i, 1]))
+            for i in range(len(tp))]
 
 
 # --- Brno Urban (Czechia) --------------------------------------------------

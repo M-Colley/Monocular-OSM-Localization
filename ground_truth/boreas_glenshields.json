@@ -3,78 +3,78 @@
  "video_url": "https://www.boreas.utias.utoronto.ca/",
  "city": "Vaughan, Ontario, Canada",
  "vo_segment": "0:179",
- "description": "Auto-extracted from a burned-in GPS overlay via OCR (3591 fixes \u2192 14 waypoints). Verify before trusting.",
- "source": "gps_overlay_ocr",
+ "description": "Boreas boreas-2020-11-26-13-58 (Glen Shields), window 300-480s; Applanix post-processed poses (camera_poses.csv ENU -> WGS84).",
+ "source": "boreas_applanix_post_process",
  "waypoints": [
   {
    "t_sec": 0.0,
-   "lat": 43.792215,
-   "lon": -79.474843
+   "lat": 43.792234,
+   "lon": -79.474829
   },
   {
    "t_sec": 13.8,
-   "lat": 43.79166,
-   "lon": -79.477027
+   "lat": 43.791678,
+   "lon": -79.477009
   },
   {
    "t_sec": 27.7,
-   "lat": 43.791371,
-   "lon": -79.478904
+   "lat": 43.791389,
+   "lon": -79.478884
   },
   {
    "t_sec": 41.6,
-   "lat": 43.791278,
-   "lon": -79.480048
+   "lat": 43.791295,
+   "lon": -79.480026
   },
   {
    "t_sec": 55.5,
-   "lat": 43.791172,
-   "lon": -79.481987
+   "lat": 43.791189,
+   "lon": -79.481962
   },
   {
    "t_sec": 69.3,
-   "lat": 43.791705,
-   "lon": -79.48276
+   "lat": 43.791724,
+   "lon": -79.482733
   },
   {
    "t_sec": 83.1,
-   "lat": 43.792943,
-   "lon": -79.482569
+   "lat": 43.792964,
+   "lon": -79.482543
   },
   {
    "t_sec": 97.0,
-   "lat": 43.793463,
-   "lon": -79.48199
+   "lat": 43.793485,
+   "lon": -79.481964
   },
   {
    "t_sec": 110.8,
-   "lat": 43.794477,
-   "lon": -79.481128
+   "lat": 43.794501,
+   "lon": -79.481104
   },
   {
    "t_sec": 124.6,
-   "lat": 43.796052,
-   "lon": -79.480879
+   "lat": 43.796079,
+   "lon": -79.480855
   },
   {
    "t_sec": 138.5,
-   "lat": 43.797259,
-   "lon": -79.479696
+   "lat": 43.797288,
+   "lon": -79.479674
   },
   {
    "t_sec": 152.3,
-   "lat": 43.797742,
-   "lon": -79.479168
+   "lat": 43.797772,
+   "lon": -79.479147
   },
   {
    "t_sec": 166.2,
-   "lat": 43.799271,
-   "lon": -79.478046
+   "lat": 43.799304,
+   "lon": -79.478027
   },
   {
    "t_sec": 180.0,
-   "lat": 43.800211,
-   "lon": -79.477171
+   "lat": 43.800246,
+   "lon": -79.477154
   }
  ]
 }
