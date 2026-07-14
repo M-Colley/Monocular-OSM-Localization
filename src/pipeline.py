@@ -1641,6 +1641,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # span the clip (long/fast clips would silently degrade).
                 _tight = max(float(cfg.vpr_c2f_radius_m),
                              0.6 * float(estimated_length_m))
+                if cfg.vpr_coarse_to_fine and _vpr_radius <= 1.2 * _tight:
+                    # Enabled but not fired — say why (a long route can floor
+                    # _tight above the pass-1 disc, silently skipping pass 2).
+                    print(f"      -> coarse-to-fine skipped: pass-1 disc "
+                          f"({_vpr_radius:.0f} m) <= 1.2x tight "
+                          f"({_tight:.0f} m)")
                 if (cfg.vpr_coarse_to_fine
                         and _vpr_radius > 1.2 * _tight):
                     # Snap the pass-2 centre to a ~500 m grid: the fetch
@@ -1673,7 +1679,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         vpr_track = tr2
                         v_idx, v_ll, v_sims = tr2
                         vpr_center = _robust_center(v_ll, v_sims)
-                        osm_around = (_slat, _slon, _tight)
+                        # Centre the GRAPH on the REFINED centre (snapped for
+                        # cache-stable filenames), NOT the pass-1 snap: the
+                        # refined centre can sit >1 km from the pass-1 point
+                        # (Málaga: 1.46 km), leaving the route only ~500 m of
+                        # graph margin on the far side — a clipped graph that
+                        # no candidate walk can span (round-5 bug C).
+                        _g2lat = round(float(vpr_center[0]) / _g) * _g
+                        _g2lon = round(float(vpr_center[1]) / _g) * _g
+                        osm_around = (_g2lat, _g2lon, _tight)
                         _c2f_info = {
                             "pass1_center": [float(_c1[0]), float(_c1[1])],
                             "pass2_center": [float(vpr_center[0]),
@@ -1681,7 +1695,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                             "tight_radius_m": _tight,
                         }
                         print(f"      -> refined VPR prior {vpr_center[0]:.5f}, "
-                              f"{vpr_center[1]:.5f}; graph re-centred tight")
+                              f"{vpr_center[1]:.5f}; graph re-centred tight "
+                              f"({_g2lat:.3f}, {_g2lon:.3f})")
                     else:
                         _hint = ("" if _vpr_token or _vpr_src != "mapillary"
                                  else " (tokenless: set MLY_TOKEN to enable "

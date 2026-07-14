@@ -156,6 +156,66 @@ def test_fetch_refs_mapillary_two_signatures_coexist(
     assert kv.has_mapillary_cache(str(tmp_path))
 
 
+def test_fetch_refs_mapillary_legacy_cache_serves_and_migrates(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression (round-5 bug A): the R1 per-id store made every PRE-R1 warm
+    cache (monolithic ref_imgs npz — the whole GT-seeded fleet) dead tokenless.
+    A legacy-format cache must (a) serve tokenless via the fingerprint check,
+    and (b) be MIGRATED into the per-id store by _load_ref_images."""
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    refs = [{"id": i, "lat": ULM[0], "lon": ULM[1]} for i in range(3)]
+    sig = kv._fetch_signature(ULM, 500.0, 1500)
+    (tmp_path / f"mly_ref_meta_{kv._sig_tag(sig)}.json").write_text(
+        json.dumps({"signature": sig, "refs": refs}), encoding="utf-8")
+    fp = kv._refs_fingerprint(refs)
+    np.savez(tmp_path / f"ref_imgs_{fp[:10]}.npz",              # legacy format
+             raw=np.full((3, 4, 4, 3), 7, np.uint8),
+             keep=np.arange(3),
+             ref_xy=np.array([[r["lat"], r["lon"]] for r in refs]),
+             fingerprint=np.array(fp))
+    # (a) tokenless warm serve via the legacy npz
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    assert [r["id"] for r in got] == [0, 1, 2]
+    assert kv.has_mapillary_cache(str(tmp_path))
+    # (b) loading migrates the pixels into the per-id store, offline
+    raw, ref_xy, fp2 = kv._load_ref_images(got, str(tmp_path))
+    assert raw.shape[0] == 3 and (raw == 7).all() and fp2 == fp
+    with np.load(tmp_path / "ref_img_store.npz", allow_pickle=True) as d:
+        assert {str(x) for x in d["ids"]} == {"0", "1", "2"}
+
+
+def test_fetch_refs_mapillary_90pct_store_serves_tokenless(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression (round-5 bug B): the meta lists the full sha1-cap id set but
+    the store holds only what downloaded — one transient failure must not kill
+    the tokenless warm path forever. >=90% (and >=30) stored ids serve; the
+    url-less misses are dropped downstream exactly as the token run dropped
+    them."""
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    refs = [{"id": i, "lat": ULM[0], "lon": ULM[1]} for i in range(40)]
+    sig = kv._fetch_signature(ULM, 500.0, 1500)
+    (tmp_path / f"mly_ref_meta_{kv._sig_tag(sig)}.json").write_text(
+        json.dumps({"signature": sig, "refs": refs}), encoding="utf-8")
+    # store 38/40 (95%) -> serves; the 2 missing are dropped by the loader
+    ids = [str(i) for i in range(38)]
+    np.savez(tmp_path / "ref_img_store.npz", ids=np.array(ids),
+             raw=np.zeros((38, 4, 4, 3), np.uint8),
+             xy=np.array([[ULM[0], ULM[1]]] * 38))
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    assert len(got) == 40
+    raw, ref_xy, _ = kv._load_ref_images(got, str(tmp_path))
+    assert raw.shape[0] == 38
+    # below the threshold (50%) -> declines, degrades to []
+    np.savez(tmp_path / "ref_img_store.npz", ids=np.array(ids[:20]),
+             raw=np.zeros((20, 4, 4, 3), np.uint8),
+             xy=np.array([[ULM[0], ULM[1]]] * 20))
+    assert kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None) == []
+
+
 def test_fetch_refs_mapillary_partial_store_declines_tokenless(
     tmp_path: Path, monkeypatch
 ) -> None:

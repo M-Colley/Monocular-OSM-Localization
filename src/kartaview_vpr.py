@@ -64,6 +64,17 @@ def _sig_tag(sig: dict) -> str:
     return hashlib.sha1(blob.encode()).hexdigest()[:10]
 
 
+def _legacy_img_paths(cache_dir, fp: str) -> list[str]:
+    """Pre-R1 monolithic image-cache paths (fingerprint-tagged, then
+    untagged). Read-only fallbacks: _load_ref_images migrates their contents
+    into the per-id store on first use, so pre-existing warm caches (the
+    whole GT-seeded fleet) keep serving tokenless after the R1 format change."""
+    if not cache_dir:
+        return []
+    return [os.path.join(cache_dir, f"ref_imgs_{fp[:10]}.npz"),
+            os.path.join(cache_dir, "ref_imgs.npz")]
+
+
 
 
 def _fetch_refs(center, radius_m, cache_dir, cap=1500):
@@ -145,9 +156,11 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
              if cache_dir else [])
     meta = metas[0] if metas else None
     # The cached refs carry NO thumb urls (they expire), so they are only
-    # servable when the per-id image store REALLY holds every one of their
-    # pixels — otherwise _load_ref_images would drop the url-less misses and
-    # silently serve a truncated set. Existence of the meta is not enough.
+    # servable when pixels for (nearly) all of them are cached — otherwise
+    # _load_ref_images would drop the url-less misses and silently serve a
+    # truncated set. Existence of the meta is not enough. Pixels can live in
+    # the per-id store OR a legacy monolithic npz (pre-R1 caches — the whole
+    # GT-seeded fleet; _load_ref_images migrates those on first use).
     stored_ids: set[str] = set()
     store_path = os.path.join(cache_dir, "ref_img_store.npz") if cache_dir else None
     if store_path and os.path.exists(store_path):
@@ -161,11 +174,37 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
             continue
         try:
             blob = json.load(open(mpath))
-            if isinstance(blob, dict) and blob.get("signature") == sig:
-                if blob["refs"] and all(str(r["id"]) in stored_ids
-                                        for r in blob["refs"]):
-                    return blob["refs"]   # per-id store has every pixel
-                # missing pixels -> fall through to the token-gated fetch
+            if not (isinstance(blob, dict) and blob.get("signature") == sig):
+                continue
+            refs_m = blob.get("refs") or []
+            if not refs_m:
+                continue
+            n_stored = sum(1 for r in refs_m if str(r["id"]) in stored_ids)
+            # A COMPLETE store always serves; a PARTIAL one serves at >=90%
+            # and >=30 — a handful of transiently-failed downloads must not
+            # kill the offline path (the token run itself served only the
+            # stored subset, so serving it warm is IDENTICAL to a rerun with
+            # the token; bug B, round-5). _load_ref_images drops the url-less
+            # misses.
+            if n_stored == len(refs_m) or (
+                    n_stored >= 30 and n_stored >= int(0.9 * len(refs_m))):
+                return refs_m
+            # Legacy monolithic image cache (fingerprint over the FULL meta
+            # list): serve if it matches; _load_ref_images migrates it into
+            # the per-id store on load (bug A, round-5 — pre-R1 warm caches,
+            # i.e. every GT-seeded fleet clip, otherwise die tokenless).
+            fp = _refs_fingerprint(refs_m)
+            for npz in _legacy_img_paths(cache_dir, fp):
+                if not os.path.exists(npz):
+                    continue
+                try:
+                    with np.load(npz, allow_pickle=True) as d:
+                        if ("fingerprint" in d.files
+                                and str(d["fingerprint"]) == fp):
+                            return refs_m
+                except Exception:
+                    pass
+            # not enough pixels anywhere -> fall through to the token fetch
         except Exception:
             pass
     import requests
@@ -361,7 +400,8 @@ def has_mapillary_cache(cache_dir) -> bool:
     if not cache_dir:
         return False
     return bool(_glob.glob(os.path.join(cache_dir, "mly_ref_meta*.json"))
-                and os.path.exists(os.path.join(cache_dir, "ref_img_store.npz")))
+                and (os.path.exists(os.path.join(cache_dir, "ref_img_store.npz"))
+                     or _glob.glob(os.path.join(cache_dir, "ref_imgs*.npz"))))
 
 
 def _fetch_refs_for(source, center, radius_m, cache_dir, cap, token):
@@ -434,6 +474,38 @@ def _load_ref_images(refs, cache_dir):
         except Exception:
             have, store_ids, store_raw, store_xy = {}, [], None, None
 
+    # MIGRATE a legacy monolithic npz (pre-R1 format) into the per-id model:
+    # its fingerprint is over exactly this refs list, so its `keep` indices
+    # map each stored image to refs[keep[j]] with coords ref_xy[j]. Without
+    # this, every pre-R1 warm cache (the whole GT-seeded fleet) re-downloads
+    # — or dies tokenless (round-5 bug A).
+    legacy_imgs: dict[str, np.ndarray] = {}
+    legacy_xy: dict[str, list] = {}
+    if any(str(r["id"]) not in have for r in refs):
+        fp0 = _refs_fingerprint(refs)
+        for lp in _legacy_img_paths(cache_dir, fp0):
+            if not os.path.exists(lp):
+                continue
+            try:
+                with np.load(lp, allow_pickle=True) as d:
+                    if ("fingerprint" not in d.files
+                            or str(d["fingerprint"]) != fp0
+                            or "ref_xy" not in d.files):
+                        continue
+                    keep = [int(k) for k in d["keep"]] if "keep" in d.files \
+                        else list(range(len(d["raw"])))
+                    lraw = np.asarray(d["raw"])
+                    lxy = np.asarray(d["ref_xy"], float)
+                    for j, k in enumerate(keep):
+                        if k < len(refs):
+                            i = str(refs[k]["id"])
+                            if i not in have:
+                                legacy_imgs[i] = lraw[j]
+                                legacy_xy[i] = [float(lxy[j, 0]), float(lxy[j, 1])]
+                break
+            except Exception:
+                continue
+
     sess = requests.Session()
 
     def fetch(ref):
@@ -446,7 +518,9 @@ def _load_ref_images(refs, cache_dir):
             return None
         return None
 
-    to_dl = [r for r in refs if str(r["id"]) not in have and r.get("url")]
+    to_dl = [r for r in refs
+             if str(r["id"]) not in have and str(r["id"]) not in legacy_imgs
+             and r.get("url")]
     new_imgs: dict[str, np.ndarray] = {}
     if to_dl:
         with ThreadPoolExecutor(max_workers=16) as ex:
@@ -454,9 +528,10 @@ def _load_ref_images(refs, cache_dir):
                 if a is not None:
                     new_imgs[str(r["id"])] = a
 
-    # servable = refs with pixels available (already stored or just fetched)
+    # servable = refs with pixels available (stored, legacy, or just fetched)
     servable = [r for r in refs
-                if str(r["id"]) in have or str(r["id"]) in new_imgs]
+                if str(r["id"]) in have or str(r["id"]) in legacy_imgs
+                or str(r["id"]) in new_imgs]
     if not servable:
         return None, None, _refs_fingerprint(refs)
 
@@ -469,6 +544,9 @@ def _load_ref_images(refs, cache_dir):
         if i in have:
             out_raw.append(np.asarray(store_raw[have[i]]))
             out_xy.append(store_xy[have[i]])
+        elif i in legacy_imgs:
+            out_raw.append(legacy_imgs[i])
+            out_xy.append(legacy_xy[i])
         else:
             out_raw.append(new_imgs[i])
             out_xy.append([r["lat"], r["lon"]])
