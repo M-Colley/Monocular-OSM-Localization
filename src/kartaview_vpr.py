@@ -32,6 +32,25 @@ _MODEL = None
 _MODEL_NAME = None   # backbone actually resident in _MODEL (survives fallback)
 
 
+def _atomic_write_json(path: str, obj) -> None:
+    """Write JSON via a temp file + os.replace, so an interrupted/concurrent
+    write never truncates the canonical cache (which would reset the union
+    accumulator to {} and reintroduce the +-100 m cold-fetch drift R1 killed;
+    audit CACHE-ATOMIC)."""
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w") as fh:
+        json.dump(obj, fh)
+    os.replace(tmp, path)
+
+
+def _atomic_savez(path: str, **arrays) -> None:
+    """np.savez via temp + os.replace (see _atomic_write_json). np.savez
+    appends .npz if missing, so write to a base name then rename the .npz."""
+    base = f"{path}.{os.getpid()}.tmp"
+    np.savez(base, **arrays)
+    os.replace(base + ".npz", path)
+
+
 def _cdn_url(lth_name: str) -> str:
     stg = lth_name.split("/")[0]
     legacy = f"https://{stg}.openstreetcam.org/{lth_name[len(stg) + 1:]}"
@@ -123,7 +142,7 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
         refs = [refs[i] for i in np.linspace(0, len(refs) - 1, cap).astype(int)]
     if meta:
         os.makedirs(cache_dir, exist_ok=True)
-        json.dump({"signature": sig, "refs": refs}, open(meta, "w"))
+        _atomic_write_json(meta, {"signature": sig, "refs": refs})
     return refs
 
 
@@ -289,7 +308,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
         union[str(k)] = [v["lat"], v["lon"]]
     if store and union:
         os.makedirs(cache_dir, exist_ok=True)
-        json.dump(union, open(store, "w"))
+        _atomic_write_json(store, union)
     # Deterministic, insertion-STABLE subsample: keep the `cap` ids with the
     # lowest sha1(id). Unlike linspace over a sorted list (one inserted/dropped
     # id shifts every kept index -> a different served set each run), a sha1
@@ -306,7 +325,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
         os.makedirs(cache_dir, exist_ok=True)
         # store WITHOUT urls (they expire); the per-id image store holds pixels
         stable = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"]} for r in out]
-        json.dump({"signature": sig, "refs": stable}, open(meta, "w"))
+        _atomic_write_json(meta, {"signature": sig, "refs": stable})
     return out
 
 
@@ -386,7 +405,7 @@ def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):
         refs = [refs[i] for i in np.linspace(0, len(refs) - 1, cap).astype(int)]
     if meta and refs:
         os.makedirs(cache_dir, exist_ok=True)
-        json.dump({"signature": sig, "refs": refs}, open(meta, "w"))
+        _atomic_write_json(meta, {"signature": sig, "refs": refs})
     return refs
 
 
@@ -465,11 +484,16 @@ def _load_ref_images(refs, cache_dir):
     store_ids: list[str] = []
     store_raw = store_xy = None
     if store_path and os.path.exists(store_path):
+        # mmap_mode is a NO-OP for .npz archives (numpy returns an in-RAM
+        # NpzFile), so there is no lazy row access — just load and CLOSE the
+        # handle (audit K2/F5). This full path only runs on a cold/partial
+        # miss (pixels are needed anyway); the fully-warm case skips it via
+        # _peek_store in _embed_refs.
         try:
-            d = np.load(store_path, allow_pickle=True, mmap_mode="r")
-            store_ids = [str(x) for x in d["ids"]]
-            store_raw = d["raw"]          # memmapped — rows read on demand
-            store_xy = np.asarray(d["xy"], float)
+            with np.load(store_path, allow_pickle=True) as d:
+                store_ids = [str(x) for x in d["ids"]]
+                store_raw = np.asarray(d["raw"])
+                store_xy = np.asarray(d["xy"], float)
             have = {i: k for k, i in enumerate(store_ids)}
         except Exception:
             have, store_ids, store_raw, store_xy = {}, [], None, None
@@ -560,33 +584,77 @@ def _load_ref_images(refs, cache_dir):
     # to avoid re-serialising ~2.4 GB every warm run.
     if store_path and set(str(r["id"]) for r in servable) != set(store_ids):
         os.makedirs(cache_dir, exist_ok=True)
-        np.savez(store_path, ids=np.array([str(r["id"]) for r in servable]),
-                 raw=raw, xy=ref_xy)
+        _atomic_savez(store_path,
+                      ids=np.array([str(r["id"]) for r in servable]),
+                      raw=raw, xy=ref_xy)
     return raw, ref_xy, fp
 
 
-def _embed_refs(refs, device, cache_dir, model_name="model"):
+def _peek_store(refs, cache_dir):
+    """If the per-id image store holds EVERY ref, return ``(fp, ref_xy)``
+    computed from the stored ids/coords ALONE — no pixels loaded. Lets a
+    fully-warm embed-cache hit skip materializing ~2.4 GB of raw pixels that
+    are then discarded unembedded (audit K2). np.load on an .npz is lazy, so
+    reading d["ids"]/d["xy"] never touches the raw array; the handle is closed
+    by the context manager (audit F5)."""
+    if not cache_dir:
+        return None
+    p = os.path.join(cache_dir, "ref_img_store.npz")
+    if not os.path.exists(p):
+        return None
+    try:
+        with np.load(p, allow_pickle=True) as d:
+            have = {str(x): k for k, x in enumerate(d["ids"])}
+            xy = np.asarray(d["xy"], float)
+    except Exception:
+        return None
+    if any(str(r["id"]) not in have for r in refs):
+        return None
+    ref_xy = np.array([xy[have[str(r["id"])]] for r in refs], float)
+    return _refs_fingerprint(refs), ref_xy
+
+
+def _read_emb_cache(cache_dir, model_name, fp, n):
+    """Guarded embedding-cache read: a truncated/corrupt npz (non-atomic write
+    interrupted by Ctrl-C / disk-full) is treated as a MISS, not an exception
+    that would brick the fingerprint-keyed VPR channel on every warm run
+    (audit F1 — the one read in this module that was unguarded)."""
+    if not cache_dir:
+        return None
     import torch
+    for p in [os.path.join(cache_dir, f"ref_emb_{model_name}_{fp[:10]}.npz"),
+              os.path.join(cache_dir, f"ref_emb_{model_name}.npz")]:
+        if not os.path.exists(p):
+            continue
+        try:
+            with np.load(p, allow_pickle=True) as d:
+                if str(d["fingerprint"]) == fp and len(d["emb"]) == n:
+                    return torch.from_numpy(np.asarray(d["emb"], np.float32))
+        except Exception:
+            continue   # corrupt npz -> re-embed (cheap, deterministic)
+    return None
+
+
+def _embed_refs(refs, device, cache_dir, model_name="model"):
+    # Fully-warm fast path: store holds every ref + embeddings cached -> return
+    # without loading a single pixel or hitting the network (audit K2).
+    peek = _peek_store(refs, cache_dir)
+    if peek is not None:
+        fp, ref_xy = peek
+        emb = _read_emb_cache(cache_dir, model_name, fp, len(ref_xy))
+        if emb is not None:
+            return emb, ref_xy
     raw, ref_xy, fp = _load_ref_images(refs, cache_dir)
     if raw is None:
         return None, None
-    # Embedding cache keyed by (image fingerprint, model): warm reruns skip
-    # the GPU embedding pass entirely. Fp-tagged filename (variants coexist)
-    # with the legacy untagged one as a verified read fallback.
-    emb_paths = ([os.path.join(cache_dir, f"ref_emb_{model_name}_{fp[:10]}.npz"),
-                  os.path.join(cache_dir, f"ref_emb_{model_name}.npz")]
-                 if cache_dir else [])
-    emb_cache = emb_paths[0] if emb_paths else None
-    for p in emb_paths:
-        if not os.path.exists(p):
-            continue
-        with np.load(p, allow_pickle=True) as d:
-            if str(d["fingerprint"]) == fp and len(d["emb"]) == len(ref_xy):
-                return torch.from_numpy(np.asarray(d["emb"], np.float32)), ref_xy
-    emb = _embed(device, raw)   # lazy per-batch prep (see _embed)
-    if emb_cache:
-        os.makedirs(cache_dir, exist_ok=True)
-        np.savez(emb_cache, emb=emb.numpy(), fingerprint=np.array(fp))
+    emb = _read_emb_cache(cache_dir, model_name, fp, len(ref_xy))
+    if emb is None:
+        emb = _embed(device, raw)   # lazy per-batch prep (see _embed)
+        if cache_dir:
+            os.makedirs(cache_dir, exist_ok=True)
+            _atomic_savez(
+                os.path.join(cache_dir, f"ref_emb_{model_name}_{fp[:10]}.npz"),
+                emb=emb.numpy(), fingerprint=np.array(fp))
     return emb, ref_xy
 
 

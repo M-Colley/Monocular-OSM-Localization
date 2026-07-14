@@ -563,6 +563,7 @@ def _drop_direction_anchors(ocr_anchors, detections, ocr_source, *,
         return ocr_anchors, []
     # Decode one frame per rep at its detection time.
     frames_bgr, records = [], []
+    cap = None
     try:
         cap = cv2.VideoCapture(str(ocr_source))
         for key, det in reps:
@@ -579,9 +580,11 @@ def _drop_direction_anchors(ocr_anchors, detections, ocr_source, *,
                 frame_idx=len(frames_bgr),
                 key=key))
             frames_bgr.append(frame)
-        cap.release()
     except Exception:
         return ocr_anchors, []
+    finally:
+        if cap is not None:
+            cap.release()   # release even if _upscale/read raised (audit F6)
     if not records:
         return ocr_anchors, []
     try:
@@ -833,6 +836,14 @@ _FUSE_SMOOTH_D2 = 1000.0
 # 8 km -> 11 m, and the central-drive Ulm regression shrinks too.
 _PASS1_COVER_MAX_M = 8000.0
 _PASS1_COVER_CAP = 3000
+# Pass-2 is kept as the placement prior only if its median top-1 VPR similarity
+# is within this margin of pass-1's (else pass 1 already localized better;
+# audit deepdive C2F-1 — London pass-1 0.10 km was silently overwritten).
+_C2F_SIM_MARGIN = 0.02
+# Graph-disc radius slack: covers the ~11 m centre snap plus a little margin so
+# a snapped disc never clips a route endpoint against the tight margin (audit
+# F2). (Was 400 m for the old ~500 m snap; the snap is now ~11 m.)
+_C2F_SNAP_TOL_M = 50.0
 
 
 def _elastic_fuse_track(traj_xy, track_frame_idx, track_xy, sims, n_frames):
@@ -1649,20 +1660,24 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                           f"({_tight:.0f} m)")
                 if (cfg.vpr_coarse_to_fine
                         and _vpr_radius > 1.2 * _tight):
-                    # Snap the pass-2 centre to a ~500 m grid: the fetch
-                    # signature and the graphml filename key on the centre at
-                    # ~11 m resolution, so an UNSNAPPED drifting pass-1 centre
-                    # (cold fetches vary run-to-run) would invalidate the c2f
-                    # image cache (~1 GB refetch) AND mint a new graph file
-                    # every run. The disc is >=2 km; a <=~350 m snap shift
-                    # keeps the route covered, and the refined vpr_center is
-                    # recomputed at full precision from the pass-2 track.
-                    _g = 0.005
+                    # Snap the pass-2 centre to the 4-decimal (~11 m) grid the
+                    # fetch signature + graphml filename already key on — so
+                    # the c2f cache/graph is stable across reruns WITHOUT
+                    # throwing away pass-1 precision. The old ~500 m snap
+                    # (0.005 deg), added when cold fetches drifted the centre
+                    # run-to-run, degraded an already-precise pass-1 centre by
+                    # up to ~400 m (London: 103 m -> 323 m, the whole 734 m
+                    # headline); R1's union+sha1 store now makes the centre
+                    # DETERMINISTIC across cold fetches, so the coarse snap is
+                    # obsolete and the fine one keeps the cache stable anyway.
+                    _g = 0.0001
                     _slat = round(float(vpr_center[0]) / _g) * _g
                     _slon = round(float(vpr_center[1]) / _g) * _g
                     print(f"      -> [4a2] coarse-to-fine: re-fetching a "
                           f"{_tight:.0f} m disc around the pass-1 centre "
-                          f"(snapped {_slat:.3f}, {_slon:.3f})")
+                          f"(snapped {_slat:.4f}, {_slon:.4f})")
+                    _p1_center, _p1_track = vpr_center, tr
+                    _p1_sim = float(np.median(v_sims)) if len(v_sims) else 0.0
                     try:
                         tr2 = kartaview_vpr_track(
                             frames.frames, (_slat, _slon),
@@ -1675,34 +1690,66 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         tr2 = None
                         print(f"      -> coarse-to-fine fetch failed ({e})")
                     if tr2 is not None:
-                        _c1 = vpr_center
-                        vpr_track = tr2
-                        v_idx, v_ll, v_sims = tr2
-                        vpr_center = _robust_center(v_ll, v_sims)
-                        # Centre the GRAPH on the REFINED centre (snapped for
-                        # cache-stable filenames), NOT the pass-1 snap: the
-                        # refined centre can sit >1 km from the pass-1 point
-                        # (Málaga: 1.46 km), leaving the route only ~500 m of
-                        # graph margin on the far side — a clipped graph that
-                        # no candidate walk can span (round-5 bug C).
+                        _p2_center = _robust_center(tr2[1], tr2[2])
+                        _p2_sim = float(np.median(tr2[2])) if len(tr2[2]) else 0.0
+                        # GATE the placement-prior swap on match quality: a tight
+                        # disc that CLIPS the true refs (route past the radius, or
+                        # a slightly-off pass-1 centre) or re-fetches a sparser
+                        # cold set drifts its robust centre OUTWARD and scores a
+                        # LOWER median top-1 similarity — same MegaLoc space both
+                        # passes, so it is a fair, GT-free arbiter. Keep pass 2's
+                        # centre/track for placement only when it does not lose
+                        # match quality (London pass-1 0.10 km -> pass-2 0.32 km
+                        # -> 734 m was pass 2 silently overwriting a better
+                        # pass-1 prior; audit deepdive C2F-1).
+                        if _p2_sim >= _p1_sim - _C2F_SIM_MARGIN:
+                            vpr_track = tr2
+                            v_idx, v_ll, v_sims = tr2
+                            vpr_center = _p2_center
+                            _accepted = "pass-2"
+                        else:
+                            vpr_track, vpr_center = _p1_track, _p1_center
+                            _accepted = "pass-1 (pass-2 sim worse)"
+                        # Centre the GRAPH on the KEPT centre (snapped to the
+                        # ~11 m cache grid); +snap-tol margin. Round-5 bug C:
+                        # never centre on the raw pass-1 snap when the refined
+                        # centre moved.
                         _g2lat = round(float(vpr_center[0]) / _g) * _g
                         _g2lon = round(float(vpr_center[1]) / _g) * _g
-                        osm_around = (_g2lat, _g2lon, _tight)
+                        osm_around = (_g2lat, _g2lon, _tight + _C2F_SNAP_TOL_M)
                         _c2f_info = {
-                            "pass1_center": [float(_c1[0]), float(_c1[1])],
-                            "pass2_center": [float(vpr_center[0]),
-                                             float(vpr_center[1])],
+                            "pass1_center": [float(_p1_center[0]), float(_p1_center[1])],
+                            "pass2_center": [float(_p2_center[0]), float(_p2_center[1])],
                             "tight_radius_m": _tight,
+                            "kept": _accepted,
+                            "pass1_sim": _p1_sim, "pass2_sim": _p2_sim,
                         }
-                        print(f"      -> refined VPR prior {vpr_center[0]:.5f}, "
-                              f"{vpr_center[1]:.5f}; graph re-centred tight "
-                              f"({_g2lat:.3f}, {_g2lon:.3f})")
+                        print(f"      -> [4a2] kept {_accepted} prior "
+                              f"(sim p1 {_p1_sim:.3f} / p2 {_p2_sim:.3f}); "
+                              f"VPR {vpr_center[0]:.5f}, {vpr_center[1]:.5f}; "
+                              f"graph re-centred ({_g2lat:.4f}, {_g2lon:.4f})")
                     else:
                         _hint = ("" if _vpr_token or _vpr_src != "mapillary"
                                  else " (tokenless: set MLY_TOKEN to enable "
                                       "the pass-2 refetch)")
                         print(f"      -> coarse-to-fine pass 2 unavailable; "
                               f"keeping pass 1{_hint}")
+                # If coarse-to-fine is on and pass 1 located the drive but the
+                # graph disc is still unset (pass 2 unavailable / skipped /
+                # rejected), tighten the graph onto the pass-1 centre anyway —
+                # otherwise a city-name deployable run fetches the WHOLE
+                # municipality graph and dilutes the candidate pool over the
+                # entire city, discarding the located centre (audit F1/H4).
+                if (cfg.vpr_coarse_to_fine and osm_around is None
+                        and vpr_center is not None):
+                    _g = 0.0001
+                    _slat = round(float(vpr_center[0]) / _g) * _g
+                    _slon = round(float(vpr_center[1]) / _g) * _g
+                    osm_around = (_slat, _slon,
+                                  min(_vpr_radius, _tight) + _C2F_SNAP_TOL_M)
+                    print(f"      -> coarse-to-fine: graph tightened onto the "
+                          f"pass-1 centre ({_slat:.4f}, {_slon:.4f}, "
+                          f"{osm_around[2]:.0f} m)")
             else:
                 print("      -> VPR unavailable; keeping full-city graph")
         except Exception as e:
@@ -2136,7 +2183,6 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 )
                 if fit is not None and sane:
                     anchor_transform = fit.transform
-                    duration_prior = estimated_length_m
                     estimated_length_m = float(np.clip(recovered_len, 500.0, 12000.0))
                     anchor_world_route = apply_transform(traj.xz, fit.transform)
                     result_scale_recovery = {

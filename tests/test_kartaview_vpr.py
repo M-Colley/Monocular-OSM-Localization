@@ -156,6 +156,40 @@ def test_fetch_refs_mapillary_two_signatures_coexist(
     assert kv.has_mapillary_cache(str(tmp_path))
 
 
+def test_embed_refs_warm_peek_skips_pixels_and_guards_corrupt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Audit K2/F1: a fully-warm embed hit must return WITHOUT loading raw
+    pixels or downloading, and a corrupt embedding npz must be treated as a
+    miss (re-embed), not raise."""
+    import torch
+    refs = _refs([(48.40, 9.99), (48.41, 9.98)])            # ids 0,1 with urls
+    # build the per-id store (downloads once)
+    monkeypatch.setitem(sys.modules, "requests",
+                        _FakeRequests(image_bytes=_jpg_bytes()))
+    _load_ref_images(refs, str(tmp_path))
+    fp = kv._refs_fingerprint([{"id": r["id"], "lat": r["lat"], "lon": r["lon"]}
+                               for r in refs])
+    # write a matching embedding cache
+    emb = np.ones((2, 8), np.float32)
+    np.savez(tmp_path / f"ref_emb_megaloc_{fp[:10]}.npz",
+             emb=emb, fingerprint=np.array(fp))
+
+    # warm peek: no network, and _load_ref_images must NOT be called (would
+    # need pixels). Fail the requests + spy that _embed is never invoked.
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    calls = {"embed": 0}
+    monkeypatch.setattr(kv, "_embed", lambda *a, **k: calls.__setitem__("embed", calls["embed"] + 1))
+    got_emb, got_xy = kv._embed_refs(refs, None, str(tmp_path), model_name="megaloc")
+    assert calls["embed"] == 0                              # served from cache
+    assert got_emb.shape == (2, 8)
+    np.testing.assert_allclose(got_xy, [[48.40, 9.99], [48.41, 9.98]])
+
+    # corrupt the embedding npz -> guarded read treats it as a miss (re-embed)
+    (tmp_path / f"ref_emb_megaloc_{fp[:10]}.npz").write_bytes(b"not an npz")
+    assert kv._read_emb_cache(str(tmp_path), "megaloc", fp, 2) is None
+
+
 def test_fetch_refs_mapillary_legacy_cache_serves_and_migrates(
     tmp_path: Path, monkeypatch
 ) -> None:
