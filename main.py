@@ -217,6 +217,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="skip building/rendering the sparse splat point cloud")
     p.add_argument("--no-aerial", action="store_true",
                    help="skip the OSM-patch ORB feature match channel")
+    p.add_argument("--use-tile3d", action="store_true",
+                   help="enable the 3D-tile skyline channel: fetch the open "
+                        "LoD2 CityGML city model (Berlin/Baden-Wuerttemberg, "
+                        "auto-detected from the graph location) and re-rank "
+                        "candidates by rendered-vs-observed skyline agreement. "
+                        "Open data only; Google 3D Tiles is ToS-prohibited "
+                        "for this use (see src/citygml_lod2.py).")
+    p.add_argument("--tile3d-source", default="auto",
+                   choices=["auto", "berlin", "bw"],
+                   help="LoD2 provider for --use-tile3d (default: auto by "
+                        "location; berlin=dl-de/zero-2.0, bw=dl-de/by-2.0)")
+    p.add_argument("--tile3d-samples", type=int, default=16,
+                   help="frames sampled along the route for the tile3d "
+                        "skyline comparison (clamped to >= 1)")
+    p.add_argument("--tile3d-max-tiles", type=int, default=80,
+                   help="cap on fetched LoD2 km-tiles; if candidates extend "
+                        "beyond the fetched coverage the channel deactivates "
+                        "rather than mis-score them, so raise this for "
+                        "city-wide blind runs")
     p.add_argument("--splat-max-pairs", type=int, default=80,
                    help="cap on frame pairs used to triangulate the splat")
     p.add_argument("--use-da3", action="store_true",
@@ -590,6 +609,10 @@ def main() -> None:
             sample_every=args.sample_every,
             enable_splat=not args.no_splat,
             enable_aerial_match=not args.no_aerial,
+            use_tile3d=args.use_tile3d,
+            tile3d_source=args.tile3d_source,
+            tile3d_samples=args.tile3d_samples,
+            tile3d_max_tiles=args.tile3d_max_tiles,
             splat_max_pairs=args.splat_max_pairs,
             enable_da3=args.use_da3,
             use_da3_trajectory=args.use_da3_trajectory,

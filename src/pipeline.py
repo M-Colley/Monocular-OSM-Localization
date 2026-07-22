@@ -64,6 +64,11 @@ from .trajectory_matching import (
 from .visual_odometry import Trajectory, default_intrinsics, estimate_trajectory
 
 
+class _Tile3DInactive(Exception):
+    """Control-flow sentinel: the tile3d channel declined to run
+    (no provider / empty mesh / coverage gap) — not an error."""
+
+
 @dataclass
 class PipelineConfig:
     url: str
@@ -89,6 +94,16 @@ class PipelineConfig:
     enable_splat: bool = True
     splat_max_pairs: int = 80
     enable_aerial_match: bool = True
+    # 3D-tile skyline channel (opt-in): fetch the open-data LoD2 city
+    # model (Berlin / Baden-Wuerttemberg CityGML, src/citygml_lod2.py),
+    # render it at sampled poses along each candidate route and score
+    # rendered-vs-observed skyline agreement (src/tile3d_match.py).
+    # Open data only — Google Photorealistic 3D Tiles is ToS-prohibited
+    # for analysis/offline use, see the citygml_lod2 module docstring.
+    use_tile3d: bool = False
+    tile3d_source: str = "auto"    # auto | berlin | bw
+    tile3d_samples: int = 16
+    tile3d_max_tiles: int = 80
     enable_da3: bool = False
     use_da3_trajectory: bool = False
     use_mapanything_trajectory: bool = False
@@ -2566,6 +2581,122 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             aerial_rank = {i: i + 1 for i in range(len(candidates))}
             W_AERIAL = 0.0
 
+        # 3D-tile skyline channel (opt-in): render the open-data LoD2
+        # city model at sampled poses along each candidate and score
+        # rendered-vs-observed skyline agreement. Follows the aerial
+        # no-op pattern: uniform rank + zero weight unless it produced
+        # a usable comparison.
+        tile3d_rank = {i: i + 1 for i in range(len(candidates))}
+        W_TILE3D = 0.0
+        if cfg.use_tile3d:
+            from .citygml_lod2 import fetch_lod2_mesh
+            from .position import xy_to_latlon
+            from .tile3d_match import (
+                arc_fractions_at_times,
+                match_tiles3d_against_candidates,
+            )
+            try:
+                all_xy = np.vstack([c.walk_xy for c in candidates])
+                center_xy = all_xy.mean(axis=0)
+                # margin matches the renderer's 500 m visibility range so
+                # edge poses don't look into un-fetched tiles
+                t3_radius = float(
+                    np.linalg.norm(all_xy - center_xy[None, :], axis=1).max()
+                ) + 500.0
+                center_ll = xy_to_latlon(center_xy[None, :], road.crs)[0]
+                print(f"[8b] 3D-tile skyline channel: LoD2 disc "
+                      f"r={t3_radius:.0f} m @ {center_ll[0]:.5f},"
+                      f"{center_ll[1]:.5f} (source={cfg.tile3d_source})")
+                t3_mesh = fetch_lod2_mesh(
+                    float(center_ll[0]), float(center_ll[1]), t3_radius,
+                    dst_crs=road.crs, provider=cfg.tile3d_source,
+                    max_tiles=cfg.tile3d_max_tiles,
+                )
+                if t3_mesh is None or not len(t3_mesh.triangles):
+                    if t3_mesh is not None:
+                        print("      -> LoD2 mesh empty here; "
+                              "tile3d channel inactive")
+                    raise _Tile3DInactive
+                # A capped fetch must not turn missing coverage into a
+                # fake skyline-disagreement penalty: if any candidate's
+                # walk leaves the fetched building extent, deactivate.
+                bg = t3_mesh.building_ground
+                lo = bg[:, :2].min(axis=0) - 250.0
+                hi = bg[:, :2].max(axis=0) + 250.0
+                covered = [
+                    float(np.mean(np.all((c.walk_xy >= lo)
+                                         & (c.walk_xy <= hi), axis=1)))
+                    for c in candidates
+                ]
+                if min(covered) < 0.9:
+                    n_out = sum(1 for f_ in covered if f_ < 0.9)
+                    print(f"      -> {n_out}/{len(candidates)} candidates "
+                          f"extend beyond the fetched LoD2 coverage "
+                          f"(tile cap {cfg.tile3d_max_tiles}); channel "
+                          f"inactive — raise --tile3d-max-tiles to score "
+                          f"them fairly")
+                    raise _Tile3DInactive
+                h_img, w_img = frames.frames[0].shape[:2]
+                K_t3 = default_intrinsics(w_img, h_img)
+                n_samp = max(1, cfg.tile3d_samples)
+                t3_times = np.linspace(
+                    float(match_ts[0]), float(match_ts[-1]), n_samp + 2,
+                )[1:-1]
+                t3_fracs = arc_fractions_at_times(match_xz, match_ts, t3_times)
+                fts = np.asarray(frames.timestamps)
+                t3_samples = [
+                    (float(f_), frames.frames[int(np.argmin(np.abs(fts - t_)))])
+                    for f_, t_ in zip(t3_fracs, t3_times)
+                ]
+                t3_results = match_tiles3d_against_candidates(
+                    t3_samples, candidates, t3_mesh, K_t3, (w_img, h_img),
+                    output_dir=cfg.output_dir / "tile3d",
+                )
+                # Activate only on discriminative signal: all-zero scores
+                # mean the model never matched anything anywhere — an
+                # identity rank at weight 0.4 would silently re-weight
+                # the shape channel.
+                if max(r.tile3d_score for r in t3_results) > 0.0:
+                    t3_order = sorted(
+                        range(len(t3_results)),
+                        key=lambda i: (-t3_results[i].tile3d_score, i),
+                    )
+                    tile3d_rank = {idx: r + 1
+                                   for r, idx in enumerate(t3_order)}
+                    for i, tr in enumerate(t3_results):
+                        m = result["matches"][i]
+                        m["tile3d_score"] = round(tr.tile3d_score, 4)
+                        m["tile3d_skyline_err_deg"] = (
+                            round(tr.skyline_err_deg, 2)
+                            if tr.skyline_err_deg is not None else None
+                        )
+                        m["tile3d_pitch_offset_deg"] = (
+                            round(tr.pitch_offset_deg, 2)
+                            if tr.pitch_offset_deg is not None else None
+                        )
+                        m["tile3d_coverage"] = round(tr.coverage, 3)
+                        m["tile3d_informative_samples"] = tr.n_informative
+                        m["tile3d_rank"] = tile3d_rank[i]
+                    result["tile3d"] = {
+                        "provider": t3_mesh.provider,
+                        "n_buildings": t3_mesh.n_buildings,
+                        "n_triangles": int(len(t3_mesh.triangles)),
+                        "n_samples": len(t3_samples),
+                    }
+                    W_TILE3D = 0.4
+                    print(f"      -> tile3d best = candidate "
+                          f"#{t3_order[0] + 1} (score "
+                          f"{t3_results[t3_order[0]].tile3d_score:.3f}, "
+                          f"{t3_results[t3_order[0]].n_informative} "
+                          f"informative samples)")
+                else:
+                    print("      -> tile3d: no candidate matched any "
+                          "skyline; channel inactive")
+            except _Tile3DInactive:
+                pass
+            except Exception as e:  # fetch/render failure: channel no-ops
+                print(f"      -> tile3d channel failed ({e}); inactive")
+
         for i in range(len(candidates)):
             result["matches"][i]["shape_rank"] = i + 1
 
@@ -2795,6 +2926,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 + W_TURN * turn_rank[i]
                 + W_ANCHOR * anchor_rank[i]
                 + W_AERIAL * aerial_rank[i]
+                + W_TILE3D * tile3d_rank[i]
                 + plate_penalty[i]
                 + vpr_penalty[i]
                 + sun_penalty[i]
@@ -2816,6 +2948,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
               f"anchor #{anchor_rank[consensus_idx]}, "
               f"plate #{plate_rank[consensus_idx]}, "
               f"aerial #{aerial_rank[consensus_idx]}, "
+              f"tile3d #{tile3d_rank[consensus_idx]}, "
               f"fused={_fused(consensus_idx):.1f})")
 
         # Reorder candidates by consensus and update the result JSON.
@@ -2832,6 +2965,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             active_channels.append("sliding")
         if W_AERIAL > 0:
             active_channels.append("aerial")
+        if W_TILE3D > 0:
+            active_channels.append("tile3d")
         if have_anchors:
             active_channels.append("anchor")
         if plate_center is not None:
