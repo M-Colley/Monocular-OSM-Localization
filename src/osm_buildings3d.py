@@ -105,7 +105,7 @@ def _grid_centers(lat: float, lon: float, radius_m: float,
     big discs are fetched as overlapping ~tile_r sub-queries and merged."""
     if radius_m <= tile_r * 1.3:
         return [(lat, lon)]
-    step = tile_r                      # overlap: tiles are tile_r-radius
+    step = tile_r * 1.4                 # tiles just cover (slight overlap)
     dlat = step / 111_320.0
     dlon = step / (111_320.0 * max(0.2, np.cos(np.radians(lat))))
     n = int(np.ceil(radius_m / step))
