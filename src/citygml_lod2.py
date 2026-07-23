@@ -41,7 +41,7 @@ import hashlib
 import json
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
@@ -299,6 +299,60 @@ class Lod2Mesh:
     crs: str                     # CRS of the coordinates above
     provider: str
     n_buildings: int
+    # Lazily-built uniform grid over triangle centroids for O(local) pose
+    # queries (built once, reused across every render); never serialized.
+    _grid: dict | None = field(default=None, init=False, repr=False,
+                               compare=False)
+    _grid_meta: tuple | None = field(default=None, init=False, repr=False,
+                                     compare=False)
+
+    def triangles_near(self, xy, max_dist_m: float,
+                       *, cell_m: float = 128.0) -> np.ndarray:
+        """Triangles whose nearest vertex could be within ``max_dist_m`` of
+        ``xy`` — a SUPERSET of the exact in-range set (the renderer's own
+        per-vertex cull trims it exactly), so the mask is unchanged.
+
+        Replaces the per-pose broadcast over all N triangles (the render
+        hot path touched every one of ~4M every pose though <1% survive):
+        a one-time centroid grid makes each query touch only local cells.
+        The query radius adds the max centroid->vertex extent so no
+        triangle with a near vertex is ever dropped.
+        """
+        tris = self.triangles
+        if not len(tris):
+            return tris
+        if self._grid is None or self._grid_meta[0] != cell_m:
+            cen = tris[:, :, :2].mean(axis=1)                    # (N, 2)
+            ext = np.sqrt(((tris[:, :, :2] - cen[:, None, :]) ** 2)
+                          .sum(-1).max(1))
+            max_ext = float(ext.max()) if len(ext) else 0.0
+            ij = np.floor(cen / cell_m).astype(np.int64)
+            order = np.lexsort((ij[:, 1], ij[:, 0]))
+            sij = ij[order]
+            if len(sij):
+                change = np.any(np.diff(sij, axis=0) != 0, axis=1)
+                bounds = np.concatenate(
+                    [[0], np.nonzero(change)[0] + 1, [len(order)]])
+            else:
+                bounds = np.array([0])
+            grid: dict = {}
+            for b in range(len(bounds) - 1):
+                s, e = int(bounds[b]), int(bounds[b + 1])
+                grid[(int(sij[s, 0]), int(sij[s, 1]))] = order[s:e]
+            self._grid = grid
+            self._grid_meta = (cell_m, max_ext)
+        cell_m, max_ext = self._grid_meta
+        r = float(max_dist_m) + max_ext
+        x0 = int(np.floor((float(xy[0]) - r) / cell_m))
+        x1 = int(np.floor((float(xy[0]) + r) / cell_m))
+        y0 = int(np.floor((float(xy[1]) - r) / cell_m))
+        y1 = int(np.floor((float(xy[1]) + r) / cell_m))
+        picks = [self._grid[(i, j)]
+                 for i in range(x0, x1 + 1) for j in range(y0, y1 + 1)
+                 if (i, j) in self._grid]
+        if not picks:
+            return tris[:0]
+        return tris[np.concatenate(picks)]
 
     def local_ground_z(self, xy, radius_m: float = 200.0) -> float:
         """Robust terrain height near ``xy``: median building base z.
@@ -414,24 +468,81 @@ def fetch_lod2_mesh(
         sort_keys=True).encode()).hexdigest()[:12]
     mesh_cache = cache / f"mesh_{sig}.npz"
     if mesh_cache.exists():
-        z = np.load(mesh_cache)
-        return Lod2Mesh(
-            triangles=z["triangles"].reshape(-1, 3, 3),
-            building_ground=z["building_ground"].reshape(-1, 3),
-            crs=dst_crs, provider=provider,
-            n_buildings=int(z["n_buildings"]),
-        )
+        # Self-heal a corrupt npz (an interrupted/raced write from an
+        # older run) instead of letting it permanently kill the channel
+        # for this disc: on any load error, drop it and rebuild below.
+        # Mirrors the zip cache's BadZipFile recovery.
+        try:
+            with np.load(mesh_cache) as z:
+                return Lod2Mesh(
+                    triangles=z["triangles"].reshape(-1, 3, 3),
+                    building_ground=z["building_ground"].reshape(-1, 3),
+                    crs=dst_crs, provider=provider,
+                    n_buildings=int(z["n_buildings"]),
+                )
+        except (zipfile.BadZipFile, ValueError, EOFError, OSError, KeyError):
+            print(f"      -> corrupt cached mesh {mesh_cache.name}; rebuilding")
+            mesh_cache.unlink(missing_ok=True)
+
+    # Per-TILE parsed cache (in dst_crs), keyed by tile name + dst_crs +
+    # parse_version — reused across ANY disc, so the prefetch script and a
+    # later sub-window run share parses even though their disc tile-lists
+    # (and the per-disc mesh key) differ. Without this the prefetch only
+    # warmed the zip cache and every run still re-ran the XML parse.
+    dst_san = dst_crs.replace(":", "_").replace("/", "_")
+    transformer = Transformer.from_crs(spec["crs"], dst_crs, always_xy=True)
+
+    def _to_dst(t: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        # provider CRS -> road CRS (x,y only; absolute z passes through).
+        # Pass arrays straight to pyproj (no Python-list round-trip).
+        if len(t):
+            flat = t.reshape(-1, 3)
+            flat[:, 0], flat[:, 1] = transformer.transform(flat[:, 0], flat[:, 1])
+            t = flat.reshape(-1, 3, 3)
+        if len(g):
+            g[:, 0], g[:, 1] = transformer.transform(g[:, 0], g[:, 1])
+        return t, g
+
+    def _save_tile_cache(dest: Path, t: np.ndarray, g: np.ndarray) -> None:
+        import os
+        tmp = dest.with_suffix(f".part{os.getpid()}.npz")
+        try:
+            np.savez_compressed(tmp, t=t.reshape(-1, 9),
+                                g=g.reshape(-1, 3))
+            tmp.replace(dest)
+        except OSError:
+            pass  # per-tile cache is best-effort
+        finally:
+            tmp.unlink(missing_ok=True)
 
     all_tris: list[np.ndarray] = []
     all_ground: list[np.ndarray] = []
-    n_fetched = n_missing = 0
+    n_fetched = n_missing = n_tcache = 0
     for e_km, n_km in tiles:
         name = spec["url"].format(e=e_km, n=n_km).rsplit("/", 1)[-1]
-        zip_path = cache / name
+        name_stem = name[:-4] if name.lower().endswith(".zip") else name
+        tile_cache = cache / f"tile_{name_stem}_{dst_san}_v{_PARSE_VERSION}.npz"
         missing_marker = cache / (name + ".missing")
+
+        # 1) per-tile parsed cache (already in dst_crs)
+        if tile_cache.exists():
+            try:
+                with np.load(tile_cache) as z:
+                    t = z["t"].reshape(-1, 3, 3)
+                    g = z["g"].reshape(-1, 3)
+                if len(t):
+                    all_tris.append(t)
+                if len(g):
+                    all_ground.append(g)
+                n_tcache += 1
+                continue
+            except (zipfile.BadZipFile, ValueError, EOFError, OSError, KeyError):
+                tile_cache.unlink(missing_ok=True)  # corrupt: reparse below
+
         if missing_marker.exists():
             n_missing += 1
             continue
+        zip_path = cache / name
         url = spec["url"].format(e=e_km, n=n_km)
         if not zip_path.exists():
             if not _download_tile(url, zip_path):
@@ -452,6 +563,10 @@ def fetch_lod2_mesh(
                 n_missing += 1
                 continue
             t, g = _parse_tile_zip(zip_path)
+        t, g = _to_dst(t, g)
+        # Cache the parsed+transformed tile (even if empty, so a
+        # building-free tile is not reparsed on the next disc).
+        _save_tile_cache(tile_cache, t, g)
         if len(t):
             all_tris.append(t)
         if len(g):
@@ -462,34 +577,29 @@ def fetch_lod2_mesh(
     ground = (np.concatenate(all_ground, axis=0) if all_ground
               else np.empty((0, 3), dtype=np.float64))
     print(f"      -> LoD2 [{provider}] {len(tiles)} tile(s) "
-          f"({n_fetched} fetched, {n_missing} outside coverage): "
+          f"({n_fetched} fetched, {n_tcache} tile-cached, "
+          f"{n_missing} outside coverage): "
           f"{len(ground)} buildings, {len(triangles)} triangles "
           f"[license: {spec['license']}]")
-
-    if len(triangles):
-        # provider CRS -> road CRS (x,y only; absolute z passes through)
-        to_dst = Transformer.from_crs(spec["crs"], dst_crs, always_xy=True)
-        flat = triangles.reshape(-1, 3)
-        x, y = to_dst.transform(flat[:, 0].tolist(), flat[:, 1].tolist())
-        flat[:, 0] = x
-        flat[:, 1] = y
-        triangles = flat.reshape(-1, 3, 3)
-        if len(ground):
-            gx, gy = to_dst.transform(ground[:, 0].tolist(),
-                                      ground[:, 1].tolist())
-            ground[:, 0] = gx
-            ground[:, 1] = gy
 
     mesh = Lod2Mesh(
         triangles=triangles.astype(np.float32),
         building_ground=ground.astype(np.float32),
         crs=dst_crs, provider=provider, n_buildings=len(ground),
     )
-    tmp = mesh_cache.with_suffix(".part.npz")
-    np.savez_compressed(
-        tmp, triangles=mesh.triangles.reshape(-1, 9),
-        building_ground=mesh.building_ground.reshape(-1, 3),
-        n_buildings=np.int64(mesh.n_buildings),
-    )
-    tmp.replace(mesh_cache)
+    # Per-process temp name (like _download_tile) so concurrent fleet runs
+    # assembling the same disc can't interleave writes into one .part file
+    # and commit a corrupt npz; unlink on any failure so no partial file
+    # is left behind.
+    import os
+    tmp = mesh_cache.with_suffix(f".part{os.getpid()}.npz")
+    try:
+        np.savez_compressed(
+            tmp, triangles=mesh.triangles.reshape(-1, 9),
+            building_ground=mesh.building_ground.reshape(-1, 3),
+            n_buildings=np.int64(mesh.n_buildings),
+        )
+        tmp.replace(mesh_cache)
+    finally:
+        tmp.unlink(missing_ok=True)
     return mesh

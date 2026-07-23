@@ -1,0 +1,49 @@
+{
+  "video_id": "ULl8s4qydrk",
+  "video_url": "https://www.youtube.com/watch?v=ULl8s4qydrk",
+  "city": "Ulm, Germany",
+  "vo_segment": "0:300",
+  "description": "TRIMMED COPY (t<=300s) of ulm_ULl8s4qydrk.json for tile3d cross-check; see full file for provenance.",
+  "waypoints": [
+    {
+      "t_sec": 0,
+      "lat": 48.405933,
+      "lon": 9.983683
+    },
+    {
+      "t_sec": 60,
+      "lat": 48.403911,
+      "lon": 9.985439
+    },
+    {
+      "t_sec": 120,
+      "lat": 48.401268,
+      "lon": 9.987086
+    },
+    {
+      "t_sec": 145,
+      "lat": 48.400643,
+      "lon": 9.987503
+    },
+    {
+      "t_sec": 160,
+      "lat": 48.400272,
+      "lon": 9.986301
+    },
+    {
+      "t_sec": 180,
+      "lat": 48.400024,
+      "lon": 9.984949
+    },
+    {
+      "t_sec": 240,
+      "lat": 48.400533,
+      "lon": 9.985767
+    },
+    {
+      "t_sec": 300,
+      "lat": 48.40142,
+      "lon": 9.989297
+    }
+  ]
+}

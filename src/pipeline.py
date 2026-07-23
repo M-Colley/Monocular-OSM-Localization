@@ -104,6 +104,14 @@ class PipelineConfig:
     tile3d_source: str = "auto"    # auto | berlin | bw
     tile3d_samples: int = 16
     tile3d_max_tiles: int = 80
+    # Opt-in (experiment): let a CLEARLY discriminative skyline channel
+    # promote its top candidate to the front of the consensus, overriding
+    # the shape pick. Triple-gated (score margin + tight skyline error +
+    # winner already near the top of the shape ranking) so it no-ops where
+    # skylines don't discriminate (uniform mid-rise) and can only reorder
+    # among already-plausible candidates. Off by default — it changes the
+    # tuned consensus only when asked. See tile3d eval 2026-07-22.
+    tile3d_tiebreak: bool = False
     enable_da3: bool = False
     use_da3_trajectory: bool = False
     use_mapanything_trajectory: bool = False
@@ -2594,6 +2602,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             from .tile3d_match import (
                 arc_fractions_at_times,
                 match_tiles3d_against_candidates,
+                tile3d_tiebreak_winner,
+                walk_coverage_fractions,
             )
             try:
                 all_xy = np.vstack([c.walk_xy for c in candidates])
@@ -2617,17 +2627,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         print("      -> LoD2 mesh empty here; "
                               "tile3d channel inactive")
                     raise _Tile3DInactive
-                # A capped fetch must not turn missing coverage into a
-                # fake skyline-disagreement penalty: if any candidate's
-                # walk leaves the fetched building extent, deactivate.
-                bg = t3_mesh.building_ground
-                lo = bg[:, :2].min(axis=0) - 250.0
-                hi = bg[:, :2].max(axis=0) + 250.0
-                covered = [
-                    float(np.mean(np.all((c.walk_xy >= lo)
-                                         & (c.walk_xy <= hi), axis=1)))
-                    for c in candidates
-                ]
+                # A capped/holey fetch must not turn missing coverage into
+                # a fake skyline-disagreement penalty: if a candidate's walk
+                # leaves the fetched buildings, deactivate. A coarse dilated
+                # occupancy grid (walk_coverage_fractions) catches INTERIOR
+                # holes (a 404 or tile-capped gap in the middle of the disc)
+                # that a plain bounding box misses, while a normal street
+                # between building cells still counts as covered.
+                covered = walk_coverage_fractions(
+                    t3_mesh.building_ground, [c.walk_xy for c in candidates])
                 if min(covered) < 0.9:
                     n_out = sum(1 for f_ in covered if f_ < 0.9)
                     print(f"      -> {n_out}/{len(candidates)} candidates "
@@ -2939,6 +2947,38 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             range(len(candidates)),
             key=lambda i: (_fused(i), i),
         )
+
+        # Opt-in tile3d tie-break (experiment; --tile3d-tiebreak). The 0.4
+        # rank weight is deliberately too small to let the skyline channel
+        # override the shape pick, which throws away a CORRECT signal where
+        # skylines are distinctive (dense high-rise): on Berlin the skyline
+        # channel ranked the route-best candidate #1 but consensus still
+        # took shape #1. When the channel is unambiguously discriminative,
+        # promote its winner to the front — but only past a triple gate so
+        # it stays inert where skylines are non-discriminative (uniform
+        # mid-rise), where its top pick is a worse candidate.
+        if cfg.tile3d_tiebreak and W_TILE3D > 0.0 and len(candidates) >= 2:
+            _t3_scores = [result["matches"][i].get("tile3d_score")
+                          for i in range(len(candidates))]
+            _t3_errs = [result["matches"][i].get("tile3d_skyline_err_deg")
+                        for i in range(len(candidates))]
+            _t3_top = tile3d_tiebreak_winner(
+                _t3_scores, _t3_errs, consensus_order[0])
+            if _t3_top is not None:
+                _ranked = sorted((s for s in _t3_scores if s is not None),
+                                 reverse=True)
+                _margin = ((_ranked[0] - _ranked[1]) / _ranked[0]
+                           if _ranked[0] else 0.0)
+                consensus_order = [_t3_top] + [
+                    i for i in consensus_order if i != _t3_top]
+                print(f"        tile3d tie-break: promoting candidate "
+                      f"#{_t3_top + 1} (score {_t3_scores[_t3_top]:.3f}, "
+                      f"margin {_margin:.0%}; skyline err "
+                      f"{_t3_errs[_t3_top]:.1f} deg; shape #{_t3_top + 1}) "
+                      f"over shape pick #{consensus_order[1] + 1}")
+            if isinstance(result.get("tile3d"), dict):
+                result["tile3d"]["tiebreak_applied"] = _t3_top is not None
+
         consensus_idx = consensus_order[0]
         print()
         print(f"        Consensus pick: candidate #{consensus_idx + 1} "

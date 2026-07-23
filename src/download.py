@@ -25,6 +25,11 @@ class VideoMetadata:
     url: str
     title: str | None
     video_id: str | None
+    # Source frame rate reported by the extractor, when known. Lets the
+    # caller pick a frame stride tuned to a 60 fps upload BEFORE the file
+    # is downloaded (a first --url run has no local file to probe, so
+    # without this it assumes 30 fps and picks half the intended stride).
+    fps: float | None = None
 
 
 def local_video_metadata(path: Path) -> VideoMetadata:
@@ -60,10 +65,19 @@ def fetch_video_metadata(url: str) -> VideoMetadata:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
         raw_id = info.get("id")
+        # YouTube encodes every rendition at the source frame rate, so the
+        # top-level fps matches the <=max_height stream we later download —
+        # good enough to choose a stride before the file exists.
+        raw_fps = info.get("fps")
+        try:
+            fps = float(raw_fps) if raw_fps else None
+        except (TypeError, ValueError):
+            fps = None
         return VideoMetadata(
             url=str(info.get("webpage_url") or info.get("original_url") or url),
             title=info.get("title"),
             video_id=str(raw_id) if raw_id is not None else None,
+            fps=fps,
         )
     except yt_dlp.utils.DownloadError as e:
         raise DownloadError(str(e)) from e

@@ -1,0 +1,49 @@
+{
+  "video_id": "lBlKR2ek0w4",
+  "video_url": "https://www.youtube.com/watch?v=lBlKR2ek0w4",
+  "city": "Berlin, Germany",
+  "vo_segment": "0:420",
+  "description": "TRIMMED COPY (t<=420s) of berlin_lBlKR2ek0w4.json for --vo-segment 0:420 runs; see the full file for provenance.",
+  "waypoints": [
+    {
+      "t_sec": 0,
+      "lat": 52.523027,
+      "lon": 13.417126
+    },
+    {
+      "t_sec": 60,
+      "lat": 52.520226,
+      "lon": 13.413789
+    },
+    {
+      "t_sec": 120,
+      "lat": 52.516737,
+      "lon": 13.408644
+    },
+    {
+      "t_sec": 180,
+      "lat": 52.512407,
+      "lon": 13.403152
+    },
+    {
+      "t_sec": 240,
+      "lat": 52.510839,
+      "lon": 13.394038
+    },
+    {
+      "t_sec": 300,
+      "lat": 52.510131,
+      "lon": 13.38656
+    },
+    {
+      "t_sec": 360,
+      "lat": 52.509852,
+      "lon": 13.381634
+    },
+    {
+      "t_sec": 420,
+      "lat": 52.509626,
+      "lon": 13.377139
+    }
+  ]
+}

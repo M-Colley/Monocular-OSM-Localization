@@ -52,6 +52,7 @@ __all__ = [
     "skyline_from_mask", "skyline_from_frame", "compare_skylines",
     "arc_fractions_at_times", "pose_at_fraction",
     "match_tiles3d_against_candidates",
+    "walk_coverage_fractions", "tile3d_tiebreak_winner",
 ]
 
 # Comparison constants (degrees of elevation angle unless noted).
@@ -180,7 +181,17 @@ def render_building_mask(
     zmin = cam[:, :, 2].min(axis=1)
     zmax = cam[:, :, 2].max(axis=1)
     safe = zmin > near_m
-    polys = [_project(t) for t in cam[safe]]
+    # Project every fully-in-front triangle in ONE vectorized pass instead
+    # of a Python-level _project call each: same rounding/clip, so the mask
+    # is identical, but ~37k per-call allocations per pose collapse to one.
+    cam_safe = cam[safe]
+    polys: list[np.ndarray] = []
+    if len(cam_safe):
+        zs = np.maximum(cam_safe[:, :, 2], 1e-6)
+        us = fx * cam_safe[:, :, 0] / zs + cx
+        vs = cy - fy * cam_safe[:, :, 1] / zs
+        pts = np.stack([us, vs], axis=2)
+        polys = list(np.clip(np.round(pts), -32000, 32000).astype(np.int32))
     for tri_cam in cam[(~safe) & (zmax > near_m)]:   # straddles near plane
         for poly in _clip_near(tri_cam, near_m):
             polys.append(_project(poly))
@@ -370,6 +381,96 @@ def _write_debug_overlay(path: Path, frame_small: np.ndarray,
 
 
 # --------------------------------------------------------------------------
+# Coverage gate + consensus tie-break (pure decision helpers)
+# --------------------------------------------------------------------------
+
+def walk_coverage_fractions(
+    building_xy: np.ndarray,
+    walks: list,
+    *,
+    cell_m: float = 250.0,
+) -> list[float]:
+    """Fraction of each walk's points covered by a coarse occupancy grid
+    (1-cell dilated) of the fetched building footprints.
+
+    A plain bounding box of the buildings misses INTERIOR coverage holes
+    (a 404 or tile-capped gap in the middle of the disc): a walk through
+    the hole is inside the box yet renders against no buildings, so it
+    fabricates ``open sky`` contradictions. The occupancy grid catches
+    such holes — a walk crossing a missing >=1 km tile drops well below a
+    sane threshold — while the 1-cell dilation keeps a normal street
+    between building cells counted as covered.
+    """
+    bxy = np.asarray(building_xy, dtype=np.float64)
+    if not len(bxy):
+        return [0.0 for _ in walks]
+    bxy = bxy[:, :2]
+    gij = np.floor(bxy / cell_m).astype(np.int64)
+    imin = int(gij[:, 0].min())
+    jmin = int(gij[:, 1].min())
+    H = int(gij[:, 0].max() - imin + 1)
+    W = int(gij[:, 1].max() - jmin + 1)
+    occ = np.zeros((H, W), dtype=bool)
+    occ[gij[:, 0] - imin, gij[:, 1] - jmin] = True
+    pad = np.pad(occ, 1)
+    dil = np.zeros_like(occ)
+    for di in range(3):
+        for dj in range(3):
+            dil |= pad[di:di + H, dj:dj + W]
+
+    out: list[float] = []
+    for walk in walks:
+        c = np.floor(np.asarray(walk, dtype=np.float64)[:, :2] / cell_m
+                     ).astype(np.int64)
+        if not len(c):
+            out.append(1.0)
+            continue
+        ii = c[:, 0] - imin
+        jj = c[:, 1] - jmin
+        inb = (ii >= 0) & (ii < H) & (jj >= 0) & (jj < W)
+        hit = np.zeros(len(c), dtype=bool)
+        hit[inb] = dil[ii[inb], jj[inb]]
+        out.append(float(hit.mean()))
+    return out
+
+
+def tile3d_tiebreak_winner(
+    scores: list,
+    errs: list,
+    consensus_top: int,
+    *,
+    margin: float = 0.15,
+    max_err_deg: float = 6.0,
+    top_n_shape: int = 5,
+) -> int | None:
+    """Index the tile3d channel should promote over the shape/consensus
+    pick, or ``None``.
+
+    ``scores[i]`` / ``errs[i]`` are the tile3d score and skyline error for
+    candidate ``i`` in SHAPE order (so ``i`` has shape rank ``i + 1``).
+    Fires only when the skyline channel is unambiguously discriminative —
+    a clear score margin over the runner-up, a tight skyline error, and a
+    winner already high on the shape ranking — so it stays inert where
+    skylines don't discriminate (uniform mid-rise) and can only reorder
+    among already-plausible candidates. Returns ``None`` if any gate fails
+    or the winner is already the consensus pick.
+    """
+    if len(scores) < 2 or any(s is None for s in scores):
+        return None
+    order = sorted(range(len(scores)), key=lambda i: -scores[i])
+    top = order[0]
+    best, second = scores[order[0]], scores[order[1]]
+    if best <= 0:
+        return None
+    rel = (best - second) / best
+    err = errs[top] if top < len(errs) else None
+    if (rel >= margin and err is not None and err <= max_err_deg
+            and (top + 1) <= top_n_shape and top != consensus_top):
+        return top
+    return None
+
+
+# --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
 
@@ -427,8 +528,12 @@ def match_tiles3d_against_candidates(
         for si, (frac, elev_f, frame_small) in enumerate(frame_skylines):
             pos, fwd = pose_at_fraction(cand.aligned_traj_xy, frac)
             cam_z = mesh.local_ground_z(pos) + cam_height_m
+            # Pre-filter to the local triangles via the mesh grid; the
+            # renderer's per-vertex cull then trims exactly, so the mask is
+            # identical to rendering the full mesh — just far cheaper.
+            local_tris = mesh.triangles_near(pos, max_dist_m)
             m = render_building_mask(
-                mesh.triangles, pos, cam_z, fwd, K_r, render_wh,
+                local_tris, pos, cam_z, fwd, K_r, render_wh,
                 max_dist_m=max_dist_m)
             model_rows = skyline_from_mask(m)
             elev_m = _elev_deg(model_rows, K_r)

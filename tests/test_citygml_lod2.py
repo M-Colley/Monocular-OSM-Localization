@@ -129,6 +129,82 @@ def test_provider_for_latlon() -> None:
     assert provider_for_latlon(37.6750, -122.4609) is None     # Daly City
 
 
+def test_per_tile_cache_reused_across_discs(tmp_path, monkeypatch) -> None:
+    """A per-tile parsed cache must be reused across DIFFERENT discs, so a
+    later run (or the prefetch) never re-parses a tile another disc
+    already parsed — the fix for the prefetch-cache-never-hit bug.
+    Everything is offline: a fake provider + a synthetic zip."""
+    import zipfile
+
+    import src.citygml_lod2 as mod
+
+    monkeypatch.setitem(mod.PROVIDERS, "test", {
+        "crs": "EPSG:25833", "step_km": 1,
+        "url": "http://test.invalid/LoD2_{e}_{n}.zip",
+        "license": "test", "bbox": (52.0, 53.0, 13.0, 14.0)})
+
+    def fake_download(url, dest):
+        with zipfile.ZipFile(dest, "w") as zf:
+            zf.writestr("tile.gml", _GML)
+        return True
+
+    calls = {"n": 0}
+    real_parse = mod._parse_tile_zip
+
+    def counting_parse(zip_path):
+        calls["n"] += 1
+        return real_parse(zip_path)
+
+    monkeypatch.setattr(mod, "_download_tile", fake_download)
+    monkeypatch.setattr(mod, "_parse_tile_zip", counting_parse)
+
+    big = mod.fetch_lod2_mesh(52.5, 13.4, 2500.0, dst_crs="EPSG:32633",
+                              provider="test", cache_dir=tmp_path, max_tiles=60)
+    n_big = calls["n"]
+    assert n_big >= 4 and len(big.triangles) > 0
+    assert list(tmp_path.glob("tile_*.npz"))          # per-tile caches written
+
+    # A smaller, DIFFERENT disc (a strict subset of tiles) must reuse every
+    # tile from the big disc's per-tile caches -> zero new parses.
+    small = mod.fetch_lod2_mesh(52.5, 13.4, 100.0, dst_crs="EPSG:32633",
+                                provider="test", cache_dir=tmp_path, max_tiles=60)
+    assert 0 < len(small.triangles) < len(big.triangles)  # genuinely a new disc
+    assert calls["n"] == n_big                            # all tiles from cache
+
+
+def test_per_tile_cache_self_heals_corrupt(tmp_path, monkeypatch) -> None:
+    """A corrupt per-tile npz must be dropped and re-parsed, not fatal."""
+    import zipfile
+
+    import src.citygml_lod2 as mod
+
+    monkeypatch.setitem(mod.PROVIDERS, "test", {
+        "crs": "EPSG:25833", "step_km": 1,
+        "url": "http://test.invalid/LoD2_{e}_{n}.zip",
+        "license": "test", "bbox": (52.0, 53.0, 13.0, 14.0)})
+
+    def fake_download(url, dest):
+        with zipfile.ZipFile(dest, "w") as zf:
+            zf.writestr("t.gml", _GML)
+        return True
+
+    monkeypatch.setattr(mod, "_download_tile", fake_download)
+
+    m1 = mod.fetch_lod2_mesh(52.5, 13.4, 100.0, dst_crs="EPSG:32633",
+                             provider="test", cache_dir=tmp_path, max_tiles=10)
+    n1 = len(m1.triangles)
+    assert n1 > 0
+    # Corrupt the per-tile caches AND drop the per-disc mesh cache so the
+    # next call re-enters the tile loop and must self-heal the bad npz.
+    for p in tmp_path.glob("tile_*.npz"):
+        p.write_bytes(b"not an npz")
+    for p in tmp_path.glob("mesh_*.npz"):
+        p.unlink()
+    m2 = mod.fetch_lod2_mesh(52.5, 13.4, 100.0, dst_crs="EPSG:32633",
+                             provider="test", cache_dir=tmp_path, max_tiles=10)
+    assert len(m2.triangles) == n1            # rebuilt, not crashed
+
+
 def test_local_ground_z_prefers_nearby_buildings() -> None:
     ground = np.array([
         [0.0, 0.0, 30.0], [50.0, 0.0, 31.0], [80.0, 0.0, 32.0],

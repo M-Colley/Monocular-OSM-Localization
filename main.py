@@ -107,6 +107,7 @@ def _load_cached_metadata(data_dir: Path, url: str) -> VideoMetadata | None:
         url=d.get("url") or url,
         title=d.get("title"),
         video_id=d.get("video_id"),
+        fps=d.get("fps"),
     )
 
 
@@ -120,6 +121,7 @@ def _write_cached_metadata(data_dir: Path, url: str, metadata: VideoMetadata) ->
                 "url": metadata.url,
                 "title": metadata.title,
                 "video_id": metadata.video_id,
+                "fps": metadata.fps,
             }, indent=2),
             encoding="utf-8",
         )
@@ -236,6 +238,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "beyond the fetched coverage the channel deactivates "
                         "rather than mis-score them, so raise this for "
                         "city-wide blind runs")
+    p.add_argument("--tile3d-tiebreak", action="store_true",
+                   help="(experiment) let a clearly discriminative tile3d "
+                        "skyline channel promote its top candidate over the "
+                        "shape pick. Triple-gated (score margin + tight "
+                        "skyline error + winner already high on shape), so it "
+                        "no-ops where skylines don't discriminate. Helps dense "
+                        "high-rise (Berlin), inert on uniform mid-rise (Ulm).")
     p.add_argument("--splat-max-pairs", type=int, default=80,
                    help="cap on frame pairs used to triangulate the splat")
     p.add_argument("--use-da3", action="store_true",
@@ -579,7 +588,11 @@ def main() -> None:
 
         # Auto stride uses the source's REAL fps when a local/cached file
         # can be probed (a 60 fps upload must not get double the frame
-        # budget); falls back to the nominal 30.
+        # budget). On a FIRST --url run the file isn't downloaded yet, so
+        # fall back to the fps the extractor reported in the metadata
+        # before dropping to the nominal 30 — otherwise a 60 fps clip gets
+        # half the intended stride (2x the VO cost) and a VO cache no
+        # --skip-download rerun can reuse.
         frame_stride = args.frame_stride
         if frame_stride is None:
             probe = local_path
@@ -592,6 +605,8 @@ def main() -> None:
                     (args.data_dir / submission_slug).glob("input.*"))
                 probe = cached[0] if cached else None
             fps = _probe_video_fps(probe) if probe is not None else None
+            if fps is None:
+                fps = getattr(metadata, "fps", None) if local_path is None else None
             frame_stride = _auto_frame_stride(duration, fps=fps)
 
         cfg = PipelineConfig(
@@ -613,6 +628,7 @@ def main() -> None:
             tile3d_source=args.tile3d_source,
             tile3d_samples=args.tile3d_samples,
             tile3d_max_tiles=args.tile3d_max_tiles,
+            tile3d_tiebreak=args.tile3d_tiebreak,
             splat_max_pairs=args.splat_max_pairs,
             enable_da3=args.use_da3,
             use_da3_trajectory=args.use_da3_trajectory,

@@ -18,6 +18,8 @@ from src.tile3d_match import (
     scale_intrinsics,
     skyline_from_frame,
     skyline_from_mask,
+    tile3d_tiebreak_winner,
+    walk_coverage_fractions,
 )
 
 
@@ -247,3 +249,133 @@ def test_scale_intrinsics() -> None:
     K2 = scale_intrinsics(K, (1920, 1080), (480, 270))
     assert K2[0, 0] == pytest.approx(K[0, 0] / 4.0)
     assert K2[1, 2] == pytest.approx(K[1, 2] / 4.0)
+
+
+# --------------------------------------------------------------------------
+# Mesh spatial grid (triangles_near)
+# --------------------------------------------------------------------------
+
+def _scattered_boxes(step: int = 40, span: int = 1000) -> np.ndarray:
+    return np.concatenate([_box_mesh(x, x + 15, 40, 55, 0.0, 18.0)
+                           for x in range(0, span, step)])
+
+
+def test_triangles_near_render_matches_full_mesh() -> None:
+    """The grid pre-filter must render a mask IDENTICAL to the full mesh
+    (the renderer's own cull trims the superset exactly) while touching
+    far fewer triangles — the invariant the perf optimization relies on."""
+    tris = _scattered_boxes()
+    mesh = Lod2Mesh(triangles=tris.astype(np.float32),
+                    building_ground=np.array([[500, 50, 0]], dtype=np.float32),
+                    crs="EPSG:32633", provider="berlin", n_buildings=1)
+    K = _k()
+    for cx in (0.0, 300.0, 700.0):
+        pos = np.array([cx, 0.0])
+        hd = np.array([0.0, 1.0])
+        full = render_building_mask(mesh.triangles, pos, 2.0, hd, K, WH,
+                                    max_dist_m=200.0)
+        sub_tris = mesh.triangles_near(pos, 200.0)
+        sub = render_building_mask(sub_tris, pos, 2.0, hd, K, WH,
+                                   max_dist_m=200.0)
+        assert np.array_equal(full, sub)
+        assert len(sub_tris) < len(mesh.triangles)   # actually filtered
+
+
+def test_triangles_near_is_superset_of_in_range() -> None:
+    tris = _scattered_boxes()
+    mesh = Lod2Mesh(triangles=tris.astype(np.float32),
+                    building_ground=np.zeros((0, 3), dtype=np.float32),
+                    crs="EPSG:32633", provider="berlin", n_buildings=0)
+    pos = np.array([120.0, 0.0])
+    md = 150.0
+    near = mesh.triangles_near(pos, md)
+    vdist = np.sqrt(((mesh.triangles[:, :, :2] - pos) ** 2).sum(-1)).min(1)
+    exact = mesh.triangles[vdist < md]
+    near_set = {t.tobytes() for t in near.astype(np.float32)}
+    for t in exact.astype(np.float32):       # every in-range tri retained
+        assert t.tobytes() in near_set
+
+
+def test_triangles_near_empty_mesh() -> None:
+    mesh = Lod2Mesh(triangles=np.zeros((0, 3, 3), dtype=np.float32),
+                    building_ground=np.zeros((0, 3), dtype=np.float32),
+                    crs="EPSG:32633", provider="berlin", n_buildings=0)
+    assert len(mesh.triangles_near(np.array([0.0, 0.0]), 500.0)) == 0
+
+
+# --------------------------------------------------------------------------
+# Coverage gate (walk_coverage_fractions)
+# --------------------------------------------------------------------------
+
+def _dense_field(step: float = 30.0, span: float = 3000.0) -> np.ndarray:
+    gx, gy = np.meshgrid(np.arange(0, span, step), np.arange(0, span, step))
+    return np.column_stack([gx.ravel(), gy.ravel(),
+                            np.zeros(gx.size)])
+
+
+def test_walk_coverage_full_field_is_covered() -> None:
+    bg = _dense_field()
+    walk = np.column_stack([np.linspace(100, 2900, 60), np.full(60, 1500.0)])
+    assert walk_coverage_fractions(bg, [walk])[0] == pytest.approx(1.0)
+
+
+def test_walk_coverage_detects_missing_tile_hole() -> None:
+    """A walk crossing a missing >=1 km tile (square hole) must drop below
+    the 0.9 gate; a walk staying in covered area must not."""
+    bg = _dense_field()
+    lo, hi = 500.0, 2500.0          # 2 km square hole (a dropped BW block)
+    keep = ~((bg[:, 0] >= lo) & (bg[:, 0] <= hi)
+             & (bg[:, 1] >= lo) & (bg[:, 1] <= hi))
+    crossing = np.column_stack([np.linspace(100, 2900, 60), np.full(60, 1500.0)])
+    safe = np.column_stack([np.linspace(100, 450, 30), np.full(30, 200.0)])
+    cov = walk_coverage_fractions(bg[keep], [crossing, safe])
+    assert cov[0] < 0.9             # crossing the hole -> deactivate
+    assert cov[1] > 0.9             # in-coverage walk -> stay active
+
+
+def test_walk_coverage_edges() -> None:
+    assert walk_coverage_fractions(np.zeros((0, 3)), [np.zeros((3, 2))]) == [0.0]
+    bg = _dense_field(span=600.0)
+    assert walk_coverage_fractions(bg, [np.zeros((0, 2))])[0] == 1.0
+
+
+# --------------------------------------------------------------------------
+# Consensus tie-break gate (tile3d_tiebreak_winner)
+# --------------------------------------------------------------------------
+
+# Real recorded per-candidate values (shape order) from the Berlin and Ulm
+# pure-shape + tile3d runs (2026-07-22 eval).
+_BERLIN_SCORES = [.1481, .1269, .1376, .1845, .097, .1375, .1207, .141, .1095, .0806]
+_BERLIN_ERRS = [6.46, 6.8, 5.86, 5.28, 6.93, 6.51, 6.59, 6.11, 7.46, 9.87]
+_ULM_SCORES = [.1287, .1637, .1161, .1188, .14, .0819, .1787, .1278, .1261, .1124]
+_ULM_ERRS = [4.67, 5.54, 4.91, 4.67, 4.67, 6.57, 7.37, 5.07, 5.0, 5.64]
+
+
+def test_tiebreak_fires_on_berlin_high_rise() -> None:
+    # discriminative skyline: promote candidate #4 (index 3) over shape #1
+    assert tile3d_tiebreak_winner(_BERLIN_SCORES, _BERLIN_ERRS, 0) == 3
+
+
+def test_tiebreak_noops_on_ulm_midrise() -> None:
+    # weak margin (8%), winner err 7.4 deg, winner shape #7 -> all gates fail
+    assert tile3d_tiebreak_winner(_ULM_SCORES, _ULM_ERRS, 0) is None
+
+
+def test_tiebreak_noop_when_winner_is_already_consensus() -> None:
+    assert tile3d_tiebreak_winner(_BERLIN_SCORES, _BERLIN_ERRS, 3) is None
+
+
+def test_tiebreak_gates_each_condition() -> None:
+    base = [0.20, 0.10, 0.05]        # 50% margin, clear winner at index 0
+    errs = [4.0, 5.0, 5.0]
+    assert tile3d_tiebreak_winner(base, errs, 1) == 0          # fires
+    # margin too small
+    assert tile3d_tiebreak_winner([0.20, 0.19, 0.05], errs, 1) is None
+    # winner skyline error too high
+    assert tile3d_tiebreak_winner(base, [7.0, 5.0, 5.0], 1) is None
+    # winner not in the top-5 shape ranks
+    big = [0.05, 0.05, 0.05, 0.05, 0.05, 0.20]
+    assert tile3d_tiebreak_winner(big, [4.0] * 6, 0) is None
+    # missing scores / too few candidates
+    assert tile3d_tiebreak_winner([0.2, None, 0.1], errs, 1) is None
+    assert tile3d_tiebreak_winner([0.2], [4.0], 0) is None
