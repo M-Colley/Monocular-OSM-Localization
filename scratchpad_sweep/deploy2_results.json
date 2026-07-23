@@ -74,5 +74,27 @@
       "secs": 1500,
       "note": "timeout"
     }
+  },
+  "Malaga": {
+    "name": "Malaga",
+    "country": "ES",
+    "expect_source": "OSM",
+    "deployable": {
+      "rc": 0,
+      "secs": 331,
+      "source": "anchor_primary_vpr",
+      "start": 12.2,
+      "mean": 29.7,
+      "m_start": 544.5,
+      "m_mean": 258.4,
+      "streets": [
+        "Calle Carmen Laforet",
+        "Avenida Pepita Dur\u00e1n",
+        "Calle Sierra de Hornachos"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
   }
 }

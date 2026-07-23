@@ -882,6 +882,11 @@ _FUSE_SMOOTH_D2 = 1000.0
 # 8 km -> 11 m, and the central-drive Ulm regression shrinks too.
 _PASS1_COVER_MAX_M = 8000.0
 _PASS1_COVER_CAP = 3000
+# With a Mapillary TOKEN every coarse-pass ref is a real image download, so
+# a 3000-ref city-extent disc times out; dense coverage needs far fewer to
+# find the right district (the FINE pass still uses full density on its tight
+# disc). Cap the tokened coarse pass here so un-seeded/mega-city runs finish.
+_PASS1_TOKEN_CAP = 1200
 # Pass-2 is kept as the placement prior only if its median top-1 VPR similarity
 # is within this margin of pass-1's (else pass 1 already localized better;
 # audit deepdive C2F-1 — London pass-1 0.10 km was silently overwritten).
@@ -1695,6 +1700,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     if _cover > _vpr_radius + 1.0:
                         _vpr_radius = _cover
                         _vpr_cap_eff = max(cfg.vpr_ref_cap, _PASS1_COVER_CAP)
+                        if _vpr_token:      # dense downloads: keep it bounded
+                            _vpr_cap_eff = min(_vpr_cap_eff, _PASS1_TOKEN_CAP)
                         print(f"      -> coarse-to-fine: sizing pass-1 disc to "
                               f"the city extent ({_vpr_radius:.0f} m, "
                               f"cap {_vpr_cap_eff})")
