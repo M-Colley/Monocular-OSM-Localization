@@ -7,6 +7,7 @@ import pytest
 
 from src.citygml_lod2 import (
     Lod2Mesh,
+    PROVIDERS,
     _ear_clip,
     _triangulate_ring,
     parse_citygml_lod2,
@@ -125,8 +126,42 @@ def test_provider_for_latlon() -> None:
     assert provider_for_latlon(52.5230, 13.4171) == "berlin"   # Alexanderplatz
     assert provider_for_latlon(48.4059, 9.9837) == "bw"        # Ulm
     assert provider_for_latlon(49.0093, 8.4371) == "bw"        # Karlsruhe
+    assert provider_for_latlon(50.9375, 6.9603) == "nrw"       # Cologne
+    assert provider_for_latlon(48.1372, 11.5755) == "bavaria"  # Munich
+    assert provider_for_latlon(49.4521, 11.0767) == "bavaria"  # Nuremberg
     assert provider_for_latlon(51.5270, -0.1318) is None       # London
     assert provider_for_latlon(37.6750, -122.4609) is None     # Daly City
+
+
+def test_tiles_for_disc_nrw_1km_gml_naming() -> None:
+    # NRW: 1 km tiles, no snapping; Cologne-ish easting/northing in km.
+    tiles = tiles_for_disc(355500.0, 5644500.0, 100.0, "nrw")
+    assert tiles == [(355, 5644)]
+    name = PROVIDERS["nrw"]["url"].format(e=355, n=5644).rsplit("/", 1)[-1]
+    assert name == "LoD2_32_355_5644_1_NW.gml"
+
+
+def test_tiles_for_disc_bavaria_even_snapping() -> None:
+    # Bavaria: 2 km tiles named by EVEN easting/northing km.
+    tiles = tiles_for_disc(705500.0, 5323500.0, 100.0, "bavaria")
+    assert tiles == [(704, 5322)]
+    name = PROVIDERS["bavaria"]["url"].format(e=704, n=5322).rsplit("/", 1)[-1]
+    assert name == "704_5322.gml"
+
+
+def test_provider_formats() -> None:
+    assert PROVIDERS["berlin"]["format"] == "zip"
+    assert PROVIDERS["bw"]["format"] == "zip"
+    assert PROVIDERS["nrw"]["format"] == "gml"
+    assert PROVIDERS["bavaria"]["format"] == "gml"
+
+
+def test_looks_like_citygml_rejects_html() -> None:
+    from src.citygml_lod2 import _looks_like_citygml
+    assert _looks_like_citygml(b'<?xml version="1.0"?><core:CityModel>')
+    assert _looks_like_citygml(b'\xef\xbb\xbf<?xml version="1.0"?>')
+    assert not _looks_like_citygml(b"<!DOCTYPE html><html><body>404")
+    assert not _looks_like_citygml(b"<html>Not Found</html>")
 
 
 def test_per_tile_cache_reused_across_discs(tmp_path, monkeypatch) -> None:
@@ -143,7 +178,7 @@ def test_per_tile_cache_reused_across_discs(tmp_path, monkeypatch) -> None:
         "url": "http://test.invalid/LoD2_{e}_{n}.zip",
         "license": "test", "bbox": (52.0, 53.0, 13.0, 14.0)})
 
-    def fake_download(url, dest):
+    def fake_download(url, dest, fmt="zip"):
         with zipfile.ZipFile(dest, "w") as zf:
             zf.writestr("tile.gml", _GML)
         return True
@@ -183,7 +218,7 @@ def test_per_tile_cache_self_heals_corrupt(tmp_path, monkeypatch) -> None:
         "url": "http://test.invalid/LoD2_{e}_{n}.zip",
         "license": "test", "bbox": (52.0, 53.0, 13.0, 14.0)})
 
-    def fake_download(url, dest):
+    def fake_download(url, dest, fmt="zip"):
         with zipfile.ZipFile(dest, "w") as zf:
             zf.writestr("t.gml", _GML)
         return True

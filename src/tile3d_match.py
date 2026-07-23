@@ -53,6 +53,7 @@ __all__ = [
     "arc_fractions_at_times", "pose_at_fraction",
     "match_tiles3d_against_candidates",
     "walk_coverage_fractions", "tile3d_tiebreak_winner",
+    "adaptive_tile3d_weight", "refine_placement_skyline",
 ]
 
 # Comparison constants (degrees of elevation angle unless noted).
@@ -470,6 +471,138 @@ def tile3d_tiebreak_winner(
     return None
 
 
+def adaptive_tile3d_weight(scores: list, *, w_base: float = 0.4,
+                           lo: float = 0.05, hi: float = 0.20) -> float:
+    """Confidence-scaled fusion weight for the tile3d channel.
+
+    The fixed 0.4 rank weight adds the SAME nudge whether the skyline is
+    sharply discriminative (dense high-rise: one candidate clearly wins) or
+    non-discriminative (uniform mid-rise: scores nearly flat, the ``winner``
+    is noise). Scale the weight by a smoothstep of the top-vs-runner-up
+    relative margin so the channel self-mutes where it cannot discriminate
+    and contributes fully where it can — the uncertainty-aware fusion the
+    fixed weight lacked. Returns a weight in ``[0, w_base]``.
+    """
+    vals = sorted((s for s in scores if s is not None), reverse=True)
+    if len(vals) < 2 or vals[0] <= 0:
+        return 0.0
+    margin = (vals[0] - vals[1]) / vals[0]
+    t = float(np.clip((margin - lo) / (hi - lo), 0.0, 1.0))
+    smooth = t * t * (3.0 - 2.0 * t)     # smoothstep
+    return w_base * smooth
+
+
+# --------------------------------------------------------------------------
+# Metric placement refinement (LoD-Loc-style skyline pose optimization)
+# --------------------------------------------------------------------------
+
+def _apply_rigid(traj_xy: np.ndarray, dx: float, dy: float, dtheta: float,
+                 center: np.ndarray) -> np.ndarray:
+    c, s = np.cos(dtheta), np.sin(dtheta)
+    rot = np.array([[c, -s], [s, c]])
+    return (traj_xy - center) @ rot.T + center + np.array([dx, dy])
+
+
+def _skyline_agreement(mesh, frame_sk: list, traj: np.ndarray,
+                       K_r: np.ndarray, render_wh, cam_height_m: float,
+                       max_dist_m: float) -> float:
+    """Mean per-sample skyline agreement of a placed route (0..1)."""
+    comps: list[SkylineComparison] = []
+    for frac, elev_f in frame_sk:
+        pos, fwd = pose_at_fraction(traj, frac)
+        cam_z = mesh.local_ground_z(pos) + cam_height_m
+        local = mesh.triangles_near(pos, max_dist_m)
+        m = render_building_mask(local, pos, cam_z, fwd, K_r, render_wh,
+                                 max_dist_m=max_dist_m)
+        comps.append(compare_skylines(_elev_deg(skyline_from_mask(m), K_r),
+                                      elev_f))
+    offs = [float(np.median(c.delta)) for c in comps if c.delta is not None]
+    off = float(np.median(offs)) if offs else 0.0
+    tot = 0.0
+    for c in comps:
+        if c.delta is None:
+            continue
+        err = float(np.median(np.abs(c.delta - off)))
+        w = min(1.0, c.explain_frac / _EXPLAIN_SAT)
+        tot += (float(np.exp(-err / _ERR_SCALE_DEG)) * w
+                * (1.0 - _CONTRA_WEIGHT * c.contradiction_frac))
+    return tot / len(frame_sk) if frame_sk else 0.0
+
+
+def refine_placement_skyline(
+    mesh, samples: list, aligned_traj_xy: np.ndarray,
+    video_K: np.ndarray, video_wh: tuple,
+    *,
+    cam_height_m: float = 2.2,
+    render_wh: tuple = (480, 270),
+    max_dist_m: float = 500.0,
+    max_shift_m: float = 120.0,
+    max_rot_deg: float = 12.0,
+    max_fev: int = 60,
+    skyline_fn=None,
+) -> tuple[np.ndarray, dict]:
+    """Refine a route's absolute PLACEMENT by skyline alignment.
+
+    Selection (which candidate) and a coarse anchor leave a residual
+    absolute-position error (our ~225 m start). This searches a small rigid
+    transform (dx, dy, dθ about the route centroid) that best aligns the
+    rendered skyline with the observed one across the sampled frames — the
+    LoD-Loc idea (silhouette pose optimization) as a placement refiner
+    rather than a candidate re-ranker. Bounded and no-op-safe: if no
+    transform beats the identity it returns the input unchanged.
+
+    Returns ``(refined_traj_xy, info)`` with ``info`` carrying the applied
+    shift/rotation and the before/after agreement.
+    """
+    sky = skyline_fn or skyline_from_frame
+    K_r = scale_intrinsics(video_K, video_wh, render_wh)
+    frame_sk: list = []
+    for frac, frame in samples:
+        rows = sky(frame, render_wh)
+        if np.isfinite(rows).mean() >= _MIN_SHARED_FRAC:
+            frame_sk.append((frac, _elev_deg(rows, K_r)))
+    base = np.asarray(aligned_traj_xy, dtype=np.float64)
+    none = {"applied": False, "shift_m": 0.0, "rot_deg": 0.0,
+            "score_before": 0.0, "score_after": 0.0}
+    if len(frame_sk) < 2 or len(base) < 2:
+        return base, none
+    center = base.mean(axis=0)
+    max_rot = np.radians(max_rot_deg)
+
+    s0 = _skyline_agreement(mesh, frame_sk, base, K_r, render_wh,
+                            cam_height_m, max_dist_m)
+
+    def cost(p: np.ndarray) -> float:
+        dx, dy, dth = float(p[0]), float(p[1]), float(p[2])
+        if abs(dx) > max_shift_m or abs(dy) > max_shift_m or abs(dth) > max_rot:
+            return 1.0
+        traj = _apply_rigid(base, dx, dy, dth, center)
+        return 1.0 - _skyline_agreement(mesh, frame_sk, traj, K_r, render_wh,
+                                        cam_height_m, max_dist_m)
+
+    try:
+        from scipy.optimize import minimize
+        simplex = np.array([[0.0, 0.0, 0.0], [45.0, 0.0, 0.0],
+                            [0.0, 45.0, 0.0], [0.0, 0.0, np.radians(5.0)]])
+        res = minimize(cost, x0=np.zeros(3), method="Nelder-Mead",
+                       options={"maxfev": max_fev, "xatol": 2.0,
+                                "fatol": 1e-3, "initial_simplex": simplex})
+        dx, dy, dth = float(res.x[0]), float(res.x[1]), float(res.x[2])
+    except Exception:
+        return base, {**none, "score_before": s0, "score_after": s0}
+
+    traj_ref = _apply_rigid(base, dx, dy, dth, center)
+    s1 = _skyline_agreement(mesh, frame_sk, traj_ref, K_r, render_wh,
+                            cam_height_m, max_dist_m)
+    if not (s1 > s0 + 1e-4):            # no improvement: keep the input
+        return base, {**none, "score_before": s0, "score_after": s0}
+    return traj_ref, {
+        "applied": True, "shift_m": float(np.hypot(dx, dy)),
+        "rot_deg": float(np.degrees(dth)),
+        "score_before": s0, "score_after": s1,
+    }
+
+
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
@@ -486,6 +619,7 @@ def match_tiles3d_against_candidates(
     render_wh: tuple[int, int] = (480, 270),
     max_dist_m: float = 500.0,
     debug_top_n: int = 3,
+    skyline_fn=None,
 ) -> list[Tile3DMatchResult]:
     """Score every candidate's skyline agreement with the LoD2 mesh.
 
@@ -506,11 +640,12 @@ def match_tiles3d_against_candidates(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    sky = skyline_fn or skyline_from_frame
     K_r = scale_intrinsics(video_K, video_wh, render_wh)
 
     frame_skylines: list[tuple[float, np.ndarray, np.ndarray]] = []
     for frac, frame in samples:
-        rows = skyline_from_frame(frame, render_wh)
+        rows = sky(frame, render_wh)
         usable = np.isfinite(rows) | np.isposinf(rows)
         if np.isfinite(rows).mean() >= _MIN_SHARED_FRAC and usable.any():
             small = cv2.resize(frame, render_wh, interpolation=cv2.INTER_AREA)
@@ -522,7 +657,11 @@ def match_tiles3d_against_candidates(
                 for i in range(len(candidates))]
     n_usable = len(frame_skylines)
 
-    results: list[Tile3DMatchResult] = []
+    # Pass 1: render + compare every candidate, and fit its per-candidate
+    # pitch offset (the camera pitch is one physical constant, so every
+    # sample shares it).
+    all_comps: list[list[SkylineComparison]] = []
+    offsets: list[float | None] = []
     for ci, cand in enumerate(candidates):
         comps: list[SkylineComparison] = []
         for si, (frac, elev_f, frame_small) in enumerate(frame_skylines):
@@ -542,13 +681,23 @@ def match_tiles3d_against_candidates(
                 _write_debug_overlay(
                     output_dir / f"cand{ci + 1}_s{si}.png",
                     frame_small, m, model_rows)
-
-        # One pitch offset per candidate: the camera's pitch is a single
-        # physical constant, so every sample must share it.
         sample_offsets = [float(np.median(c.delta)) for c in comps
                           if c.delta is not None]
-        offset = float(np.median(sample_offsets)) if sample_offsets else None
+        all_comps.append(comps)
+        offsets.append(float(np.median(sample_offsets))
+                       if sample_offsets else None)
 
+    # Systematic pitch = the offset the WHOLE candidate pool shares. A
+    # constant bias (wrong cam height / intrinsics / ground z) is not
+    # evidence against any candidate — only the RESIDUAL |offset -
+    # systematic| is. Penalizing the raw offset (v1) wrongly punished every
+    # candidate on a clip whose camera pitch sits a fixed ~13 deg off (Ulm).
+    known = [o for o in offsets if o is not None]
+    systematic = float(np.median(known)) if known else 0.0
+
+    results = []
+    for ci, comps in enumerate(all_comps):
+        offset = offsets[ci]
         contributions: list[float] = []
         errs: list[float] = []
         n_informative = 0
@@ -569,8 +718,9 @@ def match_tiles3d_against_candidates(
             contributions.append(max(0.0, contrib))
 
         score = float(np.sum(contributions)) / n_usable
-        if offset is not None and abs(offset) > _PITCH_SOFT_LIMIT:
-            score *= float(np.exp(-(abs(offset) - _PITCH_SOFT_LIMIT)
+        residual = abs(offset - systematic) if offset is not None else 0.0
+        if residual > _PITCH_SOFT_LIMIT:
+            score *= float(np.exp(-(residual - _PITCH_SOFT_LIMIT)
                                   / _PITCH_DECAY_DEG))
         results.append(Tile3DMatchResult(
             candidate_index=ci,

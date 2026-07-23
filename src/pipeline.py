@@ -112,6 +112,19 @@ class PipelineConfig:
     # among already-plausible candidates. Off by default — it changes the
     # tuned consensus only when asked. See tile3d eval 2026-07-22.
     tile3d_tiebreak: bool = False
+    # Uncertainty-aware fusion: scale the tile3d rank weight by how
+    # discriminative the skyline scores are (self-mutes on uniform mid-rise,
+    # full weight in dense high-rise) instead of a fixed 0.4.
+    tile3d_adaptive: bool = False
+    # Metric placement refinement: after selection, optimize a small rigid
+    # transform of the reported route to best align its rendered skyline
+    # with the video skyline (LoD-Loc-style; attacks the absolute-placement
+    # residual an anchor leaves). No-op-safe.
+    tile3d_refine: bool = False
+    # Learned sky segmentation (Cityscapes SegFormer) instead of the Lab
+    # smoothness heuristic for the observed skyline — robust to night /
+    # glare / occlusion. Needs transformers + a one-off model download.
+    tile3d_skyseg: bool = False
     enable_da3: bool = False
     use_da3_trajectory: bool = False
     use_mapanything_trajectory: bool = False
@@ -2596,10 +2609,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # a usable comparison.
         tile3d_rank = {i: i + 1 for i in range(len(candidates))}
         W_TILE3D = 0.0
+        t3_mesh_ref = t3_samples_ref = t3_K_ref = t3_skyline_ref = None
         if cfg.use_tile3d:
             from .citygml_lod2 import fetch_lod2_mesh
             from .position import xy_to_latlon
             from .tile3d_match import (
+                adaptive_tile3d_weight,
                 arc_fractions_at_times,
                 match_tiles3d_against_candidates,
                 tile3d_tiebreak_winner,
@@ -2646,6 +2661,21 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     raise _Tile3DInactive
                 h_img, w_img = frames.frames[0].shape[:2]
                 K_t3 = default_intrinsics(w_img, h_img)
+                # Optional learned sky segmentation (robust to night/glare)
+                # in place of the Lab-smoothness skyline heuristic.
+                t3_skyline_fn = None
+                if cfg.tile3d_skyseg:
+                    try:
+                        from .sky_segmentation import (SkySegmenter,
+                                                       skyline_from_frame_seg)
+                        _seg = SkySegmenter()
+                        t3_skyline_fn = (lambda f, wh:
+                                         skyline_from_frame_seg(f, wh, _seg))
+                        print("      -> tile3d: using SegFormer sky "
+                              f"segmentation ({_seg.device})")
+                    except Exception as e:
+                        print(f"      -> tile3d: sky-seg unavailable ({e}); "
+                              f"using the Lab heuristic")
                 n_samp = max(1, cfg.tile3d_samples)
                 t3_times = np.linspace(
                     float(match_ts[0]), float(match_ts[-1]), n_samp + 2,
@@ -2659,6 +2689,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 t3_results = match_tiles3d_against_candidates(
                     t3_samples, candidates, t3_mesh, K_t3, (w_img, h_img),
                     output_dir=cfg.output_dir / "tile3d",
+                    skyline_fn=t3_skyline_fn,
                 )
                 # Activate only on discriminative signal: all-zero scores
                 # mean the model never matched anything anywhere — an
@@ -2691,7 +2722,20 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         "n_triangles": int(len(t3_mesh.triangles)),
                         "n_samples": len(t3_samples),
                     }
-                    W_TILE3D = 0.4
+                    # Uncertainty-aware fusion (opt-in): weight the channel
+                    # by how discriminative its scores are, else fixed 0.4.
+                    if cfg.tile3d_adaptive:
+                        W_TILE3D = adaptive_tile3d_weight(
+                            [r.tile3d_score for r in t3_results])
+                        result["tile3d"]["adaptive_weight"] = round(W_TILE3D, 3)
+                    else:
+                        W_TILE3D = 0.4
+                    # Stash mesh + samples so an optional post-selection
+                    # placement refinement (--tile3d-refine) can reuse them.
+                    t3_mesh_ref = t3_mesh
+                    t3_samples_ref = t3_samples
+                    t3_K_ref = (K_t3, (w_img, h_img))
+                    t3_skyline_ref = t3_skyline_fn
                     print(f"      -> tile3d best = candidate "
                           f"#{t3_order[0] + 1} (score "
                           f"{t3_results[t3_order[0]].tile3d_score:.3f}, "
@@ -3346,6 +3390,34 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             _placed = _traj0 + (_vpr_xy - _traj0.mean(axis=0))
         anchored_cand = dataclasses.replace(candidates[_best_rank],
                                             aligned_traj_xy=_placed)
+        # Optional metric placement refinement (--tile3d-refine): sharpen the
+        # VPR-pinned route by aligning its rendered skyline to the video
+        # (LoD-Loc-style silhouette pose optimization). No-op unless the
+        # tile3d mesh/samples are available and a transform beats identity.
+        if cfg.tile3d_refine and t3_mesh_ref is not None:
+            try:
+                from .tile3d_match import refine_placement_skyline
+                _rk, _rwh = t3_K_ref
+                _placed_ref, _rinfo = refine_placement_skyline(
+                    t3_mesh_ref, t3_samples_ref, _placed, _rk, _rwh,
+                    skyline_fn=t3_skyline_ref)
+                if _rinfo.get("applied"):
+                    _placed = _placed_ref
+                    anchored_cand = dataclasses.replace(
+                        candidates[_best_rank], aligned_traj_xy=_placed)
+                    result.setdefault("tile3d", {})["placement_refine"] = {
+                        "shift_m": round(_rinfo["shift_m"], 1),
+                        "rot_deg": round(_rinfo["rot_deg"], 2),
+                        "agree_before": round(_rinfo["score_before"], 3),
+                        "agree_after": round(_rinfo["score_after"], 3),
+                    }
+                    print(f"      -> tile3d placement refine: shift "
+                          f"{_rinfo['shift_m']:.0f} m, rot "
+                          f"{_rinfo['rot_deg']:.1f} deg (skyline agree "
+                          f"{_rinfo['score_before']:.2f}->"
+                          f"{_rinfo['score_after']:.2f})")
+            except Exception as e:
+                print(f"      -> tile3d placement refine failed ({e}); skipped")
         _astart = _xy2ll2(_placed[:1], road.crs)[0]
         # The source names the channel + placement mode: a VLM district centroid
         # is far coarser than a MegaLoc VPR endpoint fit; accuracy studies need

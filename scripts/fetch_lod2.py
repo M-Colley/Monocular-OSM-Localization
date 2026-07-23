@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> None:
                     help="disc radius in metres (point mode; GT mode "
                          "derives it from the waypoints + this margin)")
     ap.add_argument("--source", default="auto",
-                    choices=["auto", "berlin", "bw"])
+                    choices=["auto", "berlin", "bw", "nrw", "bavaria"])
     ap.add_argument("--max-tiles", type=int, default=120)
     opts = ap.parse_args(argv)
 
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"disc: {lat:.5f},{lon:.5f} r={radius:.0f} m  provider={prov}")
     if prov is None:
         print("no open LoD2 provider covers this location "
-              "(implemented: Berlin, Baden-Wuerttemberg)")
+              "(implemented: Berlin, Baden-Wuerttemberg, NRW, Bavaria)")
         return
 
     # dst CRS only affects the cached mesh key; use the UTM zone the

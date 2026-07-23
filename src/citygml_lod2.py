@@ -19,10 +19,26 @@ Providers (URLs verified live 2026-07-22):
 
   The LGL server 403s python's default User-Agent; we send a browser UA.
 
-Documented but not implemented (extend PROVIDERS when needed): Bavaria
-(download1.bayernwolke.de, CC BY 4.0), NRW (opengeodata.nrw.de,
-dl-de/zero-2.0), and the Germany-wide basemap.de 3D Gebaeude OGC 3D
-Tiles stream (CC BY 4.0, glb+DRACO — needs a glTF decoder).
+- ``nrw`` — North Rhine-Westphalia, bare 1x1 km GML tiles, EPSG:25832,
+  license dl-de/zero-2.0::
+
+      https://www.opengeodata.nrw.de/produkte/geobasis/3dg/lod2_gml/lod2_gml/LoD2_32_<E_km>_<N_km>_1_NW.gml
+
+- ``bavaria`` — Free State of Bavaria, bare 2x2 km GML tiles (named by
+  even easting/northing km), EPSG:25832, CC BY 4.0 (attribution
+  "Bayerische Vermessungsverwaltung, www.geodaten.bayern.de")::
+
+      https://download1.bayernwolke.de/a/lod2/citygml/<E_km>_<N_km>.gml
+
+  NRW and Bavaria serve BARE GML (not zip); the fetch path branches on the
+  provider ``format`` field.
+
+Further coverage (extend PROVIDERS when needed): the official nationwide
+LoD2-DE product (~58M buildings, all German states, adv-online.de),
+plus other countries — 3DBAG (Netherlands, all buildings, CityJSON),
+Japan PLATEAU (CityGML/3D Tiles), and the global GlobalBuildingAtlas
+(open LoD1 footprints+heights). basemap.de's 3D Gebaeude OGC 3D Tiles
+stream (glb+DRACO) needs a glTF decoder.
 
 Google Photorealistic 3D Tiles was evaluated and REJECTED: the Map
 Tiles API policies explicitly prohibit "image analysis", "machine
@@ -63,10 +79,16 @@ _DEFAULT_CACHE = Path(__file__).resolve().parents[1] / "data" / "tiles3d"
 # an older version are never silently reused.
 _PARSE_VERSION = 2
 
+# Each provider: crs, tile step (km), tile-name snap rule, download format
+# ("zip" of GML members, or a bare "gml" file), URL template, license, and a
+# generous lat/lon bbox for auto-selection. URLs verified live 2026-07-22
+# (berlin/bw) / 2026-07-23 (nrw/bavaria).
 PROVIDERS: dict[str, dict] = {
     "berlin": {
         "crs": "EPSG:25833",
         "step_km": 1,
+        "snap": "step1",
+        "format": "zip",
         "url": "https://gdi.berlin.de/data/a_lod2/atom/LoD2_{e}_{n}.zip",
         "license": "dl-de/zero-2.0",
         # generous lat/lon box around the state of Berlin
@@ -75,10 +97,32 @@ PROVIDERS: dict[str, dict] = {
     "bw": {
         "crs": "EPSG:25832",
         "step_km": 2,
+        "snap": "bw",              # blocks named by ODD easting, EVEN northing
+        "format": "zip",
         "url": ("https://opengeodata.lgl-bw.de/data/lod2/"
                 "LoD2_32_{e}_{n}_2_bw.zip"),
         "license": "dl-de/by-2.0 (attribution: LGL, www.lgl-bw.de)",
         "bbox": (47.50, 49.85, 7.40, 10.55),
+    },
+    "nrw": {
+        "crs": "EPSG:25832",
+        "step_km": 1,
+        "snap": "step1",
+        "format": "gml",          # bare 1 km GML tiles, no zip
+        "url": ("https://www.opengeodata.nrw.de/produkte/geobasis/3dg/"
+                "lod2_gml/lod2_gml/LoD2_32_{e}_{n}_1_NW.gml"),
+        "license": "dl-de/zero-2.0",
+        "bbox": (50.30, 52.55, 5.85, 9.50),   # North Rhine-Westphalia
+    },
+    "bavaria": {
+        "crs": "EPSG:25832",
+        "step_km": 2,
+        "snap": "even2",          # 2 km tiles named by EVEN easting/northing km
+        "format": "gml",
+        "url": "https://download1.bayernwolke.de/a/lod2/citygml/{e}_{n}.gml",
+        "license": ("CC BY 4.0 (attribution: Bayerische Vermessungs"
+                    "verwaltung, www.geodaten.bayern.de)"),
+        "bbox": (47.20, 50.60, 8.90, 13.90),  # Free State of Bavaria
     },
 }
 
@@ -94,10 +138,15 @@ def provider_for_latlon(lat: float, lon: float) -> str | None:
 
 def _snap_tile(e_km: int, n_km: int, provider: str) -> tuple[int, int]:
     """Snap a 1 km cell to the provider's tile-name grid."""
-    if PROVIDERS[provider]["step_km"] == 2:
+    snap = PROVIDERS[provider].get("snap", "step1")
+    if snap == "bw":
         # BW blocks are named by ODD easting-km and EVEN northing-km.
         e_km = e_km if e_km % 2 == 1 else e_km - 1
         n_km = n_km if n_km % 2 == 0 else n_km - 1
+    elif snap == "even2":
+        # Bavaria 2 km tiles are named by EVEN easting/northing km.
+        e_km -= e_km % 2
+        n_km -= n_km % 2
     return e_km, n_km
 
 
@@ -369,14 +418,24 @@ class Lod2Mesh:
         return float(np.median(pool))
 
 
-def _download_tile(url: str, dest: Path) -> bool:
-    """Fetch one tile zip (atomic write). False = tile does not exist
-    (HTTP 404 — disc corner outside state coverage), which callers may
-    cache; transient errors raise so they are never cached. The temp
-    name is per-process so concurrent fleet runs sharing the cache
-    cannot interleave writes, and the payload must actually BE a zip
-    before it is committed — a captive portal / error page served with
-    HTTP 200 must never poison the cache."""
+def _looks_like_citygml(head: bytes) -> bool:
+    """True if the first bytes are an XML/CityGML body, not an HTML error
+    page a server may return with HTTP 200 for a missing tile."""
+    h = head.lstrip(b"\xef\xbb\xbf \t\r\n")   # strip BOM / whitespace
+    low = h[:2048].lower()
+    if b"<html" in low or b"<!doctype html" in low:
+        return False
+    return h.startswith(b"<?xml") or b"citymodel" in low or b"citygml" in low
+
+
+def _download_tile(url: str, dest: Path, fmt: str = "zip") -> bool:
+    """Fetch one tile (atomic write). False = tile does not exist (HTTP 404
+    — disc corner outside state coverage), which callers may cache;
+    transient errors raise so they are never cached. The temp name is
+    per-process so concurrent fleet runs sharing the cache cannot
+    interleave writes, and the payload must actually BE the expected format
+    (zip, or a CityGML document) before it is committed — a captive portal
+    / error page served with HTTP 200 must never poison the cache."""
     import os
 
     import requests
@@ -391,9 +450,15 @@ def _download_tile(url: str, dest: Path) -> bool:
             with open(tmp, "wb") as fh:
                 for chunk in r.iter_content(chunk_size=1 << 20):
                     fh.write(chunk)
-        if not zipfile.is_zipfile(tmp):
-            raise RuntimeError(f"{url} returned a non-zip body "
-                               f"(proxy/error page?) — not caching it")
+        if fmt == "zip":
+            if not zipfile.is_zipfile(tmp):
+                raise RuntimeError(f"{url} returned a non-zip body "
+                                   f"(proxy/error page?) — not caching it")
+        else:   # bare GML/XML tile
+            with open(tmp, "rb") as fh:
+                if not _looks_like_citygml(fh.read(4096)):
+                    raise RuntimeError(f"{url} returned a non-CityGML body "
+                                       f"(proxy/error page?) — not caching it")
         tmp.replace(dest)
     finally:
         tmp.unlink(missing_ok=True)
@@ -420,6 +485,14 @@ def _parse_tile_zip(zip_path: Path) -> tuple[np.ndarray, np.ndarray]:
     return triangles, ground
 
 
+def _parse_tile_file(path: Path, fmt: str) -> tuple[np.ndarray, np.ndarray]:
+    """Parse a downloaded tile, dispatching on the provider format: a zip of
+    GML members, or a single bare GML document (NRW / Bavaria)."""
+    if fmt == "gml":
+        return parse_citygml_lod2(path.read_bytes())
+    return _parse_tile_zip(path)
+
+
 def fetch_lod2_mesh(
     lat: float,
     lon: float,
@@ -444,8 +517,8 @@ def fetch_lod2_mesh(
         provider = provider_for_latlon(lat, lon)  # type: ignore[assignment]
         if provider is None:
             print(f"      -> no open LoD2 provider covers "
-                  f"{lat:.4f},{lon:.4f} (open data exists for Berlin/BW; "
-                  f"Google 3D Tiles is ToS-prohibited for analysis use)")
+                  f"{lat:.4f},{lon:.4f} (wired: Berlin, Baden-Wuerttemberg, "
+                  f"NRW, Bavaria; Google 3D Tiles is ToS-prohibited)")
             return None
     if provider not in PROVIDERS:
         raise ValueError(f"unknown LoD2 provider: {provider!r}")
@@ -515,12 +588,13 @@ def fetch_lod2_mesh(
         finally:
             tmp.unlink(missing_ok=True)
 
+    fmt = spec.get("format", "zip")
     all_tris: list[np.ndarray] = []
     all_ground: list[np.ndarray] = []
     n_fetched = n_missing = n_tcache = 0
     for e_km, n_km in tiles:
         name = spec["url"].format(e=e_km, n=n_km).rsplit("/", 1)[-1]
-        name_stem = name[:-4] if name.lower().endswith(".zip") else name
+        name_stem = name.rsplit(".", 1)[0]
         tile_cache = cache / f"tile_{name_stem}_{dst_san}_v{_PARSE_VERSION}.npz"
         missing_marker = cache / (name + ".missing")
 
@@ -542,27 +616,27 @@ def fetch_lod2_mesh(
         if missing_marker.exists():
             n_missing += 1
             continue
-        zip_path = cache / name
+        tile_path = cache / name
         url = spec["url"].format(e=e_km, n=n_km)
-        if not zip_path.exists():
-            if not _download_tile(url, zip_path):
+        if not tile_path.exists():
+            if not _download_tile(url, tile_path, fmt):
                 missing_marker.touch()   # genuine 404: outside coverage
                 n_missing += 1
                 continue
             n_fetched += 1
         try:
-            t, g = _parse_tile_zip(zip_path)
-        except zipfile.BadZipFile:
-            # a corrupt zip from an older run must self-heal, not
+            t, g = _parse_tile_file(tile_path, fmt)
+        except (zipfile.BadZipFile, ET.ParseError):
+            # a corrupt tile from an older run must self-heal, not
             # permanently kill the channel: drop it, refetch once
-            print(f"      -> corrupt cached tile {zip_path.name}; "
+            print(f"      -> corrupt cached tile {tile_path.name}; "
                   f"refetching")
-            zip_path.unlink(missing_ok=True)
-            if not _download_tile(url, zip_path):
+            tile_path.unlink(missing_ok=True)
+            if not _download_tile(url, tile_path, fmt):
                 missing_marker.touch()
                 n_missing += 1
                 continue
-            t, g = _parse_tile_zip(zip_path)
+            t, g = _parse_tile_file(tile_path, fmt)
         t, g = _to_dst(t, g)
         # Cache the parsed+transformed tile (even if empty, so a
         # building-free tile is not reparsed on the next disc).

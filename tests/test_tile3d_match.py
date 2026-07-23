@@ -10,16 +10,19 @@ import pytest
 
 from src.citygml_lod2 import Lod2Mesh
 from src.tile3d_match import (
+    adaptive_tile3d_weight,
     arc_fractions_at_times,
     compare_skylines,
     match_tiles3d_against_candidates,
     pose_at_fraction,
+    refine_placement_skyline,
     render_building_mask,
     scale_intrinsics,
     skyline_from_frame,
     skyline_from_mask,
     tile3d_tiebreak_winner,
     walk_coverage_fractions,
+    _apply_rigid,
 )
 
 
@@ -379,3 +382,95 @@ def test_tiebreak_gates_each_condition() -> None:
     # missing scores / too few candidates
     assert tile3d_tiebreak_winner([0.2, None, 0.1], errs, 1) is None
     assert tile3d_tiebreak_winner([0.2], [4.0], 0) is None
+
+
+# --------------------------------------------------------------------------
+# Uncertainty-aware fusion weight (adaptive_tile3d_weight)
+# --------------------------------------------------------------------------
+
+def test_adaptive_weight_full_on_high_rise_muted_on_flat() -> None:
+    # Berlin scores: clear 20% margin -> ~full weight; Ulm: 8% -> muted
+    wb = adaptive_tile3d_weight(_BERLIN_SCORES)
+    wu = adaptive_tile3d_weight(_ULM_SCORES)
+    assert wb > 0.3
+    assert wu < 0.1
+    assert wb > wu
+
+
+def test_adaptive_weight_edges() -> None:
+    assert adaptive_tile3d_weight([]) == 0.0
+    assert adaptive_tile3d_weight([0.1]) == 0.0
+    assert adaptive_tile3d_weight([0.0, 0.0]) == 0.0
+    flat = adaptive_tile3d_weight([0.10, 0.099, 0.098])   # ~1% margin
+    assert flat == pytest.approx(0.0, abs=1e-6)
+    peaked = adaptive_tile3d_weight([0.30, 0.10, 0.05])   # 67% margin
+    assert peaked == pytest.approx(0.4, abs=1e-6)         # capped at w_base
+    assert adaptive_tile3d_weight([0.30, 0.10], w_base=1.0) == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------
+# Metric placement refinement (refine_placement_skyline)
+# --------------------------------------------------------------------------
+
+def _canyon_mesh():
+    rng = np.random.default_rng(7)
+    tris, grounds = [], []
+    for xi in range(0, 400, 25):
+        h = 12.0 + float(rng.uniform(0, 14))
+        for side in (-18.0, 14.0):
+            tris.append(_box_mesh(xi, xi + 14, side, side + 8, 0.0, h))
+            grounds.append([xi + 7, side + 4, 0.0])
+    return Lod2Mesh(triangles=np.concatenate(tris).astype(np.float32),
+                    building_ground=np.asarray(grounds, dtype=np.float32),
+                    crs="EPSG:32633", provider="berlin", n_buildings=len(grounds))
+
+
+def _canyon_video(mesh, true_traj, K_wh):
+    samples = []
+    for frac in (0.2, 0.35, 0.5, 0.65, 0.8):
+        pos, fwd = pose_at_fraction(true_traj, frac)
+        m = render_building_mask(mesh.triangles_near(pos, 500.0), pos, 2.2,
+                                 fwd, K_wh, WH)
+        frame = np.full((720, 1280, 3), 235, dtype=np.uint8)
+        big = cv2.resize(m, (1280, 720), interpolation=cv2.INTER_NEAREST) > 0
+        frame[big] = (70, 70, 80)
+        samples.append((frac, frame))
+    return samples
+
+
+def test_refine_placement_recovers_toward_truth() -> None:
+    mesh = _canyon_mesh()
+    true_traj = np.stack([np.linspace(0, 380, 128), np.zeros(128)], axis=1)
+    samples = _canyon_video(mesh, true_traj, _k(*WH))
+    center = true_traj.mean(axis=0)
+    perturbed = _apply_rigid(true_traj, 40.0, -25.0, np.radians(4.0), center)
+    before = float(np.linalg.norm(perturbed - true_traj, axis=1).mean())
+    refined, info = refine_placement_skyline(mesh, samples, perturbed,
+                                             _k(1280, 720), (1280, 720),
+                                             max_fev=80)
+    after = float(np.linalg.norm(refined - true_traj, axis=1).mean())
+    assert info["applied"]
+    assert info["score_after"] > info["score_before"]
+    assert after < before                       # moved toward the truth
+
+
+def test_refine_placement_noop_when_already_aligned() -> None:
+    mesh = _canyon_mesh()
+    true_traj = np.stack([np.linspace(0, 380, 128), np.zeros(128)], axis=1)
+    samples = _canyon_video(mesh, true_traj, _k(*WH))
+    refined, info = refine_placement_skyline(mesh, samples, true_traj,
+                                             _k(1280, 720), (1280, 720),
+                                             max_fev=40)
+    # already aligned: refinement must not push it far away
+    drift = float(np.linalg.norm(refined - true_traj, axis=1).mean())
+    assert drift < 12.0
+
+
+def test_refine_placement_no_usable_frames_is_noop() -> None:
+    mesh = _canyon_mesh()
+    traj = np.stack([np.linspace(0, 380, 64), np.zeros(64)], axis=1)
+    night = [(0.5, np.full((720, 1280, 3), 8, dtype=np.uint8))]
+    refined, info = refine_placement_skyline(mesh, night, traj,
+                                             _k(1280, 720), (1280, 720))
+    assert not info["applied"]
+    assert np.array_equal(refined, traj)

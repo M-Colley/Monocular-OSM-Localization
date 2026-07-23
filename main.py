@@ -227,9 +227,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "Open data only; Google 3D Tiles is ToS-prohibited "
                         "for this use (see src/citygml_lod2.py).")
     p.add_argument("--tile3d-source", default="auto",
-                   choices=["auto", "berlin", "bw"],
+                   choices=["auto", "berlin", "bw", "nrw", "bavaria"],
                    help="LoD2 provider for --use-tile3d (default: auto by "
-                        "location; berlin=dl-de/zero-2.0, bw=dl-de/by-2.0)")
+                        "location; berlin/nrw=dl-de/zero-2.0, bw=dl-de/by-2.0, "
+                        "bavaria=CC BY 4.0)")
     p.add_argument("--tile3d-samples", type=int, default=16,
                    help="frames sampled along the route for the tile3d "
                         "skyline comparison (clamped to >= 1)")
@@ -245,6 +246,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "skyline error + winner already high on shape), so it "
                         "no-ops where skylines don't discriminate. Helps dense "
                         "high-rise (Berlin), inert on uniform mid-rise (Ulm).")
+    p.add_argument("--tile3d-adaptive", action="store_true",
+                   help="uncertainty-aware fusion: scale the tile3d weight by "
+                        "how discriminative its skyline scores are (self-mutes "
+                        "on uniform mid-rise, full weight in dense high-rise) "
+                        "instead of a fixed 0.4.")
+    p.add_argument("--tile3d-refine", action="store_true",
+                   help="metric placement refinement: after selection, "
+                        "optimize a small rigid transform of the anchored "
+                        "route to best align its rendered skyline with the "
+                        "video (LoD-Loc-style). Attacks the absolute-placement "
+                        "residual an anchor leaves; no-op-safe.")
+    p.add_argument("--tile3d-skyseg", action="store_true",
+                   help="use a Cityscapes SegFormer to segment the observed "
+                        "sky/skyline instead of the Lab-smoothness heuristic "
+                        "(robust to night/glare/occlusion; needs transformers "
+                        "+ a one-off model download).")
     p.add_argument("--splat-max-pairs", type=int, default=80,
                    help="cap on frame pairs used to triangulate the splat")
     p.add_argument("--use-da3", action="store_true",
@@ -629,6 +646,9 @@ def main() -> None:
             tile3d_samples=args.tile3d_samples,
             tile3d_max_tiles=args.tile3d_max_tiles,
             tile3d_tiebreak=args.tile3d_tiebreak,
+            tile3d_adaptive=args.tile3d_adaptive,
+            tile3d_refine=args.tile3d_refine,
+            tile3d_skyseg=args.tile3d_skyseg,
             splat_max_pairs=args.splat_max_pairs,
             enable_da3=args.use_da3,
             use_da3_trajectory=args.use_da3_trajectory,
