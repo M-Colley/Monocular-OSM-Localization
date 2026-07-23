@@ -2611,7 +2611,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         W_TILE3D = 0.0
         t3_mesh_ref = t3_samples_ref = t3_K_ref = t3_skyline_ref = None
         if cfg.use_tile3d:
-            from .citygml_lod2 import fetch_lod2_mesh
+            from .citygml_lod2 import fetch_lod2_mesh, provider_for_latlon
             from .position import xy_to_latlon
             from .tile3d_match import (
                 adaptive_tile3d_weight,
@@ -2629,14 +2629,29 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     np.linalg.norm(all_xy - center_xy[None, :], axis=1).max()
                 ) + 500.0
                 center_ll = xy_to_latlon(center_xy[None, :], road.crs)[0]
-                print(f"[8b] 3D-tile skyline channel: LoD2 disc "
+                # Source: an explicit CityGML provider / "osm"; "auto" uses the
+                # official open LoD2 where it exists (Berlin/BW/NRW/Bavaria) and
+                # falls back to the WORLDWIDE OSM LoD1 extrusion everywhere else.
+                _src = cfg.tile3d_source
+                _use_osm = _src == "osm" or (
+                    _src == "auto"
+                    and provider_for_latlon(float(center_ll[0]),
+                                            float(center_ll[1])) is None)
+                print(f"[8b] 3D-tile skyline channel: disc "
                       f"r={t3_radius:.0f} m @ {center_ll[0]:.5f},"
-                      f"{center_ll[1]:.5f} (source={cfg.tile3d_source})")
-                t3_mesh = fetch_lod2_mesh(
-                    float(center_ll[0]), float(center_ll[1]), t3_radius,
-                    dst_crs=road.crs, provider=cfg.tile3d_source,
-                    max_tiles=cfg.tile3d_max_tiles,
-                )
+                      f"{center_ll[1]:.5f} "
+                      f"(source={'osm' if _use_osm else _src})")
+                if _use_osm:
+                    from .osm_buildings3d import fetch_osm_building_mesh
+                    t3_mesh = fetch_osm_building_mesh(
+                        float(center_ll[0]), float(center_ll[1]), t3_radius,
+                        dst_crs=road.crs)
+                else:
+                    t3_mesh = fetch_lod2_mesh(
+                        float(center_ll[0]), float(center_ll[1]), t3_radius,
+                        dst_crs=road.crs, provider=_src,
+                        max_tiles=cfg.tile3d_max_tiles,
+                    )
                 if t3_mesh is None or not len(t3_mesh.triangles):
                     if t3_mesh is not None:
                         print("      -> LoD2 mesh empty here; "

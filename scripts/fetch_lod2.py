@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> None:
                     help="disc radius in metres (point mode; GT mode "
                          "derives it from the waypoints + this margin)")
     ap.add_argument("--source", default="auto",
-                    choices=["auto", "berlin", "bw", "nrw", "bavaria"])
+                    choices=["auto", "berlin", "bw", "nrw", "bavaria", "osm"])
     ap.add_argument("--max-tiles", type=int, default=120)
     opts = ap.parse_args(argv)
 
@@ -57,18 +57,22 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     prov = opts.source if opts.source != "auto" else provider_for_latlon(lat, lon)
-    print(f"disc: {lat:.5f},{lon:.5f} r={radius:.0f} m  provider={prov}")
-    if prov is None:
-        print("no open LoD2 provider covers this location "
-              "(implemented: Berlin, Baden-Wuerttemberg, NRW, Bavaria)")
-        return
+    # 'auto' outside CityGML coverage, or an explicit 'osm', prefetches the
+    # worldwide OSM LoD1 extrusion instead of an official LoD2 tile set.
+    use_osm = opts.source == "osm" or (opts.source == "auto" and prov is None)
+    print(f"disc: {lat:.5f},{lon:.5f} r={radius:.0f} m  "
+          f"provider={'osm' if use_osm else prov}")
 
     # dst CRS only affects the cached mesh key; use the UTM zone the
     # pipeline's osmnx projection will pick for this longitude.
     zone = int((lon + 180.0) // 6.0) + 1
     dst = f"EPSG:{32600 + zone}"
-    mesh = fetch_lod2_mesh(lat, lon, radius, dst_crs=dst,
-                           provider=opts.source, max_tiles=opts.max_tiles)
+    if use_osm:
+        from src.osm_buildings3d import fetch_osm_building_mesh
+        mesh = fetch_osm_building_mesh(lat, lon, radius, dst_crs=dst)
+    else:
+        mesh = fetch_lod2_mesh(lat, lon, radius, dst_crs=dst,
+                               provider=opts.source, max_tiles=opts.max_tiles)
     if mesh is not None:
         print(f"ready: {mesh.n_buildings} buildings, "
               f"{len(mesh.triangles)} triangles (mesh cached, CRS {dst})")

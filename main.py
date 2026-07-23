@@ -227,10 +227,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "Open data only; Google 3D Tiles is ToS-prohibited "
                         "for this use (see src/citygml_lod2.py).")
     p.add_argument("--tile3d-source", default="auto",
-                   choices=["auto", "berlin", "bw", "nrw", "bavaria"],
-                   help="LoD2 provider for --use-tile3d (default: auto by "
-                        "location; berlin/nrw=dl-de/zero-2.0, bw=dl-de/by-2.0, "
-                        "bavaria=CC BY 4.0)")
+                   choices=["auto", "berlin", "bw", "nrw", "bavaria", "osm"],
+                   help="building-model source for --use-tile3d (default: "
+                        "auto — official open LoD2 where it exists "
+                        "(berlin/nrw=dl-de/zero-2.0, bw=dl-de/by-2.0, "
+                        "bavaria=CC BY 4.0), else the WORLDWIDE 'osm' LoD1 "
+                        "extrusion from OSM building heights, ODbL)")
     p.add_argument("--tile3d-samples", type=int, default=16,
                    help="frames sampled along the route for the tile3d "
                         "skyline comparison (clamped to >= 1)")
