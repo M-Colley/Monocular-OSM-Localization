@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.osm_buildings3d import extrude_footprint, parse_osm_height_m
+from src.osm_buildings3d import (_grid_centers, extrude_footprint,
+                                 parse_osm_height_m)
 
 
 def test_parse_height_from_height_tag() -> None:
@@ -52,6 +53,27 @@ def test_extrude_open_ring_is_closed() -> None:
 def test_extrude_degenerate_ring_empty() -> None:
     assert len(extrude_footprint(np.array([[0, 0], [1, 1]]), 10.0)) == 0
     assert len(extrude_footprint(np.zeros((0, 2)), 10.0)) == 0
+
+
+def test_grid_centers_small_disc_is_single_query() -> None:
+    assert _grid_centers(51.5, -0.1, 400.0, 700.0) == [(51.5, -0.1)]
+
+
+def test_grid_centers_large_disc_tiles_and_covers() -> None:
+    centres = _grid_centers(51.5, -0.13, 1500.0, 700.0)
+    assert len(centres) > 1                       # tiled
+    # every sub-centre lies within radius+tile of the disc centre
+    for la, lo in centres:
+        dm = np.hypot((la - 51.5) * 111320.0,
+                      (lo + 0.13) * 111320.0 * np.cos(np.radians(51.5)))
+        assert dm <= 1500.0 + 700.0 + 1.0
+    # a point near the disc edge is within one tile-radius of some centre
+    import numpy as _np
+    edge_lat = 51.5 + (1400.0 / 111320.0)
+    covered = any(
+        _np.hypot((la - edge_lat) * 111320.0, 0.0) <= 700.0
+        for la, lo in centres if abs(lo + 0.13) < 1e-6)
+    assert covered
 
 
 def test_extruded_mesh_renders_a_skyline() -> None:

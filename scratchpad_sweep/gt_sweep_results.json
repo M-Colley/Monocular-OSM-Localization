@@ -1,0 +1,388 @@
+{
+  "Berlin": {
+    "name": "Berlin",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "baseline": {
+      "rc": 0,
+      "secs": 99,
+      "source": "anchor_primary_vpr",
+      "start": 225.4,
+      "mean": 425.5,
+      "m_start": 1012.8,
+      "m_mean": 502.0,
+      "streets": [
+        "Stralauer Stra\u00dfe",
+        "M\u00fchlendamm",
+        "Breite Stra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    },
+    "enhanced": {
+      "rc": 0,
+      "secs": 110,
+      "source": "anchor_primary_vpr",
+      "start": 225.4,
+      "mean": 425.5,
+      "m_start": 1012.8,
+      "m_mean": 502.0,
+      "streets": [
+        "Stralauer Stra\u00dfe",
+        "M\u00fchlendamm",
+        "Breite Stra\u00dfe"
+      ],
+      "tile3d_provider": "berlin",
+      "tile3d_buildings": 41350,
+      "tile3d_adaptive_weight": 0.4
+    },
+    "deployable": {
+      "rc": 0,
+      "secs": 724,
+      "source": "anchor_primary_vpr",
+      "start": 1537.3,
+      "mean": 2026.1,
+      "m_start": 817.4,
+      "m_mean": 1621.1,
+      "streets": [
+        "Saarbr\u00fccker Stra\u00dfe",
+        "Sch\u00f6nhauser Allee",
+        "Torstra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "Ulm4K": {
+    "name": "Ulm",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "baseline": {
+      "rc": 0,
+      "secs": 29,
+      "source": "matcher",
+      "start": 528.5,
+      "mean": 141.9,
+      "m_start": 528.5,
+      "m_mean": 141.9,
+      "streets": [
+        "Salzstadelgasse",
+        "Ensingerstra\u00dfe",
+        "Karlsplatz"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    },
+    "enhanced": {
+      "rc": 0,
+      "secs": 36,
+      "source": "matcher",
+      "start": 528.5,
+      "mean": 141.9,
+      "m_start": 528.5,
+      "m_mean": 141.9,
+      "streets": [
+        "Salzstadelgasse",
+        "Ensingerstra\u00dfe",
+        "Karlsplatz"
+      ],
+      "tile3d_provider": "bw",
+      "tile3d_buildings": 14418,
+      "tile3d_adaptive_weight": 0.044
+    },
+    "deployable": {
+      "rc": 0,
+      "secs": 87,
+      "source": "anchor_primary_vpr",
+      "start": 628.6,
+      "mean": 228.2,
+      "m_start": 528.5,
+      "m_mean": 141.9,
+      "streets": [
+        "S\u00e4ntisstra\u00dfe",
+        "Beim Alten Fritz",
+        "Kienlesbergstra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "Ulm2": {
+    "name": "Ulm #2",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "baseline": {
+      "rc": 0,
+      "secs": 158,
+      "source": "anchor_primary_vpr",
+      "start": 149.7,
+      "mean": 55.2,
+      "m_start": 2526.3,
+      "m_mean": 1438.6,
+      "streets": [
+        "Hof\u00e4ckerweg",
+        "B\u00f6finger Steige",
+        "Talfinger Uferstra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    },
+    "enhanced": {
+      "rc": 0,
+      "secs": 355,
+      "source": "anchor_primary_vpr",
+      "start": 149.7,
+      "mean": 55.2,
+      "m_start": 2526.3,
+      "m_mean": 1438.6,
+      "streets": [
+        "Hof\u00e4ckerweg",
+        "B\u00f6finger Steige",
+        "Talfinger Uferstra\u00dfe"
+      ],
+      "tile3d_provider": "bw",
+      "tile3d_buildings": 65289,
+      "tile3d_adaptive_weight": 0.357
+    },
+    "deployable": {
+      "rc": 0,
+      "secs": 145,
+      "source": "matcher",
+      "start": 4642.0,
+      "mean": 3548.2,
+      "m_start": 4642.0,
+      "m_mean": 3548.2,
+      "streets": [
+        "Kurt-Schumacher-Ring"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "KITTI9": {
+    "name": "Karlsruhe",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "baseline": {
+      "rc": 0,
+      "secs": 15,
+      "source": "anchor_primary_vpr",
+      "start": 300.7,
+      "mean": 35.6,
+      "m_start": 327.3,
+      "m_mean": 242.4,
+      "streets": [
+        "Gerwigstra\u00dfe",
+        "Am Gro\u00dfmarkt"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    },
+    "enhanced": {
+      "rc": 0,
+      "secs": 65,
+      "source": "anchor_primary_vpr",
+      "start": 300.7,
+      "mean": 35.6,
+      "m_start": 327.3,
+      "m_mean": 242.4,
+      "streets": [
+        "Gerwigstra\u00dfe",
+        "Am Gro\u00dfmarkt"
+      ],
+      "tile3d_provider": "bw",
+      "tile3d_buildings": 15300,
+      "tile3d_adaptive_weight": 0.03
+    },
+    "deployable": {
+      "rc": 0,
+      "secs": 92,
+      "source": "matcher",
+      "start": 4930.2,
+      "mean": 5032.6,
+      "m_start": 4930.2,
+      "m_mean": 5032.6,
+      "streets": [
+        "An der Trift",
+        "Thujaweg"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "KITTI33": {
+    "name": "Karlsruhe",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "baseline": {
+      "rc": 0,
+      "secs": 14,
+      "source": "anchor_primary_vpr",
+      "start": 228.3,
+      "mean": 136.6,
+      "m_start": 517.3,
+      "m_mean": 143.6,
+      "streets": [
+        "Wieselweg",
+        "Rehbuckel",
+        "Bockweg"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    },
+    "enhanced": {
+      "rc": 0,
+      "secs": 38,
+      "source": "anchor_primary_vpr",
+      "start": 228.3,
+      "mean": 136.6,
+      "m_start": 517.3,
+      "m_mean": 143.6,
+      "streets": [
+        "Wieselweg",
+        "Rehbuckel",
+        "Bockweg"
+      ],
+      "tile3d_provider": "bw",
+      "tile3d_buildings": 8294,
+      "tile3d_adaptive_weight": 0.355
+    },
+    "deployable": {
+      "rc": 0,
+      "secs": 122,
+      "source": "matcher",
+      "start": 11008.5,
+      "mean": 11162.3,
+      "m_start": 11008.5,
+      "m_mean": 11162.3,
+      "streets": [
+        "Im Husarenlager",
+        "G.-Braun-Stra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "Malaga": {
+    "name": "Malaga",
+    "country": "ES",
+    "expect_source": "OSM",
+    "baseline": {
+      "rc": 0,
+      "secs": 26,
+      "source": "anchor_primary_vpr",
+      "start": 6.5,
+      "mean": 8.6,
+      "m_start": 544.5,
+      "m_mean": 258.4,
+      "streets": [
+        "Calle Carmen Laforet",
+        "Avenida Pepita Dur\u00e1n",
+        "Calle Sierra de Hornachos"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    },
+    "deployable": {
+      "rc": 0,
+      "secs": 202,
+      "source": "matcher",
+      "start": 3978.1,
+      "mean": 4109.8,
+      "m_start": 3978.1,
+      "m_mean": 4109.8,
+      "streets": [],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "London": {
+    "name": "London",
+    "country": "UK",
+    "expect_source": "OSM",
+    "baseline": {
+      "rc": 0,
+      "secs": 95,
+      "source": "anchor_primary_vpr",
+      "start": 30.6,
+      "mean": 66.7,
+      "m_start": 1325.3,
+      "m_mean": 770.1,
+      "streets": [
+        "Shaftesbury Avenue",
+        "New Oxford Street",
+        "Oxford Street"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    },
+    "deployable": {
+      "rc": -9,
+      "secs": 1500,
+      "note": "timeout"
+    }
+  },
+  "comma": {
+    "name": "Daly City",
+    "country": "US",
+    "expect_source": "OSM",
+    "baseline": {
+      "rc": 0,
+      "secs": 25,
+      "source": "anchor_primary_vpr",
+      "start": 14.7,
+      "mean": 102.2,
+      "m_start": 1119.9,
+      "m_mean": 760.8,
+      "streets": [
+        "Cabrillo Highway",
+        "Clarinada Avenue"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    },
+    "deployable": {
+      "rc": 0,
+      "secs": 242
+    }
+  },
+  "Boreas": {
+    "name": "Vaughan",
+    "country": "CA",
+    "expect_source": "OSM",
+    "baseline": {
+      "rc": 0,
+      "secs": 23
+    },
+    "deployable": {
+      "rc": 0,
+      "secs": 167,
+      "source": "anchor_primary_vpr",
+      "start": 7424.7,
+      "mean": 6784.3,
+      "m_start": 7585.7,
+      "m_mean": 6926.3,
+      "streets": [
+        "Misty Meadow Drive",
+        "Irish Moss Court"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  }
+}

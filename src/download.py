@@ -30,6 +30,10 @@ class VideoMetadata:
     # is downloaded (a first --url run has no local file to probe, so
     # without this it assumes 30 fps and picks half the intended stride).
     fps: float | None = None
+    # Uploader description. Often names the route's districts / landmarks /
+    # streets — a strong GPS-free COARSE location prior (see
+    # src/location_prior.py), tighter than the city centroid.
+    description: str | None = None
 
 
 def local_video_metadata(path: Path) -> VideoMetadata:
@@ -73,11 +77,13 @@ def fetch_video_metadata(url: str) -> VideoMetadata:
             fps = float(raw_fps) if raw_fps else None
         except (TypeError, ValueError):
             fps = None
+        desc = info.get("description")
         return VideoMetadata(
             url=str(info.get("webpage_url") or info.get("original_url") or url),
             title=info.get("title"),
             video_id=str(raw_id) if raw_id is not None else None,
             fps=fps,
+            description=str(desc)[:4000] if desc else None,
         )
     except yt_dlp.utils.DownloadError as e:
         raise DownloadError(str(e)) from e

@@ -181,6 +181,16 @@ class PipelineConfig:
     # (lat, lon, radius_m) to fetch a bounded disc of the OSM graph
     # instead of the whole named place — needed for mega-cities.
     osm_around: tuple[float, float, float] | None = None
+    # GPS-free frame-based coarse seed: when osm_around is None, read the
+    # license-plate registration district (German clips) and/or a VLM's read
+    # of the scene to bound the search near the drive — the deployable seed
+    # for videos whose title names no place. Best-effort; no-op if nothing
+    # resolves. (Title/description seeding is handled earlier, in main.py.)
+    # Fast path = license-plate district + OCR place names (deterministic).
+    coarse_from_frames: bool = False
+    # Add the (slow) VLM scene-read to the frame seed. Off by default because
+    # loading the VLM adds minutes; enable only where plate+OCR find nothing.
+    coarse_from_vlm: bool = False
     # Blind VPR coarse prior (KartaView + EigenPlaces): a re-rank centre and the
     # anchor-primary placement prior — shape-independent fix for the SELECTION
     # wall. (Gating the OSM graph to the prior's disc was refuted by experiment:
@@ -1353,6 +1363,45 @@ def _fetch_road_graph(
         ) from e
 
 
+def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
+                       vo_start: float = 0.0, vo_end: float | None = None):
+    """GPS-free coarse seed from the video FRAMES. Fast deterministic signals
+    first — license-plate registration district, then legible place names
+    read by OCR (geocoded through the same resolver as the title) — and only
+    if ``want_vlm`` a slow VLM read of the scene. Returns
+    ``(lat, lon, radius_m, source)`` or None; every backend is best-effort."""
+    try:                                       # 1) license-plate district
+        from .plate_anchor import plate_district_anchor
+        pa = plate_district_anchor(str(video_path))
+        if pa is not None:
+            rad = max(1500.0, float(getattr(pa, "radius_m", 0.0) or 0.0))
+            return (float(pa.lat), float(pa.lon), rad,
+                    f"plate:{getattr(pa, 'district', '?')}")
+    except Exception as e:
+        print(f"      -> [coarse] plate seed unavailable ({e})")
+    try:                                       # 2) OCR place names -> geocode
+        from .location_prior import resolve_coarse_prior
+        from .scene_text import extract_scene_text
+        st = extract_scene_text(video_path, start_sec=vo_start, end_sec=vo_end)
+        ocr_text = " , ".join(s.text for s in st if getattr(s, "text", None))
+        pr = resolve_coarse_prior(city, ocr_text, None)
+        if pr is not None:
+            return (pr[0], pr[1], pr[2],
+                    f"ocr:{','.join(pr[3][:3])}")
+    except Exception as e:
+        print(f"      -> [coarse] OCR seed unavailable ({e})")
+    if want_vlm:                               # 3) VLM geoguess (slow; opt-in)
+        try:
+            from .vlm_anchor import vlm_district_anchor
+            va = vlm_district_anchor(frames, city)
+            if va is not None:
+                rad = max(1500.0, float(getattr(va, "radius_m", 0.0) or 2500.0))
+                return (float(va.lat), float(va.lon), rad, "vlm")
+        except Exception as e:
+            print(f"      -> [coarse] VLM seed unavailable ({e})")
+    return None
+
+
 def run_pipeline(cfg: PipelineConfig) -> dict:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1545,6 +1594,18 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # (src/kartaview_vpr.py). Used as a re-rank centre + the anchor-primary
     # placement prior; gating the OSM graph to its disc was refuted (664->1276 m).
     osm_around = cfg.osm_around
+    # GPS-free frame-based coarse seed (deployable): plate district / VLM read
+    # of the scene, bounding the graph + VPR near the drive when no disc and
+    # no title-derived prior were given.
+    if osm_around is None and cfg.coarse_from_frames:
+        _fp = _frame_coarse_seed(video_path, frames.frames, cfg.city,
+                                 want_vlm=cfg.coarse_from_vlm,
+                                 vo_start=cfg.vo_start_sec,
+                                 vo_end=cfg.vo_end_sec)
+        if _fp is not None:
+            osm_around = _fp[:3]
+            print(f"      -> [coarse] frame-based prior "
+                  f"{_fp[0]:.5f},{_fp[1]:.5f} r={_fp[2]:.0f} m ({_fp[3]})")
     vpr_center: tuple | None = None
     vpr_track = None
     _c2f_info: dict | None = None      # coarse-to-fine record, attached to result later

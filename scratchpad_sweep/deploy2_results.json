@@ -1,0 +1,78 @@
+{
+  "Berlin": {
+    "name": "Berlin",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "deployable": {
+      "rc": 0,
+      "secs": 821,
+      "source": "anchor_primary_vpr",
+      "start": 3917.0,
+      "mean": 1550.5,
+      "m_start": 4142.6,
+      "m_mean": 1380.3,
+      "streets": [
+        "M\u00f6ckernstra\u00dfe",
+        "M\u00f6ckernbr\u00fccke",
+        "Stresemannstra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "Ulm4K": {
+    "name": "Ulm",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "deployable": {
+      "rc": 0,
+      "secs": 282,
+      "source": "anchor_primary_vpr",
+      "start": 55.6,
+      "mean": 48.1,
+      "m_start": 528.5,
+      "m_mean": 141.9,
+      "streets": [
+        "Salzstadelgasse",
+        "Ensingerstra\u00dfe",
+        "Karlsplatz"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "Ulm2": {
+    "name": "Ulm #2",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "deployable": {
+      "rc": 0,
+      "secs": 177,
+      "source": "anchor_primary_vpr",
+      "start": 160.2,
+      "mean": 156.1,
+      "m_start": 2480.3,
+      "m_mean": 236.9,
+      "streets": [
+        "Wolbachweg",
+        "Stephanstra\u00dfe",
+        "Schillstra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "KITTI9": {
+    "name": "Karlsruhe",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "deployable": {
+      "rc": -9,
+      "secs": 1500,
+      "note": "timeout"
+    }
+  }
+}

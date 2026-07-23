@@ -108,6 +108,7 @@ def _load_cached_metadata(data_dir: Path, url: str) -> VideoMetadata | None:
         title=d.get("title"),
         video_id=d.get("video_id"),
         fps=d.get("fps"),
+        description=d.get("description"),
     )
 
 
@@ -122,6 +123,7 @@ def _write_cached_metadata(data_dir: Path, url: str, metadata: VideoMetadata) ->
                 "title": metadata.title,
                 "video_id": metadata.video_id,
                 "fps": metadata.fps,
+                "description": metadata.description,
             }, indent=2),
             encoding="utf-8",
         )
@@ -392,6 +394,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Bound the OSM graph to a disc 'lat,lon,radius_m' instead of "
                         "the whole named city. Required for mega-cities (e.g. London) "
                         "where fetching the full place is infeasible.")
+    p.add_argument("--coarse-from-video", action="store_true",
+                   help="GPS-free coarse prior: when --osm-around is not given, derive "
+                        "the search disc from the place names the uploader wrote in the "
+                        "video title/description (geocoded; src/location_prior.py). Far "
+                        "tighter than the city centroid — the deployable seed for drives "
+                        "the title actually names. Falls back to the city if none resolve.")
+    p.add_argument("--coarse-from-frames", action="store_true",
+                   help="GPS-free coarse prior from the video FRAMES (used when no disc "
+                        "and no title prior): license-plate registration district + "
+                        "legible place names read by OCR, geocoded to bound the search "
+                        "near the drive. Fast/deterministic; no-op if nothing resolves.")
+    p.add_argument("--coarse-from-vlm", action="store_true",
+                   help="Also try a VLM scene-read as a coarse seed when plate+OCR find "
+                        "nothing (implies --coarse-from-frames). Off by default: loading "
+                        "the VLM adds minutes and can time out over a whole city.")
     p.add_argument("--use-vpr-prior", action="store_true",
                    help="Blind coarse-location prior via Visual Place Recognition on "
                         "street imagery (--vpr-source) + MegaLoc retrieval (EigenPlaces "
@@ -605,6 +622,26 @@ def main() -> None:
             fallback_seed=metadata.url,
         )
 
+        # GPS-free COARSE prior: when no GT-seeded --osm-around is given,
+        # derive a search disc from the places the uploader NAMED in the
+        # title / description (src/location_prior.py) — far tighter than the
+        # city centroid, which is what the deployable coarse pass otherwise
+        # gets. Behaves exactly like --osm-around but is sourced from the
+        # video, not from ground truth.
+        sub_osm_around = osm_around
+        if sub_osm_around is None and args.coarse_from_video:
+            from src.location_prior import resolve_coarse_prior
+            prior = resolve_coarse_prior(city, metadata.title,
+                                         getattr(metadata, "description", None))
+            if prior is not None:
+                plat, plon, prad, places = prior
+                sub_osm_around = (plat, plon, prad)
+                print(f"[coarse] video-named prior {plat:.5f},{plon:.5f} "
+                      f"r={prad:.0f} m from: {', '.join(places[:5])}")
+            else:
+                print("[coarse] no place names in title/description; "
+                      "falling back to city centroid")
+
         # Auto stride uses the source's REAL fps when a local/cached file
         # can be probed (a 60 fps upload must not get double the frame
         # budget). On a FIRST --url run the file isn't downloaded yet, so
@@ -683,7 +720,9 @@ def main() -> None:
             enable_scale_recovery=not args.no_scale_recovery,
             use_ipm_scale=args.use_ipm_scale,
             scale_lock=args.scale_lock,
-            osm_around=osm_around,
+            osm_around=sub_osm_around,
+            coarse_from_frames=args.coarse_from_frames or args.coarse_from_vlm,
+            coarse_from_vlm=args.coarse_from_vlm,
             use_vpr_prior=args.use_vpr_prior,
             vpr_source=args.vpr_source,
             use_vpr_sequence=args.use_vpr_sequence,
