@@ -385,31 +385,37 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--use-ipm-scale", action="store_true",
                    help="Estimate route length from ground-plane optical flow (idea 3). "
                         "Off by default — needs camera calibration to be reliable.")
-    p.add_argument("--scale-lock", action="store_true",
+    p.add_argument("--scale-lock", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="Lock the matcher's alignment scale to the metric length prior "
                         "instead of a free Procrustes scale, so the localized route "
                         "spans the true extent (fixes route compression / the far-end "
-                        "tail error).")
+                        "tail error). ON by default (best config); --no-scale-lock to disable.")
     p.add_argument("--osm-around", default=None,
                    help="Bound the OSM graph to a disc 'lat,lon,radius_m' instead of "
                         "the whole named city. Required for mega-cities (e.g. London) "
                         "where fetching the full place is infeasible.")
-    p.add_argument("--coarse-from-video", action="store_true",
+    p.add_argument("--coarse-from-video", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="GPS-free coarse prior: when --osm-around is not given, derive "
                         "the search disc from the place names the uploader wrote in the "
                         "video title/description (geocoded; src/location_prior.py). Far "
                         "tighter than the city centroid — the deployable seed for drives "
-                        "the title actually names. Falls back to the city if none resolve.")
-    p.add_argument("--coarse-from-frames", action="store_true",
+                        "the title actually names. ON by default; no-op when --osm-around "
+                        "is given or no place resolves. --no-coarse-from-video to disable.")
+    p.add_argument("--coarse-from-frames", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="GPS-free coarse prior from the video FRAMES (used when no disc "
                         "and no title prior): license-plate registration district + "
                         "legible place names read by OCR, geocoded to bound the search "
-                        "near the drive. Fast/deterministic; no-op if nothing resolves.")
+                        "near the drive. Fast/deterministic; ON by default, no-op if "
+                        "nothing resolves. --no-coarse-from-frames to disable.")
     p.add_argument("--coarse-from-vlm", action="store_true",
                    help="Also try a VLM scene-read as a coarse seed when plate+OCR find "
                         "nothing (implies --coarse-from-frames). Off by default: loading "
                         "the VLM adds minutes and can time out over a whole city.")
-    p.add_argument("--use-vpr-prior", action="store_true",
+    p.add_argument("--use-vpr-prior", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="Blind coarse-location prior via Visual Place Recognition on "
                         "street imagery (--vpr-source) + MegaLoc retrieval (EigenPlaces "
                         "is the offline fallback if MegaLoc's hub fetch fails; "
@@ -427,10 +433,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "(default 1500). The fetch uniform-subsamples to this "
                         "cap, so a low cap thins dense areas; raise it to "
                         "densify retrieval-bound starts (cold-cache refetch).")
-    p.add_argument("--vpr-coarse-to-fine", action="store_true",
+    p.add_argument("--vpr-coarse-to-fine", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="Two-pass VPR: after pass 1 over the (wide) coarse-prior "
                         "disc, re-fetch a TIGHT disc around the resulting centre "
                         "and re-run VPR, re-centring the OSM graph tight too. "
+                        "ON by default; no-op when --osm-around gives a tight disc. "
                         "Lets a coarse deployable prior (city/OCR/VLM, no GT) "
                         "reach GT-seeded accuracy where pass 1 lands within "
                         "~1 km. Fires only when pass 1 was wider than 1.2x the "
@@ -441,7 +449,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "--vpr-coarse-to-fine (default 2000).")
     p.add_argument("--vpr-source",
                    choices=["kartaview", "mapillary", "panoramax", "union"],
-                   default="kartaview",
+                   default="mapillary",
                    help="VPR reference imagery source. 'kartaview' is open and "
                         "tokenless. 'mapillary' is much denser (needs a free "
                         "MLY_TOKEN env var) and gave a 3-31 m prior on every GT "

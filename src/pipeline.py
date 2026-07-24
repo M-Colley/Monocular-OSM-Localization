@@ -187,7 +187,7 @@ class PipelineConfig:
     # for videos whose title names no place. Best-effort; no-op if nothing
     # resolves. (Title/description seeding is handled earlier, in main.py.)
     # Fast path = license-plate district + OCR place names (deterministic).
-    coarse_from_frames: bool = False
+    coarse_from_frames: bool = True
     # Add the (slow) VLM scene-read to the frame seed. Off by default because
     # loading the VLM adds minutes; enable only where plate+OCR find nothing.
     coarse_from_vlm: bool = False
@@ -195,7 +195,7 @@ class PipelineConfig:
     # anchor-primary placement prior — shape-independent fix for the SELECTION
     # wall. (Gating the OSM graph to the prior's disc was refuted by experiment:
     # 664 -> 1276 m on Ulm — so there is deliberately no gate knob.)
-    use_vpr_prior: bool = False
+    use_vpr_prior: bool = True
     vpr_search_radius_m: float = 3000.0
     # Max reference photos fetched+embedded per clip. The fetch tiles the disc
     # and UNIFORM-subsamples down to this cap, so a low cap thins DENSE areas
@@ -206,7 +206,7 @@ class PipelineConfig:
     # VPR reference source: "kartaview" (open, tokenless) or "mapillary" (much
     # denser — needs a free MLY_TOKEN env var; validated 3-31 m to route on all
     # GT clips, incl. the ones KartaView could not cover). See mapillary VPR.
-    vpr_source: str = "kartaview"
+    vpr_source: str = "mapillary"
     # Coarse-to-fine VPR: after pass 1 over a WIDE (coarse-prior) disc, the
     # robust centre is far tighter than the seed (0.2-0.76 km vs a 0.5-6.6 km
     # deployable seed on the GT clips). When on, re-fetch a TIGHT disc around
@@ -219,7 +219,7 @@ class PipelineConfig:
     # 131 m) — the location leak is unnecessary. Fails only where pass 1 lands
     # in the wrong area (no signal, e.g. KITTI-0033). NOTE: distinct from
     # vpr_two_pass_scale below (a SCALE arbitration at matching time).
-    vpr_coarse_to_fine: bool = False
+    vpr_coarse_to_fine: bool = True
     vpr_c2f_radius_m: float = 2000.0
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
@@ -269,7 +269,7 @@ class PipelineConfig:
     # matched route to span the prescribed metric extent — stops the
     # compression that left the localized route unable to reach its far
     # end (the Ulm eastern-tail problem).
-    scale_lock: bool = False
+    scale_lock: bool = True
     ground_truth_streets: tuple[str, ...] = ()
     # JSON file of timestamped GPS fixes along the true route — see
     # evaluator.load_gt_waypoints for the schema and ground_truth/ for

@@ -6,13 +6,45 @@
 > run side-by-side (route shape, OSM aerial feature matching, dense splat
 > reconstruction) and a consensus rank picks the best agreement.
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
-![Tests](https://img.shields.io/badge/tests-282%2F282-brightgreen)
+![Tests](https://img.shields.io/badge/tests-605%2F605-brightgreen)
 ![BevSplat](https://img.shields.io/badge/BevSplat-live%20inference%20%E2%9C%93-blue)
 
 Reference clip used in the demo:
 [Driving in Ulm, Germany](https://www.youtube.com/watch?v=ULl8s4qydrk).
+
+> [!IMPORTANT]
+> ### A free Mapillary key is crucial for good accuracy
+>
+> The single biggest accuracy lever in this whole pipeline is **dense street-level
+> Visual Place Recognition against Mapillary imagery**. It is what turns "roughly
+> the right city" into "the right street." Fully GPS-free (city name only), it
+> localizes to **30–156 m on the clips with enough distinctive signal** — the
+> honest deployable result, no GPS prior (see the
+> [deployable results table](#accuracy--deployable-gps-free-the-honest-headline)).
+> The best configuration (VPR prior + dense Mapillary + coarse-to-fine +
+> video/frame coarse seeds + scale-lock) is now **on by default**, but the
+> Mapillary parts only light up if you give the pipeline a token.
+>
+> **Get one in two minutes** (free): sign up at
+> [mapillary.com](https://www.mapillary.com/) → *Settings → Developers →
+> Register an application* → copy the **Client Token** (starts with `MLY|…`),
+> then set it as an environment variable named `MLY_TOKEN`:
+>
+> ```bash
+> # Windows (PowerShell) — persists for your user account:
+> setx MLY_TOKEN "MLY|xxxxxxxx|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+> # macOS / Linux (current shell; add to ~/.bashrc to persist):
+> export MLY_TOKEN="MLY|xxxxxxxx|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+> ```
+>
+> **Without a key** the pipeline still runs — it falls back to the sparse,
+> tokenless KartaView source — but on most footage the deployable (GPS-free)
+> localization **collapses to kilometre-scale error** because KartaView coverage
+> is too thin to disambiguate the district. If you take away one thing from this
+> README: **set `MLY_TOKEN`.**
 
 ---
 
@@ -32,14 +64,21 @@ it also reads them and uses them to pin the location down further.
 What you get back is a **best-guess location** (latitude/longitude + the street
 names), a **short list of other likely spots**, and an **honest confidence score**.
 
-How well does it work right now? When the drive has a distinctive shape (a loop, a
-sequence of unusual turns) or readable signage, it lands in the **right
-neighbourhood — within ~150 m** on our test clips. When the drive is through a
-repetitive suburban grid where every block looks identical, or a featureless
-highway, it *can't* pin the exact street — and crucially, **it says so** (low
-confidence + a shortlist) instead of confidently guessing wrong. The honest
-takeaway: it reliably narrows "where is this?" down to a small area, and is candid
-about how sure it is.
+How well does it work right now? Being honest about the **fully GPS-free** case
+(you give it only the city name, nothing else): on **3 of our 9 test clips it
+localizes to the right street — 30–156 m** (sign-rich central Ulm, a Málaga
+residential drive, and a held-out Ulm drive). Two mega-city clips (Berlin,
+London) reach the right corridor but stay ~1.5–2.5 km coarse. And **4 clips
+collapse to 5–7 km, in the wrong district** — old low-res KITTI footage (2011,
+unreadable plates, no title) and self-similar suburban grids (Daly City, Vaughan)
+where the coarse pass has no distinctive signal to grab. Crucially, in those hard
+cases **it says so** — low confidence plus a shortlist — rather than confidently
+returning a single wrong pin. The honest takeaway: where the footage gives it
+something to latch onto, it lands on the right street with no GPS; where it
+doesn't, it fails openly instead of bluffing. (Some tables further down this
+README quote much tighter numbers like ~77–150 m across the fleet — those are
+**GT-seeded**, i.e. measured with a coarse GPS prior supplied, and are *not*
+deployable numbers. The GPS-free table is the honest one.)
 
 We didn't just test this on one video — it's checked against **real driving
 datasets from three cities** (Ulm and Karlsruhe in Germany, San Francisco in the
@@ -176,6 +215,18 @@ pip install -r requirements.txt
 first run downloads OSM data for Ulm (~5 MB) and the YouTube video; both
 are cached in `data/`.
 
+**Set your Mapillary key (strongly recommended — see the callout at the top).**
+The default configuration uses dense Mapillary VPR, which needs a free
+`MLY_TOKEN`:
+
+```bash
+setx MLY_TOKEN "MLY|xxxxxxxx|xxxxxxxx"   # Windows, persists for your user
+# export MLY_TOKEN="MLY|xxxxxxxx|xxxxxxxx"   # macOS / Linux
+```
+
+References and their embeddings are cached per clip under `data/<slug>/`, so once
+a clip is warm you can re-run it offline without the token.
+
 Optional comparison extras:
 
 ```bash
@@ -243,6 +294,28 @@ If `--city` is omitted, the CLI now tries to infer it from the video title
 locally (for example, `Driving in Ulm, Germany` → `Ulm, Germany`). Pass
 `--city` explicitly when the title is ambiguous.
 
+### The best configuration is now the default
+
+You don't have to assemble the accuracy flags by hand any more. The
+best-performing blind configuration is **on out of the box**:
+
+| Default-on lever | What it does | Turn off with |
+|---|---|---|
+| **Dense Mapillary VPR prior** | street-level retrieval anchor — the biggest lever (needs `MLY_TOKEN`) | `--no-use-vpr-prior` / `--vpr-source kartaview` |
+| **Coarse-to-fine VPR** | wide pass → tight re-fetch for GPS-free runs | `--no-vpr-coarse-to-fine` |
+| **Coarse-from-video** | seed the disc from the title/description place names | `--no-coarse-from-video` |
+| **Coarse-from-frames** | seed from plate district + OCR'd place names | `--no-coarse-from-frames` |
+| **Scale-lock** | span the true route extent (no compression) | `--no-scale-lock` |
+
+So the plain command already runs the recommended stack:
+
+```bash
+python main.py --video path/to/dashcam.mp4 --city "Ulm, Germany"
+```
+
+Just make sure `MLY_TOKEN` is set (see the callout at the top) — without it the
+VPR prior silently falls back to sparse KartaView and accuracy drops sharply.
+
 Useful flags:
 
 | Flag                    | Default      | What it does                                              |
@@ -275,11 +348,15 @@ Useful flags:
 | `--embedding-sources`   | none         | Optional deep retrieval sources: `esri`/`satellite` (real RGB orthoimagery, recommended), `geotessera`, `osm` |
 | `--embedding-model`     | `resnet18`   | Embedding backbone: `resnet18` (offline) or `dinov2_vits14`/`dinov2_vitb14`/`dinov2_vitl14` (cross-domain VPR, downloads weights on first use) |
 | `--geotessera-year`     | `2024`       | GeoTessera tile year when `geotessera` retrieval is enabled |
-| `--use-vpr-prior`       | off          | Street-level **VPR anchor** (MegaLoc retrieval against Mapillary/KartaView photos): a per-frame "noisy GPS" track that re-ranks candidates AND places the headline answer (start-pin → scale retry → orientation refine about the pinned start). The strongest blind lever: prior lands 3–31 m from the route on every GT clip. Refs + embeddings are cached per clip, so warm reruns need no `MLY_TOKEN`. |
-| `--vpr-source`          | `kartaview`  | VPR reference source; `mapillary` (needs free `MLY_TOKEN` env var on cold runs) is far denser and is what the GT sweep uses. |
+| `--use-vpr-prior`       | **on**       | Street-level **VPR anchor** (MegaLoc retrieval against Mapillary/KartaView photos): a per-frame "noisy GPS" track that re-ranks candidates AND places the headline answer (start-pin → scale retry → orientation refine about the pinned start). The strongest fine-localization lever: *given* a coarse location prior, the VPR stage refines to 3–31 m from the route (a seeded number — see the fine-localization ceiling; GPS-free results are 30 m–7 km depending on the footage). Refs + embeddings are cached per clip, so warm reruns need no `MLY_TOKEN`. **On by default (best config); `--no-use-vpr-prior` to disable.** |
+| `--vpr-source`          | `mapillary`  | VPR reference source. **`mapillary` (default) is far denser and needs a free `MLY_TOKEN`** — it is what gives the 3–31 m prior. `kartaview` is the open, tokenless fallback (much sparser; deployable accuracy usually collapses without a token). Also `panoramax`, `union`. |
+| `--coarse-from-video`   | **on**       | GPS-free coarse prior when `--osm-around` is absent: geocode the place names the uploader wrote in the video **title/description** to size the search disc (far tighter than the city centroid). On by default; no-op when a disc is given or the title names no place. `--no-coarse-from-video` to disable. |
+| `--coarse-from-frames`  | **on**       | GPS-free coarse prior from the **frames**: license-plate registration district + legible place names read by OCR, geocoded to bound the search near the drive. Fast/deterministic; on by default, no-op if nothing resolves. `--no-coarse-from-frames` to disable. |
+| `--coarse-from-vlm`     | off          | Also try a VLM scene-read as a coarse seed when plate+OCR find nothing (implies `--coarse-from-frames`). Off by default: loading the VLM adds minutes and can time out over a whole city. |
+| `--scale-lock`          | **on**       | Lock the matcher's alignment scale to the metric length prior instead of a free Procrustes scale, so the localized route spans the true extent (fixes route compression / far-end tail error). On by default (best config); `--no-scale-lock` to disable. |
 | `--vpr-two-pass`        | off          | Match at both the VO scale and a scale pinned to the VPR track extent; keep whichever candidate set better explains the full per-frame track. Fixes candidate SHAPE where the VO scale is wrong. (Distinct from `--vpr-coarse-to-fine`, which refines the *location* disc.) |
 | `--vpr-cap`             | `1500`       | Max VPR reference photos fetched+embedded per clip. The fetch uniform-subsamples to this cap, so a low cap thins dense areas (the 0009 start had 37 images within 50 m but the capped cache kept 2); raising it is a cold-cache refetch. |
-| `--vpr-coarse-to-fine`  | off          | Two-pass VPR for deployable (no-GT) runs: pass 1 over the wide coarse-prior disc, then a tight second-pass disc + re-centred graph around the pass-1 centre. Fires only when pass 1 was wider than 1.2× the tight radius; the tight radius is floored by the route-length prior. |
+| `--vpr-coarse-to-fine`  | **on**       | Two-pass VPR for deployable (no-GT) runs: pass 1 over the wide coarse-prior disc, then a tight second-pass disc + re-centred graph around the pass-1 centre. Fires only when pass 1 was wider than 1.2× the tight radius; the tight radius is floored by the route-length prior. **On by default (best config); no-op when `--osm-around` already gives a tight disc. `--no-vpr-coarse-to-fine` to disable.** |
 | `--vpr-c2f-radius`      | `2000`       | Tight second-pass disc radius (m) for `--vpr-coarse-to-fine`. |
 | `--enable-ocr-anchor`   | off          | OCR scene text and turn it into absolute anchors that **gate** enumeration + re-rank. Two anchor kinds: geocoded **POI/landmark** names (work at 720p) and **street-name plates matched to the OSM graph** (route-relevant, strongest — need legible plates, i.e. a 4K source). Needs `easyocr` + network geocoding (both cached). |
 | `--ocr-sample-interval-sec` | `6.0`    | Seconds between frames sampled for OCR |
@@ -657,31 +734,100 @@ is how we pick out the true match.
 
 ## Final results — multi-clip ground-truth benchmark
 
-Beyond the single Ulm reference clip, the pipeline is validated against **four
-ground-truth datasets** spanning three cities and three independent GPS sources,
-all reproducible with one command (`python scripts/run_all_gt.py`):
+Beyond the single Ulm reference clip, the pipeline is validated against a
+**9-clip ground-truth fleet** spanning six cities on two continents and four
+independent GPS sources:
 
-- **Ulm** — YouTube dashcam, hand-labelled GPS waypoints (`ground_truth/ulm_ULl8s4qydrk.json`).
-- **KITTI raw** — cvlibs.net, OXTS INS/GNSS lat/lon. Adapter `src/kitti_raw.py`;
-  Karlsruhe drives `0009` (46 s) and `0033` (165 s, a 1.7 km loop).
+- **Ulm** (×2) — YouTube dashcam, hand-labelled GPS waypoints. A central,
+  sign-rich 4K drive and a held-out peripheral drive.
+- **Berlin** — YouTube 4K dashcam, hand-labelled; central mega-city drive.
+- **KITTI raw** (×2) — cvlibs.net, OXTS INS/GNSS lat/lon. Adapter `src/kitti_raw.py`;
+  Karlsruhe drives `0009` (46 s) and `0033` (165 s, a 1.7 km loop); 2011 low-res footage.
 - **comma2k19** — comma.ai, a tightly-coupled INS/GNSS/Vision global pose (the
   highest-quality GT here). Adapter `src/comma2k19.py`; a Daly City surface-street
-  stretch.
-- **London** — YouTube dashcam, hand-labelled (`ground_truth/london_T4wTL3LpLqU.json`),
-  Bloomsbury / Fitzrovia.
+  stretch through a self-similar suburb.
+- **London** — YouTube dashcam, hand-labelled, Bloomsbury / Fitzrovia.
+- **Málaga** — Málaga Urban Dataset (Spain), GPS/IMU; a western-district
+  residential drive. Adapter `src/ext_datasets.py`.
+- **Boreas** — Canadian AV dataset, Applanix GNSS; Glen Shields, Vaughan (a
+  self-similar Toronto suburb). Adapter `src/ext_datasets.py`.
 
 Each dataset's GPS is converted to the project's `ground_truth/*.json` schema by
 its adapter, the front-camera frames feed the standard pipeline, and per-waypoint
 metric errors are reported.
 
-### Accuracy (current pipeline)
+### Accuracy — deployable (GPS-free), the honest headline
 
-Headline answer = the **anchor-primary** placement (Mapillary VPR track, Viterbi
-sequence-decoded → top-K start-pin → scale retry → orientation refine → **elastic
-fusion** → gated OrienterNet); the matcher-only pick is shown for contrast.
-Best-achievable sweep: `python scripts/run_all_gt.py --orienternet --vggt-best`
-(2026-07-05, six clips, **fleet mean 77 m / mean start 147 m** — best recorded;
-was ~500 m shape-only).
+**These are the fully GPS-free numbers — no location leak.** The pipeline is
+seeded only from the city name plus whatever it can read off the video itself
+(title/description place names, license-plate district, OCR'd signs), then dense
+Mapillary VPR coarse-to-fine does the rest. This is what you actually get in
+deployment. Measured 2026-07-23 across the 9-clip fleet with `MLY_TOKEN` set,
+running the default configuration; headline = the anchor-primary placement,
+lower is better:
+
+| Clip | City / scene | Start err | Mean route err | Outcome |
+|---|---|---|---|---|
+| **Málaga**, Spain | W-district residential | 12 m | **30 m** | ✅ localizes |
+| **Ulm 4K**, Germany | central, sign-rich | 56 m | **48 m** | ✅ localizes |
+| **Ulm #2**, Germany | peripheral (held-out) | 160 m | **156 m** | ✅ localizes |
+| **Berlin**, Germany | mega-city centre | 3917 m | 1551 m | ⚠️ right corridor, coarse |
+| **London**, UK | Bloomsbury | 4316 m | 2496 m | ⚠️ right city, coarse |
+| **comma2k19**, Daly City | self-similar suburb | 5260 m | 5063 m | ❌ collapses |
+| **KITTI 0009**, Karlsruhe | 2011 low-res suburb | 5421 m | 5568 m | ❌ collapses |
+| **KITTI 0033**, Karlsruhe | 2011 low-res loop | 7004 m | 7126 m | ❌ collapses |
+| **Boreas**, Vaughan (CA) | self-similar suburb | 8309 m | 7446 m | ❌ collapses |
+
+**Read this honestly.** On **3 of 9 clips the GPS-free pipeline localizes to
+30–156 m** — the right street, no GPS, no leak. Two mega-city clips (Berlin,
+London) reach the right corridor but stay ~1.5–2.5 km coarse. **Four clips
+collapse to 5–7 km** — old low-res KITTI footage (2011, unreadable plates, no
+title) and self-similar suburban grids (comma/Daly City, Boreas/Vaughan) where
+the coarse pass has no distinctive signal to lock onto. **This 0.1.0 is a solid,
+honest baseline — not a solved problem.**
+
+The pattern is consistent: the pipeline is genuinely GPS-free deployable when the
+coarse pass has *something to grab* — a named place in the title, a legible sign,
+dense modern Mapillary coverage, or a distinctive streetscape. Where the footage
+is self-similar, signal-poor, or old-and-low-res, it fails — an **input
+limitation, not an algorithm one** (extensively probed: neither a learned global
+geolocator, a second retrieval source, nor era-matched imagery moves these clips —
+see the per-clip logs under `scratchpad_sweep/`).
+
+#### Why some clips localize and others collapse
+
+A single wide-disc VPR pass from a coarse prior dilutes badly (the route is a
+needle in a city-scale haystack). **`--vpr-coarse-to-fine`** (on by default)
+fixes this: pass 1 over the wide disc yields a robust centre far tighter than the
+seed, then a tight second-pass disc around it (and a re-centred graph) localizes
+cleanly. **Dense Mapillary references (`MLY_TOKEN`) are what make pass 1 land
+right** — the sparse KartaView fallback is too thin to disambiguate a district,
+which is why the token is crucial.
+
+One prerequisite pass 1 must satisfy: the drive has to be *inside* the disc. A
+city name geocodes to the *centroid*, but a drive can be in a peripheral district
+well outside a fixed 3 km disc (Málaga's centroid is 5.4 km from its western
+test drive, Vaughan's 4.2 km from Glen Shields). So in city-name mode the coarse
+disc is auto-sized to the city's OSM bounding box (`city_extent_radius`, capped
+at 8 km, derived from the place polygon — no GT). Combined with the token's dense
+references, that is what takes **Málaga to 30 m and Ulm 4K to 48 m GPS-free**.
+
+It still fails where pass 1 has no signal to lock onto even when the disc covers
+the drive — KITTI (2011 low-res, no legible plates/signs) and the self-similar
+Daly City / Glen Shields suburbs stay 5–7 km off regardless of disc size.
+Appearance retrieval alone cannot disambiguate a look-alike suburb over an 8 km
+disc without an external seed those clips structurally lack.
+
+### Fine-localization ceiling (given a location prior — *not* deployable)
+
+For contrast, the table below is the **fine-localization ceiling**: it centers
+the VPR fetch and OSM graph on `--osm-around` (a coarse **location leak** set
+near the true spot — you would not have it in deployment) and uses per-clip
+best-achievable trajectory overrides (`--vggt-best`). It measures how well the
+*fine* stage places a route once the district is already known — **not** GPS-free
+accuracy. Best-achievable sweep
+(`python scripts/run_all_gt.py --orienternet --vggt-best`, 2026-07-05, six clips,
+**fleet mean 77 m / start 147 m**):
 
 | Clip | Trajectory | Mean route err | Start err | Matcher-only (mean / start) |
 |---|---|---|---|---|
@@ -692,66 +838,12 @@ was ~500 m shape-only).
 | **Ulm #2** (held-out), Germany | VO | **55 m** | 150 m | 1439 / 2526 m |
 | **London**, Bloomsbury | **VGGT-Long** + OCR-anchor (SR) | **43 m** | **31 m** | 242 / 1747 m |
 
-Every clip runs Mapillary VPR + scale-lock. **Ulm #2 is a held-out clip** added
-after the July-2026 placement stack was tuned — it passed blind at 55/150 m, so
-the fleet is not overfit. The levers behind the 2026-07 drop from ~117 → 77 m
-fleet mean:
-
-- **Viterbi sequence decode** of the VPR track — continuity kills the
-  confident-but-wrong retrievals at the source (per-frame p90 collapses 5–8×;
-  `--no-vpr-viterbi` reverts).
-- **Elastic fusion** — an IRLS-Huber smoother that bends low-frequency VO drift
-  out of the placed route toward the track, start hard-pinned, margin/deformation
-  gated (improved every clip it touched; London to 43 m mean).
-- **Per-clip best-achievable overrides** (`--vggt-best`): a **VGGT-Long
-  trajectory** on KITTI 0033 (137→118 — a globally-consistent chunked-VGGT
-  path; it regresses Ulm-4K and comma, so it is opt-in per clip, poses staged
-  offline with `scratchpad/vggt_fleet.sh`), and **`--no-vpr-viterbi` on
-  London** (70→43): London's placement prefers the argmax VPR track because the
-  Viterbi track's mid-route points drift its rotation+fusion, so it is the one
-  clip where the otherwise-helpful Viterbi decode is turned off. London needs
-  no VGGT-Long staging — the argmax toggle alone recovers it.
-
-### Honest note: the headline is GT-seeded; deployable accuracy via coarse-to-fine
-
-The numbers above center the VPR reference fetch (and the OSM graph) on
-`--osm-around`, which for the GT clips is set near the true location — a coarse
-**location leak** (you would not have it in deployment). Fetching references
-around a *video-derived* prior instead — OCR'd place/street signs, the VLM
-district, or just the city geocode — measures the honest GPS-free accuracy.
-Measured deployable coarse-prior accuracy (no GT): OCR place-names give
-~0.5–1.2 km where signage is legible (London 0.5 km, Ulm ~1 km); license plates
-only resolve to city/district scale and only on EU plates; the city geocode
-alone is 2–6.6 km. So a deployable prior is tight on sign-rich urban footage and
-coarse on sign-poor residential/highway stretches.
-
-A single wide-disc VPR pass from a coarse prior dilutes badly (the route is a
-needle in a city-scale haystack). **`--vpr-coarse-to-fine`** fixes this: pass 1
-over the wide disc yields a robust center that is far tighter than the seed
-(0.2–0.76 km on 5/6 clips — VPR appearance-matching localizes well even in a
-large reference set), then a tight second-pass disc around it (and a
-re-centered graph) localizes cleanly. This makes the fully-deployable (no-GT)
-result reach the GT-seeded *ballpark* on the clips with enough visual coverage
-(London/Ulm/comma/0009 land ~85–250 m, matching or approaching their leaked
-numbers), with run-to-run variance from cold Mapillary fetches.
-
-One prerequisite the coarse pass has to satisfy: the drive must be *inside* the
-pass-1 disc. A city name geocodes to the *centroid*, but a drive can be in a
-peripheral district well outside a fixed 3 km disc (Málaga's centroid is 5.4 km
-from a western-district test drive, Vaughan's 4.2 km from Glen Shields) — pass 1
-then can only match the wrong central area (Málaga's deployable error was 5.2 km).
-So in coarse-to-fine + city-name mode the coarse disc is auto-sized to the city's
-OSM bounding box (`city_extent_radius`, capped at 8 km, derived from the place
-polygon — no GT). That alone takes Málaga from 5169 m → **11 m**. The cost is a
-mild dilution penalty for drives that *were* central (Ulm 93 → 112 m), accepted
-because there is no GT-free way to tell a central drive from a peripheral one.
-
-It still **fails** where pass 1 lands wrong for lack of any signal even when the
-disc covers the drive — KITTI 0033 and Boreas Glen Shields (low-res / self-similar
-residential, no signage), which stay ~6–7 km off regardless of disc size. Net:
-the pipeline is genuinely GPS-free deployable on footage with legible signage or
-distinctive dense coverage; the remaining wall is self-similar signal-poor
-scenes, an input limitation, not an algorithm one.
+The gap between the two tables *is* the coarse-localization problem: fine
+placement is strong (77 m with a prior), but recovering the right district
+GPS-free is the wall. The levers behind the 77 m ceiling — Viterbi VPR-track
+decode, elastic IRLS-Huber fusion, and per-clip `--vggt-best` trajectory
+overrides — improve the *fine* stage and are documented in the git history; they
+do not change the GPS-free outcomes above, which are bounded by the coarse seed.
 
 ### Calibrated multi-hypothesis output
 
@@ -762,9 +854,15 @@ the wrong parallel street. So the pipeline no longer reports a single
 over-confident pick. It collapses the candidate pool into **distinct location
 hypotheses** (`src/hypotheses.py`) with a **confidence derived from the spatial
 agreement** of the top candidates, not the winner's RMS. The true neighbourhood is
-reliably *in the top-5 shortlist* even when shape mis-ranks the headline pick:
+reliably *in the top-5 shortlist* even when shape mis-ranks the headline pick.
 
-| Clip | #1 pick start err | Best of top-5 hypotheses |
+> **These are seeded (location-prior) numbers, not GPS-free.** The table below is
+> measured *within a coarse location prior* (the `--osm-around` disc) — it shows
+> how well the shortlist behaves once the district is already known. GPS-free,
+> these same clips collapse to 5–7 km (see the deployable table above); the point
+> here is only that the true neighbourhood stays in the top-5 *given the prior*.
+
+| Clip (with a location prior) | #1 pick start err | Best of top-5 hypotheses |
 |---|---|---|
 | KITTI drive_0033 | 516 m | **140 m** |
 | comma2k19 | 1118 m | **512 m** |
@@ -772,11 +870,14 @@ reliably *in the top-5 shortlist* even when shape mis-ranks the headline pick:
 
 ### What this shows
 
-- **Localizes well where there is distinctive signal.** Ulm (legible signage →
-  OCR **street-name** anchors fed into the scale-lock pin — this cut the 4K-OCR
-  path from 412 m to **160 m** mean and the start error by 37 %) and the KITTI
-  loop (a distinctive multi-turn closed path → 144 m, correct neighbourhood from
-  shape *alone*).
+- **Fine placement is strong where there is distinctive signal — *given* the
+  right district.** Ulm (legible signage → OCR **street-name** anchors fed into
+  the scale-lock pin — this cut the 4K-OCR path from 412 m to **160 m** mean and
+  the start error by 37 %) and the KITTI loop (a distinctive multi-turn closed
+  path → **144 m from shape alone, once the search region is already seeded to
+  Karlsruhe**). Note these are seeded fine-localization numbers: GPS-free the
+  KITTI loop collapses to ~7 km because the *coarse* pass can't find Karlsruhe
+  from that 2011 footage — see the deployable table.
 - **The recurring ceiling is the environment, not the algorithm.** Shape *and*
   cross-view appearance (BevSplat) are both non-discriminative on self-similar
   suburban grids (comma2k19's Daly City) and on shape-only highway/grid clips with
