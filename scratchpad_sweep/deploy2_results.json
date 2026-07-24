@@ -70,9 +70,20 @@
     "country": "DE",
     "expect_source": "LoD2",
     "deployable": {
-      "rc": -9,
-      "secs": 1500,
-      "note": "timeout"
+      "rc": 0,
+      "secs": 333,
+      "source": "anchor_primary_vpr",
+      "start": 5421.3,
+      "mean": 5568.0,
+      "m_start": 6671.7,
+      "m_mean": 6820.5,
+      "streets": [
+        "Ferdinand-Keller-Stra\u00dfe",
+        "Julius-Bergmann-Stra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
     }
   },
   "Malaga": {
@@ -91,6 +102,80 @@
         "Calle Carmen Laforet",
         "Avenida Pepita Dur\u00e1n",
         "Calle Sierra de Hornachos"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "KITTI33": {
+    "name": "Karlsruhe",
+    "country": "DE",
+    "expect_source": "LoD2",
+    "deployable": {
+      "rc": 0,
+      "secs": 281,
+      "source": "anchor_primary_vpr",
+      "start": 7004.4,
+      "mean": 7126.2,
+      "m_start": 6453.9,
+      "m_mean": 6646.1,
+      "streets": [
+        "Beiertheimer Allee",
+        "Ebertstra\u00dfe",
+        "Kurf\u00fcrstenstra\u00dfe"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "comma": {
+    "name": "Daly City",
+    "country": "US",
+    "expect_source": "OSM",
+    "deployable": {
+      "rc": 0,
+      "secs": 137
+    }
+  },
+  "London": {
+    "name": "London",
+    "country": "UK",
+    "expect_source": "OSM",
+    "deployable": {
+      "rc": 0,
+      "secs": 517,
+      "source": "anchor_primary_vpr",
+      "start": 4316.1,
+      "mean": 2496.2,
+      "m_start": 3780.0,
+      "m_mean": 1876.3,
+      "streets": [
+        "Pudding Lane",
+        "Eastcheap",
+        "Gracechurch Street"
+      ],
+      "tile3d_provider": null,
+      "tile3d_buildings": null,
+      "tile3d_adaptive_weight": null
+    }
+  },
+  "Boreas": {
+    "name": "Vaughan",
+    "country": "CA",
+    "expect_source": "OSM",
+    "deployable": {
+      "rc": 0,
+      "secs": 308,
+      "source": "anchor_primary_vpr",
+      "start": 8309.3,
+      "mean": 7445.6,
+      "m_start": 7306.2,
+      "m_mean": 6878.5,
+      "streets": [
+        "Kelso Crescent",
+        "Melville Avenue"
       ],
       "tile3d_provider": null,
       "tile3d_buildings": null,
