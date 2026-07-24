@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.full_splat import (
+from monocular_osm.full_splat import (
     _estimate_local_covariances,
     render_full_splat_to_file,
     render_full_splat_topdown,

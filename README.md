@@ -168,13 +168,13 @@ streets apart, but visual features can.
 ```
                           YouTube URL
                               │
-                              ▼  src/download.py + frame_extraction.py
+                              ▼  monocular_osm/download.py + frame_extraction.py
                        [sampled BGR frames]
                               │
             ┌─────────────────┼──────────────────┐
             │                 │                  │
             ▼                 ▼                  ▼
-   src/visual_odometry  src/da3_reconstr.   src/ipm.py
+   monocular_osm/visual_odometry  monocular_osm/da3_reconstr.   monocular_osm/ipm.py
    ORB + essential mat  Depth Anything 3   road-plane
    (CPU)                (GPU, optional)    BEV stitch
             │                 │                  │
@@ -187,14 +187,14 @@ streets apart, but visual features can.
             │           splat_da3.html           │
             │                                    │
             ▼                                    ▼
-    src/trajectory_match    src/aerial_match (ORB + RANSAC)
+    monocular_osm/trajectory_match    monocular_osm/aerial_match (ORB + RANSAC)
     Procrustes via skim     compare to OSM patches via osmnx
     + bearing-corr score    (uses IPM image when available)
             │                                    │
             └────────────┬───────────────────────┘
                          ▼
                   consensus over methods
-                  + src/evaluator (optional GT distance)
+                  + monocular_osm/evaluator (optional GT distance)
                          │
                          ▼
               output/result.json + match.png
@@ -214,6 +214,29 @@ pip install -r requirements.txt
 `opencv-python` ships its own binaries — no separate install needed. The
 first run downloads OSM data for Ulm (~5 MB) and the YouTube video; both
 are cached in `data/`.
+
+### Install as a package
+
+To install the library and CLI into an environment — and get the
+`osm-localize` console script on your `PATH` — install the project itself
+instead of just the requirements:
+
+```bash
+pip install .            # from a checkout (or: pip install git+<repo-url>)
+pip install -e ".[dev]"  # editable; the [dev] extra also pulls pytest
+```
+
+That installs the core CPU pipeline (all runtime dependencies are declared in
+`pyproject.toml`) and exposes the command:
+
+```bash
+osm-localize --video path/to/dashcam.mp4 --city "Ulm, Germany"
+```
+
+`osm-localize` is equivalent to `python -m monocular_osm.cli`, and to
+`python main.py` from a source checkout. The optional GPU stack (`torch`,
+`depth-anything-3`, `gsplat`, …) is intentionally *not* pulled in — install it
+separately (see below), since it needs a CUDA-matched index URL.
 
 **Set your Mapillary key (strongly recommended — see the callout at the top).**
 The default configuration uses dense Mapillary VPR, which needs a free
@@ -372,7 +395,7 @@ Useful flags:
 | `--enable-bev-splat`    | off          | Run the BevSplat cross-view localization channel. When ≥80% of candidates score successfully, its appearance rank is **fused into the consensus** (weight 0.75 vs 1.0 for the geometric channels). See *BevSplat integration* below. |
 | `--bev-splat-weights`   | none         | Path to BevSplat checkpoint downloaded from the authors' OneDrive share (link in the BevSplat section below). |
 | `--bev-splat-repo-path` | none         | Path to a local clone of `wangqww/BevSplat` with its CUDA extensions built. Required alongside `--bev-splat-weights` for actual inference. |
-| `--use-tile3d`          | off          | **3D-tile skyline channel**: fetch the open-data **LoD2 CityGML city model** (Berlin `dl-de/zero-2.0`; Baden-Württemberg `dl-de/by-2.0` → covers the Berlin, Ulm ×2 and Karlsruhe ×2 GT clips), render the untextured building mesh at sampled poses along each candidate route (pure numpy/cv2 rasterizer, no GPU) and re-rank by rendered-vs-observed **skyline agreement** (pitch-invariant, LoD-Loc-style silhouette cue). Consensus weight 0.4. Tiles cache under `data/tiles3d/`; prefetch with `scripts/fetch_lod2.py`. Google Photorealistic 3D Tiles was evaluated and **rejected**: its ToS prohibits image analysis / offline use (see `src/citygml_lod2.py`). |
+| `--use-tile3d`          | off          | **3D-tile skyline channel**: fetch the open-data **LoD2 CityGML city model** (Berlin `dl-de/zero-2.0`; Baden-Württemberg `dl-de/by-2.0` → covers the Berlin, Ulm ×2 and Karlsruhe ×2 GT clips), render the untextured building mesh at sampled poses along each candidate route (pure numpy/cv2 rasterizer, no GPU) and re-rank by rendered-vs-observed **skyline agreement** (pitch-invariant, LoD-Loc-style silhouette cue). Consensus weight 0.4. Tiles cache under `data/tiles3d/`; prefetch with `scripts/fetch_lod2.py`. Google Photorealistic 3D Tiles was evaluated and **rejected**: its ToS prohibits image analysis / offline use (see `monocular_osm/citygml_lod2.py`). |
 | `--tile3d-source`       | `auto`       | LoD2 provider (`auto` picks by location: `berlin` \| `bw`). |
 | `--tile3d-samples`      | `10`         | Frames sampled along the route for the skyline comparison. |
 | `--bev-splat-source`    | `esri`       | Satellite tile source: `esri`/`satellite` (real RGB orthoimagery — matches BevSplat's KITTI training domain, recommended), `geotessera` (satellite-derived PCA false-colour — non-discriminative across inner-city tiles), or `osm` (schematic raster). |
@@ -601,7 +624,7 @@ sources. `patches/setup_bevsplat.sh` is a reproducible one-shot
 `patches/bevsplat_local.patch`) — run that, drop the `.pth` into
 `third_party/BevSplat-weights/`, run the build script, done.
 
-Our loader (`src/bev_splat_match._load_bev_splat_inference`)
+Our loader (`monocular_osm/bev_splat_match._load_bev_splat_inference`)
 introspects `model.forward`'s signature (`models_kitti_seq` takes 5D
 sequence tensors; `models_kitti_nips` takes 4D single-frame tensors)
 and dispatches the appropriate call shape. It also reports each
@@ -612,7 +635,7 @@ without code changes.
 
 ### Loader implementation notes
 
-`src/bev_splat_match._load_bev_splat_inference` constructs the model
+`monocular_osm/bev_splat_match._load_bev_splat_inference` constructs the model
 with the same `argparse.Namespace` that `train_KITTI_weak_seq.py` uses
 (level=`"0_2"`, channels=`"32_16_4"`, sequence=2, etc., all from the
 upstream training defaults — see `_BEV_SPLAT_DEFAULT_ARGS`). The
@@ -697,16 +720,16 @@ The final pick is a weighted rank fusion (lower = better) over the channels that
 |---|---|---|---|
 | Shape (Procrustes RMS + bearing) | 1.0 | — | primary geometric fit |
 | Sliding-window support | 1.0 | local mismatch | falls back to shape rank when disabled |
-| Turn-sequence (`src/turn_matching.py`) | 0.0 (diagnostic) | VO drift | discrete L/S/R turn events matched by edit distance. Computed and stored, but **not fused**: on GT it didn't improve ranking (a turn pattern isn't unique in a dense grid). |
-| **OCR anchor** (`src/text_anchor.py`) | 2.0 (when present) | **VO drift** | distance from each candidate to the nearest geocoded POI read off the video. The only **absolute** signal, so it dominates when available — and it also *seeds enumeration* (below). |
+| Turn-sequence (`monocular_osm/turn_matching.py`) | 0.0 (diagnostic) | VO drift | discrete L/S/R turn events matched by edit distance. Computed and stored, but **not fused**: on GT it didn't improve ranking (a turn pattern isn't unique in a dense grid). |
+| **OCR anchor** (`monocular_osm/text_anchor.py`) | 2.0 (when present) | **VO drift** | distance from each candidate to the nearest geocoded POI read off the video. The only **absolute** signal, so it dominates when available — and it also *seeds enumeration* (below). |
 | Aerial coverage | 0.5 | — | trajectory-raster overlap coefficient |
 | BevSplat appearance | 0.75 | — | **rank-capped**: only reorders the geometric top-5, so appearance can't promote a geometrically-implausible candidate to #1 |
 
 The BevSplat cap is a guardrail learned from a 10-minute run where unconstrained appearance fusion promoted a candidate 2.3 km from ground truth.
 
-**Why re-ranking has a ceiling — and how the OCR anchor breaks it.** GT runs showed that on long (10–15 min) clips the *candidate enumeration* itself fails: VO drift corrupts the global shape enough that `match_trajectory` returns walks all in the wrong district — the true corridor is never in the pool, and no fusion channel can fix a pool that doesn't contain the answer. The **OCR-anchor channel** (`--enable-ocr-anchor`) attacks this directly: it OCRs scene text (`src/scene_text.py`, easyocr), geocodes the names that land inside the city (`src/text_anchor.py`, Nominatim, bbox-filtered), and uses the resulting absolute points to (a) **seed enumeration** with extra walk roots near each anchor — so the anchored area is in the pool regardless of drift — and (b) re-rank candidates by anchor proximity. On the Ulm clip the sign "Sedelhöfe" (OCR confidence 1.00) geocodes to 69 m from the true route. Both OCR and geocoding are cached to `data/<slug>/`.
+**Why re-ranking has a ceiling — and how the OCR anchor breaks it.** GT runs showed that on long (10–15 min) clips the *candidate enumeration* itself fails: VO drift corrupts the global shape enough that `match_trajectory` returns walks all in the wrong district — the true corridor is never in the pool, and no fusion channel can fix a pool that doesn't contain the answer. The **OCR-anchor channel** (`--enable-ocr-anchor`) attacks this directly: it OCRs scene text (`monocular_osm/scene_text.py`, easyocr), geocodes the names that land inside the city (`monocular_osm/text_anchor.py`, Nominatim, bbox-filtered), and uses the resulting absolute points to (a) **seed enumeration** with extra walk roots near each anchor — so the anchored area is in the pool regardless of drift — and (b) re-rank candidates by anchor proximity. On the Ulm clip the sign "Sedelhöfe" (OCR confidence 1.00) geocodes to 69 m from the true route. Both OCR and geocoding are cached to `data/<slug>/`.
 
-**Metric scale recovery (the extent problem).** Densely-sampled ground truth showed the residual error is *scale/extent*, not place: the predicted route is correct through the centre (13–131 m) but compressed, so it can't reach the bridge start or the eastern tail. Four scale-recovery methods are implemented (`src/scale_recovery.py`, `src/speed_scale.py`), each gated against the duration-based length prior (the stable reference):
+**Metric scale recovery (the extent problem).** Densely-sampled ground truth showed the residual error is *scale/extent*, not place: the predicted route is correct through the centre (13–131 m) but compressed, so it can't reach the bridge start or the eastern tail. Four scale-recovery methods are implemented (`monocular_osm/scale_recovery.py`, `monocular_osm/speed_scale.py`), each gated against the duration-based length prior (the stable reference):
 
 - **Anchor scale lock + time-anchored georeferencing** (ideas 1+2, on by default): fit a similarity VO→world from anchor (sighting-time → geocoded-location) correspondences via RANSAC. Sound, but needs anchors well-spread in time; on Ulm the reliable sign-anchors cluster (~70 m apart) while distant ones carry 100s-of-metres error (signs read from afar), so the fit is rejected by the sanity gate and the result falls back unchanged.
 - **Ground-plane optical-flow speed** (idea 3, `--use-ipm-scale`, off): exact geometry, but the metric scale is wildly sensitive to the (unknown) camera pitch/height on an uncalibrated clip — degrades the result, so off by default.
@@ -741,16 +764,16 @@ independent GPS sources:
 - **Ulm** (×2) — YouTube dashcam, hand-labelled GPS waypoints. A central,
   sign-rich 4K drive and a held-out peripheral drive.
 - **Berlin** — YouTube 4K dashcam, hand-labelled; central mega-city drive.
-- **KITTI raw** (×2) — cvlibs.net, OXTS INS/GNSS lat/lon. Adapter `src/kitti_raw.py`;
+- **KITTI raw** (×2) — cvlibs.net, OXTS INS/GNSS lat/lon. Adapter `monocular_osm/kitti_raw.py`;
   Karlsruhe drives `0009` (46 s) and `0033` (165 s, a 1.7 km loop); 2011 low-res footage.
 - **comma2k19** — comma.ai, a tightly-coupled INS/GNSS/Vision global pose (the
-  highest-quality GT here). Adapter `src/comma2k19.py`; a Daly City surface-street
+  highest-quality GT here). Adapter `monocular_osm/comma2k19.py`; a Daly City surface-street
   stretch through a self-similar suburb.
 - **London** — YouTube dashcam, hand-labelled, Bloomsbury / Fitzrovia.
 - **Málaga** — Málaga Urban Dataset (Spain), GPS/IMU; a western-district
-  residential drive. Adapter `src/ext_datasets.py`.
+  residential drive. Adapter `monocular_osm/ext_datasets.py`.
 - **Boreas** — Canadian AV dataset, Applanix GNSS; Glen Shields, Vaughan (a
-  self-similar Toronto suburb). Adapter `src/ext_datasets.py`.
+  self-similar Toronto suburb). Adapter `monocular_osm/ext_datasets.py`.
 
 Each dataset's GPS is converted to the project's `ground_truth/*.json` schema by
 its adapter, the front-camera frames feed the standard pipeline, and per-waypoint
@@ -852,7 +875,7 @@ dense road networks (`corr(shape-RMS, GT-error) ≈ 0`, measured in
 `scripts/bench_matching.py`) — a walk can match the VO shape perfectly and sit on
 the wrong parallel street. So the pipeline no longer reports a single
 over-confident pick. It collapses the candidate pool into **distinct location
-hypotheses** (`src/hypotheses.py`) with a **confidence derived from the spatial
+hypotheses** (`monocular_osm/hypotheses.py`) with a **confidence derived from the spatial
 agreement** of the top candidates, not the winner's RMS. The true neighbourhood is
 reliably *in the top-5 shortlist* even when shape mis-ranks the headline pick.
 
@@ -906,7 +929,7 @@ improvement** over the 144 m shape-matcher, and far below the 50 m target.
 
 The natural architecture going forward: keep this pipeline for the **coarse prior +
 OSM region + VO odometry**, and use OrienterNet as the **metric localization head**.
-An opt-in `--use-orienternet` channel is wired (`src/orienternet_localizer.py`); it
+An opt-in `--use-orienternet` channel is wired (`monocular_osm/orienternet_localizer.py`); it
 runs end-to-end (and degrades to a no-op without the model), but doesn't yet realise
 the ~2 m through the full pipeline — OrienterNet needs each keyframe's prior within
 ~½ tile of its truth, and the shape-matcher's loop-phase ambiguity scatters per-point
@@ -963,9 +986,11 @@ public code yet.)
 ├── README.md
 ├── LICENSE                          # MIT
 ├── requirements.txt
-├── main.py                          # CLI entry point
-├── src/
+├── pyproject.toml                   # packaging metadata + osm-localize console script
+├── main.py                          # CLI shim for source checkouts (python main.py ...)
+├── monocular_osm/                   # importable package (pip install -> osm-localize)
 │   ├── __init__.py
+│   ├── cli.py                       # CLI entry point (osm-localize / python -m monocular_osm.cli)
 │   ├── download.py                  # yt-dlp wrapper
 │   ├── frame_extraction.py          # video → frames
 │   ├── visual_odometry.py           # frames → trajectory + R/t poses (OpenCV)

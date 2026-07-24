@@ -27,7 +27,7 @@ import networkx as nx
 import numpy as np
 from shapely.geometry import LineString
 
-from src.bev_splat_match import (
+from monocular_osm.bev_splat_match import (
     BevSplatConfig,
     BevSplatMatchResult,
     MockBevSplatInference,
@@ -38,8 +38,8 @@ from src.bev_splat_match import (
     _state_dict_coverage_error,
     score_candidates_with_bevsplat,
 )
-from src.osm_data import _build_polyline_view
-from src.trajectory_matching import MatchCandidate
+from monocular_osm.osm_data import _build_polyline_view
+from monocular_osm.trajectory_matching import MatchCandidate
 
 
 def _road_graph() -> "RoadGraph":

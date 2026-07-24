@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
-from src.frame_extraction import FrameExtractionError, extract_frames
+from monocular_osm.frame_extraction import FrameExtractionError, extract_frames
 
 
 def _make_video(path: Path, n_frames: int = 60, fps: float = 30.0,

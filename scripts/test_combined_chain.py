@@ -20,7 +20,7 @@ import numpy as np
 from skimage.measure import ransac
 from skimage.transform import SimilarityTransform
 
-from src.orienternet_localizer import refine_route
+from monocular_osm.orienternet_localizer import refine_route
 
 VIDEO = "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/input.mp4"
 NPZ = "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/trajectory_v2_0-420.0_s3_fauto.npz"

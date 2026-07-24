@@ -8,14 +8,14 @@ import networkx as nx
 import numpy as np
 from shapely.geometry import LineString
 
-from src.embedding_retrieval import (
+from monocular_osm.embedding_retrieval import (
     _crop_embedding_cube,
     _embedding_cube_to_rgb,
     _embedding_cubes_to_rgb_shared,
     score_candidates_by_embeddings,
 )
-from src.osm_data import _build_polyline_view
-from src.trajectory_matching import MatchCandidate
+from monocular_osm.osm_data import _build_polyline_view
+from monocular_osm.trajectory_matching import MatchCandidate
 
 
 class FakeEmbedder:

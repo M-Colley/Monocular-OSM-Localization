@@ -7,15 +7,15 @@ import numpy as np
 from pyproj import Transformer
 from shapely.geometry import LineString, Point
 
-from src.osm_data import _build_polyline_view
-from src.osm_gazetteer import (
+from monocular_osm.osm_data import _build_polyline_view
+from monocular_osm.osm_gazetteer import (
     _norm_name,
     _resolve_instances,
     _similarity,
     build_gazetteer,
     match_texts,
 )
-from src.scene_text import SceneText
+from monocular_osm.scene_text import SceneText
 
 UTM32N = "EPSG:32632"
 
@@ -212,7 +212,7 @@ def test_build_gazetteer_accepts_explicit_bbox(monkeypatch, tmp_path):
 
 
 def _gaz(entries):
-    from src.osm_gazetteer import _norm_name as nn
+    from monocular_osm.osm_gazetteer import _norm_name as nn
     return {"signature": {}, "entries": [
         {"name": n, "norm": nn(n), "lat": la, "lon": lo, "kind": k}
         for (n, la, lo, k) in entries

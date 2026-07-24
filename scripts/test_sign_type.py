@@ -26,8 +26,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import src.vlm_anchor as va  # noqa: E402
-from src.scene_text import _polygon_to_bbox  # noqa: E402
+import monocular_osm.vlm_anchor as va  # noqa: E402
+from monocular_osm.scene_text import _polygon_to_bbox  # noqa: E402
 
 LONDON_VIDEO = ROOT / "data/london_T4wTL3LpLqU/input_4k.webm"
 ULM_VIDEO = ROOT / "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/input_4k.webm"

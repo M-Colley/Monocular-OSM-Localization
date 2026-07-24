@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.mapanything_trajectory import _positions_to_xy, _umeyama, stitch_windows
+from monocular_osm.mapanything_trajectory import _positions_to_xy, _umeyama, stitch_windows
 
 
 def _rot_y(a):

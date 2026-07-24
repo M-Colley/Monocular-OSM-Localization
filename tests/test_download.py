@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.download import (
+from monocular_osm.download import (
     DownloadError,
     _existing_download,
     _format_selector,

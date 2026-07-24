@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 
-from src.osm_data import (
+from monocular_osm.osm_data import (
     RoadGraph,
     _build_polyline_view,
     _build_walk,

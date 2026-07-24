@@ -40,7 +40,7 @@ def route_polyline_dist_m(lat, lon, waypoints):
     point-to-polyline helper so the metric matches the pipeline's GT
     evaluation instead of quantizing to the nearest sparse waypoint.
     """
-    from src.evaluator import _segment_to_polyline_distance
+    from monocular_osm.evaluator import _segment_to_polyline_distance
 
     lat0 = float(np.mean([w["lat"] for w in waypoints]))
     c = 111320.0 * math.cos(math.radians(lat0))
@@ -90,7 +90,7 @@ def _load(name, device):
 
 
 def _agg(ref_xy, top1, maxsim, kind):
-    from src.kartaview_vpr import _geometric_median
+    from monocular_osm.kartaview_vpr import _geometric_median
 
     if kind == "median":
         return tuple(float(x) for x in np.median(ref_xy[top1], axis=0))
@@ -119,8 +119,8 @@ def main():
     import cv2
     import torch
 
-    import src.kartaview_vpr as _K
-    from src.kartaview_vpr import _prep
+    import monocular_osm.kartaview_vpr as _K
+    from monocular_osm.kartaview_vpr import _prep
 
     _K._MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
     _K._STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)

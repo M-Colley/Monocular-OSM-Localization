@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.turn_matching import (
+from monocular_osm.turn_matching import (
     Turn,
     extract_turns,
     score_candidates_by_turns,

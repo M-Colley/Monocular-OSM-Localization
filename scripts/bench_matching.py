@@ -22,10 +22,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.evaluator import evaluate_candidates_against_waypoints, load_gt_waypoints
-from src.osm_data import fetch_city_graph
-from src.trajectory_matching import MatchCandidate, match_trajectory
-from src.visual_odometry import trajectory_arc_length
+from monocular_osm.evaluator import evaluate_candidates_against_waypoints, load_gt_waypoints
+from monocular_osm.osm_data import fetch_city_graph
+from monocular_osm.trajectory_matching import MatchCandidate, match_trajectory
+from monocular_osm.visual_odometry import trajectory_arc_length
 
 DATA = Path("data")
 
@@ -70,7 +70,7 @@ def _turn_weighted_corr(traj_xy: np.ndarray, walk_xy: np.ndarray, n: int = 128) 
     non-discriminative; the turns are the signature. Weighting the
     Pearson correlation by |curvature| makes matching the turn pattern
     dominate the score."""
-    from src.visual_odometry import resample_uniform
+    from monocular_osm.visual_odometry import resample_uniform
     a = resample_uniform(traj_xy, n)
     b = resample_uniform(walk_xy, n)
     ha = np.unwrap(_heading_series(a))
@@ -172,7 +172,7 @@ def run_clip(clip: Clip, variants: list[str]) -> None:
         print(f"  [diag] lowest-RMS cand: GTerr {gt_err[int(np.argmin(rms))]:.0f}m; "
               f"highest-corr cand: GTerr {gt_err[int(np.argmax(corr))]:.0f}m")
     if args_hyp:
-        from src.hypotheses import (cluster_candidates, distinct_hypotheses,
+        from monocular_osm.hypotheses import (cluster_candidates, distinct_hypotheses,
                                      hypothesis_confidence)
         hyps = distinct_hypotheses(pool, road, top_n=8)
         conf = hypothesis_confidence(pool, hyps)

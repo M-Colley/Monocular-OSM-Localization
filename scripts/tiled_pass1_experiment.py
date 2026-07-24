@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 import cv2  # noqa: E402
 import osmnx as ox  # noqa: E402
-from src import kartaview_vpr as kv  # noqa: E402
+from monocular_osm import kartaview_vpr as kv  # noqa: E402
 
 VIDEO = ROOT / "data/london_T4wTL3LpLqU/input.mp4"
 CACHE = ROOT / "data/local-73200bdd8068-input-london-uk"

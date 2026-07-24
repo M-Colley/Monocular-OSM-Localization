@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.kitti_raw import (  # noqa: E402
+from monocular_osm.kitti_raw import (  # noqa: E402
     kitti_ground_truth,
     load_oxts_track,
     osm_around_for_track,

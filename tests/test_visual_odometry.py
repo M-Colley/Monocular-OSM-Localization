@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import pytest
 
-from src.visual_odometry import (
+from monocular_osm.visual_odometry import (
     _fit_plane_projection,
     bearing_signature,
     default_intrinsics,

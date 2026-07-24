@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.comma2k19 import (
+from monocular_osm.comma2k19 import (
     COMMA_FPS,
     comma_ground_truth,
     ecef_to_latlon,

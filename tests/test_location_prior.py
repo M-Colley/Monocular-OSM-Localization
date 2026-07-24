@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.location_prior import extract_place_candidates, resolve_coarse_prior
+from monocular_osm.location_prior import extract_place_candidates, resolve_coarse_prior
 
 
 def test_extract_landmarks_from_route_title() -> None:

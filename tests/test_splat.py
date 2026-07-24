@@ -8,12 +8,12 @@ import cv2
 import numpy as np
 import pytest
 
-from src.splat import (
+from monocular_osm.splat import (
     build_splat_points,
     render_topdown_splat,
     save_ply,
 )
-from src.visual_odometry import Trajectory, default_intrinsics
+from monocular_osm.visual_odometry import Trajectory, default_intrinsics
 
 
 def _make_textured_scene(seed: int = 0, n: int = 600):
@@ -149,7 +149,7 @@ def test_save_ply_writes_binary_little_endian(tmp_path: Path) -> None:
 
 
 def test_save_interactive_html_writes_file(tmp_path: Path) -> None:
-    from src.splat import save_interactive_html
+    from monocular_osm.splat import save_interactive_html
 
     pts = np.random.default_rng(0).uniform(-5, 5, size=(50, 3))
     cols = np.random.default_rng(0).integers(0, 256, size=(50, 3), dtype=np.uint8)

@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import src.kartaview_vpr as kv
-from src.kartaview_vpr import (
+import monocular_osm.kartaview_vpr as kv
+from monocular_osm.kartaview_vpr import (
     _fetch_refs,
     _geometric_median,
     _load_ref_images,

@@ -33,12 +33,12 @@ from pyproj import Transformer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.bev_splat_match import BevSplatConfig, _load_bev_splat_inference
-from src.evaluator import evaluate_candidates_against_waypoints, load_gt_waypoints
-from src.osm_data import fetch_city_graph
-from src.satellite import fetch_satellite_tile
-from src.trajectory_matching import match_trajectory
-from src.visual_odometry import default_intrinsics, trajectory_arc_length
+from monocular_osm.bev_splat_match import BevSplatConfig, _load_bev_splat_inference
+from monocular_osm.evaluator import evaluate_candidates_against_waypoints, load_gt_waypoints
+from monocular_osm.osm_data import fetch_city_graph
+from monocular_osm.satellite import fetch_satellite_tile
+from monocular_osm.trajectory_matching import match_trajectory
+from monocular_osm.visual_odometry import default_intrinsics, trajectory_arc_length
 
 DATA = Path("data")
 

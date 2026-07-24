@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 
-from src.osm_data import RoadGraph, _build_polyline_view
-from src.trajectory_matching import (
+from monocular_osm.osm_data import RoadGraph, _build_polyline_view
+from monocular_osm.trajectory_matching import (
     MatchCandidate,
     _candidates_overlap,
     match_trajectory,
@@ -392,7 +392,7 @@ def test_match_trajectory_stationary_input_returns_empty() -> None:
 def test_match_trajectory_drops_non_finite_scores(monkeypatch) -> None:
     """Candidates whose alignment failed (inf residual, unaligned
     trajectory) must be dropped, not ranked."""
-    import src.trajectory_matching as tm
+    import monocular_osm.trajectory_matching as tm
 
     def broken_procrustes(src, dst):
         return np.eye(2), 1.0, float("inf"), src.copy()
@@ -447,7 +447,7 @@ def test_restrict_to_start_nodes_noop_without_seeds() -> None:
 def test_procrustes_fixed_scale_preserves_extent() -> None:
     """Fixed-scale Procrustes must NOT shrink a path to fit a smaller dst;
     it keeps the prescribed metric extent (the anti-compression property)."""
-    from src.trajectory_matching import procrustes_fixed_scale
+    from monocular_osm.trajectory_matching import procrustes_fixed_scale
     # src spans 100 units; dst is a compact 10 m blob.
     src = np.array([[0, 0], [50, 0], [100, 0]], dtype=float)
     dst = np.array([[0, 0], [5, 0], [10, 0]], dtype=float)
@@ -458,7 +458,7 @@ def test_procrustes_fixed_scale_preserves_extent() -> None:
 
 
 def test_procrustes_fixed_scale_recovers_rotation_translation() -> None:
-    from src.trajectory_matching import procrustes_fixed_scale
+    from monocular_osm.trajectory_matching import procrustes_fixed_scale
     src = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype=float)
     s = 3.0
     th = np.deg2rad(40.0)
@@ -470,7 +470,7 @@ def test_procrustes_fixed_scale_recovers_rotation_translation() -> None:
 
 
 def test_procrustes_fixed_scale_no_reflection() -> None:
-    from src.trajectory_matching import procrustes_fixed_scale
+    from monocular_osm.trajectory_matching import procrustes_fixed_scale
     # dst is a mirrored src; fixed-scale fit must not use a reflection,
     # so it cannot match perfectly.
     src = np.array([[0, 0], [10, 0], [10, 5]], dtype=float)
@@ -493,7 +493,7 @@ def test_match_trajectory_locked_scale_runs() -> None:
 def test_anchor_pinned_route_places_anchor_exactly() -> None:
     """The VO point at the anchor time must map exactly onto the anchor's
     world location, and the route keeps the locked metric extent."""
-    from src.trajectory_matching import anchor_pinned_route
+    from monocular_osm.trajectory_matching import anchor_pinned_route
     # Straight 100-unit VO path; matched walk is a straight 500 m segment.
     vo = np.array([[0, 0], [25, 0], [50, 0], [75, 0], [100, 0]], dtype=float)
     walk = np.array([[0, 0], [500, 0]], dtype=float)

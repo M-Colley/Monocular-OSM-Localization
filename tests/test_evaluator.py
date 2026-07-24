@@ -7,15 +7,15 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 
-from src.evaluator import (
+from monocular_osm.evaluator import (
     _normalize_street_name,
     _polyline_to_polyline_distance,
     _segment_to_polyline_distance,
     best_rank_for_gt,
     evaluate_candidates,
 )
-from src.osm_data import _build_polyline_view
-from src.trajectory_matching import MatchCandidate
+from monocular_osm.osm_data import _build_polyline_view
+from monocular_osm.trajectory_matching import MatchCandidate
 
 
 def _named_graph() -> "RoadGraph":
@@ -42,7 +42,7 @@ def _named_graph() -> "RoadGraph":
 
 
 def _candidate_for_walk(road: "RoadGraph", walk: list[tuple], score: float = 1.0) -> MatchCandidate:
-    from src.osm_data import walk_to_polyline
+    from monocular_osm.osm_data import walk_to_polyline
     poly = walk_to_polyline(road.graph, walk)
     return MatchCandidate(
         score=score, bearing_corr=0.5,
@@ -189,7 +189,7 @@ def test_evaluate_candidates_matches_eszett_with_ascii_groundtruth() -> None:
 def test_load_gt_waypoints_valid_file(tmp_path) -> None:
     import json
 
-    from src.evaluator import load_gt_waypoints
+    from monocular_osm.evaluator import load_gt_waypoints
 
     path = tmp_path / "gt.json"
     path.write_text(json.dumps({
@@ -218,7 +218,7 @@ def test_load_gt_waypoints_valid_file(tmp_path) -> None:
 def test_load_gt_waypoints_rejects_malformed(tmp_path, payload) -> None:
     import json
 
-    from src.evaluator import load_gt_waypoints
+    from monocular_osm.evaluator import load_gt_waypoints
 
     path = tmp_path / "gt.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -228,13 +228,13 @@ def test_load_gt_waypoints_rejects_malformed(tmp_path, payload) -> None:
 
 def _waypoints_on_polyline(road, poly: np.ndarray) -> np.ndarray:
     """GT lat/lon fixes lying exactly on a projected polyline."""
-    from src.position import xy_to_latlon
+    from monocular_osm.position import xy_to_latlon
 
     return xy_to_latlon(poly, road.crs)
 
 
 def test_waypoint_eval_zero_for_exact_route() -> None:
-    from src.evaluator import evaluate_candidates_against_waypoints
+    from monocular_osm.evaluator import evaluate_candidates_against_waypoints
 
     road = _named_graph()
     cand = _candidate_for_walk(road, [("A", "B", 0), ("B", "C", 0)])
@@ -248,7 +248,7 @@ def test_waypoint_eval_zero_for_exact_route() -> None:
 
 
 def test_waypoint_eval_measures_known_offset() -> None:
-    from src.evaluator import evaluate_candidates_against_waypoints
+    from monocular_osm.evaluator import evaluate_candidates_against_waypoints
 
     road = _named_graph()
     cand = _candidate_for_walk(road, [("A", "B", 0), ("B", "C", 0)])
@@ -263,7 +263,7 @@ def test_waypoint_eval_measures_known_offset() -> None:
 
 
 def test_waypoint_eval_ranks_closer_candidate_first() -> None:
-    from src.evaluator import (
+    from monocular_osm.evaluator import (
         best_rank_for_waypoints,
         evaluate_candidates_against_waypoints,
     )
@@ -279,7 +279,7 @@ def test_waypoint_eval_ranks_closer_candidate_first() -> None:
 
 
 def test_waypoint_eval_empty_trajectory_is_inf() -> None:
-    from src.evaluator import evaluate_candidates_against_waypoints
+    from monocular_osm.evaluator import evaluate_candidates_against_waypoints
 
     road = _named_graph()
     cand = _candidate_for_walk(road, [("A", "B", 0)])
@@ -291,6 +291,6 @@ def test_waypoint_eval_empty_trajectory_is_inf() -> None:
 
 
 def test_best_rank_for_waypoints_empty() -> None:
-    from src.evaluator import best_rank_for_waypoints
+    from monocular_osm.evaluator import best_rank_for_waypoints
 
     assert best_rank_for_waypoints([]) is None

@@ -27,8 +27,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import src.kartaview_vpr as kv  # noqa: E402
-from src.kartaview_vpr import _robust_center  # noqa: E402
+import monocular_osm.kartaview_vpr as kv  # noqa: E402
+from monocular_osm.kartaview_vpr import _robust_center  # noqa: E402
 
 MPD = 111320.0
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.scale_recovery import (
+from monocular_osm.scale_recovery import (
     apply_transform,
     estimate_anchor_scale,
     fit_similarity_ransac,
@@ -126,14 +126,14 @@ def test_scaled_length() -> None:
 
 
 def test_da3_metric_scale_ratio() -> None:
-    from src.scale_recovery import da3_metric_scale
+    from monocular_osm.scale_recovery import da3_metric_scale
     vo = np.array([[0, 0], [0, 100]], dtype=float)        # 100 VO units
     da3 = np.array([[0, 0], [0, 530]], dtype=float)       # 530 m
     assert da3_metric_scale(da3, vo) == pytest.approx(5.3)
 
 
 def test_da3_metric_scale_none_degenerate() -> None:
-    from src.scale_recovery import da3_metric_scale
+    from monocular_osm.scale_recovery import da3_metric_scale
     vo = np.array([[0, 0], [0, 0]], dtype=float)          # zero length
     da3 = np.array([[0, 0], [0, 100]], dtype=float)
     assert da3_metric_scale(da3, vo) is None

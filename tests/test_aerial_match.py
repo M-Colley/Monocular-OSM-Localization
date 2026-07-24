@@ -19,8 +19,8 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 
-import src.aerial_match as aerial_match
-from src.aerial_match import (
+import monocular_osm.aerial_match as aerial_match
+from monocular_osm.aerial_match import (
     _traj_coverage_score,
     _traj_iou_score,
     _traj_overlap,
@@ -28,8 +28,8 @@ from src.aerial_match import (
     match_splat_against_candidates,
     render_osm_patch,
 )
-from src.osm_data import _build_polyline_view
-from src.trajectory_matching import MatchCandidate
+from monocular_osm.osm_data import _build_polyline_view
+from monocular_osm.trajectory_matching import MatchCandidate
 
 
 def _two_road_graph() -> "RoadGraph":

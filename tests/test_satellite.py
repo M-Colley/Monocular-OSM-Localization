@@ -15,9 +15,9 @@ import networkx as nx
 import pytest
 from shapely.geometry import LineString
 
-from src import satellite
-from src.osm_data import _build_polyline_view
-from src.trajectory_matching import MatchCandidate
+from monocular_osm import satellite
+from monocular_osm.osm_data import _build_polyline_view
+from monocular_osm.trajectory_matching import MatchCandidate
 
 
 def _road():

@@ -8,8 +8,8 @@ import cv2
 import numpy as np
 import pytest
 
-from src.citygml_lod2 import Lod2Mesh
-from src.tile3d_match import (
+from monocular_osm.citygml_lod2 import Lod2Mesh
+from monocular_osm.tile3d_match import (
     adaptive_tile3d_weight,
     arc_fractions_at_times,
     compare_skylines,

@@ -24,8 +24,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.citygml_lod2 import fetch_lod2_mesh                      # noqa: E402
-from src.tile3d_match import (                                    # noqa: E402
+from monocular_osm.citygml_lod2 import fetch_lod2_mesh                      # noqa: E402
+from monocular_osm.tile3d_match import (                                    # noqa: E402
     render_building_mask, skyline_from_mask,
 )
 

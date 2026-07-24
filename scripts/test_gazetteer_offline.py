@@ -23,9 +23,9 @@ import osmnx as ox
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.osm_data import _build_polyline_view  # noqa: E402
-from src.osm_gazetteer import build_gazetteer, match_texts  # noqa: E402
-from src.scene_text import SceneText  # noqa: E402
+from monocular_osm.osm_data import _build_polyline_view  # noqa: E402
+from monocular_osm.osm_gazetteer import build_gazetteer, match_texts  # noqa: E402
+from monocular_osm.scene_text import SceneText  # noqa: E402
 
 
 def _load_detections(cache_path: Path) -> list[SceneText]:

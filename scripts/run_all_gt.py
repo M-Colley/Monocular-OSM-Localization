@@ -77,7 +77,7 @@ CLIPS = [
         "--enable-ocr-anchor", "--ocr-super-res",
         "--ocr-video", "data/london_T4wTL3LpLqU/input_4k.webm",
         "--scale-lock", "--no-splat", "--no-aerial"]),
-    # Fleet extension 2026-07-10 (src/ext_datasets.py adapters). Both localise
+    # Fleet extension 2026-07-10 (monocular_osm/ext_datasets.py adapters). Both localise
     # GT-seeded but FAIL the deployable (city-name-seed) coarse-to-fine — see
     # memory ext-datasets-2026-07. Málaga (Spain, W. district) is the cleanest
     # new success: GT-seeded start 8.9 / mean 23.8 m (best of any clip). GPS

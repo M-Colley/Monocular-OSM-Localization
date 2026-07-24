@@ -20,11 +20,11 @@ import cv2
 import numpy as np
 
 from scripts.test_vggt_traj import vggt_trajectory
-from src.evaluator import evaluate_candidates_against_waypoints, load_gt_waypoints
-from src.hypotheses import cluster_candidates
-from src.osm_data import fetch_city_graph
-from src.trajectory_matching import match_trajectory
-from src.visual_odometry import trajectory_arc_length
+from monocular_osm.evaluator import evaluate_candidates_against_waypoints, load_gt_waypoints
+from monocular_osm.hypotheses import cluster_candidates
+from monocular_osm.osm_data import fetch_city_graph
+from monocular_osm.trajectory_matching import match_trajectory
+from monocular_osm.visual_odometry import trajectory_arc_length
 
 
 def main() -> None:

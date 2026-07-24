@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 from skimage.transform import SimilarityTransform
 
-from src.speed_scale import estimate_route_length_from_flow
+from monocular_osm.speed_scale import estimate_route_length_from_flow
 
 VIDEO = "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/input.mp4"
 NPZ = "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/trajectory_v2_0-420.0_s3_fauto.npz"

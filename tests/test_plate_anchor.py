@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import src.plate_anchor as pa
-from src.plate_anchor import _candidate_codes, plate_district_anchor
+import monocular_osm.plate_anchor as pa
+from monocular_osm.plate_anchor import _candidate_codes, plate_district_anchor
 
 
 # ---------------------------------------------------------------------------

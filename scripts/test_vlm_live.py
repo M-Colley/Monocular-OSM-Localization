@@ -26,7 +26,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import src.vlm_anchor as va  # noqa: E402
+import monocular_osm.vlm_anchor as va  # noqa: E402
 
 ULM_VIDEO = ROOT / "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/input_4k.webm"
 ULM_GT = ROOT / "ground_truth/ulm_ULl8s4qydrk.json"

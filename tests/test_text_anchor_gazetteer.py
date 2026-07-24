@@ -7,10 +7,10 @@ import numpy as np
 from pyproj import Transformer
 from shapely.geometry import LineString
 
-from src import text_anchor
-from src.osm_data import _build_polyline_view
-from src.scene_text import SceneText
-from src.text_anchor import PoiAnchor, gazetteer_anchors
+from monocular_osm import text_anchor
+from monocular_osm.osm_data import _build_polyline_view
+from monocular_osm.scene_text import SceneText
+from monocular_osm.text_anchor import PoiAnchor, gazetteer_anchors
 
 UTM32N = "EPSG:32632"
 
@@ -36,7 +36,7 @@ def _ulm_graph():
 
 
 def _patch_build(monkeypatch, entries):
-    from src import osm_gazetteer
+    from monocular_osm import osm_gazetteer
 
     def _fake_build(graph_or_bbox, cache_path=None, **kw):
         return {"signature": {}, "entries": entries}
@@ -45,7 +45,7 @@ def _patch_build(monkeypatch, entries):
 
 
 def _entry(name, lat, lon):
-    from src.osm_gazetteer import _norm_name
+    from monocular_osm.osm_gazetteer import _norm_name
     return {"name": name, "norm": _norm_name(name), "lat": lat, "lon": lon,
             "kind": "poi"}
 
@@ -82,7 +82,7 @@ def test_gazetteer_anchors_dedupes_against_existing(monkeypatch):
 
 
 def test_gazetteer_anchors_swallows_errors(monkeypatch):
-    from src import osm_gazetteer
+    from monocular_osm import osm_gazetteer
 
     def _boom(*a, **k):
         raise RuntimeError("boom")

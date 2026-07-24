@@ -23,8 +23,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.plate_anchor import plate_district_anchor  # noqa: E402
-from src.text_anchor import default_geocode_fn  # noqa: E402
+from monocular_osm.plate_anchor import plate_district_anchor  # noqa: E402
+from monocular_osm.text_anchor import default_geocode_fn  # noqa: E402
 
 MPD = 111320.0
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.city_inference import guess_city_from_title, slugify_submission
+from monocular_osm.city_inference import guess_city_from_title, slugify_submission
 
 
 def test_guess_city_from_title_with_country() -> None:

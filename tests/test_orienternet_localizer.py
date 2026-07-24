@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.orienternet_localizer import _fetch_canvases
+from monocular_osm.orienternet_localizer import _fetch_canvases
 
 
 class FakeBBox:

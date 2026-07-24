@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.comma2k19 import (  # noqa: E402
+from monocular_osm.comma2k19 import (  # noqa: E402
     comma_ground_truth,
     load_route_track,
     osm_around_for_track,

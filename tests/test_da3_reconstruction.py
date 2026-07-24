@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from src.da3_reconstruction import da3_trajectory_xy, reconstruct_with_da3
+from monocular_osm.da3_reconstruction import da3_trajectory_xy, reconstruct_with_da3
 
 
 def _rot_y(a: float) -> np.ndarray:

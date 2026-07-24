@@ -14,7 +14,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.ext_datasets import (  # noqa: E402
+from monocular_osm.ext_datasets import (  # noqa: E402
     boreas_pose_track, frames_to_video, malaga_track, brno_track, GpsFix,
     track_to_ground_truth,
 )

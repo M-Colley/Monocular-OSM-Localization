@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.ext_datasets import (
+from monocular_osm.ext_datasets import (
     GpsFix,
     boreas_pose_track,
     brno_track,

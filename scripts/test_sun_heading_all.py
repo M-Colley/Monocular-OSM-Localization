@@ -5,7 +5,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from src.sun_heading import estimate_heading
+from monocular_osm.sun_heading import estimate_heading
 
 SP = ("C:/Users/LOCALA~1/AppData/Local/Temp/claude/"
       "C--Users-localadmin-Documents-Monocular-OSM-Localization/"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.osm_buildings3d import (_grid_centers, extrude_footprint,
+from monocular_osm.osm_buildings3d import (_grid_centers, extrude_footprint,
                                  parse_osm_height_m)
 
 
@@ -78,10 +78,10 @@ def test_grid_centers_large_disc_tiles_and_covers() -> None:
 
 def test_extruded_mesh_renders_a_skyline() -> None:
     # a ring of tall boxes around a camera must produce a skyline
-    from src.citygml_lod2 import Lod2Mesh
-    from src.tile3d_match import (render_building_mask, skyline_from_mask,
+    from monocular_osm.citygml_lod2 import Lod2Mesh
+    from monocular_osm.tile3d_match import (render_building_mask, skyline_from_mask,
                                   scale_intrinsics)
-    from src.visual_odometry import default_intrinsics
+    from monocular_osm.visual_odometry import default_intrinsics
     tris = []
     for cx, cy in [(40, 0), (-40, 0), (0, 40), (0, -40), (30, 30), (-30, 30)]:
         ring = np.array([[cx - 8, cy - 8], [cx + 8, cy - 8],

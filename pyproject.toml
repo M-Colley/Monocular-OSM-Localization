@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=77.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monocular-osm-localization"
+dynamic = ["version"]
+description = "GPS-free monocular dashcam video to OpenStreetMap street localization"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Mark Colley" }]
+keywords = [
+    "localization",
+    "geolocation",
+    "visual-odometry",
+    "openstreetmap",
+    "dashcam",
+    "monocular",
+    "slam",
+    "visual-place-recognition",
+    "computer-vision",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+# Core, CPU-only pipeline. Mirrors requirements.txt (minus the dev-only pytest,
+# moved to the [dev] extra). The optional GPU stack (torch, depth-anything-3,
+# gsplat, ...) is intentionally left out — it needs a CUDA-matched index URL and
+# is documented in the README instead.
+dependencies = [
+    "yt-dlp>=2026.3.17",
+    "opencv-python>=4.13.0",
+    "numpy>=2.5.0",
+    "scipy>=1.17.1",
+    "scikit-image>=0.21.0",
+    "osmnx>=1.9.0",
+    "networkx>=3.6.1",
+    "shapely>=2.1.2",
+    "matplotlib>=3.11.0",
+    "pyproj>=3.6.0",
+    "geopandas>=1.1.4",
+    "contextily>=1.6.0",
+    "open3d>=0.19.0",
+    "plotly>=6.8.0",
+    "tqdm>=4.68.2",
+    "pycolmap>=4.1.0",
+    "pysolar>=0.11",
+    "timezonefinder>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4.0"]
+
+[project.scripts]
+osm-localize = "monocular_osm.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/M-Colley/Monocular-OSM-Localization"
+Repository = "https://github.com/M-Colley/Monocular-OSM-Localization"
+Issues = "https://github.com/M-Colley/Monocular-OSM-Localization/issues"
+Changelog = "https://github.com/M-Colley/Monocular-OSM-Localization/blob/main/CHANGELOG.md"
+
+[tool.setuptools.dynamic]
+version = { attr = "monocular_osm.__version__" }
+
+[tool.setuptools.packages.find]
+# Ship only the importable library. The root main.py stays a source-checkout
+# convenience shim (`python main.py ...`) and is deliberately not packaged;
+# installed users get the `osm-localize` console script instead.
+include = ["monocular_osm*"]

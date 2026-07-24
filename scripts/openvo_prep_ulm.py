@@ -29,7 +29,7 @@ DEPTH_SCALE = 256.0    # uint16 = depth_m * 256  (matches OpenVO save_depth_png)
 
 def main():
     import torch
-    from src.da3_reconstruction import load_da3_model
+    from monocular_osm.da3_reconstruction import load_da3_model
 
     img_dir = f"{OUT}/sequences/{SCENE}/image_2"
     dep_dir = f"{OUT}/depth/sequences/{SCENE}/image_2"

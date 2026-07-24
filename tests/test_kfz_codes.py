@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from src.kfz_codes import KFZ_DISTRICTS
+from monocular_osm.kfz_codes import KFZ_DISTRICTS
 
 
 def test_all_keys_are_valid_prefixes() -> None:

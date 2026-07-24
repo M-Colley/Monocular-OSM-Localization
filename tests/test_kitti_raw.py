@@ -7,14 +7,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.kitti_raw import (
+from monocular_osm.kitti_raw import (
     KITTI_FPS,
     kitti_ground_truth,
     load_oxts_track,
     osm_around_for_track,
     render_images_to_video,
 )
-from src.gps_overlay import GpsFix
+from monocular_osm.gps_overlay import GpsFix
 
 
 # A short real-shaped OXTS snippet: lat lon alt roll pitch yaw ... (30 cols).

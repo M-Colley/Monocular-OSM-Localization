@@ -112,7 +112,7 @@ def kitti_gps(drive):
 
 
 def comma_gps(segdirs):
-    from src.comma2k19 import load_route_track
+    from monocular_osm.comma2k19 import load_route_track
     track = load_route_track(segdirs)
 
     def get(i):

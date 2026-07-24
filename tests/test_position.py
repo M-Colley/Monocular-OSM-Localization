@@ -1,4 +1,4 @@
-"""Tests for src/position.py: projected-meters -> WGS84 position reports.
+"""Tests for monocular_osm/position.py: projected-meters -> WGS84 position reports.
 
 Ground truth strategy: instead of hardcoding UTM coordinates, every
 round-trip test *forward*-projects known WGS84 points with pyproj and
@@ -14,8 +14,8 @@ import pytest
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString
 
-from src.osm_data import RoadGraph, _build_polyline_view
-from src.position import (
+from monocular_osm.osm_data import RoadGraph, _build_polyline_view
+from monocular_osm.position import (
     build_position_report,
     candidate_center_latlon,
     classify_confidence,
@@ -24,7 +24,7 @@ from src.position import (
     openstreetmap_url,
     xy_to_latlon,
 )
-from src.trajectory_matching import MatchCandidate
+from monocular_osm.trajectory_matching import MatchCandidate
 
 # Ulm Münster — squarely inside UTM zone 32N.
 ULM_LAT, ULM_LON = 48.3984, 9.9916
@@ -365,7 +365,7 @@ def test_headline_is_anchored_route_when_anchor_fired() -> None:
     (headline lat/lon, google_maps_url) must describe the ANCHORED
     route, not the raw matcher pick — the old code reported the matcher
     pick and buried the accuracy win in a side field."""
-    from src.pipeline import _final_position_reports
+    from monocular_osm.pipeline import _final_position_reports
 
     road = _road_with_one_street()
     matcher, anchored = _matcher_and_anchored(road)
@@ -390,7 +390,7 @@ def test_headline_is_anchored_route_when_anchor_fired() -> None:
 
 
 def test_headline_source_reflects_vlm_origin() -> None:
-    from src.pipeline import _final_position_reports
+    from monocular_osm.pipeline import _final_position_reports
 
     road = _road_with_one_street()
     matcher, anchored = _matcher_and_anchored(road)
@@ -405,7 +405,7 @@ def test_headline_source_reflects_vlm_origin() -> None:
 
 
 def test_headline_is_matcher_pick_without_anchor() -> None:
-    from src.pipeline import _final_position_reports
+    from monocular_osm.pipeline import _final_position_reports
 
     road = _road_with_one_street()
     matcher, _ = _matcher_and_anchored(road)
@@ -423,7 +423,7 @@ def test_headline_falls_back_when_anchored_report_fails() -> None:
     must not lose the answer: fall back to the matcher report."""
     import dataclasses
 
-    from src.pipeline import _final_position_reports
+    from monocular_osm.pipeline import _final_position_reports
 
     road = _road_with_one_street()
     matcher, anchored = _matcher_and_anchored(road)

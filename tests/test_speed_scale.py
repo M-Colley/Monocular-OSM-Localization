@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.ipm import _rotation_pitch_roll
-from src.speed_scale import _pair_motion, estimate_route_length_from_flow, image_to_ground
+from monocular_osm.ipm import _rotation_pitch_roll
+from monocular_osm.speed_scale import _pair_motion, estimate_route_length_from_flow, image_to_ground
 
 
 def _K(fx=800.0, fy=800.0, cx=640.0, cy=360.0):

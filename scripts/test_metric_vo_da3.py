@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 from skimage.transform import SimilarityTransform
 
-from src.da3_reconstruction import da3_trajectory_xy, reconstruct_with_da3
+from monocular_osm.da3_reconstruction import da3_trajectory_xy, reconstruct_with_da3
 
 VIDEO = "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/input.mp4"
 NPZ = "data/ull8s4qydrk-ulm-germany-4k-drive-ulm-germany/trajectory_v2_0-420.0_s3_fauto.npz"

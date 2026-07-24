@@ -95,9 +95,9 @@ class PipelineConfig:
     splat_max_pairs: int = 80
     enable_aerial_match: bool = True
     # 3D-tile skyline channel (opt-in): fetch the open-data LoD2 city
-    # model (Berlin / Baden-Wuerttemberg CityGML, src/citygml_lod2.py),
+    # model (Berlin / Baden-Wuerttemberg CityGML, monocular_osm/citygml_lod2.py),
     # render it at sampled poses along each candidate route and score
-    # rendered-vs-observed skyline agreement (src/tile3d_match.py).
+    # rendered-vs-observed skyline agreement (monocular_osm/tile3d_match.py).
     # Open data only — Google Photorealistic 3D Tiles is ToS-prohibited
     # for analysis/offline use, see the citygml_lod2 module docstring.
     use_tile3d: bool = False
@@ -162,12 +162,12 @@ class PipelineConfig:
     # features (POIs, transit stops) in the graph area — a free, offline
     # anchor source that complements the rate-limited Nominatim path. On by
     # default (purely additive; deduped by name). Recovered 2 sub-300 m
-    # anchors on London where Nominatim found none. (src/osm_gazetteer.py)
+    # anchors on London where Nominatim found none. (monocular_osm/osm_gazetteer.py)
     use_osm_gazetteer: bool = True
     # Here-vs-direction sign classification (Gemma 4): reads each OCR anchor's
     # sign crop and drops *directional* signs (which name places elsewhere and
     # geocode far off-route — the London 'Holborn' failure). GPU, off by
-    # default. (src/vlm_anchor.classify_sign_types)
+    # default. (monocular_osm/vlm_anchor.classify_sign_types)
     classify_signs: bool = False
     # Optional separate (higher-res) video for OCR only. VO/matching stay
     # on the main video; OCR reads frames from here when set. Lets a 4K
@@ -241,12 +241,12 @@ class PipelineConfig:
     # so off by default.
     vpr_two_pass_scale: bool = False
     # License-plate registration-district anchor: read EU plate region prefixes,
-    # vote, geocode the modal district -> re-rank penalty (src/plate_anchor.py).
+    # vote, geocode the modal district -> re-rank penalty (monocular_osm/plate_anchor.py).
     # (A hard region gate was refuted; the penalty free-radius lives in
     # _PLATE_FREE_RADIUS_M below.)
     use_plate_anchor: bool = False
     # VLM (Gemma 4) district/landmark prior — a coverage fallback when VPR finds
-    # no references (src/vlm_anchor.py). Feeds the same anchor-primary path.
+    # no references (monocular_osm/vlm_anchor.py). Feeds the same anchor-primary path.
     use_vlm_anchor: bool = False
     # Absolute heading from the sun (activates only if the clip has a capture time).
     use_sun_heading: bool = False
@@ -289,18 +289,18 @@ class PipelineConfig:
     # rescue a geometrically-buried-but-correct candidate.
     bev_fusion_cap: int = 5
     # Detect a route that returns near its start and redistribute the VO
-    # drift so the loop closes (src/loop_closure.py). Pair with
+    # drift so the loop closes (monocular_osm/loop_closure.py). Pair with
     # --use-ipm-scale; closing at a wrong scale doesn't help.
     enable_loop_closure: bool = False
     # Run VGGT (feed-forward, drift-free poses) to GATE enumeration to the
     # area its trajectory selects, then let the precise (loop-closed) VO
-    # geometry pick within it (src/vggt_trajectory.py). Needs the vggt
+    # geometry pick within it (monocular_osm/vggt_trajectory.py). Needs the vggt
     # package + GPU + ~5 GB weights; degrades to a no-op if unavailable.
     use_vggt_gating: bool = False
     vggt_keyframes: int = 64
     # Refine the shape-matched coarse position with OrienterNet (neural
     # BEV->OSM matching + sequential fusion) — the metric localization head
-    # (src/orienternet_localizer.py). ~2 m on KITTI. Needs
+    # (monocular_osm/orienternet_localizer.py). ~2 m on KITTI. Needs
     # third_party/OrienterNet + GPU + weights; no-op if unavailable.
     use_orienternet: bool = False
     orienternet_keyframes: int = 10
@@ -419,7 +419,7 @@ _BEV_FUSION_CAP = 5
 # Size of the geometric candidate pool kept for the calibrated
 # multi-hypothesis output. The matcher already scores ~500 walks in
 # stage 2, so returning 50 instead of top_k is free; we collapse them
-# into distinct location hypotheses (src/hypotheses.py). The heavy
+# into distinct location hypotheses (monocular_osm/hypotheses.py). The heavy
 # channels (BevSplat, sliding window) and the headline pick still run on
 # the top_k slice — only the hypotheses shortlist uses the wider pool.
 _HYP_POOL = 50
@@ -1596,7 +1596,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # 4a. Optional blind VPR coarse prior (KartaView + EigenPlaces): retrieve the
     # frames against GPS-tagged street photos to locate the clip INDEPENDENTLY of
     # trajectory shape — the fix for the SELECTION wall. ~53 m prior on Ulm 4K
-    # (src/kartaview_vpr.py). Used as a re-rank centre + the anchor-primary
+    # (monocular_osm/kartaview_vpr.py). Used as a re-rank centre + the anchor-primary
     # placement prior; gating the OSM graph to its disc was refuted (664->1276 m).
     osm_around = cfg.osm_around
     # GPS-free frame-based coarse seed (deployable): plate district / VLM read
@@ -1941,7 +1941,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # 4b. Optional: absolute heading from the sun. Activates only when the clip
     # carries a usable capture time (container metadata or a burned-in clock);
     # otherwise a graceful no-op. When available it pins the matcher's free
-    # rotation DOF (src/sun_heading.py). Computed + reported here.
+    # rotation DOF (monocular_osm/sun_heading.py). Computed + reported here.
     if cfg.use_sun_heading:
         try:
             from .sun_heading import estimate_heading
@@ -3728,7 +3728,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # pool (final-ranked top_k + geometric tail) into distinct
             # location hypotheses and attach a confidence derived from
             # their spatial AGREEMENT — honest where the winner's own
-            # shape score is not (see src/hypotheses.py).
+            # shape score is not (see monocular_osm/hypotheses.py).
             ranked_pool = candidates + geom_pool[cfg.top_k:]
             hyps = distinct_hypotheses(ranked_pool, road, top_n=5)
             if hyps:

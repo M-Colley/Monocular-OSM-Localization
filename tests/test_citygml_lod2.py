@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.citygml_lod2 import (
+from monocular_osm.citygml_lod2 import (
     Lod2Mesh,
     PROVIDERS,
     _ear_clip,
@@ -157,7 +157,7 @@ def test_provider_formats() -> None:
 
 
 def test_looks_like_citygml_rejects_html() -> None:
-    from src.citygml_lod2 import _looks_like_citygml
+    from monocular_osm.citygml_lod2 import _looks_like_citygml
     assert _looks_like_citygml(b'<?xml version="1.0"?><core:CityModel>')
     assert _looks_like_citygml(b'\xef\xbb\xbf<?xml version="1.0"?>')
     assert not _looks_like_citygml(b"<!DOCTYPE html><html><body>404")
@@ -171,7 +171,7 @@ def test_per_tile_cache_reused_across_discs(tmp_path, monkeypatch) -> None:
     Everything is offline: a fake provider + a synthetic zip."""
     import zipfile
 
-    import src.citygml_lod2 as mod
+    import monocular_osm.citygml_lod2 as mod
 
     monkeypatch.setitem(mod.PROVIDERS, "test", {
         "crs": "EPSG:25833", "step_km": 1,
@@ -211,7 +211,7 @@ def test_per_tile_cache_self_heals_corrupt(tmp_path, monkeypatch) -> None:
     """A corrupt per-tile npz must be dropped and re-parsed, not fatal."""
     import zipfile
 
-    import src.citygml_lod2 as mod
+    import monocular_osm.citygml_lod2 as mod
 
     monkeypatch.setitem(mod.PROVIDERS, "test", {
         "crs": "EPSG:25833", "step_km": 1,

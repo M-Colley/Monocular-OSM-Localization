@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.kitti_raw import load_oxts_track  # noqa: E402
+from monocular_osm.kitti_raw import load_oxts_track  # noqa: E402
 
 OXTS = "data/kitti/2011_09_30/2011_09_30_drive_0033_sync"
 VO_NPZ = glob.glob(

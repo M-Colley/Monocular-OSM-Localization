@@ -408,7 +408,7 @@ def test_skip_download_uses_cached_metadata_offline(
     """Offline re-run of a fully cached clip: --skip-download must not
     require a yt-dlp network metadata fetch (it used to die in
     fetch_video_metadata before ever consulting the cache)."""
-    from src.download import VideoMetadata
+    from monocular_osm.download import VideoMetadata
 
     url = "https://www.youtube.com/watch?v=abc123def45"
     data_dir = tmp_path / "data"
@@ -435,7 +435,7 @@ def test_skip_download_uses_cached_metadata_offline(
 
 
 def test_metadata_cache_roundtrip(tmp_path: Path) -> None:
-    from src.download import VideoMetadata
+    from monocular_osm.download import VideoMetadata
 
     url = "https://example.com/watch?v=xyz"
     meta = VideoMetadata(url=url, title="t", video_id="xyz")
@@ -455,7 +455,7 @@ def test_metadata_fetch_failure_does_not_suppress_batch_summary(
     batch_results.json write)."""
     import json as _json
 
-    from src.download import DownloadError, VideoMetadata
+    from monocular_osm.download import DownloadError, VideoMetadata
 
     good = ["https://example.com/a", "https://example.com/b"]
     bad = "https://example.com/broken"

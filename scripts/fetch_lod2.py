@@ -7,7 +7,7 @@ ground-truth JSON (disc covering all waypoints) or an explicit point:
     python scripts/fetch_lod2.py --gt ground_truth/berlin_lBlKR2ek0w4.json
     python scripts/fetch_lod2.py --lat 48.4059 --lon 9.9837 --radius 1500
 
-Providers/licenses: src/citygml_lod2.py (Berlin dl-de/zero-2.0;
+Providers/licenses: monocular_osm/citygml_lod2.py (Berlin dl-de/zero-2.0;
 Baden-Wuerttemberg dl-de/by-2.0, attribution "LGL, www.lgl-bw.de").
 """
 
@@ -23,7 +23,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.citygml_lod2 import fetch_lod2_mesh, provider_for_latlon  # noqa: E402
+from monocular_osm.citygml_lod2 import fetch_lod2_mesh, provider_for_latlon  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> None:
     zone = int((lon + 180.0) // 6.0) + 1
     dst = f"EPSG:{32600 + zone}"
     if use_osm:
-        from src.osm_buildings3d import fetch_osm_building_mesh
+        from monocular_osm.osm_buildings3d import fetch_osm_building_mesh
         mesh = fetch_osm_building_mesh(lat, lon, radius, dst_crs=dst)
     else:
         mesh = fetch_lod2_mesh(lat, lon, radius, dst_crs=dst,

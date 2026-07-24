@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.scene_text import SceneText, _polygon_to_bbox, extract_scene_text
+from monocular_osm.scene_text import SceneText, _polygon_to_bbox, extract_scene_text
 
 
 class _FakeReader:

@@ -24,8 +24,8 @@ from maploc.osm.tiling import TileManager  # noqa: E402
 from maploc.utils.geo import BoundaryBox, Projection  # noqa: E402
 from maploc.utils.wrappers import Camera  # noqa: E402
 from scripts.test_orienternet import load_model, prepare  # noqa: E402
-from src.comma2k19 import load_route_track  # noqa: E402
-from src.kitti_raw import load_oxts_track  # noqa: E402
+from monocular_osm.comma2k19 import load_route_track  # noqa: E402
+from monocular_osm.kitti_raw import load_oxts_track  # noqa: E402
 
 R, MPD = 6371000.0, 111320.0
 

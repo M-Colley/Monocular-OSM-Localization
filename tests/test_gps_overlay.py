@@ -8,7 +8,7 @@ import pytest
 
 import numpy as np
 
-from src.gps_overlay import (
+from monocular_osm.gps_overlay import (
     GpsFix,
     _reject_jumps,
     extract_gps_track,

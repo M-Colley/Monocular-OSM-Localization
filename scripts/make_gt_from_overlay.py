@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.gps_overlay import extract_gps_track, track_to_ground_truth  # noqa: E402
+from monocular_osm.gps_overlay import extract_gps_track, track_to_ground_truth  # noqa: E402
 
 
 def main() -> None:

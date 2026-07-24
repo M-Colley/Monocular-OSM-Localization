@@ -7,7 +7,7 @@ import zoneinfo
 
 import numpy as np
 
-from src.sun_heading import _parse_clock, detect_sun_bearing, sun_az_alt
+from monocular_osm.sun_heading import _parse_clock, detect_sun_bearing, sun_az_alt
 
 
 def test_parse_clock_formats():

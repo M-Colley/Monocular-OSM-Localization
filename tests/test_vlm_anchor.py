@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import src.vlm_anchor as va
-from src.vlm_anchor import (
+import monocular_osm.vlm_anchor as va
+from monocular_osm.vlm_anchor import (
     _classify_reply,
     _crop_bbox,
     _parse,

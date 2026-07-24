@@ -17,11 +17,11 @@ from pathlib import Path
 
 import numpy as np
 
-from src.evaluator import evaluate_candidates_against_waypoints, load_gt_waypoints
-from src.loop_closure import redistribute_drift
-from src.osm_data import fetch_city_graph
-from src.trajectory_matching import match_trajectory
-from src.visual_odometry import trajectory_arc_length
+from monocular_osm.evaluator import evaluate_candidates_against_waypoints, load_gt_waypoints
+from monocular_osm.loop_closure import redistribute_drift
+from monocular_osm.osm_data import fetch_city_graph
+from monocular_osm.trajectory_matching import match_trajectory
+from monocular_osm.visual_odometry import trajectory_arc_length
 
 DATA = Path("data")
 GML = "local-36a50c34107a-drive-0033-karlsruhe-germany/Karlsruhe_Germany_around_48.9702_8.4788_968.graphml"
@@ -62,7 +62,7 @@ def main() -> None:
             g_h = np.array([x.mean_route_error_m for x in e_h]); g_h = np.where(np.isfinite(g_h), g_h, 1e9)
             # Re-rank the gated candidates by bearing-corr to the VGGT
             # (drift-free) signature instead of the drifted VO's.
-            from src.visual_odometry import bearing_signature, resample_uniform
+            from monocular_osm.visual_odometry import bearing_signature, resample_uniform
             vsig = bearing_signature(vggt, n_samples=128)
             def vcorr(c):
                 try:

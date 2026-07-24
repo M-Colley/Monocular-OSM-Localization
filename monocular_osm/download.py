@@ -32,7 +32,7 @@ class VideoMetadata:
     fps: float | None = None
     # Uploader description. Often names the route's districts / landmarks /
     # streets — a strong GPS-free COARSE location prior (see
-    # src/location_prior.py), tighter than the city centroid.
+    # monocular_osm/location_prior.py), tighter than the city centroid.
     description: str | None = None
 
 

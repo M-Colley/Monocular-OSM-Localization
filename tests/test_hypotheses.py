@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.hypotheses import (
+from monocular_osm.hypotheses import (
     LocationHypothesis,
     cluster_candidates,
     dedup_candidates_by_walk,
     distinct_hypotheses,
     hypothesis_confidence,
 )
-from src.trajectory_matching import MatchCandidate
+from monocular_osm.trajectory_matching import MatchCandidate
 
 
 class _FakeGraph:

@@ -29,7 +29,7 @@ from maploc.models.voting import argmax_xyr, fuse_gps  # noqa: E402
 from maploc.osm.tiling import TileManager  # noqa: E402
 from maploc.utils.geo import BoundaryBox, Projection  # noqa: E402
 from maploc.utils.wrappers import Camera  # noqa: E402
-from src.kitti_raw import load_oxts_track  # noqa: E402
+from monocular_osm.kitti_raw import load_oxts_track  # noqa: E402
 
 DRIVE = "data/kitti/2011_09_30/2011_09_30_drive_0033_sync"
 KITTI_FX = 721.5  # P_rect_02 focal for the 1242-wide image

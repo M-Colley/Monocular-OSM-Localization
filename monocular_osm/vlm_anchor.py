@@ -4,7 +4,7 @@ A coarse, shape-INDEPENDENT location prior of a DIFFERENT class than VPR: instea
 of image retrieval, a vision-language model reads dashcam frames and infers the
 most likely neighbourhood/district plus any readable street/shop/landmark names,
 from world knowledge. Geocoding the consensus gives a centre that feeds the same
-anchor-primary path as VPR (src/pipeline.py [10a*]) — useful when VPR has no
+anchor-primary path as VPR (monocular_osm/pipeline.py [10a*]) — useful when VPR has no
 coverage (e.g. low-res clips with no KartaView references nearby).
 
 Per user: uses google/gemma-4-E2B-it (local multimodal Gemma 4), not Qwen3-VL.

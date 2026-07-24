@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from pyproj import Transformer  # noqa: E402
 
-from src.osm_data import fetch_city_graph  # noqa: E402
+from monocular_osm.osm_data import fetch_city_graph  # noqa: E402
 
 MPD = 111320.0
 ulm = json.load(open("output/orienternet_ulm_london.json"))["Ulm"]

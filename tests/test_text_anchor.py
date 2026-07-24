@@ -8,9 +8,9 @@ import pytest
 from pyproj import Transformer
 from shapely.geometry import LineString
 
-from src.osm_data import _build_polyline_view
-from src.scene_text import SceneText
-from src.text_anchor import (
+from monocular_osm.osm_data import _build_polyline_view
+from monocular_osm.scene_text import SceneText
+from monocular_osm.text_anchor import (
     PoiAnchor,
     anchor_seed_nodes,
     anchors_to_xy,
@@ -166,7 +166,7 @@ def test_geocode_cache_skips_transient_failures(tmp_path, monkeypatch) -> None:
     cache — the old code memoized it as 'not found' forever, silently killing
     the OCR-anchor channel on every later run."""
     ox = pytest.importorskip("osmnx")
-    from src.text_anchor import default_geocode_fn
+    from monocular_osm.text_anchor import default_geocode_fn
 
     _geocode_fn_env(monkeypatch)
     cp = tmp_path / "geocode_cache.json"
@@ -191,7 +191,7 @@ def test_geocode_cache_memoizes_genuine_not_found(tmp_path, monkeypatch) -> None
     ox = pytest.importorskip("osmnx")
     from osmnx._errors import InsufficientResponseError
 
-    from src.text_anchor import default_geocode_fn
+    from monocular_osm.text_anchor import default_geocode_fn
 
     _geocode_fn_env(monkeypatch)
     cp = tmp_path / "geocode_cache.json"
@@ -221,7 +221,7 @@ def test_city_extent_radius_bbox_and_cache(tmp_path, monkeypatch) -> None:
     import math
 
     ox = pytest.importorskip("osmnx")
-    from src.text_anchor import city_extent_radius
+    from monocular_osm.text_anchor import city_extent_radius
 
     class _Gdf:
         def __init__(self, bounds):
@@ -256,7 +256,7 @@ def test_city_extent_radius_bbox_and_cache(tmp_path, monkeypatch) -> None:
 
 def test_geocode_cache_memoizes_hits(tmp_path, monkeypatch) -> None:
     ox = pytest.importorskip("osmnx")
-    from src.text_anchor import default_geocode_fn
+    from monocular_osm.text_anchor import default_geocode_fn
 
     _geocode_fn_env(monkeypatch)
     cp = tmp_path / "geocode_cache.json"
@@ -328,7 +328,7 @@ def _named_street_graph() -> "RoadGraph":
 
 
 def test_match_text_to_streets_exact_and_fuzzy() -> None:
-    from src.text_anchor import match_text_to_streets
+    from monocular_osm.text_anchor import match_text_to_streets
 
     road = _named_street_graph()
     dets = [
@@ -346,7 +346,7 @@ def test_match_text_to_streets_exact_and_fuzzy() -> None:
 
 
 def test_match_text_to_streets_rejects_low_confidence_and_short() -> None:
-    from src.text_anchor import match_text_to_streets
+    from monocular_osm.text_anchor import match_text_to_streets
 
     road = _named_street_graph()
     dets = [
@@ -357,7 +357,7 @@ def test_match_text_to_streets_rejects_low_confidence_and_short() -> None:
 
 
 def test_street_anchor_xy_and_seed_nodes() -> None:
-    from src.text_anchor import (
+    from monocular_osm.text_anchor import (
         match_text_to_streets,
         street_anchor_seed_nodes,
         street_anchor_xy,
@@ -377,7 +377,7 @@ def test_match_text_to_streets_splits_citywide_name_into_components() -> None:
     """A common street name recurring across town must yield one anchor per
     physical instance — the old single anchor put its centroid BETWEEN the
     instances (a phantom point on no street)."""
-    from src.text_anchor import match_text_to_streets
+    from monocular_osm.text_anchor import match_text_to_streets
 
     g = nx.MultiDiGraph()
     g.graph["crs"] = UTM32N
@@ -404,7 +404,7 @@ def test_match_text_to_streets_splits_citywide_name_into_components() -> None:
 
 def test_match_text_to_streets_no_false_positive_from_shop_name() -> None:
     """A shop name dissimilar to any street must not fuzzy-match."""
-    from src.text_anchor import match_text_to_streets
+    from monocular_osm.text_anchor import match_text_to_streets
 
     road = _named_street_graph()
     dets = [SceneText("KAAN", 0.95, 30.0), SceneText("PIERCING", 0.9, 40.0)]
@@ -417,7 +417,7 @@ def test_match_text_to_streets_no_false_positive_from_shop_name() -> None:
 
 
 def test_select_anchor_cluster_keeps_dense_drops_outliers() -> None:
-    from src.text_anchor import select_anchor_cluster
+    from monocular_osm.text_anchor import select_anchor_cluster
 
     # Four points clustered near origin, two far outliers.
     xy = np.array([
@@ -429,7 +429,7 @@ def test_select_anchor_cluster_keeps_dense_drops_outliers() -> None:
 
 
 def test_select_anchor_cluster_weights_break_ties() -> None:
-    from src.text_anchor import select_anchor_cluster
+    from monocular_osm.text_anchor import select_anchor_cluster
 
     # Two pairs equally sized; higher-confidence pair should win.
     xy = np.array([[0, 0], [100, 0], [9000, 0], [9100, 0]], dtype=float)
@@ -439,7 +439,7 @@ def test_select_anchor_cluster_weights_break_ties() -> None:
 
 
 def test_select_anchor_cluster_noop_small() -> None:
-    from src.text_anchor import select_anchor_cluster
+    from monocular_osm.text_anchor import select_anchor_cluster
 
     assert list(select_anchor_cluster(np.zeros((1, 2)))) == [0]
     assert list(select_anchor_cluster(np.zeros((0, 2)))) == []
@@ -448,7 +448,7 @@ def test_select_anchor_cluster_noop_small() -> None:
 def test_cluster_filter_anchors_drops_far_street(monkeypatch) -> None:
     """The Ulm 4K failure: a central POI cluster plus a far false street
     match. The street 9 km out must be dropped."""
-    from src.text_anchor import PoiAnchor, StreetAnchor, cluster_filter_anchors
+    from monocular_osm.text_anchor import PoiAnchor, StreetAnchor, cluster_filter_anchors
 
     road = _named_street_graph()  # nodes near 48.40, 9.99 (central)
     # Central POIs near the graph nodes.

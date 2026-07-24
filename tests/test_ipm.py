@@ -6,14 +6,14 @@ import cv2
 import numpy as np
 import pytest
 
-from src.ipm import (
+from monocular_osm.ipm import (
     IPMCalibration,
     compute_ipm_homography,
     render_ipm_canvas,
     stitch_bev_along_trajectory,
     warp_to_bev,
 )
-from src.visual_odometry import default_intrinsics
+from monocular_osm.visual_odometry import default_intrinsics
 
 
 def test_compute_homography_returns_valid_3x3() -> None:

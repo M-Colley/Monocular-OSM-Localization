@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.loop_closure import detect_end_to_start_loop, redistribute_drift
+from monocular_osm.loop_closure import detect_end_to_start_loop, redistribute_drift
 
 
 def test_redistribute_closes_full_loop() -> None:
@@ -77,7 +77,7 @@ def _textured(seed: int, w: int = 160, h: int = 120) -> np.ndarray:
 def test_cached_orb_path_matches_uncached_reference() -> None:
     """The per-frame descriptor cache must give identical results to
     scoring every pair from scratch with _orb_inliers."""
-    from src.loop_closure import _orb_inliers
+    from monocular_osm.loop_closure import _orb_inliers
 
     # Head and tail share (shifted) copies of one scene; middles differ.
     scene = _textured(0)
@@ -97,7 +97,7 @@ def test_cached_orb_path_matches_uncached_reference() -> None:
 def test_default_path_describes_each_frame_once(monkeypatch) -> None:
     """The default ORB path computes keypoints/descriptors once per
     unique frame instead of once per pair."""
-    import src.loop_closure as lc
+    import monocular_osm.loop_closure as lc
 
     calls: list[int] = []
     real = lc._orb_describe

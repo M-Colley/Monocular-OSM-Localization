@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import src.pipeline as pipeline
-from src.pipeline import (
+import monocular_osm.pipeline as pipeline
+from monocular_osm.pipeline import (
     PipelineConfig,
     _auto_estimated_length_m,
     _fetch_road_graph,
@@ -210,7 +210,7 @@ def test_estimated_length_default_is_auto() -> None:
 def test_da3_plausible_accepts_smooth_drive() -> None:
     import numpy as np
 
-    from src.pipeline import _da3_trajectory_plausible
+    from monocular_osm.pipeline import _da3_trajectory_plausible
 
     # An L-shaped drive: 20 steps east, then 20 steps north.
     path = np.array(
@@ -222,7 +222,7 @@ def test_da3_plausible_accepts_smooth_drive() -> None:
 def test_da3_plausible_rejects_zigzag_scribble() -> None:
     import numpy as np
 
-    from src.pipeline import _da3_trajectory_plausible
+    from monocular_osm.pipeline import _da3_trajectory_plausible
 
     rng = np.random.default_rng(0)
     scribble = rng.uniform(-1, 1, size=(48, 2))  # failed pose solve
@@ -232,7 +232,7 @@ def test_da3_plausible_rejects_zigzag_scribble() -> None:
 def test_da3_plausible_rejects_degenerate_paths() -> None:
     import numpy as np
 
-    from src.pipeline import _da3_trajectory_plausible
+    from monocular_osm.pipeline import _da3_trajectory_plausible
 
     assert _da3_trajectory_plausible(np.zeros((2, 2))) is False      # too short
     assert _da3_trajectory_plausible(np.zeros((10, 2))) is False     # stationary
@@ -241,7 +241,7 @@ def test_da3_plausible_rejects_degenerate_paths() -> None:
 def test_da3_plausible_tolerates_single_u_turn() -> None:
     import numpy as np
 
-    from src.pipeline import _da3_trajectory_plausible
+    from monocular_osm.pipeline import _da3_trajectory_plausible
 
     # Drive 30 steps east, U-turn, 30 steps back west: exactly one
     # reversal among 59 segment pairs — a real maneuver, must pass.
@@ -257,7 +257,7 @@ def test_da3_plausible_tolerates_single_u_turn() -> None:
 
 
 def test_fuse_bev_flips_a_near_tie() -> None:
-    from src.pipeline import _fuse_bev_rank
+    from monocular_osm.pipeline import _fuse_bev_rank
 
     # Geometric scores nearly tied; BevSplat strongly prefers candidate 1.
     base = [3.5, 4.0, 9.0]
@@ -267,7 +267,7 @@ def test_fuse_bev_flips_a_near_tie() -> None:
 
 
 def test_fuse_bev_cannot_override_a_large_geometric_gap() -> None:
-    from src.pipeline import _fuse_bev_rank
+    from monocular_osm.pipeline import _fuse_bev_rank
 
     base = [2.0, 12.0, 13.0]
     bev_ranks = [3, 1, 2]   # appearance prefers the geometric losers
@@ -276,7 +276,7 @@ def test_fuse_bev_cannot_override_a_large_geometric_gap() -> None:
 
 
 def test_fuse_bev_ties_break_by_incoming_order() -> None:
-    from src.pipeline import _fuse_bev_rank
+    from monocular_osm.pipeline import _fuse_bev_rank
 
     base = [5.0, 5.0]
     bev_ranks = [1, 1]
@@ -287,7 +287,7 @@ def test_fuse_bev_cap_blocks_longshot_promotion() -> None:
     """The 10-min Ulm backfire: a geometrically-implausible candidate
     (base rank 6) that BevSplat loves (rank 1) must NOT reach #1 — the
     cap keeps it out of the reorderable shortlist."""
-    from src.pipeline import _fuse_bev_rank
+    from monocular_osm.pipeline import _fuse_bev_rank
 
     # 6 candidates; index 5 is geometrically worst (base 12) but bev #1.
     base = [1.0, 2.0, 3.0, 4.0, 5.0, 12.0]
@@ -299,7 +299,7 @@ def test_fuse_bev_cap_blocks_longshot_promotion() -> None:
 
 def test_fuse_bev_cap_still_reorders_within_shortlist() -> None:
     """Within the geometric top-cap, appearance still reorders."""
-    from src.pipeline import _fuse_bev_rank
+    from monocular_osm.pipeline import _fuse_bev_rank
 
     base = [3.5, 4.0, 9.0, 10.0, 11.0, 12.0]
     bev_ranks = [3, 1, 2, 4, 5, 6]
@@ -309,7 +309,7 @@ def test_fuse_bev_cap_still_reorders_within_shortlist() -> None:
 
 
 def test_fuse_bev_cap_at_full_length_is_unconstrained() -> None:
-    from src.pipeline import _fuse_bev_rank
+    from monocular_osm.pipeline import _fuse_bev_rank
 
     base = [2.0, 12.0, 13.0]
     bev_ranks = [3, 1, 2]
@@ -402,7 +402,7 @@ def test_match_timestamps_anchor_lookup_stays_in_bounds() -> None:
     """An anchor at t=245 s used to map to frame index ~2447 in a
     1260-row OpenVO trajectory -> IndexError. With the aligned axis the
     nearest-time lookup is in bounds by construction."""
-    from src.scale_recovery import vo_positions_at_times
+    from monocular_osm.scale_recovery import vo_positions_at_times
 
     n_frames, n_poses = 4196, 1260
     frame_ts = list(np.linspace(0.0, 419.5, n_frames))
@@ -562,9 +562,9 @@ def _fake_capture(monkeypatch):
 def test_drop_direction_anchors_removes_direction_signs(monkeypatch) -> None:
     """A directional sign (Holborn) is dropped; a here-sign (Russell Square)
     survives — the London 'Holborn' failure fix, wired at the pipeline level."""
-    import src.vlm_anchor as vlm
-    from src.scene_text import SceneText
-    from src.text_anchor import PoiAnchor
+    import monocular_osm.vlm_anchor as vlm
+    from monocular_osm.scene_text import SceneText
+    from monocular_osm.text_anchor import PoiAnchor
 
     anchors = [
         PoiAnchor(name="Holborn", lat=51.517, lon=-0.120, confidence=0.9, t_sec=10.0),
@@ -585,9 +585,9 @@ def test_drop_direction_anchors_removes_direction_signs(monkeypatch) -> None:
 
 def test_drop_direction_anchors_noop_when_all_here(monkeypatch) -> None:
     """When nothing classifies as 'direction', the anchor list is unchanged."""
-    import src.vlm_anchor as vlm
-    from src.scene_text import SceneText
-    from src.text_anchor import PoiAnchor
+    import monocular_osm.vlm_anchor as vlm
+    from monocular_osm.scene_text import SceneText
+    from monocular_osm.text_anchor import PoiAnchor
 
     anchors = [PoiAnchor(name="Sedelhoefe", lat=48.4, lon=9.99, confidence=0.9, t_sec=5.0)]
     dets = [SceneText("Sedelhoefe", 0.9, 5.0, (0, 0, 8, 8))]
@@ -635,7 +635,7 @@ def test_vpr_track_geometry_sorts_and_projects() -> None:
     # sorted by frame index, arrays kept parallel
     assert list(vi) == sorted(vi)
     assert vll.shape == (32, 2) and vs.shape == (32,)
-    from src.position import latlon_to_xy
+    from monocular_osm.position import latlon_to_xy
     true_ends = latlon_to_xy(np.vstack([start, end]), _UTM32N)
     # robust centres land on the cluster centres (jitter is ~5 m)
     assert np.linalg.norm(s_xy - true_ends[0]) < 30.0
@@ -923,7 +923,7 @@ def _onet_setup(tmp_path: Path, refined_shift_m: float, track_noise_m: float):
     returns the route shifted east by ``refined_shift_m``."""
     from types import SimpleNamespace
 
-    from src.position import xy_to_latlon
+    from monocular_osm.position import xy_to_latlon
 
     rng = np.random.default_rng(11)
     xy = np.column_stack([np.linspace(570000.0, 571000.0, 60),
@@ -950,7 +950,7 @@ def test_orienternet_gate_rejects_off_track_refinement(
 ) -> None:
     """A refinement that explains the VPR track worse than the route it
     started from must NOT overwrite the position (London: 31 -> 190 m)."""
-    import src.orienternet_localizer as onl
+    import monocular_osm.orienternet_localizer as onl
 
     cfg, frames, cand, road, position, result, vpr_track, refined_ll = \
         _onet_setup(tmp_path, refined_shift_m=500.0, track_noise_m=5.0)
@@ -969,9 +969,9 @@ def test_orienternet_start_gate_rejects_dragged_pin(
     """The London failure shape: the refined route's BODY still fits the track
     (track gate passes) but the START is dragged far off the pinned start ->
     rejected on start-pinned runs."""
-    import src.orienternet_localizer as onl
+    import monocular_osm.orienternet_localizer as onl
 
-    from src.position import xy_to_latlon
+    from monocular_osm.position import xy_to_latlon
 
     cfg, frames, cand, road, position, result, vpr_track, _ = \
         _onet_setup(tmp_path, refined_shift_m=0.0, track_noise_m=40.0)
@@ -994,7 +994,7 @@ def test_orienternet_gate_accepts_on_track_refinement(
 ) -> None:
     """A refinement that fits the track as well as the prior route is applied
     (position overwritten, coarse kept)."""
-    import src.orienternet_localizer as onl
+    import monocular_osm.orienternet_localizer as onl
 
     cfg, frames, cand, road, position, result, vpr_track, refined_ll = \
         _onet_setup(tmp_path, refined_shift_m=3.0, track_noise_m=30.0)

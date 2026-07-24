@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.sky_segmentation import skyline_from_frame_seg
+from monocular_osm.sky_segmentation import skyline_from_frame_seg
 
 
 class _FakeSegmenter:

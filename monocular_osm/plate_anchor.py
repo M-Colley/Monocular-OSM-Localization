@@ -13,7 +13,7 @@ reads of the same full plate are collapsed so one nearby car cannot dominate the
 vote — but only the prefix and a transient hash leave the per-frame scope.
 
 Usage:
-    from src.plate_anchor import plate_district_anchor
+    from monocular_osm.plate_anchor import plate_district_anchor
     anchor = plate_district_anchor("clip.mp4")  # -> {lat, lon, radius_m, code, ...}
 """
 
