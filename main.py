@@ -439,7 +439,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--vpr-c2f-radius", type=float, default=2000.0,
                    help="Tight second-pass disc radius (m) for "
                         "--vpr-coarse-to-fine (default 2000).")
-    p.add_argument("--vpr-source", choices=["kartaview", "mapillary", "panoramax"],
+    p.add_argument("--vpr-source",
+                   choices=["kartaview", "mapillary", "panoramax", "union"],
                    default="kartaview",
                    help="VPR reference imagery source. 'kartaview' is open and "
                         "tokenless. 'mapillary' is much denser (needs a free "
@@ -447,7 +448,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "clip, including London/comma/KITTI that KartaView could "
                         "not cover. 'panoramax' is the federated open network "
                         "(tokenless, 105M+ images 2026, strongest in EU) — a "
-                        "coverage complement where Mapillary is thin.")
+                        "coverage complement where Mapillary is thin. 'union' "
+                        "CONCATENATES all three reference pools (MegaLoc space) "
+                        "for maximum coverage where any single source is sparse.")
     p.add_argument("--vpr-two-pass", action="store_true",
                    help="Match at both the VO scale and a scale pinned to the "
                         "VPR track extent, keeping whichever candidates better "

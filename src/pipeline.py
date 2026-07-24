@@ -1638,7 +1638,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 _vpr_device = "cuda" if _torch.cuda.is_available() else None
             except Exception:
                 _vpr_device = None
-            _vpr_token = _os.environ.get("MLY_TOKEN") if _vpr_src == "mapillary" else None
+            _vpr_token = (_os.environ.get("MLY_TOKEN")
+                          if _vpr_src in ("mapillary", "union") else None)
             if _vpr_src == "mapillary" and not _vpr_token:
                 # A warm ref cache serves without the API, so only fall back
                 # when there is no cache either — offline regression sweeps

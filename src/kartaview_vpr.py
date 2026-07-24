@@ -432,6 +432,40 @@ def _fetch_refs_for(source, center, radius_m, cache_dir, cap, token):
     return _fetch_refs(center, radius_m, cache_dir, cap=cap)
 
 
+def _union_refs(center, radius_m, cache_dir, cap, token, device, model_name):
+    """Embed and CONCATENATE reference pools from several street-imagery
+    sources — the coverage lever for areas where one source is thin (KITTI's
+    start has 2 Mapillary refs <=50 m but 23 KartaView <=250 m). Each source
+    keeps its own cache sub-dir (sibling of ``cache_dir``); embeddings share
+    the MegaLoc space so pools concatenate directly. Returns
+    ``(ref_emb, ref_xy)`` or ``(None, None)``."""
+    from pathlib import Path
+
+    import numpy as np
+    import torch
+    parent = Path(cache_dir).parent
+    embs, xys = [], []
+    counts = []
+    for src in ("mapillary", "kartaview", "panoramax"):
+        d = str(parent / src)
+        try:
+            refs = _fetch_refs_for(src, center, radius_m, d, cap,
+                                   token if src == "mapillary" else None)
+            if len(refs) < 5:
+                continue
+            e, xy = _embed_refs(refs, device, d, model_name=model_name)
+            if e is not None and len(xy):
+                embs.append(e)
+                xys.append(np.asarray(xy, dtype=float))
+                counts.append(f"{src}:{len(xy)}")
+        except Exception:
+            continue
+    if not embs:
+        return None, None
+    print(f"      -> VPR union refs [{', '.join(counts)}]")
+    return torch.cat(embs), np.vstack(xys)
+
+
 def _prep(bgr):
     import cv2
     import torch
@@ -746,11 +780,15 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
     _STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-    refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
-    if len(refs) < 30:
-        return None
     resolved = _resolve_backbone(model_name, device)
-    ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved)
+    if source == "union":
+        ref_emb, ref_xy = _union_refs(center, radius_m, cache_dir, cap, token,
+                                      device, resolved)
+    else:
+        refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
+        if len(refs) < 30:
+            return None
+        ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved)
     if ref_emb is None or len(ref_xy) < 30:
         return None
     idx = np.linspace(0, len(frames_bgr) - 1,
