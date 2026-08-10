@@ -19,17 +19,66 @@ def test_redistribute_closes_full_loop() -> None:
     assert np.linalg.norm(closed[-1] - closed[0]) < 1e-6     # closed
 
 
+def _near_loop(n_side: int = 10, lead: int = 5, tail: int = 9,
+               drift: float = 0.4) -> tuple[np.ndarray, int, int]:
+    """A lead-in, a square circuit that nearly closes, then a tail.
+
+    Returns ``(xz, i, j)`` where i and j are the SAME PLACE — the entry to
+    and the exit from the circuit. That distinction is the whole point: the
+    correction removes ``xz[j] - xz[i]``, so it is only meaningful when those
+    two indices really are a revisit. On a straight line the "gap" between
+    any two points is the arc between them, and closing it collapses the span
+    onto a point (see the guard test below).
+    """
+    steps = ([(1.0, 0.0)] * lead
+             + [(1.0, 0.0)] * n_side + [(0.0, 1.0)] * n_side
+             + [(-1.0, 0.0)] * n_side + [(0.0, -1.0)] * n_side
+             + [(0.0, -1.0)] * tail)
+    xz = np.cumsum(np.array([(0.0, 0.0)] + steps), axis=0)
+    i, j = lead, lead + 4 * n_side
+    # Bow the circuit outward so it does not close exactly — that residual is
+    # the drift the closure is supposed to remove.
+    xz[i:] += np.linspace(0.0, drift, len(xz) - i)[:, None]
+    return xz, i, j
+
+
 def test_redistribute_preserves_prefix_and_shifts_tail() -> None:
-    xz = np.cumsum(np.ones((50, 2)), axis=0)  # straight ramp
-    out = redistribute_drift(xz, 10, 30)
+    xz, i, j = _near_loop()
+    out = redistribute_drift(xz, i, j)
     # Points before i are untouched.
-    np.testing.assert_allclose(out[:11], xz[:11])
-    # Point j is pulled onto point i's... no — onto the closure: xz[j]-gap.
-    # The gap at j is fully removed, so out[j]-out[i] == 0 vector? It maps
-    # j onto i only in the *correction* sense: out[j] == xz[j] - (xz[j]-xz[i]).
-    np.testing.assert_allclose(out[30], xz[10])
+    np.testing.assert_allclose(out[:i + 1], xz[:i + 1])
+    # The gap at j is fully removed: out[j] lands exactly on xz[i].
+    np.testing.assert_allclose(out[j], xz[i])
     # Tail keeps the same shape (rigid shift), so step vectors are preserved.
-    np.testing.assert_allclose(np.diff(out[31:], axis=0), np.diff(xz[31:], axis=0))
+    np.testing.assert_allclose(np.diff(out[j + 1:], axis=0),
+                               np.diff(xz[j + 1:], axis=0))
+
+
+def test_redistribute_refuses_a_closure_that_is_not_a_loop() -> None:
+    """A straight drive's "closure" would fold the route in half.
+
+    The gap between two points on a straight ramp IS the arc between them,
+    so applying the correction collapses that whole span onto one point —
+    a kilometre-scale error, not the tens of metres closure buys. Measured
+    on the 8 overlay clips, whose end-to-start gaps are 57-91% of arc length
+    and none of which is a loop.
+    """
+    straight = np.cumsum(np.ones((50, 2)), axis=0)
+    np.testing.assert_allclose(redistribute_drift(straight, 10, 30), straight)
+
+
+def test_redistribute_still_closes_a_realistic_drift_bow() -> None:
+    # KITTI drive_0033, the one clip in the fleet that genuinely closes, has
+    # an end-start gap of 27% of arc length (see this module's docstring).
+    # The guard must let that through — it is the one documented positive
+    # result for --enable-loop-closure (README: 144 m -> 77 m).
+    xz, i, j = _near_loop(n_side=20, drift=15.0)
+    gap = float(np.linalg.norm(xz[j] - xz[i]))
+    arc = float(np.sum(np.linalg.norm(np.diff(xz[i:j + 1], axis=0), axis=1)))
+    assert 0.2 < gap / arc < 0.35, f"fixture should sit near KITTI's 27%, got {gap/arc:.2f}"
+    out = redistribute_drift(xz, i, j)
+    assert not np.allclose(out, xz)                 # the closure was applied
+    np.testing.assert_allclose(out[j], xz[i])
 
 
 def test_redistribute_noop_on_bad_indices() -> None:
@@ -111,3 +160,64 @@ def test_default_path_describes_each_frame_once(monkeypatch) -> None:
     lc.detect_end_to_start_loop(frames, min_inliers=10 ** 6)
     # head=2, tail=2 (12 % of 20) -> 4 unique frames across all pairs.
     assert len(calls) == 4
+
+
+# ---------------------------------------------------------------------------
+# a "verified" loop must not be fabricated from garbage or from static pixels
+# ---------------------------------------------------------------------------
+
+
+def test_degenerate_input_returns_zero_not_uninitialised_memory() -> None:
+    """cv2.findFundamentalMat returns F=None WITH a non-None mask whose
+    contents are uninitialised. Summing that mask returns garbage — measured
+    returns of 2195 and 1603 from a 40-point input, either of which sails
+    past min_inliers=30 and invents a loop out of nothing."""
+    import cv2
+
+    from monocular_osm.loop_closure import _inliers_from_features
+
+    class _KP:
+        def __init__(self, x, y):
+            self.pt = (float(x), float(y))
+
+    # Identical, perfectly collinear points: RANSAC cannot find F.
+    kp = [_KP(100 + i, 100) for i in range(40)]
+    des = np.zeros((40, 32), dtype=np.uint8)
+    for i in range(40):                      # distinct descriptors so the
+        des[i, i % 32] = i + 1               # ratio test admits them
+    for _ in range(4):
+        n = _inliers_from_features((kp, des), (kp, des))
+        assert 0 <= n <= 40, f"impossible inlier count {n} for a 40-point input"
+
+
+def test_static_graphics_do_not_verify_as_a_loop() -> None:
+    """Two frames that share only a burned-in overlay are not a revisit.
+
+    Zero-disparity correspondences are inliers to EVERY fundamental matrix,
+    so without a parallax gate the overlay verifies itself. Measured on the
+    Detroit clip ZhGb8q1kliY: a 449-inlier "geometrically verified loop"
+    whose median inlier displacement was 0.00 px.
+    """
+    import cv2
+
+    from monocular_osm.loop_closure import _orb_inliers
+
+    rng = np.random.default_rng(3)
+    w, h, band = 640, 480, 90
+    band_img = cv2.resize(rng.integers(0, 255, (band // 2, w // 2, 3)).astype(np.uint8),
+                          (w, band), interpolation=cv2.INTER_NEAREST)
+    a = _textured(11, w=w, h=h)
+    b = _textured(12, w=w, h=h)      # a completely different place
+    a[h - band:] = band_img          # ...sharing only the overlay
+    b[h - band:] = band_img
+    assert _orb_inliers(a, b) < 30, "the overlay verified itself as a revisit"
+
+
+def test_a_real_revisit_still_verifies() -> None:
+    # The same scene from a slightly different viewpoint: large, consistent
+    # disparity. The parallax gate must not reject this.
+    from monocular_osm.loop_closure import _orb_inliers
+
+    scene = _textured(21, w=640, h=480)
+    shifted = np.roll(scene, 30, axis=1)
+    assert _orb_inliers(scene, shifted) >= 30

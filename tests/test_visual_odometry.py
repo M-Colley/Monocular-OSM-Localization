@@ -285,3 +285,94 @@ def test_visual_odometry_parallel_matches_sequential() -> None:
     np.testing.assert_allclose(seq.centers, par.centers, atol=1e-9)
     np.testing.assert_allclose(seq.rotations, par.rotations, atol=1e-9)
     np.testing.assert_allclose(seq.translations, par.translations, atol=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# burned-in graphics must not blind the stationary guard
+# ---------------------------------------------------------------------------
+#
+# Dashcam uploads carry a watermark, a GPS/speed stamp, a dashboard and a hood
+# reflection. Those pixels are IDENTICAL between any two frames, so they match
+# themselves with a descriptor distance of ~0 — better than any real scene
+# point. Selecting matches by descriptor distance therefore selects exactly the
+# things that never move, and a motion statistic computed over that selection
+# reads zero while the car is doing 65 mph.
+#
+# MEASURED on the 8 overlay-fleet clips before this was fixed: the old
+# statistic (median displacement over the top 300 matches by Hamming distance)
+# read 0.00 px on 6 of 8 clips, voiding EVERY frame pair on 4 of them. Those
+# clips produced a single-point trajectory and match_trajectory returned zero
+# candidates, silently. Over 593 stop/drive pairs labelled from the clips' own
+# GPS tracks it rejected the median DRIVING pair outright.
+
+
+def _overlay_pair(shift_px: int, *, w: int = 640, h: int = 480,
+                  band_h: int = 90) -> tuple[np.ndarray, np.ndarray]:
+    """Two frames of a scene translating by `shift_px`, under a static band.
+
+    The band is high-contrast fine texture — it wins the ORB corner budget
+    and the descriptor-distance ranking, exactly like a real burned-in stamp.
+    """
+    rng = np.random.default_rng(7)
+    scene = cv2.resize(rng.integers(0, 255, (h // 4, w // 2, 3)).astype(np.uint8),
+                       (w * 2, h), interpolation=cv2.INTER_NEAREST)
+    band = cv2.resize(rng.integers(0, 255, (band_h // 2, w // 2, 3)).astype(np.uint8),
+                      (w, band_h), interpolation=cv2.INTER_NEAREST)
+    a = scene[:, :w].copy()
+    b = scene[:, shift_px:shift_px + w].copy()
+    a[h - band_h:] = band          # identical in both frames
+    b[h - band_h:] = band
+    return a, b
+
+
+def _pose_of(a, b):
+    from monocular_osm.visual_odometry import _estimate_relative_pose
+    orb = cv2.ORB_create(nfeatures=3000)
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    return _estimate_relative_pose(a, b, default_intrinsics(a.shape[1], a.shape[0]),
+                                   orb, matcher)
+
+
+def test_static_overlay_does_not_void_a_moving_pair() -> None:
+    a, b = _overlay_pair(shift_px=24)
+    assert _pose_of(a, b) is not None, (
+        "a clearly-moving pair was rejected because the burned-in band "
+        "dominated the match set")
+
+
+def test_the_overlay_really_does_dominate_the_old_selection() -> None:
+    """Guards the guard: if the fixture stopped being adversarial, the test
+    above would pass for the wrong reason."""
+    a, b = _overlay_pair(shift_px=24)
+    orb = cv2.ORB_create(nfeatures=3000)
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    k1, d1 = orb.detectAndCompute(cv2.cvtColor(a, cv2.COLOR_BGR2GRAY), None)
+    k2, d2 = orb.detectAndCompute(cv2.cvtColor(b, cv2.COLOR_BGR2GRAY), None)
+    m = sorted(matcher.match(d1, d2), key=lambda x: x.distance)[:300]
+    disp = np.linalg.norm(
+        np.float32([k2[x.trainIdx].pt for x in m])
+        - np.float32([k1[x.queryIdx].pt for x in m]), axis=1)
+    # The OLD statistic. Under 0.75 px is what used to void the pair.
+    assert float(np.median(disp)) < 0.75
+
+
+def test_a_genuinely_static_pair_is_still_rejected() -> None:
+    # AUDIT-2026-07-02.md:161 — at a red light the essential matrix is
+    # degenerate and recoverPose returns a noise direction, which the
+    # unit-normalisation promotes to a full fake step. Must stay rejected.
+    a, _ = _overlay_pair(shift_px=24)
+    assert _pose_of(a, a.copy()) is None
+
+
+def test_stationary_threshold_scales_with_resolution() -> None:
+    # The constant is a fraction of the focal length, not a pixel count, so
+    # the same ANGULAR motion decides the same way at any resolution. A pixel
+    # threshold tuned at 1080p is 3x as strict at 360p.
+    from monocular_osm.visual_odometry import _MIN_PARALLAX_NORM
+
+    px = {w: _MIN_PARALLAX_NORM * default_intrinsics(w, w * 9 // 16)[0, 0]
+          for w in (640, 1280, 1920)}
+    assert px[1280] == pytest.approx(2 * px[640], rel=1e-6)
+    assert px[1920] == pytest.approx(3 * px[640], rel=1e-6)
+    # And it lands somewhere sane at 1080p: a few pixels, not a fraction of one.
+    assert 5.0 < px[1920] < 12.0

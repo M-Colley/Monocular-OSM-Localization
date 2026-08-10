@@ -30,10 +30,34 @@ from typing import Sequence
 import cv2
 import numpy as np
 
-# Below this median matched-keypoint displacement (pixels) a frame pair is
-# considered stationary (stopped at a light): the essential matrix carries
-# no translation signal and recoverPose would return a noise direction.
-_MIN_MOTION_PX = 0.75
+# Below this displacement (pixels) a correspondence carries no parallax and
+# must not be fitted: burned-in graphics — a channel watermark, a dashcam's
+# GPS/speed stamp, the dashboard, a hood reflection — match themselves
+# perfectly and are inliers to ANY essential matrix.
+_STATIC_MATCH_PX = 0.5
+
+# Below this 90th-percentile matched-keypoint displacement a frame pair is
+# considered stationary (stopped at a light): the essential matrix carries no
+# translation signal and recoverPose would return a noise direction, which the
+# unit-normalisation below would promote to a full fake step.
+#
+# Expressed as a fraction of the focal length, not in pixels, so the threshold
+# means the same angle at any resolution or crop.
+#
+# Two things here were measured on 593 stop/drive frame pairs labelled from the
+# overlay fleet's own GPS tracks (scripts/overlay_clips.py), and both matter:
+#
+#   * the statistic has to be the 90th percentile over EVERY cross-checked
+#     match. The previous version took the median over the top 300 matches by
+#     descriptor distance — and descriptor distance is smallest exactly for
+#     the zero-parallax burned-in pixels above. That median read 0.00 px for
+#     the MEDIAN DRIVING PAIR, voiding every edge on 4 of the 8 overlay clips
+#     and silently reducing those trajectories to a single point.
+#   * 0.006 keeps 96.8% of genuinely-driving pairs. Raising it to 0.012 buys
+#     little (false accepts 14.2% -> 7.1%) and costs 15 points of recall; the
+#     residual "false accepts" are mostly a car rolling at under 1 km/h or
+#     cross traffic at a red light, which the n_inliers gate also sees.
+_MIN_PARALLAX_NORM = 0.006
 
 
 @dataclass
@@ -94,24 +118,41 @@ def _estimate_relative_pose(
     if len(matches) < 16:
         return None
 
-    matches = sorted(matches, key=lambda m: m.distance)[:300]
-    pts1 = np.float32([kp1[m.queryIdx].pt for m in matches])
-    pts2 = np.float32([kp2[m.trainIdx].pt for m in matches])
+    all1 = np.float32([kp1[m.queryIdx].pt for m in matches])
+    all2 = np.float32([kp2[m.trainIdx].pt for m in matches])
+    displacement = np.linalg.norm(all2 - all1, axis=1)
+
+    # Stationary guard: at a red light consecutive frames have ~zero
+    # baseline, the essential matrix is degenerate and recoverPose returns
+    # a noise direction — which the unit-normalization below would promote
+    # to a full fake step. Static scenes still match densely, so the inlier
+    # gate never trips; detect the no-motion case directly from the matched
+    # keypoints and treat the pair as invalid (the chain then holds the
+    # previous pose, i.e. a zero step).
+    #
+    # Measured over ALL cross-checked matches, because any subset chosen by
+    # descriptor quality is a subset of the things that never move. A
+    # percentile rather than the median, because a windscreen-mounted camera
+    # can easily have most of its matches on static furniture (dashboard +
+    # watermark + stamp) while the road ahead flows normally.
+    if float(np.percentile(displacement, 90)) < _MIN_PARALLAX_NORM * float(K[0, 0]):
+        return None
+
+    # Fit only on correspondences that actually carry parallax. Zero-disparity
+    # points satisfy every epipolar geometry, so leaving them in does not just
+    # waste RANSAC's budget — it lets a degenerate solution win outright.
+    moving = displacement >= _STATIC_MATCH_PX
+    if int(moving.sum()) < 16:
+        return None
+    selected = sorted((m for m, keep in zip(matches, moving) if keep),
+                      key=lambda m: m.distance)[:300]
+    pts1 = np.float32([kp1[m.queryIdx].pt for m in selected])
+    pts2 = np.float32([kp2[m.trainIdx].pt for m in selected])
 
     E, mask = cv2.findEssentialMat(
         pts1, pts2, K, method=cv2.RANSAC, prob=0.999, threshold=1.0
     )
     if E is None or E.shape != (3, 3):
-        return None
-
-    # Stationary guard: at a red light consecutive frames have ~zero
-    # baseline, the essential matrix is degenerate and recoverPose returns
-    # a noise direction — which the unit-normalization below would promote
-    # to a full fake step. Static scenes still match densely, so the
-    # inlier gate never trips; detect the no-motion case directly from the
-    # matched keypoints and treat the pair as invalid (the chain then
-    # holds the previous pose, i.e. a zero step).
-    if float(np.median(np.linalg.norm(pts2 - pts1, axis=1))) < _MIN_MOTION_PX:
         return None
 
     n_inliers, R, t, mask_pose = cv2.recoverPose(E, pts1, pts2, K, mask=mask)

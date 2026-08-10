@@ -54,6 +54,54 @@ All notable changes to this project are documented here. This project adheres to
 
 ### Fixed
 
+- **Burned-in graphics were blinding the visual odometry.** `_estimate_relative_pose`
+  selected its 300 correspondences by *descriptor distance*, and descriptor
+  distance is smallest exactly for the pixels that never move — a channel
+  watermark, a dashcam's GPS/speed stamp, the dashboard, a hood reflection.
+  The stationary guard then took the median over that selection, read 0.00 px
+  while the car was doing 65 mph, and voided the pair; the essential matrix,
+  when it was fitted at all, was fitted on points that satisfy *every* epipolar
+  geometry. Now the motion statistic is the 90th percentile over ALL
+  cross-checked matches, expressed as a fraction of focal length rather than in
+  pixels, and only correspondences carrying real parallax are fitted.
+
+  Measured on the 8 overlay clips (240 s each, VO shape similarity-fitted
+  against the clips' own GPS tracks). Mean error **247.3 m → 107.4 m (−57%)**,
+  median 210.8 → 89.0 m:
+
+  | clip | valid edges | shape error |
+  |---|---|---|
+  | `g5lnpYCk1Ec` | 19.3% → 86.1% | 521.3 → 79.3 m |
+  | `ZhGb8q1kliY` | 0.1% → 68.0% | 374.0 → 76.8 m |
+  | `kxEDNj5L_yQ` | 57.6% → 94.8% | 482.5 → 241.4 m |
+  | `1nF_7l07i-E` | 1.8% → 75.0% | 252.8 → 98.8 m |
+  | `y66ZkRpUh4k` | 50.8% → 60.4% | 132.3 → 127.2 m |
+  | `LmIHvLMLqFk` | 38.9% → 43.5% | 27.5 → 28.3 m |
+  | `vCSEG6KaFng` | 42.8% → 52.7% | 19.5 → 21.9 m |
+  | `wJsEQTCAg1c` | 68.9% → 71.2% | 168.8 → 185.3 m |
+
+  Three clips regress slightly (0.8–16.6 m): admitting more marginal pairs
+  costs a little precision where the trajectory was already healthy. That is a
+  deliberate trade for recovering two clips that had no usable trajectory at
+  all — `ZhGb8q1kliY` produced ONE valid edge in 2000.
+
+- **The loop-closure detector could fabricate a loop out of uninitialised
+  memory.** `cv2.findFundamentalMat` returns `F=None` when RANSAC fails but
+  still hands back a mask whose contents are undefined; `_inliers_from_features`
+  checked only `mask is not None` and summed it. Measured returns of 2195 and
+  1603 from a 40-point input — either clears `min_inliers=30` outright. Four
+  guards, which must stay together:
+  its exception (degenerate point sets *raise* rather than return, and that
+  crash was the only thing preventing a false closure on one clip), the `F is
+  None` check, a parallax gate (the 449-inlier "verified loop" on
+  `ZhGb8q1kliY` had a median inlier displacement of 0.00 px — zero-disparity
+  points are inliers to any fundamental matrix), and a refusal in
+  `redistribute_drift` for any closure whose gap exceeds 45% of the arc it
+  spans. Not one of the 8 clips is a loop, yet 6 of 8 fired; applying one would
+  have folded the trajectory roughly in half. Thresholds are fractions of image
+  width so KITTI's 640 px frames are judged like 1080p ones — that is where the
+  one documented positive result lives (`--enable-loop-closure`, 144 → 77 m).
+
 - **A run-together DMS parsed 37 km off, and looked fine.** When OCR preserved
   the apostrophe, `4222'59"N` matched greedily as degrees=`422`, and the
   degree-overflow repair truncated to `42` while leaving minutes as `2` —
