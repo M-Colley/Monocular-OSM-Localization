@@ -1,0 +1,110 @@
+{
+  "video_id": "LmIHvLMLqFk",
+  "video_url": "https://www.youtube.com/watch?v=LmIHvLMLqFk",
+  "city": "Chicago, Illinois, USA",
+  "vo_segment": "0:595",
+  "description": "Chicago at NIGHT, wet road. Same city and camera as vCSEG6KaFng one week earlier — a day/night A/B on near-identical geometry. Overlay: 000MPH  N:41.8856 W:87.6250   (VIOFO, 1080p). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 120 OCR fixes over 0-595 s (1.64 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 41.8868,
+      "lon": -87.6313
+    },
+    {
+      "t_sec": 30.0,
+      "lat": 41.8868,
+      "lon": -87.6312
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 41.8868,
+      "lon": -87.6312
+    },
+    {
+      "t_sec": 95.0,
+      "lat": 41.8868,
+      "lon": -87.6298
+    },
+    {
+      "t_sec": 125.0,
+      "lat": 41.8868,
+      "lon": -87.6298
+    },
+    {
+      "t_sec": 155.0,
+      "lat": 41.8868,
+      "lon": -87.6283
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 41.8862,
+      "lon": -87.628
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 41.8858,
+      "lon": -87.628
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 41.8856,
+      "lon": -87.627
+    },
+    {
+      "t_sec": 280.0,
+      "lat": 41.8858,
+      "lon": -87.6253
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 41.8857,
+      "lon": -87.6248
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 41.886,
+      "lon": -87.6251
+    },
+    {
+      "t_sec": 375.0,
+      "lat": 41.8861,
+      "lon": -87.625
+    },
+    {
+      "t_sec": 405.0,
+      "lat": 41.8861,
+      "lon": -87.625
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 41.8867,
+      "lon": -87.6243
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 41.8867,
+      "lon": -87.6244
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 41.8891,
+      "lon": -87.6242
+    },
+    {
+      "t_sec": 530.0,
+      "lat": 41.8907,
+      "lon": -87.6239
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 41.8913,
+      "lon": -87.6239
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 41.8929,
+      "lon": -87.6241
+    }
+  ]
+}

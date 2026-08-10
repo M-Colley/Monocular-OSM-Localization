@@ -18,6 +18,13 @@ pycolmap>=4.1.0
 pysolar>=0.11              # absolute camera heading from the sun (--use-sun-heading)
 timezonefinder>=6.0        # timezone lookup for the sun-heading astronomy (--use-sun-heading)
 
+# --- OCR: scene-text anchors AND ground truth from GPS-overlay clips -------
+# Needed by --enable-ocr-anchor (monocular_osm/scene_text.py) and by
+# scripts/build_overlay_fleet.py (monocular_osm/gps_overlay.py). Pulls torch,
+# so it is a separate `pip install -e ".[ocr]"` extra in pyproject.toml rather
+# than a hard dependency; uncomment here for the requirements.txt route.
+# easyocr>=1.7.2
+
 # --- optional GPU stack for the dense-splat (DA3) path --------------------
 # These are NOT required for the core trajectory/aerial pipeline; install
 # only if you have a CUDA-capable GPU and want to run `--use-da3`.

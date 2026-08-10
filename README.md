@@ -779,6 +779,73 @@ Each dataset's GPS is converted to the project's `ground_truth/*.json` schema by
 its adapter, the front-camera frames feed the standard pipeline, and per-waypoint
 metric errors are reported.
 
+### The overlay fleet — ground truth for free, from any dashcam clip
+
+The nine clips above cost either manual labelling or a licensed dataset. There
+is a third source that costs neither: **consumer dashcams burn the live position
+into the frame.** A clip stamped `000MPH  N:41.8933 W:87.6216` is carrying its
+own ground truth — OCR it and you have a GPS track, no labelling, no dataset
+agreement, no GPS in the pipeline (the stamp is read *for evaluation only*, never
+fed to the localizer).
+
+```bash
+pip install -e ".[ocr]"                        # easyocr, the OCR engine
+python scripts/build_overlay_fleet.py          # URL in -> ground_truth/*.json out
+python scripts/check_overlay_gt.py --map       # audit what came out
+python scripts/run_all_gt.py --overlay         # evaluate against it
+```
+
+`scripts/build_overlay_fleet.py` downloads each clip's analysis window, OCRs the
+stamp, reverse-geocodes the track midpoint into a `--city` string, and writes
+`ground_truth/overlay_<id>.json`. Adding a clip is one entry in
+`scripts/overlay_clips.py` — video id, which band the stamp sits in, and the
+seconds to analyse.
+
+**Why this is a separate fleet.** These clips are *not* folded into the nine
+above. Their GT provenance is different — OCR of a stamp whose own precision
+varies from 6 decimal places (~0.1 m) down to one arcsecond (~31 m) — so mixing
+them into the core fleet's mean would quietly change a published number for a
+reason that has nothing to do with the pipeline. `run_all_gt.py --overlay` runs
+them alone; `--all-fleets` runs both and reports them together.
+
+**Reading a burned-in stamp is not a solved problem, and the code says so.** Five
+camera families appear in this fleet and each mangles differently under OCR: the
+degree sign reads as an `8` (`W83°` → `W838`), the DMS apostrophe reads as a `1`
+and the spaces vanish (`42 22'59"N` → `4222159"N`), the decimal point disappears
+(`W:87 6216`), the fraction splits across two detection boxes (`84.43164 1`), and
+the hemisphere letter sits before the degrees on some cameras and after it on
+others. `monocular_osm/gps_overlay.py` normalises each of these before parsing,
+and every string above is a regression test taken verbatim from real easyocr
+output. Each frame's band is read under three preprocessing variants and a
+consensus taken where two agree — no single variant reads every camera.
+
+**And the ground truth is audited, not trusted.** `scripts/check_overlay_gt.py`
+re-derives implied speeds, flags out-and-back detours (what a surviving digit
+misread looks like), and reports the coordinate precision actually present — the
+floor on any error number measured against that clip.
+
+The fleet as built (2026-08-09; `interval=5 s`, so 121 sampled frames per clip):
+
+| clip | city | camera / stamp | OCR yield | analysed | route | dp |
+|---|---|---|---|---|---|---|
+| `vCSEG6KaFng` | Chicago | VIOFO A229 Pro | 119/121 (98%) | 5–595 s | 1.34 km | 4 |
+| `LmIHvLMLqFk` | Chicago (night, wet) | VIOFO | 120/121 (99%) | 0–595 s | 1.48 km | 4 |
+| `g5lnpYCk1Ec` | Detroit → Roseville | YouTube Capture, **top band** | 112/121 (93%) | 0–589 s | 10.04 km | 6 |
+| `1nF_7l07i-E` | Detroit (into downtown) | DOD LS460W | 105/121 (87%) | 0–590 s | 2.87 km | 6 |
+| `ZhGb8q1kliY` | Detroit (downtown → NW) | DOD LS460W | 80/121 (66%) | 5–560 s | 3.49 km | 6 |
+| `kxEDNj5L_yQ` | Atlanta (freeway) | WolfBox i07 | 78/121 (64%) | 200–590 s | 10.34 km | 6 |
+| `y66ZkRpUh4k` | Atlanta (dusk) | WolfBox i07 | 78/121 (64%) | 0–295 s | 1.16 km | 6 |
+| `wJsEQTCAg1c` | Scottsdale, AZ | ROVE R2-4K | 47/121 (39%) | 315–580 s | 2.13 km | 5 |
+
+`dp` is decimal places actually present in the stamp — the clip's own precision
+floor. The Chicago pair's 4 dp is ~11 m; nothing measured against them can
+honestly claim better. Three clips are *edited uploads* and were narrowed to
+their longest continuous stretch (Scottsdale lost 17 fixes, Atlanta 39 and 19) —
+a compilation's cut is a teleport that neither the ground truth nor the VO can
+absorb. Yield varies with stamp contrast, not with difficulty of the drive: the
+39% clip is thin yellow text on a dark dashboard, and 47 fixes still fill 20
+waypoints comfortably.
+
 ### Accuracy — deployable (GPS-free), the honest headline
 
 **These are the fully GPS-free numbers — no location leak.** The pipeline is

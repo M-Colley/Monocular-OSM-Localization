@@ -1,0 +1,110 @@
+{
+  "video_id": "wJsEQTCAg1c",
+  "video_url": "https://www.youtube.com/watch?v=wJsEQTCAg1c",
+  "city": "Scottsdale, Arizona, USA",
+  "vo_segment": "315:580",
+  "description": "Phoenix / Tempe / Scottsdale, Arizona. Wide arterial grid — the US-suburb failure mode that Boreas probes in Canada. Overlay: 28MPH  N33.49497 W111.91312   (ROVE R2-4K). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 30 OCR fixes over 315-580 s (2.18 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 315.0,
+      "lat": 33.49499,
+      "lon": -111.91574
+    },
+    {
+      "t_sec": 330.0,
+      "lat": 33.495,
+      "lon": -111.91833
+    },
+    {
+      "t_sec": 335.0,
+      "lat": 33.495,
+      "lon": -111.91919
+    },
+    {
+      "t_sec": 350.0,
+      "lat": 33.49605,
+      "lon": -111.91965
+    },
+    {
+      "t_sec": 365.0,
+      "lat": 33.49815,
+      "lon": -111.91969
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 33.49864,
+      "lon": -111.92017
+    },
+    {
+      "t_sec": 400.0,
+      "lat": 33.49841,
+      "lon": -111.92591
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 33.49841,
+      "lon": -111.92622
+    },
+    {
+      "t_sec": 420.0,
+      "lat": 33.49837,
+      "lon": -111.92682
+    },
+    {
+      "t_sec": 430.0,
+      "lat": 33.49834,
+      "lon": -111.92733
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 33.4983,
+      "lon": -111.92765
+    },
+    {
+      "t_sec": 510.0,
+      "lat": 33.49914,
+      "lon": -111.92459
+    },
+    {
+      "t_sec": 515.0,
+      "lat": 33.49914,
+      "lon": -111.92459
+    },
+    {
+      "t_sec": 525.0,
+      "lat": 33.49913,
+      "lon": -111.92459
+    },
+    {
+      "t_sec": 530.0,
+      "lat": 33.49913,
+      "lon": -111.92459
+    },
+    {
+      "t_sec": 540.0,
+      "lat": 33.49915,
+      "lon": -111.92466
+    },
+    {
+      "t_sec": 545.0,
+      "lat": 33.49943,
+      "lon": -111.92511
+    },
+    {
+      "t_sec": 555.0,
+      "lat": 33.5,
+      "lon": -111.92596
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 33.50122,
+      "lon": -111.92603
+    },
+    {
+      "t_sec": 580.0,
+      "lat": 33.50207,
+      "lon": -111.92603
+    }
+  ]
+}

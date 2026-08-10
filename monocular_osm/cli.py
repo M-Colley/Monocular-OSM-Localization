@@ -24,7 +24,10 @@ from .download import (
     DownloadError,
     VideoMetadata,
     fetch_video_metadata,
+    load_cached_metadata,
     local_video_metadata,
+    metadata_cache_path,
+    write_cached_metadata,
 )
 from .pipeline import PipelineConfig, run_pipeline
 
@@ -97,49 +100,14 @@ def _probe_video_fps(path: Path) -> float | None:
 
 
 # --- Metadata cache: lets --skip-download re-runs work fully offline ------
-# fetch_video_metadata is a yt-dlp network call; without this cache an
-# offline re-run of a fully cached clip died before touching the cached
-# video. Keyed on the exact submitted URL, stored under the data dir.
+# The implementation lives next to fetch_video_metadata in download.py, since
+# the fleet builder (scripts/build_overlay_fleet.py) needs the same guarantee.
+# These names are kept as thin aliases so this module's call sites and tests
+# read unchanged.
 
-
-def _metadata_cache_path(data_dir: Path, url: str) -> Path:
-    from hashlib import sha256
-    digest = sha256(url.encode("utf-8")).hexdigest()[:16]
-    return data_dir / "metadata_cache" / f"{digest}.json"
-
-
-def _load_cached_metadata(data_dir: Path, url: str) -> VideoMetadata | None:
-    path = _metadata_cache_path(data_dir, url)
-    try:
-        d = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return VideoMetadata(
-        url=d.get("url") or url,
-        title=d.get("title"),
-        video_id=d.get("video_id"),
-        fps=d.get("fps"),
-        description=d.get("description"),
-    )
-
-
-def _write_cached_metadata(data_dir: Path, url: str, metadata: VideoMetadata) -> None:
-    path = _metadata_cache_path(data_dir, url)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({
-                "input_url": url,
-                "url": metadata.url,
-                "title": metadata.title,
-                "video_id": metadata.video_id,
-                "fps": metadata.fps,
-                "description": metadata.description,
-            }, indent=2),
-            encoding="utf-8",
-        )
-    except OSError:
-        pass  # cache is best-effort; never fail the run over it
+_metadata_cache_path = metadata_cache_path
+_load_cached_metadata = load_cached_metadata
+_write_cached_metadata = write_cached_metadata
 
 
 def _resolve_city(explicit_city: str | None, url: str, title: str | None) -> str:

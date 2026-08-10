@@ -64,6 +64,7 @@ def fetch_video_metadata(url: str) -> VideoMetadata:
         "no_warnings": True,
         "noprogress": True,
         "skip_download": True,
+        **_js_runtime_opts(),
     }
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -89,14 +90,109 @@ def fetch_video_metadata(url: str) -> VideoMetadata:
         raise DownloadError(str(e)) from e
 
 
+# --- Metadata cache -------------------------------------------------------
+# fetch_video_metadata is a yt-dlp network call, and it runs BEFORE anything
+# touches the (possibly already downloaded) video. Without a cache, a clip
+# whose bytes are all on disk still dies at the first network hiccup — and
+# YouTube's "Sign in to confirm you're not a bot" gate arrives exactly when a
+# fleet build has been hammering it. Keyed on the exact submitted URL.
+
+
+def metadata_cache_path(data_dir: Path, url: str) -> Path:
+    digest = sha256(url.encode("utf-8")).hexdigest()[:16]
+    return Path(data_dir) / "metadata_cache" / f"{digest}.json"
+
+
+def load_cached_metadata(data_dir: Path, url: str) -> VideoMetadata | None:
+    try:
+        d = json.loads(metadata_cache_path(data_dir, url).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return VideoMetadata(
+        url=d.get("url") or url,
+        title=d.get("title"),
+        video_id=d.get("video_id"),
+        fps=d.get("fps"),
+        description=d.get("description"),
+    )
+
+
+def write_cached_metadata(data_dir: Path, url: str, metadata: VideoMetadata) -> None:
+    path = metadata_cache_path(data_dir, url)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({
+                "input_url": url,
+                "url": metadata.url,
+                "title": metadata.title,
+                "video_id": metadata.video_id,
+                "fps": metadata.fps,
+                "description": metadata.description,
+            }, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # cache is best-effort; never fail the run over it
+
+
+def cached_video_metadata(url: str, data_dir: Path) -> VideoMetadata:
+    """:func:`fetch_video_metadata`, served from disk when possible.
+
+    Cache first, network second, and a successful fetch is written back —
+    so the second run of a fleet needs no network at all. Raises
+    :class:`DownloadError` only when both the cache and the network fail.
+    """
+    cached = load_cached_metadata(data_dir, url)
+    if cached is not None:
+        return cached
+    metadata = fetch_video_metadata(url)
+    write_cached_metadata(data_dir, url, metadata)
+    return metadata
+
+
+def _js_runtime_opts() -> dict:
+    """Enable Node as a yt-dlp JavaScript runtime when it is on PATH.
+
+    yt-dlp needs to run the YouTube player's JavaScript to resolve some
+    stream URLs, and enables only Deno by default; without a runtime it
+    warns that extraction is deprecated and "some formats may be
+    missing". Node is far more commonly installed than Deno, so opt into
+    it when present. (This is about format *availability* — the download
+    throughput lever is the format itself, see :func:`_format_selector`.)
+    """
+    from shutil import which
+
+    # The CLI takes a list (--js-runtimes node); the Python API wants the
+    # already-parsed {runtime: config} mapping.
+    node = which("node")
+    return {"js_runtimes": {"deno": {}, "node": {"path": node}}} if node else {}
+
+
 def _format_selector(max_height: int) -> str:
     """Video-only format chain with a last-resort '/best' fallback.
 
     Audio is never used by any pipeline stage, so we don't request it.
     The trailing '/best' keeps sources with unreported heights (some HLS)
     or no <=max_height rendition from hard-failing.
+
+    mp4/AVC is preferred over the (usually higher-ranked) VP9/webm
+    rendition for two reasons, both measured rather than assumed:
+
+      * throughput — YouTube serves the VP9 stream of a given upload far
+        slower. On a 1080p dashcam clip: 71 kB/s for webm versus 925 kB/s
+        for the AVC mp4 of the same 60 s, a 13x difference that turns a
+        fleet download from an hour into minutes.
+      * decoding — OpenCV's bundled FFmpeg handles AVC mp4 most reliably
+        across platforms, and every frame this project reads goes through
+        cv2.VideoCapture.
+
+    The plain `bestvideo[height<=N]` stays as the next fallback so an
+    upload with no AVC rendition still downloads.
     """
-    return f"bestvideo[height<={max_height}]/best[height<={max_height}]/best"
+    return (f"bestvideo[height<={max_height}][ext=mp4]"
+            f"/bestvideo[height<={max_height}]"
+            f"/best[height<={max_height}]/best")
 
 
 def _marker_path(out_dir: Path, filename_stem: str) -> Path:
@@ -136,10 +232,19 @@ def download_video(
     *,
     filename_stem: str = "input",
     max_height: int = 720,
+    section: tuple[float, float] | None = None,
 ) -> Path:
     """Download `url` into `out_dir`. Returns the path to the resulting file.
 
     If a file matching the stem already exists, return it without re-downloading.
+
+    ``section`` fetches only ``(start_sec, end_sec)`` instead of the whole
+    upload. A 40-minute 1080p dashcam clip is well over a gigabyte, and
+    both ground-truth extraction and VO only ever look at the first few
+    minutes — so the fleet builder pulls just its analysis window. The
+    caller MUST vary ``filename_stem`` per section (the resume marker is
+    keyed on the stem alone, so a shared stem would let a truncated file
+    satisfy a later request for the full video).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -156,7 +261,19 @@ def download_video(
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
+        **_js_runtime_opts(),
     }
+    if section is not None:
+        start, end = float(section[0]), float(section[1])
+        # force_keyframes_at_cuts makes the cut land on the requested second
+        # instead of the preceding keyframe, so the window's t=0 matches the
+        # upload's. A run that reads BOTH ground truth and frames from this
+        # same file stays self-consistent either way; the alignment is what
+        # lets a t_sec here still mean the same instant in the original
+        # upload — i.e. lets ground truth outlive this particular cut.
+        ydl_opts["download_ranges"] = yt_dlp.utils.download_range_func(
+            None, [(start, end)])
+        ydl_opts["force_keyframes_at_cuts"] = True
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

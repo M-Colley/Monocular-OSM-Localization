@@ -1,0 +1,110 @@
+{
+  "video_id": "g5lnpYCk1Ec",
+  "video_url": "https://www.youtube.com/watch?v=g5lnpYCk1Ec",
+  "city": "Detroit, Michigan, USA",
+  "vo_segment": "0:588",
+  "description": "Detroit to Roseville, Michigan. The only TOP-band overlay, and the only 1-arcsecond one (~31 m quantisation) — treat its GT as coarse. Overlay: 42 22'59\"N  83 10'35\"W   (YouTube Capture, TOP band). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 112 OCR fixes over 0-589 s (10.31 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 42.3925,
+      "lon": -83.2025
+    },
+    {
+      "t_sec": 29.9,
+      "lat": 42.392778,
+      "lon": -83.2025
+    },
+    {
+      "t_sec": 59.9,
+      "lat": 42.393889,
+      "lon": -83.202778
+    },
+    {
+      "t_sec": 94.8,
+      "lat": 42.392778,
+      "lon": -83.198889
+    },
+    {
+      "t_sec": 124.8,
+      "lat": 42.390833,
+      "lon": -83.193611
+    },
+    {
+      "t_sec": 154.7,
+      "lat": 42.388889,
+      "lon": -83.189444
+    },
+    {
+      "t_sec": 189.7,
+      "lat": 42.387778,
+      "lon": -83.186389
+    },
+    {
+      "t_sec": 219.6,
+      "lat": 42.386111,
+      "lon": -83.182222
+    },
+    {
+      "t_sec": 249.5,
+      "lat": 42.384722,
+      "lon": -83.178611
+    },
+    {
+      "t_sec": 279.5,
+      "lat": 42.383333,
+      "lon": -83.176667
+    },
+    {
+      "t_sec": 304.4,
+      "lat": 42.383056,
+      "lon": -83.176111
+    },
+    {
+      "t_sec": 334.4,
+      "lat": 42.383889,
+      "lon": -83.173333
+    },
+    {
+      "t_sec": 364.3,
+      "lat": 42.385,
+      "lon": -83.165
+    },
+    {
+      "t_sec": 394.3,
+      "lat": 42.384444,
+      "lon": -83.155
+    },
+    {
+      "t_sec": 429.2,
+      "lat": 42.379444,
+      "lon": -83.146389
+    },
+    {
+      "t_sec": 459.2,
+      "lat": 42.371389,
+      "lon": -83.145278
+    },
+    {
+      "t_sec": 489.1,
+      "lat": 42.366667,
+      "lon": -83.137222
+    },
+    {
+      "t_sec": 524.1,
+      "lat": 42.361944,
+      "lon": -83.125
+    },
+    {
+      "t_sec": 559.0,
+      "lat": 42.357778,
+      "lon": -83.114444
+    },
+    {
+      "t_sec": 588.9,
+      "lat": 42.353889,
+      "lon": -83.105556
+    }
+  ]
+}

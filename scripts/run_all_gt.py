@@ -104,6 +104,51 @@ CLIPS = [
 # necessity there, not a GT leak we can drop.
 MEGA_CITY_CLIPS = {"London (Bloomsbury)"}
 
+# --- the overlay fleet (opt-in, --overlay) ---------------------------------
+#
+# Clips whose ground truth was OCR'd off a burned-in dashcam GPS stamp
+# rather than hand-labelled or taken from an INS. They are deliberately a
+# SEPARATE fleet, not extra entries in CLIPS above:
+#
+#   * provenance differs — the stamp's own precision (1 arcsecond on one
+#     clip, ~31 m) bounds the achievable error, so mixing them into the
+#     core fleet's mean would quietly inflate it;
+#   * the core fleet's published numbers stay comparable across commits.
+#
+# Built by scripts/build_overlay_fleet.py, which writes the index this
+# reads — slug, video path and the GT-derived --osm-around disc are all
+# ITS outputs, so nothing here is maintained by hand.
+OVERLAY_INDEX = ROOT / "ground_truth" / "overlay_fleet.json"
+
+
+def load_overlay_clips(
+    index_path: Path = OVERLAY_INDEX, root: Path = ROOT,
+) -> list[tuple[str, str, list[str]]]:
+    """Read the overlay-fleet index into the same (name, slug, args) shape.
+
+    Returns ``[]`` when the index is missing — the clips are large
+    downloads a fresh checkout will not have, so their absence is a
+    normal state, not an error.
+    """
+    if not index_path.exists():
+        return []
+    blob = json.loads(index_path.read_text(encoding="utf-8"))
+    out: list[tuple[str, str, list[str]]] = []
+    for c in blob.get("clips", []):
+        if not (root / c["video"]).exists():
+            print(f"NOTE: overlay clip {c['video_id']} skipped — {c['video']} "
+                  f"missing (re-run scripts/build_overlay_fleet.py)", flush=True)
+            continue
+        out.append((c["name"], c["slug"], [
+            "--video", c["video"],
+            "--city", c["city"],
+            "--osm-around", c["osm_around"],
+            "--vo-segment", c["vo_segment"],
+            "--ground-truth-waypoints", c["ground_truth"],
+            "--scale-lock", "--no-splat", "--no-aerial",
+        ]))
+    return out
+
 # Per-clip best-achievable overrides for --vggt-best. Two independent levers,
 # each applied ONLY where it wins the e2e A/B (2026-07-05):
 #
@@ -200,6 +245,13 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--blind", action="store_true",
                     help="drop the GT-centered --osm-around discs (except "
                          "mega-city clips) for an honest blind number")
+    ap.add_argument("--overlay", action="store_true",
+                    help="run the GPS-overlay fleet (ground truth OCR'd off the "
+                         "burned-in stamp; see scripts/build_overlay_fleet.py) "
+                         "INSTEAD of the core fleet, so the core numbers stay "
+                         "comparable")
+    ap.add_argument("--all-fleets", action="store_true",
+                    help="run the core fleet and then the overlay fleet")
     ap.add_argument("--no-vpr", action="store_true",
                     help="skip the Mapillary VPR prior (on by default now — it "
                          "is the strongest blind lever; needs MLY_TOKEN env)")
@@ -224,8 +276,17 @@ def main(argv: list[str] | None = None) -> None:
               "clip's warm cache; clips without one fall back to kartaview.",
               flush=True)
 
+    selected = list(CLIPS)
+    if opts.overlay or opts.all_fleets:
+        overlay = load_overlay_clips()
+        if not overlay:
+            raise SystemExit(
+                "No overlay fleet found. Build it first:\n"
+                "    python scripts/build_overlay_fleet.py")
+        selected = (selected + overlay) if opts.all_fleets else overlay
+
     rows = []
-    for name, slug, args in CLIPS:
+    for name, slug, args in selected:
         args = args + vpr
         if opts.orienternet:
             args = args + ["--use-orienternet"]

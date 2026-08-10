@@ -60,6 +60,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4.0"]
+# OCR channel: scene-text anchors (--enable-ocr-anchor) and automatic ground
+# truth from clips with a burned-in GPS stamp (scripts/build_overlay_fleet.py).
+# Kept out of the core dependencies because easyocr pulls torch.
+ocr = ["easyocr>=1.7.2"]
 
 [project.scripts]
 osm-localize = "monocular_osm.cli:main"

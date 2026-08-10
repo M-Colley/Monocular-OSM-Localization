@@ -1,0 +1,110 @@
+{
+  "video_id": "1nF_7l07i-E",
+  "video_url": "https://www.youtube.com/watch?v=1nF_7l07i-E",
+  "city": "Detroit, Michigan, USA",
+  "vo_segment": "0:590",
+  "description": "Detroit, driving INTO downtown, 2016. Same camera as ZhGb8q1kliY, opposite direction — a heading-disambiguation pair. Overlay: N42d 19' 53.68\"  W83d 3' 11.80\"   (DOD LS460W). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 105 OCR fixes over 0-590 s (3.11 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 42.331272,
+      "lon": -83.075944
+    },
+    {
+      "t_sec": 35.0,
+      "lat": 42.331403,
+      "lon": -83.072622
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 42.331686,
+      "lon": -83.071906
+    },
+    {
+      "t_sec": 90.0,
+      "lat": 42.332947,
+      "lon": -83.072308
+    },
+    {
+      "t_sec": 125.0,
+      "lat": 42.333239,
+      "lon": -83.067978
+    },
+    {
+      "t_sec": 155.0,
+      "lat": 42.331581,
+      "lon": -83.067008
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 42.331331,
+      "lon": -83.0663
+    },
+    {
+      "t_sec": 215.0,
+      "lat": 42.331492,
+      "lon": -83.06256
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 42.331608,
+      "lon": -83.058047
+    },
+    {
+      "t_sec": 280.0,
+      "lat": 42.331592,
+      "lon": -83.055925
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 42.331622,
+      "lon": -83.053031
+    },
+    {
+      "t_sec": 340.0,
+      "lat": 42.331667,
+      "lon": -83.052822
+    },
+    {
+      "t_sec": 370.0,
+      "lat": 42.331661,
+      "lon": -83.051786
+    },
+    {
+      "t_sec": 420.0,
+      "lat": 42.331539,
+      "lon": -83.048822
+    },
+    {
+      "t_sec": 450.0,
+      "lat": 42.331575,
+      "lon": -83.048647
+    },
+    {
+      "t_sec": 475.0,
+      "lat": 42.331572,
+      "lon": -83.047295
+    },
+    {
+      "t_sec": 505.0,
+      "lat": 42.331556,
+      "lon": -83.047283
+    },
+    {
+      "t_sec": 530.0,
+      "lat": 42.331097,
+      "lon": -83.046972
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 42.331328,
+      "lon": -83.046183
+    },
+    {
+      "t_sec": 590.0,
+      "lat": 42.331983,
+      "lon": -83.046225
+    }
+  ]
+}

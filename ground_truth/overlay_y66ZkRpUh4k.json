@@ -1,0 +1,110 @@
+{
+  "video_id": "y66ZkRpUh4k",
+  "video_url": "https://www.youtube.com/watch?v=y66ZkRpUh4k",
+  "city": "Atlanta, Georgia, USA",
+  "vo_segment": "0:295",
+  "description": "Atlanta at dusk, surface streets. From the 'ASMR Driving Videos' playlist (PL6v9miqhGL1OjKF_jSdVGlipisb48FVNQ), most of which is unrelated short-form video — only this and kxEDNj5L_yQ are dashcam. Overlay: 0 mPh  N:33.773609 W:84.371269   (WolfBox i07). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 39 OCR fixes over 0-295 s (1.17 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 33.773609,
+      "lon": -84.371269
+    },
+    {
+      "t_sec": 10.0,
+      "lat": 33.773609,
+      "lon": -84.371269
+    },
+    {
+      "t_sec": 35.0,
+      "lat": 33.773609,
+      "lon": -84.371269
+    },
+    {
+      "t_sec": 45.0,
+      "lat": 33.77367,
+      "lon": -84.371025
+    },
+    {
+      "t_sec": 55.0,
+      "lat": 33.774307,
+      "lon": -84.370914
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 33.775333,
+      "lon": -84.370814
+    },
+    {
+      "t_sec": 75.0,
+      "lat": 33.776383,
+      "lon": -84.370445
+    },
+    {
+      "t_sec": 85.0,
+      "lat": 33.777473,
+      "lon": -84.370049
+    },
+    {
+      "t_sec": 95.0,
+      "lat": 33.778622,
+      "lon": -84.369629
+    },
+    {
+      "t_sec": 105.0,
+      "lat": 33.779362,
+      "lon": -84.369339
+    },
+    {
+      "t_sec": 115.0,
+      "lat": 33.779404,
+      "lon": -84.36884
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 33.779274,
+      "lon": -84.367966
+    },
+    {
+      "t_sec": 145.0,
+      "lat": 33.779026,
+      "lon": -84.367462
+    },
+    {
+      "t_sec": 155.0,
+      "lat": 33.779026,
+      "lon": -84.367462
+    },
+    {
+      "t_sec": 165.0,
+      "lat": 33.778671,
+      "lon": -84.367462
+    },
+    {
+      "t_sec": 180.0,
+      "lat": 33.779373,
+      "lon": -84.368095
+    },
+    {
+      "t_sec": 200.0,
+      "lat": 33.779491,
+      "lon": -84.36914
+    },
+    {
+      "t_sec": 225.0,
+      "lat": 33.77949,
+      "lon": -84.36914
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 33.779491,
+      "lon": -84.369141
+    },
+    {
+      "t_sec": 295.0,
+      "lat": 33.779503,
+      "lon": -84.369836
+    }
+  ]
+}

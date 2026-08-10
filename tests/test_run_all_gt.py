@@ -126,3 +126,61 @@ def test_result_row_falls_back_on_old_schema() -> None:
 def test_result_row_none_result_keeps_rc() -> None:
     row = M._result_row("clip", 2, None)
     assert row == {"name": "clip", "rc": 2}
+
+
+# ---------------------------------------------------------------------------
+# the overlay fleet: read from build_overlay_fleet.py's index, never by hand
+# ---------------------------------------------------------------------------
+
+
+def _write_index(tmp_path: Path, clips: list[dict]) -> Path:
+    idx = tmp_path / "overlay_fleet.json"
+    idx.write_text(json.dumps({"clips": clips}), encoding="utf-8")
+    return idx
+
+
+def _clip(video: str, **over) -> dict:
+    base = {
+        "video_id": "vCSEG6KaFng", "name": "Chicago (vCSEG6KaFng)",
+        "slug": "vcseg6kafng-chicago", "title": "Chicago", "city": "Chicago, Illinois, USA",
+        "video": video, "ground_truth": "ground_truth/overlay_vCSEG6KaFng.json",
+        "osm_around": "41.889,-87.629,1400", "vo_segment": "0:600",
+    }
+    base.update(over)
+    return base
+
+
+def test_load_overlay_clips_missing_index_is_not_an_error(tmp_path: Path) -> None:
+    assert M.load_overlay_clips(tmp_path / "nope.json") == []
+
+
+def test_load_overlay_clips_builds_the_sweep_args(tmp_path: Path) -> None:
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "input_0-600.mp4").write_bytes(b"")
+    idx = _write_index(tmp_path, [_clip("data/input_0-600.mp4")])
+
+    clips = M.load_overlay_clips(idx, root=tmp_path)
+    assert len(clips) == 1
+    name, slug, args = clips[0]
+    assert name == "Chicago (vCSEG6KaFng)"
+    assert slug == "vcseg6kafng-chicago"
+    assert args[args.index("--ground-truth-waypoints") + 1] == \
+        "ground_truth/overlay_vCSEG6KaFng.json"
+    assert args[args.index("--osm-around") + 1] == "41.889,-87.629,1400"
+    assert args[args.index("--vo-segment") + 1] == "0:600"
+
+
+def test_load_overlay_clips_skips_a_clip_whose_video_is_gone(tmp_path: Path) -> None:
+    # The GT JSON is committed but the multi-hundred-MB download is not, so a
+    # fresh checkout must skip the clip rather than launch a run that cannot
+    # possibly work.
+    idx = _write_index(tmp_path, [_clip("data/never_downloaded.mp4")])
+    assert M.load_overlay_clips(idx, root=tmp_path) == []
+
+
+def test_overlay_clips_keep_the_gt_disc_strippable() -> None:
+    # --blind must be able to drop the overlay fleet's discs too: they are
+    # derived from the OCR'd track, which is ground truth.
+    args = ["--video", "x.mp4", "--osm-around", "41.889,-87.629,1400",
+            "--vo-segment", "0:600", "--scale-lock"]
+    assert "--osm-around" not in M._strip_osm_around(args)

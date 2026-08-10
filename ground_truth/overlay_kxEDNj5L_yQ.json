@@ -1,0 +1,110 @@
+{
+  "video_id": "kxEDNj5L_yQ",
+  "video_url": "https://www.youtube.com/watch?v=kxEDNj5L_yQ",
+  "city": "Atlanta, Georgia, USA",
+  "vo_segment": "200:590",
+  "description": "Atlanta — Vinings / Midtown / Buckhead, partly freeway. Freeway stretches are a deliberate hard case: no turns for the shape matcher. Overlay: 65 mPh  N:33.853474 W:84.431641   (WolfBox i07). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 59 OCR fixes over 200-590 s (10.38 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 200.0,
+      "lat": 33.863987,
+      "lon": -84.44735
+    },
+    {
+      "t_sec": 240.0,
+      "lat": 33.863346,
+      "lon": -84.440544
+    },
+    {
+      "t_sec": 260.0,
+      "lat": 33.861916,
+      "lon": -84.437256
+    },
+    {
+      "t_sec": 275.0,
+      "lat": 33.859367,
+      "lon": -84.434815
+    },
+    {
+      "t_sec": 295.0,
+      "lat": 33.854778,
+      "lon": -84.432045
+    },
+    {
+      "t_sec": 310.0,
+      "lat": 33.850925,
+      "lon": -84.431137
+    },
+    {
+      "t_sec": 330.0,
+      "lat": 33.845467,
+      "lon": -84.430176
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 33.841473,
+      "lon": -84.430222
+    },
+    {
+      "t_sec": 365.0,
+      "lat": 33.836567,
+      "lon": -84.429001
+    },
+    {
+      "t_sec": 390.0,
+      "lat": 33.830124,
+      "lon": -84.42588
+    },
+    {
+      "t_sec": 425.0,
+      "lat": 33.821095,
+      "lon": -84.423096
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 33.81646,
+      "lon": -84.421989
+    },
+    {
+      "t_sec": 465.0,
+      "lat": 33.809606,
+      "lon": -84.418747
+    },
+    {
+      "t_sec": 480.0,
+      "lat": 33.806267,
+      "lon": -84.415352
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 33.803085,
+      "lon": -84.408981
+    },
+    {
+      "t_sec": 530.0,
+      "lat": 33.800972,
+      "lon": -84.399673
+    },
+    {
+      "t_sec": 545.0,
+      "lat": 33.799034,
+      "lon": -84.396454
+    },
+    {
+      "t_sec": 560.0,
+      "lat": 33.796986,
+      "lon": -84.395294
+    },
+    {
+      "t_sec": 575.0,
+      "lat": 33.795054,
+      "lon": -84.39424
+    },
+    {
+      "t_sec": 590.0,
+      "lat": 33.792393,
+      "lon": -84.39344
+    }
+  ]
+}
