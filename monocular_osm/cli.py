@@ -525,6 +525,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Detect a route that returns near its start and redistribute "
                         "VO drift so the loop closes (monocular_osm/loop_closure.py). Pair with "
                         "--use-ipm-scale; closing at a wrong scale doesn't help.")
+    p.add_argument("--use-ground-flow-scale", action="store_true",
+                   help="Replace the VO's unit-length steps with per-step lengths "
+                        "measured from road-plane optical flow "
+                        "(monocular_osm/ground_flow_scale.py). A unit step is a "
+                        "CONSTANT-SPEED assumption imposed on the trajectory shape; "
+                        "on the overlay fleet the true step lengths are worth "
+                        "107.4 -> 77.6 m of shape error and this recovers about "
+                        "three fifths of that on the clips it accepts. "
+                        "Costs a second streaming pass "
+                        "over the video (~2 min per 4-minute clip). Abstains rather "
+                        "than guessing, so footage whose road plane it cannot model "
+                        "is left exactly as-is.")
     p.add_argument("--use-vggt-gating", action="store_true",
                    help="Run VGGT (feed-forward, drift-free poses) to gate enumeration "
                         "to the area its trajectory selects, then let the loop-closed VO "
@@ -737,6 +749,7 @@ def main() -> None:
             bev_splat_half_extent_m=args.bev_splat_half_extent_m,
             bev_fusion_cap=args.bev_fusion_cap,
             enable_loop_closure=args.enable_loop_closure,
+            use_ground_flow_scale=args.use_ground_flow_scale,
             use_vggt_gating=args.use_vggt_gating,
             vggt_keyframes=args.vggt_keyframes,
             use_orienternet=args.use_orienternet,

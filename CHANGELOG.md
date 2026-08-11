@@ -8,6 +8,63 @@ All notable changes to this project are documented here. This project adheres to
 
 ### Added
 
+- **`--use-ground-flow-scale`: a real speed profile instead of a constant one.**
+  The VO normalises every relative translation to unit length, so the recovered
+  trajectory encodes speed as a one-bit moving/stopped flag — our step
+  magnitudes have a coefficient of variation of 0.02–0.07 where the true ones
+  have 1.0–1.4. That is a **constant-speed assumption imposed on the trajectory
+  shape**, which is the one thing `trajectory_matching` scores.
+  `monocular_osm/ground_flow_scale.py` measures a per-step length from
+  road-plane optical flow and rescales the steps, keeping their directions.
+
+  Measured on the 8-clip overlay fleet (240 s each, VO shape similarity-fitted
+  against each clip's own GPS track). Replacing step lengths with the *true*
+  ones is worth 107.4 → 77.6 m; this recovers three fifths of that where it
+  accepts the footage, **107.4 → 98.0 m overall**:
+
+  | clip | baseline | ground flow | oracle |
+  |---|---|---|---|
+  | `vCSEG6KaFng` | 21.9 | **11.9** | 10.5 |
+  | `LmIHvLMLqFk` | 28.3 | **24.5** | 16.6 |
+  | `wJsEQTCAg1c` | 185.3 | **172.7** | 146.9 |
+  | `ZhGb8q1kliY` | 76.8 | **56.1** | 53.6 |
+  | `1nF_7l07i-E` | 98.8 | **84.4** | 82.4 |
+  | `g5lnpYCk1Ec` | 79.3 | **66.0** | 57.3 |
+  | `y66ZkRpUh4k` | 127.2 | 127.2 *(abstained)* | 87.2 |
+  | `kxEDNj5L_yQ` | 241.5 | 241.5 *(abstained)* | 165.9 |
+
+  Three measured facts shape the design. **Absolute scale is worth exactly
+  zero** — a constant 30% error scores 0.0 m, because the matcher's similarity
+  fit absorbs any global factor, so `camera_height_m` being a guess costs
+  nothing. **The estimate need not be accurate** — corrupting the true lengths
+  by 15–30% changes the score by under a metre; freedom from *bias* is what
+  matters. And **only the horizon row matters geometrically**, so it is
+  self-calibrated per clip from flow consistency rather than assumed. Recovered
+  pitches across the fleet range −6.2° to +2.4°, which is why the fixed
+  `ipm_scale_pitch_deg` was never going to serve every camera.
+
+  It **abstains rather than guessing**: when the tracked points disagree about
+  how far the car moved, or the horizon never resolves, the result fades back
+  to the VO's own trajectory and reproduces it exactly. That fires on 2 of 8
+  clips here and no clip is made worse. Off by default all the same — this is
+  validated on the overlay fleet only, and the core fleet contains geometry it
+  has never seen (KITTI is 1242×375, not 16:9).
+
+  Costs a second, streaming pass over the video (~2 min per 4-minute clip,
+  rolling `stride + 1` frame buffer). That pass is not avoidable: the estimator
+  needs the frames *between* the VO's strided ones. Tracking only the strided
+  pair — all the pipeline's frame list holds — measurably loses most of the
+  benefit (−3.8% versus −9.3%) and regresses a clip.
+
+### Fixed
+
+- `--help` crashed for every user. argparse `%`-formats help strings, so a
+  literal `61%` made `% o` parse as the `%o` conversion. `tests/test_cli_help_strings.py`
+  now checks all 86 help strings by reading `cli.py` as source, so the guard
+  works even where the optional heavy dependencies block importing the CLI.
+
+### Added (ground truth)
+
 - **GPS-overlay clip fleet — ground truth with no manual labelling.** Consumer
   dashcams burn the live position into the frame, so a clip with such a stamp
   carries its own ground truth. `scripts/build_overlay_fleet.py` downloads each

@@ -292,6 +292,20 @@ class PipelineConfig:
     # drift so the loop closes (monocular_osm/loop_closure.py). Pair with
     # --use-ipm-scale; closing at a wrong scale doesn't help.
     enable_loop_closure: bool = False
+    # Replace the VO's unit-length steps with a per-step length measured from
+    # road-plane optical flow (monocular_osm/ground_flow_scale.py). A unit step
+    # is a CONSTANT-SPEED assumption imposed on the trajectory shape — the one
+    # thing trajectory_matching scores — and on the overlay fleet the true step
+    # lengths are worth 107.4 -> 77.6 m of shape error. Costs a second,
+    # streaming pass over the video (~2 min per 4-minute clip): the estimator
+    # needs the frames BETWEEN the VO's strided ones, and tracking only the
+    # strided pair measurably loses most of the benefit.
+    #
+    # Off by default: measured on the 8-clip overlay fleet only, and the core
+    # fleet includes geometry it has never seen (KITTI is 1242x375, not 16:9).
+    # It abstains rather than guessing, so a clip whose road plane it cannot
+    # model reproduces the unscaled trajectory exactly.
+    use_ground_flow_scale: bool = False
     # Run VGGT (feed-forward, drift-free poses) to GATE enumeration to the
     # area its trajectory selects, then let the precise (loop-closed) VO
     # geometry pick within it (monocular_osm/vggt_trajectory.py). Needs the vggt
@@ -309,6 +323,50 @@ class PipelineConfig:
     # When set, use this local video file directly: no download, `url` is
     # informational only (recorded in the result JSON).
     video_path: Path | None = None
+
+
+def _apply_ground_flow_scale(traj: Trajectory, video_path: Path, frames,
+                             cfg: "PipelineConfig") -> Trajectory:
+    """Give the trajectory a real speed profile, or leave it alone.
+
+    Only ``xz`` is rescaled — that is what the matcher scores. ``centers``
+    and the per-frame (R, t) keep the VO's unit-step convention, because the
+    3D consumers (splat, triangulation) carry their own scale handling and
+    rescaling them here would be an unmeasured change.
+
+    Never fatal: this is one optional channel, and failing to read the road
+    plane must not cost the run its trajectory.
+    """
+    from .ground_flow_scale import rescale_steps, step_lengths, track_road_features
+
+    if len(traj.xz) < 3:
+        return traj
+    try:
+        h, w = frames.frames[0].shape[:2]
+        print(f"[3b/5] Ground-flow scale: tracking road features "
+              f"(stride={cfg.frame_stride})")
+        tracks = track_road_features(
+            video_path, stride=cfg.frame_stride, start_sec=cfg.vo_start_sec,
+            end_sec=cfg.vo_end_sec, size=(w, h))
+        unit = np.linalg.norm(np.diff(traj.xz, axis=0), axis=1)
+        lengths, confidence = step_lengths(
+            tracks, default_intrinsics(w, h),
+            step_directions_valid=unit > 1e-9, fallback_lengths=unit)
+    except Exception as e:                        # optional channel, never fatal
+        print(f"      -> unavailable ({type(e).__name__}: {e}); keeping unit steps")
+        return traj
+
+    if confidence <= 0.0:
+        print("      -> abstained: the road plane does not explain this footage; "
+              "trajectory unchanged")
+        return traj
+    moving = lengths > 0
+    cv = (float(lengths[moving].std() / max(lengths[moving].mean(), 1e-9))
+          if moving.any() else 0.0)
+    print(f"      -> confidence {confidence:.2f}, step-length CV {cv:.2f} "
+          f"(unit steps are ~0.02-0.07 by construction)")
+    traj.xz = rescale_steps(traj.xz, lengths)
+    return traj
 
 
 def _plot_trajectory(traj: Trajectory, out_path: Path) -> None:
@@ -1591,6 +1649,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             rotations=traj.rotations,
             translations=traj.translations,
         )
+    if cfg.use_ground_flow_scale:
+        traj = _apply_ground_flow_scale(traj, video_path, frames, cfg)
     _plot_trajectory(traj, cfg.output_dir / "trajectory.png")
 
     # 4a. Optional blind VPR coarse prior (KartaView + EigenPlaces): retrieve the
