@@ -4,9 +4,10 @@ All notable changes to this project are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/); while on `0.x` the public interface
 (CLI flags, output schema) may still change between minor versions.
 
-## [Unreleased]
+## [0.1.2] — 2026-08-11
 
 ### Added
+
 
 - **`--use-ground-flow-scale`: a real speed profile instead of a constant one.**
   The VO normalises every relative translation to unit length, so the recovered
@@ -56,15 +57,6 @@ All notable changes to this project are documented here. This project adheres to
   pair — all the pipeline's frame list holds — measurably loses most of the
   benefit (−3.8% versus −9.3%) and regresses a clip.
 
-### Fixed
-
-- `--help` crashed for every user. argparse `%`-formats help strings, so a
-  literal `61%` made `% o` parse as the `%o` conversion. `tests/test_cli_help_strings.py`
-  now checks all 86 help strings by reading `cli.py` as source, so the guard
-  works even where the optional heavy dependencies block importing the CLI.
-
-### Added (ground truth)
-
 - **GPS-overlay clip fleet — ground truth with no manual labelling.** Consumer
   dashcams burn the live position into the frame, so a clip with such a stamp
   carries its own ground truth. `scripts/build_overlay_fleet.py` downloads each
@@ -109,7 +101,34 @@ All notable changes to this project are documented here. This project adheres to
 - `easyocr` is now declared — `pip install -e ".[ocr]"`. It was imported by
   `monocular_osm/scene_text.py` and `gps_overlay.py` but appeared in no manifest.
 
+### Changed
+
+- **Downloads are ~13× faster.** `_format_selector` now prefers mp4/AVC over the
+  higher-ranked VP9/webm rendition: measured 925 kB/s vs 71 kB/s on the same
+  1080p upload, and cv2's bundled FFmpeg decodes AVC most reliably. The
+  codec-agnostic choice remains as the next fallback.
+- Node is enabled as a yt-dlp JavaScript runtime when on PATH, clearing the
+  "extraction without a JS runtime is deprecated, some formats may be missing"
+  warning.
+- `gps_overlay.parse_latlon` handles the formats the new fleet actually uses:
+  hemisphere-**prefix** DMS (`N42° 20' 18.07"`) as well as suffix, a missing or
+  misread degree sign (`W83°` OCR'd as `W838`), and DMS whose punctuation the OCR
+  ate entirely (`4222159"N`). A new `normalize_overlay_text` repairs the
+  systematic damage — spaced separators, fractions split across detection boxes,
+  dropped decimal points — before parsing.
+- `extract_gps_track` OCRs each band under three preprocessing variants and takes
+  a consensus where two agree. No single variant reads every camera: the native
+  band preserves DOD DMS punctuation that upscaling smears, while 2× upscaling
+  recovers the decimal point (and sometimes the whole hemisphere letter) on
+  VIOFO/WolfBox stamps.
+
 ### Fixed
+
+- `--help` crashed for every user. argparse `%`-formats help strings, so a
+  literal `61%` made `% o` parse as the `%o` conversion. `tests/test_cli_help_strings.py`
+  now checks all 86 help strings by reading `cli.py` as source, so the guard
+  works even where the optional heavy dependencies block importing the CLI.
+
 
 - **Burned-in graphics were blinding the visual odometry.** `_estimate_relative_pose`
   selected its 300 correspondences by *descriptor distance*, and descriptor
@@ -175,27 +194,6 @@ All notable changes to this project are documented here. This project adheres to
 - `build_overlay_fleet.py` cross-checks the reverse-geocoded city against the
   video title and warns when they disagree. On the clip above this was the
   *only* visible symptom — a township the title never mentions.
-
-### Changed
-
-- **Downloads are ~13× faster.** `_format_selector` now prefers mp4/AVC over the
-  higher-ranked VP9/webm rendition: measured 925 kB/s vs 71 kB/s on the same
-  1080p upload, and cv2's bundled FFmpeg decodes AVC most reliably. The
-  codec-agnostic choice remains as the next fallback.
-- Node is enabled as a yt-dlp JavaScript runtime when on PATH, clearing the
-  "extraction without a JS runtime is deprecated, some formats may be missing"
-  warning.
-- `gps_overlay.parse_latlon` handles the formats the new fleet actually uses:
-  hemisphere-**prefix** DMS (`N42° 20' 18.07"`) as well as suffix, a missing or
-  misread degree sign (`W83°` OCR'd as `W838`), and DMS whose punctuation the OCR
-  ate entirely (`4222159"N`). A new `normalize_overlay_text` repairs the
-  systematic damage — spaced separators, fractions split across detection boxes,
-  dropped decimal points — before parsing.
-- `extract_gps_track` OCRs each band under three preprocessing variants and takes
-  a consensus where two agree. No single variant reads every camera: the native
-  band preserves DOD DMS punctuation that upscaling smears, while 2× upscaling
-  recovers the decimal point (and sometimes the whole hemisphere letter) on
-  VIOFO/WolfBox stamps.
 
 ## [0.1.0] — 2026-07-24
 
