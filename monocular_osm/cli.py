@@ -530,13 +530,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "measured from road-plane optical flow "
                         "(monocular_osm/ground_flow_scale.py). A unit step is a "
                         "CONSTANT-SPEED assumption imposed on the trajectory shape; "
-                        "on the overlay fleet the true step lengths are worth "
-                        "107.4 -> 77.6 m of shape error and this recovers about "
-                        "three fifths of that on the clips it accepts. "
-                        "Costs a second streaming pass "
-                        "over the video (~2 min per 4-minute clip). Abstains rather "
-                        "than guessing, so footage whose road plane it cannot model "
-                        "is left exactly as-is.")
+                        "measured 107.4 -> 98.0 m on the overlay fleet and "
+                        "134.3 -> 123.2 m on the core fleet (Ulm, KITTI, London), "
+                        "against oracle ceilings of 77.6 and 116.0. Costs a second "
+                        "streaming pass over the video (~2 min per 4-minute clip). "
+                        "All-or-nothing: footage whose road plane it cannot model "
+                        "is left exactly as-is, so no clip measured so far is made "
+                        "worse.")
     p.add_argument("--use-vggt-gating", action="store_true",
                    help="Run VGGT (feed-forward, drift-free poses) to gate enumeration "
                         "to the area its trajectory selects, then let the loop-closed VO "

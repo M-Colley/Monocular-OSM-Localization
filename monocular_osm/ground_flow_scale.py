@@ -383,6 +383,7 @@ def step_lengths(
     reject_spread: float = 0.55,
     min_sharpness: float = 0.30,
     full_sharpness: float = 0.45,
+    min_confidence: float = 0.70,
     calibration: PlaneCalibration | None = None,
 ) -> tuple[np.ndarray, float]:
     """Per-VO-step length in metres, plus the confidence it was given.
@@ -424,7 +425,13 @@ def step_lengths(
     lengths = np.where(step_directions_valid, lengths, 0.0)
 
     confidence = _confidence(motion, spread, cal, accept_spread, reject_spread,
-                            min_sharpness, full_sharpness)
+                             min_sharpness, full_sharpness)
+    # All or nothing. Half-believing the plane model measurably hurts: on the
+    # London clip it scored 0.46, the blend was applied, and the result was
+    # 45.3 m against a 39.9 m baseline. Every clip that ever helped scored a
+    # flat 1.00. So below the bar, hand back the trajectory untouched.
+    if confidence < min_confidence:
+        return np.where(step_directions_valid, fallback, 0.0), 0.0
     if confidence < 1.0:
         lengths = _blend(lengths, fallback, confidence, step_directions_valid)
     return lengths, confidence

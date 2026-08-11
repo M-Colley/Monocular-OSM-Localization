@@ -114,6 +114,36 @@ def test_abstaining_reproduces_the_fallback_exactly() -> None:
     np.testing.assert_allclose(_blend(nonsense, fallback, 0.0, moving), fallback)
 
 
+def test_partial_confidence_abstains_rather_than_blending() -> None:
+    """Half-believing the plane model measurably hurts.
+
+    Every clip that ever helped scored a flat 1.00; the first clip to score
+    in between (London, 0.46) was made WORSE by the blend — 45.3 m against a
+    39.9 m baseline. So there is a floor, below which the trajectory comes
+    back untouched.
+    """
+    tracks = _synthetic_tracks(250.0)
+    moving = np.ones(tracks.n_steps, bool)
+    fallback = np.full(tracks.n_steps, 7.0)
+    # A floor above any achievable confidence forces the abstain path.
+    lengths, conf = step_lengths(tracks, K, step_directions_valid=moving,
+                                 fallback_lengths=fallback, min_confidence=1.01,
+                                 near_m=0.0, far_m=1e6, lat_m=1e6)
+    assert conf == 0.0
+    np.testing.assert_allclose(lengths, fallback)
+
+
+def test_full_confidence_still_applies_the_estimate() -> None:
+    tracks = _synthetic_tracks(250.0)
+    moving = np.ones(tracks.n_steps, bool)
+    fallback = np.full(tracks.n_steps, 7.0)
+    lengths, conf = step_lengths(tracks, K, step_directions_valid=moving,
+                                 fallback_lengths=fallback,
+                                 near_m=0.0, far_m=1e6, lat_m=1e6)
+    assert conf >= 0.7
+    assert not np.allclose(lengths, fallback)
+
+
 def test_blend_preserves_total_distance() -> None:
     # Partial confidence must change the SHAPE of the profile, not the route
     # length — otherwise it would fight the scale-lock machinery.

@@ -44,12 +44,27 @@ All notable changes to this project are documented here. This project adheres to
   pitches across the fleet range −6.2° to +2.4°, which is why the fixed
   `ipm_scale_pitch_deg` was never going to serve every camera.
 
-  It **abstains rather than guessing**: when the tracked points disagree about
-  how far the car moved, or the horizon never resolves, the result fades back
-  to the VO's own trajectory and reproduces it exactly. That fires on 2 of 8
-  clips here and no clip is made worse. Off by default all the same — this is
-  validated on the overlay fleet only, and the core fleet contains geometry it
-  has never seen (KITTI is 1242×375, not 16:9).
+  It **abstains rather than guessing**, all-or-nothing: when the tracked
+  points disagree about how far the car moved, or the horizon never resolves,
+  the trajectory comes back untouched. That fires on 2 of 8 overlay clips and
+  1 of 3 core-fleet clips, and no clip is made worse.
+
+  **Also validated on the core fleet**, whose ground truth is hand-labelled or
+  from an INS — independent of the estimator, unlike the overlay fleet where
+  GT and evaluation share a source. Mean **134.3 → 123.2 m**:
+
+  | clip | base | ground flow | oracle | |
+  |---|---|---|---|---|
+  | Ulm 4K (960×540 from 4K) | 345.8 | **319.7** | 285.9 | conf 1.00 |
+  | KITTI 0009 (**1242×374**) | 17.3 | **9.9** | 10.2 | conf 1.00 |
+  | London (720p) | 39.9 | 39.9 | 51.9 | abstained |
+
+  KITTI settles the geometry question: at 3.3:1 the horizon lands at 0.43 of
+  frame height, well inside the search band, and the estimate essentially
+  reaches the oracle. Nothing about the method assumed 16:9.
+
+  Off by default regardless. Three core clips is a thin basis, and the
+  remaining fleet (comma2k19, Málaga, Boreas, Berlin) is untested.
 
   Costs a second, streaming pass over the video (~2 min per 4-minute clip,
   rolling `stride + 1` frame buffer). That pass is not avoidable: the estimator
@@ -103,6 +118,12 @@ All notable changes to this project are documented here. This project adheres to
 
 ### Changed
 
+- Ground-flow scale applies **all-or-nothing** rather than blending at partial
+  confidence. Blending was never exercised until the London clip scored 0.46 —
+  and it turned a 39.9 m baseline into 45.3 m. Every clip that has ever helped
+  scored a flat 1.00, so below the floor the trajectory is handed back
+  untouched (core-fleet mean 125.0 → 123.2 m, no clip made worse; the overlay
+  fleet is bit-identical, every clip there being already 1.00 or 0.00).
 - **Downloads are ~13× faster.** `_format_selector` now prefers mp4/AVC over the
   higher-ranked VP9/webm rendition: measured 925 kB/s vs 71 kB/s on the same
   1080p upload, and cv2's bundled FFmpeg decodes AVC most reliably. The
