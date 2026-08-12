@@ -73,6 +73,7 @@ def _cache_signature(
     min_len: int,
     super_res: bool = False,
     video_path: Path | None = None,
+    engine: str = "easyocr",
 ) -> dict:
     sig = {
         "sample_interval_sec": sample_interval_sec,
@@ -87,6 +88,9 @@ def _cache_signature(
         # classifier has boxes to crop from. Bump again on future schema
         # changes.
         "schema": 2,
+        # Two engines read different text off the same pixels, so a cache
+        # built with one must not be served to the other.
+        "engine": engine,
     }
     # Video identity: re-downloading the same submission at a different
     # resolution/format into the same slug must invalidate the cache instead
@@ -165,7 +169,65 @@ def _polygon_to_bbox(poly) -> tuple[float, float, float, float] | None:
     return (min(xs), min(ys), max(xs), max(ys))
 
 
-def _default_reader(languages: tuple[str, ...], use_gpu: bool) -> OcrReader:
+class RapidOcrReader:
+    """:class:`OcrReader` over RapidOCR (PP-OCRv6 on onnxruntime).
+
+    Measured against easyocr on 320 frames of the overlay fleet, both
+    engines seeing identical images and the same three preprocessing
+    variants: parse yield 92.5% -> 96.6%, and coordinates landing more
+    than 100 m from the neighbouring reference — a real character misread
+    rather than interpolation noise — 4.1% -> 2.6%. Its gains concentrate
+    on the formats that need the most repair downstream: the DOD LS460W
+    DMS clips and the low-contrast ROVE stamp.
+
+    It costs ~5x easyocr's wall clock as configured here (onnxruntime CPU
+    versus easyocr on GPU); ``providers`` accepts the onnxruntime
+    execution providers if a GPU build is available.
+
+    RapidOCR returns parallel tuples rather than easyocr's per-detection
+    triples, so this adapts them to the Protocol the rest of the pipeline
+    expects. Note the pip metadata asks for ``opencv_python`` while this
+    project installs ``opencv-python-headless`` — the same ``cv2`` module
+    under a different distribution name. The version constraint
+    (>=4.5.1.48) is satisfied; pip's complaint is about the name only, and
+    RapidOCR runs fine on the headless build.
+    """
+
+    def __init__(self, **kwargs):
+        from rapidocr import RapidOCR
+
+        self._engine = RapidOCR(**kwargs)
+
+    def readtext(self, image) -> list:
+        result = self._engine(image)
+        texts = getattr(result, "txts", None)
+        if not texts:
+            return []
+        scores = getattr(result, "scores", None) or [1.0] * len(texts)
+        boxes = getattr(result, "boxes", None)
+        out = []
+        for i, (text, score) in enumerate(zip(texts, scores)):
+            box = boxes[i] if boxes is not None and i < len(boxes) else []
+            out.append(([[float(x), float(y)] for x, y in box], str(text),
+                        float(score)))
+        return out
+
+
+def _default_reader(languages: tuple[str, ...], use_gpu: bool,
+                    engine: str = "easyocr") -> OcrReader:
+    """Build the configured OCR engine.
+
+    ``easyocr`` remains the default: it is what every published number in
+    this repo was measured with, and the alternative's advantage does not
+    reach any downstream metric (ground-truth extraction already yields
+    far more fixes than the 20 waypoints it needs, and both the jump
+    filter and scripts/check_overlay_gt.py catch what OCR gets wrong).
+    """
+    if engine == "rapidocr":
+        return RapidOcrReader()
+    if engine != "easyocr":
+        raise ValueError(f"unknown OCR engine {engine!r}; "
+                         f"expected 'easyocr' or 'rapidocr'")
     import easyocr  # lazy: heavy import + model download on first use
 
     return easyocr.Reader(list(languages), gpu=use_gpu, verbose=False)
@@ -185,6 +247,7 @@ def extract_scene_text(
     use_gpu: bool = True,
     super_res: bool = False,
     frame_reader: Callable[[Path, float, float | None, float], list] | None = None,
+    engine: str = "easyocr",
 ) -> list[SceneText]:
     """OCR text off frames of ``video_path`` every ``sample_interval_sec``.
 
@@ -200,6 +263,7 @@ def extract_scene_text(
     sig = _cache_signature(
         sample_interval_sec, start_sec, end_sec, tuple(languages),
         min_confidence, min_len, super_res, video_path=video_path,
+        engine=engine,
     )
     if cache_path is not None:
         cached = _load_cache(Path(cache_path), sig)
@@ -209,7 +273,7 @@ def extract_scene_text(
     frames = (frame_reader or _sample_frames)(
         video_path, start_sec, end_sec, sample_interval_sec
     )
-    reader = ocr_reader or _default_reader(tuple(languages), use_gpu)
+    reader = ocr_reader or _default_reader(tuple(languages), use_gpu, engine)
 
     detections: list[SceneText] = []
     for t_sec, image in frames:

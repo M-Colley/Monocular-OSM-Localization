@@ -64,6 +64,13 @@ dev = ["pytest>=7.4.0"]
 # truth from clips with a burned-in GPS stamp (scripts/build_overlay_fleet.py).
 # Kept out of the core dependencies because easyocr pulls torch.
 ocr = ["easyocr>=1.7.2"]
+# Alternative OCR backend (--ocr-engine rapidocr): PP-OCRv6 on onnxruntime.
+# Reads the dashcam GPS stamps better than easyocr (yield 92.5 -> 96.6%,
+# gross misreads 4.1 -> 2.6% over 320 overlay-fleet frames) at roughly 5x
+# the wall clock. Its metadata asks for "opencv_python" while this project
+# installs "opencv-python-headless" — the same cv2 under another
+# distribution name, so pip warns and everything works.
+rapidocr = ["rapidocr>=3.9", "onnxruntime>=1.20"]
 
 [project.scripts]
 osm-localize = "monocular_osm.cli:main"

@@ -342,6 +342,7 @@ def _track_cache_signature(
     video_path: Path, sample_interval_sec: float, start_sec: float,
     end_sec: float | None, region: str, min_confidence: float,
     max_jump_m: float, variants: tuple[tuple[str, float, float], ...],
+    engine: str = "easyocr",
 ) -> dict:
     sig = {
         "sample_interval_sec": sample_interval_sec,
@@ -353,6 +354,7 @@ def _track_cache_signature(
         #   2: run-together DMS repairs (degree/minute shift, MMSS runs) and
         #      the _LOST_POINT reordering — these changed g5lnpYCk1Ec by 37 km.
         "parser": 2,
+        "engine": engine,
     }
     p = Path(video_path)
     try:
@@ -388,6 +390,7 @@ def extract_gps_track(
     max_jump_m: float = 400.0,
     variants: tuple[tuple[str, float, float], ...] = _VARIANTS,
     cache_path: Path | None = None,
+    engine: str = "easyocr",
 ) -> list[GpsFix]:
     """OCR the GPS overlay every ``sample_interval_sec`` → a GPS track.
 
@@ -410,7 +413,7 @@ def extract_gps_track(
 
     sig = _track_cache_signature(video_path, sample_interval_sec, start_sec,
                                  end_sec, region, min_confidence, max_jump_m,
-                                 variants)
+                                 variants, engine)
     if cache_path is not None:
         cached = _load_track_cache(Path(cache_path), sig)
         if cached is not None:
@@ -418,7 +421,7 @@ def extract_gps_track(
 
     frames = (frame_reader or _sample_frames)(
         video_path, start_sec, end_sec, sample_interval_sec)
-    reader = ocr_reader or _default_reader(tuple(languages), use_gpu)
+    reader = ocr_reader or _default_reader(tuple(languages), use_gpu, engine)
 
     raw: list[GpsFix] = []
     for t_sec, image in frames:

@@ -306,6 +306,10 @@ class PipelineConfig:
     # It abstains rather than guessing, so a clip whose road plane it cannot
     # model reproduces the unscaled trajectory exactly.
     use_ground_flow_scale: bool = False
+    # OCR backend for both consumers (scene_text anchors and the
+    # GPS-overlay stamp reader). See scene_text.RapidOcrReader for the
+    # measurement behind the alternative.
+    ocr_engine: str = "easyocr"
     # Run VGGT (feed-forward, drift-free poses) to GATE enumeration to the
     # area its trajectory selects, then let the precise (loop-closed) VO
     # geometry pick within it (monocular_osm/vggt_trajectory.py). Needs the vggt
@@ -1427,7 +1431,8 @@ def _fetch_road_graph(
 
 
 def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
-                       vo_start: float = 0.0, vo_end: float | None = None):
+                       vo_start: float = 0.0, vo_end: float | None = None,
+                       ocr_engine: str = "easyocr"):
     """GPS-free coarse seed from the video FRAMES. Fast deterministic signals
     first — license-plate registration district, then legible place names
     read by OCR (geocoded through the same resolver as the title) — and only
@@ -1445,7 +1450,8 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
     try:                                       # 2) OCR place names -> geocode
         from .location_prior import resolve_coarse_prior
         from .scene_text import extract_scene_text
-        st = extract_scene_text(video_path, start_sec=vo_start, end_sec=vo_end)
+        st = extract_scene_text(video_path, start_sec=vo_start, end_sec=vo_end,
+                                engine=ocr_engine)
         ocr_text = " , ".join(s.text for s in st if getattr(s, "text", None))
         pr = resolve_coarse_prior(city, ocr_text, None)
         if pr is not None:
@@ -1666,7 +1672,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         _fp = _frame_coarse_seed(video_path, frames.frames, cfg.city,
                                  want_vlm=cfg.coarse_from_vlm,
                                  vo_start=cfg.vo_start_sec,
-                                 vo_end=cfg.vo_end_sec)
+                                 vo_end=cfg.vo_end_sec,
+                                 ocr_engine=cfg.ocr_engine)
         if _fp is not None:
             osm_around = _fp[:3]
             print(f"      -> [coarse] frame-based prior "

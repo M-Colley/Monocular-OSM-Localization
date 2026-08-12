@@ -4,6 +4,49 @@ All notable changes to this project are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/); while on `0.x` the public interface
 (CLI flags, output schema) may still change between minor versions.
 
+## [Unreleased]
+
+### Added
+
+- **`--ocr-engine rapidocr`** — an alternative OCR backend (PP-OCRv6 on
+  onnxruntime) behind the existing `OcrReader` Protocol, serving both OCR
+  consumers: scene-text anchors and the GPS-overlay stamp reader.
+
+  Measured against easyocr on 320 overlay-fleet frames, both engines seeing
+  identical images and the same three preprocessing variants:
+
+  | engine | parse yield | >100 m misreads | ms/img |
+  |---|---|---|---|
+  | easyocr (GPU) | 92.5% | 4.1% | 354 |
+  | **rapidocr** (onnxruntime CPU) | **96.6%** | **3.2%** | 1829 |
+
+  On the 80 frames where PaddleOCR also finished: yield 91.2 / **97.5** / 96.2%
+  for easyocr / rapidocr / paddleocr. Median error is a three-way tie
+  (7.8 / 8.0 / 8.2 m) and should not be read as accuracy — it is dominated by
+  interpolating the 5 s reference across real vehicle motion, not by OCR. Only
+  yield and the gross-misread rate carry signal.
+
+  Its gains concentrate on the formats that need the most repair downstream —
+  the DOD LS460W DMS clips and the low-contrast ROVE stamp. End to end through
+  the repo on `1nF_7l07i-E` (easyocr's weakest clip): 96% of sampled frames
+  yielded a fix, with median agreement of 0.0 m against the existing
+  reference — the same coordinates, read on more frames.
+
+  **easyocr remains the default**: every published number in this repo was
+  measured with it, and rapidocr's advantage does not reach any downstream
+  metric (ground-truth extraction already yields far more fixes than the ~20
+  waypoints it needs, and both `_reject_jumps` and `scripts/check_overlay_gt.py`
+  catch what OCR gets wrong). Install with `pip install -e ".[rapidocr]"`.
+
+  Both OCR caches — scene-text and the overlay track — now key on the engine,
+  so one engine's output can never be served to the other.
+
+  **PaddleOCR was evaluated and rejected**: no accuracy edge over rapidocr,
+  38x slower than easyocr (13.6 s/image), and on Windows it only runs with
+  `enable_mkldnn=False` (otherwise paddlepaddle raises
+  `ConvertPirAttribute2RuntimeAttribute` in its oneDNN path) — which is what
+  makes it that slow.
+
 ## [0.1.2] — 2026-08-11
 
 ### Added

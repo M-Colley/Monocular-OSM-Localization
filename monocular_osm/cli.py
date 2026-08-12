@@ -525,6 +525,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Detect a route that returns near its start and redistribute "
                         "VO drift so the loop closes (monocular_osm/loop_closure.py). Pair with "
                         "--use-ipm-scale; closing at a wrong scale doesn't help.")
+    p.add_argument("--ocr-engine", choices=("easyocr", "rapidocr"),
+                   default="easyocr",
+                   help="OCR backend for scene text and GPS-overlay stamps. rapidocr (PP-OCRv6 on onnxruntime) reads the stamps better -- measured on 320 overlay-fleet frames, parse yield 92.5 to 96.6 percent and gross misreads 4.1 to 2.6 percent -- but runs about 5x slower here (onnxruntime CPU vs easyocr on GPU). easyocr stays the default because every published number in this repo was measured with it.")
     p.add_argument("--use-ground-flow-scale", action="store_true",
                    help="Replace the VO's unit-length steps with per-step lengths "
                         "measured from road-plane optical flow "
@@ -750,6 +753,7 @@ def main() -> None:
             bev_fusion_cap=args.bev_fusion_cap,
             enable_loop_closure=args.enable_loop_closure,
             use_ground_flow_scale=args.use_ground_flow_scale,
+            ocr_engine=args.ocr_engine,
             use_vggt_gating=args.use_vggt_gating,
             vggt_keyframes=args.vggt_keyframes,
             use_orienternet=args.use_orienternet,

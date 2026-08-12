@@ -24,6 +24,9 @@ timezonefinder>=6.0        # timezone lookup for the sun-heading astronomy (--us
 # so it is a separate `pip install -e ".[ocr]"` extra in pyproject.toml rather
 # than a hard dependency; uncomment here for the requirements.txt route.
 # easyocr>=1.7.2
+# Alternative backend for --ocr-engine rapidocr (extra: [rapidocr]):
+# rapidocr>=3.9
+# onnxruntime>=1.20
 
 # --- optional GPU stack for the dense-splat (DA3) path --------------------
 # These are NOT required for the core trajectory/aerial pipeline; install
