@@ -309,7 +309,7 @@ class PipelineConfig:
     # OCR backend for both consumers (scene_text anchors and the
     # GPS-overlay stamp reader). See scene_text.RapidOcrReader for the
     # measurement behind the alternative.
-    ocr_engine: str = "easyocr"
+    ocr_engine: str = "rapidocr"
     # Run VGGT (feed-forward, drift-free poses) to GATE enumeration to the
     # area its trajectory selects, then let the precise (loop-closed) VO
     # geometry pick within it (monocular_osm/vggt_trajectory.py). Needs the vggt
@@ -1432,7 +1432,7 @@ def _fetch_road_graph(
 
 def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
                        vo_start: float = 0.0, vo_end: float | None = None,
-                       ocr_engine: str = "easyocr"):
+                       ocr_engine: str = "rapidocr"):
     """GPS-free coarse seed from the video FRAMES. Fast deterministic signals
     first — license-plate registration district, then legible place names
     read by OCR (geocoded through the same resolver as the title) — and only

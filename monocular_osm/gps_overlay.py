@@ -342,7 +342,7 @@ def _track_cache_signature(
     video_path: Path, sample_interval_sec: float, start_sec: float,
     end_sec: float | None, region: str, min_confidence: float,
     max_jump_m: float, variants: tuple[tuple[str, float, float], ...],
-    engine: str = "easyocr",
+    engine: str = "rapidocr",
 ) -> dict:
     sig = {
         "sample_interval_sec": sample_interval_sec,
@@ -390,7 +390,7 @@ def extract_gps_track(
     max_jump_m: float = 400.0,
     variants: tuple[tuple[str, float, float], ...] = _VARIANTS,
     cache_path: Path | None = None,
-    engine: str = "easyocr",
+    engine: str = "rapidocr",
 ) -> list[GpsFix]:
     """OCR the GPS overlay every ``sample_interval_sec`` → a GPS track.
 

@@ -67,6 +67,76 @@ def test_default_reader_rejects_an_unknown_engine() -> None:
         _default_reader(("en",), False, "tesseract")
 
 
+def test_the_default_engine_is_rapidocr() -> None:
+    import inspect
+
+    from monocular_osm.gps_overlay import extract_gps_track
+
+    assert inspect.signature(_default_reader).parameters["engine"].default == "rapidocr"
+    assert inspect.signature(extract_scene_text).parameters["engine"].default == "rapidocr"
+    assert inspect.signature(extract_gps_track).parameters["engine"].default == "rapidocr"
+    # PipelineConfig lives behind an open3d import, so read its default from
+    # source rather than importing it — this must hold in a CPU-only checkout.
+    src = (REPO / "monocular_osm" / "pipeline.py").read_text(encoding="utf-8")
+    assert 'ocr_engine: str = "rapidocr"' in src
+
+
+def _break_import(monkeypatch, missing: str) -> list[str]:
+    """Make one backend unimportable; record which readers were attempted."""
+    tried: list[str] = []
+    import monocular_osm.scene_text as st
+
+    class _Reader:
+        def readtext(self, image):
+            return []
+
+    def fake_rapid():
+        tried.append("rapidocr")
+        if missing == "rapidocr":
+            raise ImportError("No module named 'rapidocr'")
+        return _Reader()
+
+    def fake_easy(languages, use_gpu):
+        tried.append("easyocr")
+        if missing == "easyocr":
+            raise ImportError("No module named 'easyocr'")
+        return _Reader()
+
+    monkeypatch.setattr(st, "RapidOcrReader", fake_rapid)
+    monkeypatch.setattr(st, "_easyocr_reader", fake_easy)
+    return tried
+
+
+def test_missing_default_backend_falls_back_with_a_warning(monkeypatch) -> None:
+    """Making rapidocr the default must not break installs that only have
+    easyocr — the OCR channel is one of several, not the whole run."""
+    tried = _break_import(monkeypatch, missing="rapidocr")
+    with pytest.warns(RuntimeWarning, match="not installed"):
+        reader = _default_reader(("en",), False, "rapidocr")
+    assert reader is not None
+    assert tried == ["rapidocr", "easyocr"]
+
+
+def test_explicitly_requesting_the_missing_one_also_falls_back(monkeypatch) -> None:
+    tried = _break_import(monkeypatch, missing="easyocr")
+    with pytest.warns(RuntimeWarning, match="not installed"):
+        _default_reader(("en",), False, "easyocr")
+    assert tried == ["easyocr", "rapidocr"]
+
+
+def test_no_backend_at_all_names_both_extras(monkeypatch) -> None:
+    import monocular_osm.scene_text as st
+
+    def boom(*a, **k):
+        raise ImportError("nope")
+
+    monkeypatch.setattr(st, "RapidOcrReader", boom)
+    monkeypatch.setattr(st, "_easyocr_reader", boom)
+    with pytest.warns(RuntimeWarning):
+        with pytest.raises(ImportError, match=r"\[rapidocr\]"):
+            _default_reader(("en",), False, "rapidocr")
+
+
 def test_cache_signature_separates_the_engines() -> None:
     """A cache built with one engine must not be served to the other — they
     read different text off identical pixels, which is the whole point."""

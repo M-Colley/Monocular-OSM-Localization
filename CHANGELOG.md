@@ -32,11 +32,21 @@ All notable changes to this project are documented here. This project adheres to
   yielded a fix, with median agreement of 0.0 m against the existing
   reference — the same coordinates, read on more frames.
 
-  **easyocr remains the default**: every published number in this repo was
-  measured with it, and rapidocr's advantage does not reach any downstream
-  metric (ground-truth extraction already yields far more fixes than the ~20
-  waypoints it needs, and both `_reject_jumps` and `scripts/check_overlay_gt.py`
-  catch what OCR gets wrong). Install with `pip install -e ".[rapidocr]"`.
+  **rapidocr is now the default engine.** `pip install -e ".[ocr]"` installs
+  it; easyocr moves to its own `[easyocr]` extra. That also makes the OCR
+  channel much lighter — rapidocr pulls no torch.
+
+  Whichever engine is requested, a missing backend **falls back to the other
+  with a warning** rather than failing the run: OCR is one channel of several,
+  and both engines are optional extras, so an install with only one of them
+  must still work.
+
+  **Two consequences to be aware of.** Every number published in this repo
+  before 2026-08-12 was measured with easyocr — including the overlay fleet's
+  `ground_truth/*.json`, which is committed as extracted and is NOT regenerated
+  by this change. And because both OCR caches key on the engine, existing
+  caches will regenerate on first run under the new default (correct, but it
+  costs an OCR pass).
 
   Both OCR caches — scene-text and the overlay track — now key on the engine,
   so one engine's output can never be served to the other.

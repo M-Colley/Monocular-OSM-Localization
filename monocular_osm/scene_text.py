@@ -9,8 +9,10 @@ drift that otherwise floats the whole solution (see the README's
 "Why re-ranking has a ceiling").
 
 OCR is slow, so results are cached to JSON keyed by the sampling
-parameters. The heavy dependency (``easyocr``) is imported lazily and
-can be injected for tests via ``ocr_reader``.
+parameters AND the engine — two backends read different text off the
+same pixels. Both engines (``rapidocr`` by default, ``easyocr``) are
+imported lazily, and a reader can be injected for tests via
+``ocr_reader``.
 
 Resolution note: at the 720p of the reference clip, street-name plates
 are not legible, but large signage (``Sedelhöfe``, ``Haus der
@@ -73,7 +75,7 @@ def _cache_signature(
     min_len: int,
     super_res: bool = False,
     video_path: Path | None = None,
-    engine: str = "easyocr",
+    engine: str = "rapidocr",
 ) -> dict:
     sig = {
         "sample_interval_sec": sample_interval_sec,
@@ -213,24 +215,45 @@ class RapidOcrReader:
         return out
 
 
-def _default_reader(languages: tuple[str, ...], use_gpu: bool,
-                    engine: str = "easyocr") -> OcrReader:
-    """Build the configured OCR engine.
-
-    ``easyocr`` remains the default: it is what every published number in
-    this repo was measured with, and the alternative's advantage does not
-    reach any downstream metric (ground-truth extraction already yields
-    far more fixes than the 20 waypoints it needs, and both the jump
-    filter and scripts/check_overlay_gt.py catch what OCR gets wrong).
-    """
-    if engine == "rapidocr":
-        return RapidOcrReader()
-    if engine != "easyocr":
-        raise ValueError(f"unknown OCR engine {engine!r}; "
-                         f"expected 'easyocr' or 'rapidocr'")
+def _easyocr_reader(languages: tuple[str, ...], use_gpu: bool) -> OcrReader:
     import easyocr  # lazy: heavy import + model download on first use
 
     return easyocr.Reader(list(languages), gpu=use_gpu, verbose=False)
+
+
+def _default_reader(languages: tuple[str, ...], use_gpu: bool,
+                    engine: str = "rapidocr") -> OcrReader:
+    """Build the configured OCR engine, degrading rather than failing.
+
+    ``rapidocr`` is the default — it reads the dashcam stamps measurably
+    better (see :class:`RapidOcrReader`) and, unlike easyocr, needs no
+    torch. But both engines are optional extras, so a request for one
+    that is not installed falls back to the other with a warning instead
+    of taking down a run over a channel that is only one of several.
+    """
+    if engine not in ("easyocr", "rapidocr"):
+        raise ValueError(f"unknown OCR engine {engine!r}; "
+                         f"expected 'easyocr' or 'rapidocr'")
+    order = ["rapidocr", "easyocr"] if engine == "rapidocr" else ["easyocr", "rapidocr"]
+    errors = []
+    for name in order:
+        try:
+            return (RapidOcrReader() if name == "rapidocr"
+                    else _easyocr_reader(languages, use_gpu))
+        except ImportError as e:
+            errors.append(f"{name}: {e}")
+            if name == engine:
+                import warnings
+                warnings.warn(
+                    f"OCR engine {engine!r} is not installed ({e}); falling back "
+                    f"to the other backend. Install it with "
+                    f"`pip install -e \".[{'rapidocr' if engine == 'rapidocr' else 'easyocr'}]\"`.",
+                    RuntimeWarning, stacklevel=2)
+    raise ImportError(
+        "No OCR backend available. Install one:\n"
+        "    pip install -e \".[rapidocr]\"   # default, no torch\n"
+        "    pip install -e \".[easyocr]\"    # alternative\n"
+        + "\n".join(f"  tried {e}" for e in errors))
 
 
 def extract_scene_text(
@@ -247,7 +270,7 @@ def extract_scene_text(
     use_gpu: bool = True,
     super_res: bool = False,
     frame_reader: Callable[[Path, float, float | None, float], list] | None = None,
-    engine: str = "easyocr",
+    engine: str = "rapidocr",
 ) -> list[SceneText]:
     """OCR text off frames of ``video_path`` every ``sample_interval_sec``.
 
