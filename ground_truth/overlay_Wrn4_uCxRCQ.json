@@ -1,0 +1,110 @@
+{
+  "video_id": "Wrn4_uCxRCQ",
+  "video_url": "https://www.youtube.com/watch?v=Wrn4_uCxRCQ",
+  "city": "Newcastle upon Tyne, England, UK",
+  "vo_segment": "0:595",
+  "description": "Newcastle upon Tyne, UK — Tyne Bridge, Central Motorway, Jesmond, Coast Road. The first non-US clip in this fleet and the first with a SINGLE-DIGIT degree longitude (W1d), which no US clip exercises — every other stamp here sits at 83-111 degrees west. Also a fifth camera family (Nextbase), and its clock reads 14/01/2000, a reminder that the stamp's DATE is not to be trusted even where its position is. Overlay: 2MPH  N54d 58' 55.29\"  W1d 36' 24.77\"   (Nextbase NBDVR402G). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 115 OCR fixes over 0-595 s (4.09 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 54.962867,
+      "lon": -1.599253
+    },
+    {
+      "t_sec": 30.0,
+      "lat": 54.964997,
+      "lon": -1.602306
+    },
+    {
+      "t_sec": 60.0,
+      "lat": 54.968975,
+      "lon": -1.607178
+    },
+    {
+      "t_sec": 95.0,
+      "lat": 54.97485,
+      "lon": -1.60675
+    },
+    {
+      "t_sec": 125.0,
+      "lat": 54.980094,
+      "lon": -1.60605
+    },
+    {
+      "t_sec": 155.0,
+      "lat": 54.980761,
+      "lon": -1.606722
+    },
+    {
+      "t_sec": 185.0,
+      "lat": 54.981444,
+      "lon": -1.607097
+    },
+    {
+      "t_sec": 215.0,
+      "lat": 54.981719,
+      "lon": -1.607175
+    },
+    {
+      "t_sec": 245.0,
+      "lat": 54.982036,
+      "lon": -1.606856
+    },
+    {
+      "t_sec": 275.0,
+      "lat": 54.982342,
+      "lon": -1.605961
+    },
+    {
+      "t_sec": 305.0,
+      "lat": 54.983197,
+      "lon": -1.603339
+    },
+    {
+      "t_sec": 335.0,
+      "lat": 54.984267,
+      "lon": -1.600203
+    },
+    {
+      "t_sec": 365.0,
+      "lat": 54.984419,
+      "lon": -1.599592
+    },
+    {
+      "t_sec": 395.0,
+      "lat": 54.984786,
+      "lon": -1.598353
+    },
+    {
+      "t_sec": 425.0,
+      "lat": 54.984822,
+      "lon": -1.598278
+    },
+    {
+      "t_sec": 455.0,
+      "lat": 54.985983,
+      "lon": -1.59595
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 54.986947,
+      "lon": -1.594419
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 54.988825,
+      "lon": -1.589708
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 54.989117,
+      "lon": -1.588594
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 54.990494,
+      "lon": -1.585917
+    }
+  ]
+}

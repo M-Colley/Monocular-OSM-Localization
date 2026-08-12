@@ -2,24 +2,34 @@
   "video_id": "ZhGb8q1kliY",
   "video_url": "https://www.youtube.com/watch?v=ZhGb8q1kliY",
   "city": "Detroit, Michigan, USA",
-  "vo_segment": "5:560",
-  "description": "Detroit, downtown to northwest, 2016. Hemisphere-PREFIX DMS; the degree sign OCRs as an 8. Overlay: N42d 20' 18.07\"  W83d 3' 23.70\"   (DOD LS460W). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 79 OCR fixes over 5-560 s (4.11 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "vo_segment": "0:275",
+  "description": "Detroit, downtown to northwest, 2016. Hemisphere-PREFIX DMS; the degree sign OCRs as an 8. Overlay: N42d 20' 18.07\"  W83d 3' 23.70\"   (DOD LS460W). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 55 OCR fixes over 0-275 s (1.58 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
   "source": "gps_overlay_ocr",
   "waypoints": [
     {
-      "t_sec": 5.0,
-      "lat": 42.329714,
-      "lon": -83.047628
+      "t_sec": 0.0,
+      "lat": 42.328892,
+      "lon": -83.046503
     },
     {
-      "t_sec": 25.0,
-      "lat": 42.329606,
-      "lon": -83.048131
+      "t_sec": 15.0,
+      "lat": 42.329583,
+      "lon": -83.048089
     },
     {
-      "t_sec": 50.0,
-      "lat": 42.329194,
-      "lon": -83.048656
+      "t_sec": 30.0,
+      "lat": 42.329592,
+      "lon": -83.048106
+    },
+    {
+      "t_sec": 45.0,
+      "lat": 42.329464,
+      "lon": -83.048153
+    },
+    {
+      "t_sec": 55.0,
+      "lat": 42.329053,
+      "lon": -83.049044
     },
     {
       "t_sec": 70.0,
@@ -27,9 +37,29 @@
       "lon": -83.050047
     },
     {
+      "t_sec": 90.0,
+      "lat": 42.329044,
+      "lon": -83.05075
+    },
+    {
+      "t_sec": 105.0,
+      "lat": 42.329989,
+      "lon": -83.051342
+    },
+    {
       "t_sec": 120.0,
       "lat": 42.329992,
       "lon": -83.051364
+    },
+    {
+      "t_sec": 135.0,
+      "lat": 42.330361,
+      "lon": -83.051692
+    },
+    {
+      "t_sec": 145.0,
+      "lat": 42.331172,
+      "lon": -83.052178
     },
     {
       "t_sec": 160.0,
@@ -37,14 +67,29 @@
       "lon": -83.053022
     },
     {
+      "t_sec": 175.0,
+      "lat": 42.3339,
+      "lon": -83.053947
+    },
+    {
       "t_sec": 190.0,
       "lat": 42.334358,
       "lon": -83.054225
     },
     {
-      "t_sec": 215.0,
-      "lat": 42.335833,
-      "lon": -83.05535
+      "t_sec": 205.0,
+      "lat": 42.335297,
+      "lon": -83.054903
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 42.335742,
+      "lon": -83.055783
+    },
+    {
+      "t_sec": 230.0,
+      "lat": 42.335439,
+      "lon": -83.056364
     },
     {
       "t_sec": 245.0,
@@ -52,59 +97,14 @@
       "lon": -83.056381
     },
     {
-      "t_sec": 290.0,
-      "lat": 42.338347,
-      "lon": -83.056578
+      "t_sec": 260.0,
+      "lat": 42.335361,
+      "lon": -83.056425
     },
     {
-      "t_sec": 310.0,
-      "lat": 42.338944,
-      "lon": -83.056953
-    },
-    {
-      "t_sec": 330.0,
-      "lat": 42.340903,
-      "lon": -83.058056
-    },
-    {
-      "t_sec": 350.0,
-      "lat": 42.341586,
-      "lon": -83.059467
-    },
-    {
-      "t_sec": 380.0,
-      "lat": 42.341833,
-      "lon": -83.061189
-    },
-    {
-      "t_sec": 425.0,
-      "lat": 42.346667,
-      "lon": -83.061864
-    },
-    {
-      "t_sec": 460.0,
-      "lat": 42.345572,
-      "lon": -83.061172
-    },
-    {
-      "t_sec": 490.0,
-      "lat": 42.345997,
-      "lon": -83.063542
-    },
-    {
-      "t_sec": 510.0,
-      "lat": 42.347697,
-      "lon": -83.064544
-    },
-    {
-      "t_sec": 530.0,
-      "lat": 42.348917,
-      "lon": -83.064172
-    },
-    {
-      "t_sec": 560.0,
-      "lat": 42.34935,
-      "lon": -83.063522
+      "t_sec": 275.0,
+      "lat": 42.334894,
+      "lon": -83.055319
     }
   ]
 }

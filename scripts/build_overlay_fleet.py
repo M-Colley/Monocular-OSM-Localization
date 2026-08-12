@@ -162,6 +162,14 @@ def _title_disagreement(city: str, title: str) -> str:
     guess = guess_city_from_title(title)
     if guess and guess.split(",")[0].strip().casefold() == place:
         return ""
+    # Accept the distinctive first word too: Nominatim returns "Newcastle upon
+    # Tyne" where the uploader wrote "Newcastle Driving", and a warning that
+    # cries wolf on a correct clip is worse than no warning at all. Still
+    # catches the case this exists for — "Brownstown Charter Township" shares
+    # no leading word with "Driving from Detroit ... to Roseville".
+    head = place.split()[0] if place else ""
+    if len(head) >= 4 and head in haystack:
+        return ""
     return (f"   <-- CHECK: the title never says {city.split(',')[0]!r} "
             f"({title[:60]!r}); verify the stamp is being read correctly")
 
@@ -249,34 +257,53 @@ def _write_index(built: list[dict], path: Path) -> None:
     slugs, video paths and GT-derived discs — those are all outputs of
     THIS script, and duplicating them by hand is exactly the kind of
     drift that silently evaluates a clip against the wrong GT.
+
+    Entries MERGE with whatever is already indexed: rebuilt clips are
+    replaced, untouched ones survive. Without that, adding a single clip
+    with ``--only`` would silently drop every other clip from the fleet —
+    the sweep would then quietly evaluate one clip and report it as the
+    whole fleet.
     """
+    existing: dict[str, dict] = {}
+    if path.exists():
+        try:
+            for entry in json.loads(path.read_text(encoding="utf-8")).get("clips", []):
+                existing[entry["video_id"]] = entry
+        except (OSError, ValueError, KeyError):
+            existing = {}
+
+    for b in built:
+        existing[b["clip"].video_id] = {
+            "video_id": b["clip"].video_id,
+            "name": f"{b['city'].split(',')[0]} ({b['clip'].video_id})",
+            "slug": b["slug"],
+            "title": b["title"],
+            "city": b["city"],
+            "video": b["video_path"],
+            "ground_truth": b["gt_path"],
+            "osm_around": b["osm_around"],
+            "vo_segment": b["vo_segment"],
+            "n_dropped_to_cuts": b["n_dropped"],
+            "n_fixes": b["n_fixes"],
+            "span_km": round(b["span_km"], 3),
+            "note": b["clip"].note,
+        }
+
+    # Keep the manifest's order so the index is stable across rebuilds.
+    order = {c.video_id: i for i, c in enumerate(CLIPS)}
     payload = {
         "note": "Written by scripts/build_overlay_fleet.py. Ground truth here is "
                 "OCR'd from each clip's burned-in GPS stamp, NOT hand-verified — "
                 "keep it separate from the hand-labelled/INS core fleet.",
-        "clips": [
-            {
-                "video_id": b["clip"].video_id,
-                "name": f"{b['city'].split(',')[0]} ({b['clip'].video_id})",
-                "slug": b["slug"],
-                "title": b["title"],
-                "city": b["city"],
-                "video": b["video_path"],
-                "ground_truth": b["gt_path"],
-                "osm_around": b["osm_around"],
-                "vo_segment": b["vo_segment"],
-                "n_dropped_to_cuts": b["n_dropped"],
-                "n_fixes": b["n_fixes"],
-                "span_km": round(b["span_km"], 3),
-                "note": b["clip"].note,
-            }
-            for b in built
-        ],
+        "clips": sorted(existing.values(),
+                        key=lambda e: order.get(e["video_id"], 10 ** 6)),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\nwrote {_repo_rel(path)} "
-          f"({len(built)} clips) — scripts/run_all_gt.py --overlay reads this")
+    kept = len(payload["clips"]) - len(built)
+    print(f"\nwrote {_repo_rel(path)} ({len(built)} rebuilt"
+          + (f", {kept} kept" if kept else "")
+          + ") — scripts/run_all_gt.py --overlay reads this")
 
 
 def main(argv: list[str] | None = None) -> None:

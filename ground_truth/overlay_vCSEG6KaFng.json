@@ -3,7 +3,7 @@
   "video_url": "https://www.youtube.com/watch?v=vCSEG6KaFng",
   "city": "Chicago, Illinois, USA",
   "vo_segment": "5:595",
-  "description": "Chicago Loop / River North, daylight. Dense high-rise canyon — the hardest case for sky/skyline channels, the easiest for OCR. Overlay: 000MPH  N:41.8933 W:87.6216   (VIOFO A229 Pro, 4K). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 119 OCR fixes over 5-595 s (1.46 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "description": "Chicago Loop / River North, daylight. Dense high-rise canyon — the hardest case for sky/skyline channels, the easiest for OCR. Overlay: 000MPH  N:41.8933 W:87.6216   (VIOFO A229 Pro, 4K). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 118 OCR fixes over 5-595 s (1.46 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
   "source": "gps_overlay_ocr",
   "waypoints": [
     {
@@ -22,7 +22,7 @@
       "lon": -87.6125
     },
     {
-      "t_sec": 100.0,
+      "t_sec": 95.0,
       "lat": 41.8918,
       "lon": -87.615
     },
@@ -47,14 +47,14 @@
       "lon": -87.6203
     },
     {
-      "t_sec": 255.0,
-      "lat": 41.8923,
+      "t_sec": 250.0,
+      "lat": 41.8921,
       "lon": -87.6206
     },
     {
-      "t_sec": 285.0,
-      "lat": 41.8933,
-      "lon": -87.6206
+      "t_sec": 280.0,
+      "lat": 41.8932,
+      "lon": -87.6203
     },
     {
       "t_sec": 315.0,
@@ -67,22 +67,22 @@
       "lon": -87.6223
     },
     {
-      "t_sec": 380.0,
-      "lat": 41.8933,
-      "lon": -87.6224
+      "t_sec": 375.0,
+      "lat": 41.8932,
+      "lon": -87.6223
     },
     {
-      "t_sec": 410.0,
+      "t_sec": 405.0,
       "lat": 41.8939,
       "lon": -87.6226
     },
     {
-      "t_sec": 440.0,
+      "t_sec": 435.0,
       "lat": 41.894,
       "lon": -87.6226
     },
     {
-      "t_sec": 470.0,
+      "t_sec": 465.0,
       "lat": 41.8941,
       "lon": -87.6226
     },

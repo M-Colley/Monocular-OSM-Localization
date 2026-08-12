@@ -12,7 +12,7 @@
       "osm_around": "41.893250,-87.617050,1158",
       "vo_segment": "5:595",
       "n_dropped_to_cuts": 0,
-      "n_fixes": 119,
+      "n_fixes": 118,
       "span_km": 1.462,
       "note": "Chicago Loop / River North, daylight. Dense high-rise canyon — the hardest case for sky/skyline channels, the easiest for OCR."
     },
@@ -39,11 +39,11 @@
       "city": "Scottsdale, Arizona, USA",
       "video": "data/wjseqtcag1c-driving-in-phoenix-tempe-scottsdale-chandler-gilbert-queen-creek-i-1/input_0-600.mp4",
       "ground_truth": "ground_truth/overlay_wJsEQTCAg1c.json",
-      "osm_around": "33.498530,-111.921695,1279",
-      "vo_segment": "315:580",
-      "n_dropped_to_cuts": 17,
-      "n_fixes": 30,
-      "span_km": 2.184,
+      "osm_around": "33.499980,-111.926120,835",
+      "vo_segment": "400:595",
+      "n_dropped_to_cuts": 30,
+      "n_fixes": 40,
+      "span_km": 0.945,
       "note": "Phoenix / Tempe / Scottsdale, Arizona. Wide arterial grid — the US-suburb failure mode that Boreas probes in Canada."
     },
     {
@@ -54,11 +54,11 @@
       "city": "Detroit, Michigan, USA",
       "video": "data/zhgb8q1kliy-detroit-driving-from-downtown-to-northwest-n-back-dashcam-10-16-2016/input_0-600.mp4",
       "ground_truth": "ground_truth/overlay_ZhGb8q1kliY.json",
-      "osm_around": "42.338897,-83.056263,1914",
-      "vo_segment": "5:560",
-      "n_dropped_to_cuts": 1,
-      "n_fixes": 79,
-      "span_km": 4.115,
+      "osm_around": "42.332183,-83.051464,1149",
+      "vo_segment": "0:275",
+      "n_dropped_to_cuts": 61,
+      "n_fixes": 55,
+      "span_km": 1.577,
       "note": "Detroit, downtown to northwest, 2016. Hemisphere-PREFIX DMS; the degree sign OCRs as an 8."
     },
     {
@@ -69,11 +69,11 @@
       "city": "Detroit, Michigan, USA",
       "video": "data/1nf-7l07i-e-amazing-detroit-come-n-visit-dashcam-driving-into-downtown-usa-08-15/input_0-600.mp4",
       "ground_truth": "ground_truth/overlay_1nF_7l07i-E.json",
-      "osm_around": "42.332282,-83.061025,1835",
-      "vo_segment": "0:590",
+      "osm_around": "42.332282,-83.061011,1834",
+      "vo_segment": "0:595",
       "n_dropped_to_cuts": 0,
-      "n_fixes": 105,
-      "span_km": 3.114,
+      "n_fixes": 120,
+      "span_km": 3.166,
       "note": "Detroit, driving INTO downtown, 2016. Same camera as ZhGb8q1kliY, opposite direction — a heading-disambiguation pair."
     },
     {
@@ -84,11 +84,11 @@
       "city": "Detroit, Michigan, USA",
       "video": "data/g5lnpyck1ec-driving-from-detroit-michigan-to-roseville-michigan/input_0-600.mp4",
       "ground_truth": "ground_truth/overlay_g5lnpYCk1Ec.json",
-      "osm_around": "42.374028,-83.154167,5183",
-      "vo_segment": "0:589",
+      "osm_around": "42.373472,-83.152917,5303",
+      "vo_segment": "4:599",
       "n_dropped_to_cuts": 0,
-      "n_fixes": 112,
-      "span_km": 10.308,
+      "n_fixes": 110,
+      "span_km": 10.55,
       "note": "Detroit to Roseville, Michigan. The only TOP-band overlay, and the only 1-arcsecond one (~31 m quantisation) — treat its GT as coarse."
     },
     {
@@ -101,9 +101,9 @@
       "ground_truth": "ground_truth/overlay_y66ZkRpUh4k.json",
       "osm_around": "33.776570,-84.369358,974",
       "vo_segment": "0:295",
-      "n_dropped_to_cuts": 39,
-      "n_fixes": 39,
-      "span_km": 1.167,
+      "n_dropped_to_cuts": 47,
+      "n_fixes": 50,
+      "span_km": 1.175,
       "note": "Atlanta at dusk, surface streets. From the 'ASMR Driving Videos' playlist (PL6v9miqhGL1OjKF_jSdVGlipisb48FVNQ), most of which is unrelated short-form video — only this and kxEDNj5L_yQ are dashcam."
     },
     {
@@ -114,12 +114,27 @@
       "city": "Atlanta, Georgia, USA",
       "video": "data/kxednj5l-yq-asmr-driving-through-atlanta-vinings-midtown-and-buckhead-no-talking/input_0-600.mp4",
       "ground_truth": "ground_truth/overlay_kxEDNj5L_yQ.json",
-      "osm_around": "33.828190,-84.420395,5300",
-      "vo_segment": "200:590",
-      "n_dropped_to_cuts": 19,
-      "n_fixes": 59,
-      "span_km": 10.383,
+      "osm_around": "33.834360,-84.425308,6229",
+      "vo_segment": "0:595",
+      "n_dropped_to_cuts": 0,
+      "n_fixes": 109,
+      "span_km": 12.515,
       "note": "Atlanta — Vinings / Midtown / Buckhead, partly freeway. Freeway stretches are a deliberate hard case: no turns for the shape matcher."
+    },
+    {
+      "video_id": "Wrn4_uCxRCQ",
+      "name": "Newcastle upon Tyne (Wrn4_uCxRCQ)",
+      "slug": "wrn4-ucxrcq-newcastle-driving-tyne-bridge-central-motorway-jesmond-and-coast-roa",
+      "title": "Newcastle Driving - Tyne Bridge, Central Motorway, Jesmond and Coast Road",
+      "city": "Newcastle upon Tyne, England, UK",
+      "video": "data/wrn4-ucxrcq-newcastle-driving-tyne-bridge-central-motorway-jesmond-and-coast-roa/input_0-600.mp4",
+      "ground_truth": "ground_truth/overlay_Wrn4_uCxRCQ.json",
+      "osm_around": "54.976681,-1.597283,2301",
+      "vo_segment": "0:595",
+      "n_dropped_to_cuts": 0,
+      "n_fixes": 115,
+      "span_km": 4.09,
+      "note": "Newcastle upon Tyne, UK — Tyne Bridge, Central Motorway, Jesmond, Coast Road. The first non-US clip in this fleet and the first with a SINGLE-DIGIT degree longitude (W1d), which no US clip exercises — every other stamp here sits at 83-111 degrees west. Also a fifth camera family (Nextbase), and its clock reads 14/01/2000, a reminder that the stamp's DATE is not to be trusted even where its position is."
     }
   ]
 }

@@ -71,21 +71,13 @@ All notable changes to this project are documented here. This project adheres to
   `monocular_osm/ground_flow_scale.py` measures a per-step length from
   road-plane optical flow and rescales the steps, keeping their directions.
 
-  Measured on the 8-clip overlay fleet (240 s each, VO shape similarity-fitted
-  against each clip's own GPS track). Replacing step lengths with the *true*
-  ones is worth 107.4 → 77.6 m; this recovers three fifths of that where it
-  accepts the footage, **107.4 → 98.0 m overall**:
-
-  | clip | baseline | ground flow | oracle |
-  |---|---|---|---|
-  | `vCSEG6KaFng` | 21.9 | **11.9** | 10.5 |
-  | `LmIHvLMLqFk` | 28.3 | **24.5** | 16.6 |
-  | `wJsEQTCAg1c` | 185.3 | **172.7** | 146.9 |
-  | `ZhGb8q1kliY` | 76.8 | **56.1** | 53.6 |
-  | `1nF_7l07i-E` | 98.8 | **84.4** | 82.4 |
-  | `g5lnpYCk1Ec` | 79.3 | **66.0** | 57.3 |
-  | `y66ZkRpUh4k` | 127.2 | 127.2 *(abstained)* | 87.2 |
-  | `kxEDNj5L_yQ` | 241.5 | 241.5 *(abstained)* | 165.9 |
+  **The overlay-fleet numbers that used to sit here have been removed.** They
+  were measured against ground truth that has since been re-extracted (see
+  Unreleased), which moved several clips' analysis windows — one from 555 s to
+  275 s once two real edit cuts became visible. The estimator is unchanged; its
+  reference is not, so those figures are not re-quotable and need re-measuring.
+  The oracle experiment behind the design still holds: substituting *true* step
+  lengths for unit ones is worth a large fraction of the remaining shape error.
 
   Three measured facts shape the design. **Absolute scale is worth exactly
   zero** — a constant 30% error scores 0.0 m, because the matcher's similarity
@@ -215,25 +207,10 @@ All notable changes to this project are documented here. This project adheres to
   cross-checked matches, expressed as a fraction of focal length rather than in
   pixels, and only correspondences carrying real parallax are fitted.
 
-  Measured on the 8 overlay clips (240 s each, VO shape similarity-fitted
-  against the clips' own GPS tracks). Mean error **247.3 m → 107.4 m (−57%)**,
-  median 210.8 → 89.0 m:
-
-  | clip | valid edges | shape error |
-  |---|---|---|
-  | `g5lnpYCk1Ec` | 19.3% → 86.1% | 521.3 → 79.3 m |
-  | `ZhGb8q1kliY` | 0.1% → 68.0% | 374.0 → 76.8 m |
-  | `kxEDNj5L_yQ` | 57.6% → 94.8% | 482.5 → 241.4 m |
-  | `1nF_7l07i-E` | 1.8% → 75.0% | 252.8 → 98.8 m |
-  | `y66ZkRpUh4k` | 50.8% → 60.4% | 132.3 → 127.2 m |
-  | `LmIHvLMLqFk` | 38.9% → 43.5% | 27.5 → 28.3 m |
-  | `vCSEG6KaFng` | 42.8% → 52.7% | 19.5 → 21.9 m |
-  | `wJsEQTCAg1c` | 68.9% → 71.2% | 168.8 → 185.3 m |
-
-  Three clips regress slightly (0.8–16.6 m): admitting more marginal pairs
-  costs a little precision where the trajectory was already healthy. That is a
-  deliberate trade for recovering two clips that had no usable trajectory at
-  all — `ZhGb8q1kliY` produced ONE valid edge in 2000.
+  The per-clip figures previously quoted here were measured against ground
+  truth that has since been re-extracted, so they have been removed rather
+  than left looking current. The defect and the fix are unchanged and are
+  covered by tests; what needs re-measuring is how much they are worth.
 
 - **The loop-closure detector could fabricate a loop out of uninitialised
   memory.** `cv2.findFundamentalMat` returns `F=None` when RANSAC fails but

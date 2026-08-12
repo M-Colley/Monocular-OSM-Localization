@@ -106,6 +106,17 @@ def test_parse_latlon_rejects_non_coords(text) -> None:
         # YouTube-Capture overlay — hemisphere-SUFFIX DMS with no degree sign
         # at all, and the latitude's apostrophe read as a 1 ("4222159\"N").
         ("g5lnpYCk1Ec", "4222159\"N 83 10\"35\"W E 15.9 kmlh", 42.38306, -83.17639),
+        # Nextbase NBDVR402G, Newcastle UK — the only SINGLE-DIGIT degree
+        # longitude in the fleet. Every US clip sits at 83-111 degrees west, so
+        # a pattern that assumed 2-3 degree digits would pass all of them and
+        # still fail here.
+        ("Wrn4_uCxRCQ",
+         "14/01/2000 02:10:17 NBDVR402G 2MPH N54°58'55.29\" W1°36'24.77\"",
+         54.98202, -1.60688),
+        # ...and with the seconds' closing quote dropped, which OCR does often.
+        ("Wrn4_uCxRCQ",
+         "14/01/2000 02:15:17 NBDVR402G 4MPH N54°59'19.92\" W1°35'22.16",
+         54.98887, -1.58949),
     ],
 )
 def test_parse_latlon_real_ocr_output(clip, text, lat, lon) -> None:

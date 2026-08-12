@@ -824,18 +824,20 @@ re-derives implied speeds, flags out-and-back detours (what a surviving digit
 misread looks like), and reports the coordinate precision actually present — the
 floor on any error number measured against that clip.
 
-The fleet as built (2026-08-09; `interval=5 s`, so 121 sampled frames per clip):
+The fleet as built (2026-08-12, `--ocr-engine rapidocr`, `interval=5 s` so
+121 sampled frames per clip):
 
 | clip | city | camera / stamp | OCR yield | analysed | route | dp |
 |---|---|---|---|---|---|---|
-| `vCSEG6KaFng` | Chicago | VIOFO A229 Pro | 119/121 (98%) | 5–595 s | 1.34 km | 4 |
-| `LmIHvLMLqFk` | Chicago (night, wet) | VIOFO | 120/121 (99%) | 0–595 s | 1.48 km | 4 |
-| `g5lnpYCk1Ec` | Detroit → Roseville | YouTube Capture, **top band** | 112/121 (93%) | 0–589 s | 10.04 km | 6 |
-| `1nF_7l07i-E` | Detroit (into downtown) | DOD LS460W | 105/121 (87%) | 0–590 s | 2.87 km | 6 |
-| `ZhGb8q1kliY` | Detroit (downtown → NW) | DOD LS460W | 80/121 (66%) | 5–560 s | 3.49 km | 6 |
-| `kxEDNj5L_yQ` | Atlanta (freeway) | WolfBox i07 | 78/121 (64%) | 200–590 s | 10.34 km | 6 |
-| `y66ZkRpUh4k` | Atlanta (dusk) | WolfBox i07 | 78/121 (64%) | 0–295 s | 1.16 km | 6 |
-| `wJsEQTCAg1c` | Scottsdale, AZ | ROVE R2-4K | 47/121 (39%) | 315–580 s | 2.13 km | 5 |
+| `vCSEG6KaFng` | Chicago | VIOFO A229 Pro | 118/121 (98%) | 5–595 s | 1.46 km | 4 |
+| `LmIHvLMLqFk` | Chicago (night, wet) | VIOFO | 120/121 (99%) | 0–595 s | 1.64 km | 4 |
+| `Wrn4_uCxRCQ` | Newcastle upon Tyne, UK | Nextbase NBDVR402G | 115/121 (95%) | 0–595 s | 4.09 km | 6 |
+| `1nF_7l07i-E` | Detroit (into downtown) | DOD LS460W | 120/121 (99%) | 0–595 s | 3.17 km | 6 |
+| `g5lnpYCk1Ec` | Detroit → Roseville | YouTube Capture, **top band** | 110/121 (91%) | 4–599 s | 10.55 km | 6 |
+| `kxEDNj5L_yQ` | Atlanta (freeway) | WolfBox i07 | 109/121 (90%) | 0–595 s | 12.52 km | 6 |
+| `y66ZkRpUh4k` | Atlanta (dusk) | WolfBox i07 | 97/121 (80%) | 0–295 s | 1.18 km | 6 |
+| `ZhGb8q1kliY` | Detroit (downtown → NW) | DOD LS460W | 116/121 (96%) | 0–275 s | 1.58 km | 6 |
+| `wJsEQTCAg1c` | Scottsdale, AZ | ROVE R2-4K | 70/121 (58%) | 400–595 s | 0.94 km | 5 |
 
 `dp` is decimal places actually present in the stamp — the clip's own precision
 floor. The Chicago pair's 4 dp is ~11 m; nothing measured against them can

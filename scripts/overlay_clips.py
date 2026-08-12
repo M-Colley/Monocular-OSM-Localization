@@ -102,6 +102,16 @@ CLIPS: tuple[OverlayClip, ...] = (
         note="Atlanta — Vinings / Midtown / Buckhead, partly freeway. Freeway "
              "stretches are a deliberate hard case: no turns for the shape matcher.",
     ),
+    OverlayClip(
+        video_id="Wrn4_uCxRCQ", region="bottom", window=_W,
+        overlay="2MPH  N54d 58' 55.29\"  W1d 36' 24.77\"   (Nextbase NBDVR402G)",
+        note="Newcastle upon Tyne, UK — Tyne Bridge, Central Motorway, Jesmond, "
+             "Coast Road. The first non-US clip in this fleet and the first with a "
+             "SINGLE-DIGIT degree longitude (W1d), which no US clip exercises — "
+             "every other stamp here sits at 83-111 degrees west. Also a fifth "
+             "camera family (Nextbase), and its clock reads 14/01/2000, a reminder "
+             "that the stamp's DATE is not to be trusted even where its position is.",
+    ),
 )
 
 BY_ID = {c.video_id: c for c in CLIPS}

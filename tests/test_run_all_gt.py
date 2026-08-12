@@ -178,6 +178,41 @@ def test_load_overlay_clips_skips_a_clip_whose_video_is_gone(tmp_path: Path) -> 
     assert M.load_overlay_clips(idx, root=tmp_path) == []
 
 
+def test_index_merge_keeps_clips_that_were_not_rebuilt(tmp_path: Path) -> None:
+    """`--only <clip>` must not drop the rest of the fleet from the index.
+
+    The builder writes the index from what IT built, so a single-clip run
+    would leave an index of one — and the sweep would then evaluate one clip
+    and report it as the whole fleet, which looks like a result rather than
+    like a mistake.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "build_overlay_fleet_under_test", ROOT / "scripts" / "build_overlay_fleet.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    idx = tmp_path / "overlay_fleet.json"
+    idx.write_text(json.dumps({"clips": [
+        {"video_id": "keepme", "name": "Old (keepme)", "slug": "s", "title": "t",
+         "city": "C", "video": "data/a.mp4", "ground_truth": "ground_truth/a.json",
+         "osm_around": "1,2,3", "vo_segment": "0:600", "n_dropped_to_cuts": 0,
+         "n_fixes": 10, "span_km": 1.0, "note": ""}]}), encoding="utf-8")
+
+    clip = mod.BY_ID["vCSEG6KaFng"]
+    mod._write_index([{
+        "clip": clip, "slug": "new-slug", "title": "T", "city": "Chicago, IL, USA",
+        "gt_path": "ground_truth/overlay_vCSEG6KaFng.json",
+        "video_path": "data/new.mp4", "osm_around": "4,5,6",
+        "vo_segment": "5:595", "n_fixes": 119, "span_km": 1.46, "n_dropped": 0,
+    }], idx)
+
+    ids = [c["video_id"] for c in json.loads(idx.read_text(encoding="utf-8"))["clips"]]
+    assert "keepme" in ids, "a clip that was not rebuilt was dropped from the index"
+    assert "vCSEG6KaFng" in ids
+
+
 def test_overlay_clips_keep_the_gt_disc_strippable() -> None:
     # --blind must be able to drop the overlay fleet's discs too: they are
     # derived from the OCR'd track, which is ground truth.
