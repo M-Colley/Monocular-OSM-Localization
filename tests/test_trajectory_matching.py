@@ -562,3 +562,15 @@ def test_pool_recall_observer_finds_the_true_route() -> None:
     rep = obs.report()["enumerated"]
     assert rep["n"] == 2 and rep["best_sym_m"] == 0.0
     assert rep["n_sym_le_50m"] == 1
+
+
+def test_procrustes_similarity_degenerate_input_hits_the_fallback() -> None:
+    """SimilarityTransform.from_estimate reports failure with a FALSY
+    object, not None; the old `is None` test let it through and the
+    degenerate fit raised downstream instead of returning inf."""
+    from monocular_osm.trajectory_matching import procrustes_similarity
+
+    src = np.zeros((5, 2))                       # all points identical
+    dst = np.array([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], dtype=float)
+    _R, _s, residual, _aligned = procrustes_similarity(src, dst)
+    assert residual == float("inf")

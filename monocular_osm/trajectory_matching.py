@@ -74,7 +74,9 @@ def procrustes_similarity(
     # the older `estimate()` if it isn't available yet.
     if hasattr(SimilarityTransform, "from_estimate"):
         tform = SimilarityTransform.from_estimate(src, dst)
-        if tform is None:
+        # from_estimate signals failure with a FALSY result object, not
+        # None: an `is None` test let degenerate input raise downstream.
+        if not tform:
             return np.eye(2), 1.0, float("inf"), src.copy()
     else:  # pragma: no cover - older scikit-image
         tform = SimilarityTransform()

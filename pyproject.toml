@@ -55,6 +55,7 @@ dependencies = [
     "tqdm>=4.68.2",
     "pysolar>=0.11",
     "timezonefinder>=6.0",
+    "rapidfuzz>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -91,6 +92,10 @@ Changelog = "https://github.com/M-Colley/Monocular-OSM-Localization/blob/main/CH
 
 [tool.setuptools.dynamic]
 version = { attr = "monocular_osm.__version__" }
+
+[tool.setuptools.package-data]
+# Committed data snapshots read at runtime (e.g. the Wikidata Kfz table).
+monocular_osm = ["data/*.json"]
 
 [tool.setuptools.packages.find]
 # Ship only the importable library. The root main.py stays a source-checkout

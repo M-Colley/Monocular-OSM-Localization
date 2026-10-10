@@ -175,8 +175,9 @@ def _title_disagreement(city: str, title: str) -> str:
 
 
 def _track_span_m(fixes: list[GpsFix]) -> float:
-    from monocular_osm.gps_overlay import _haversine_m
-    return sum(_haversine_m(a, b) for a, b in zip(fixes, fixes[1:]))
+    from monocular_osm.geo import geodesic_distance_m
+    return sum(geodesic_distance_m(a.lat, a.lon, b.lat, b.lon)
+               for a, b in zip(fixes, fixes[1:]))
 
 
 def _build(clip: OverlayClip, args) -> dict | None:

@@ -39,6 +39,7 @@ from .evaluator import (
     load_gt_waypoints,
 )
 from .frame_extraction import extract_frames
+from .geo import geodesic_distance_m
 from .fusion import (
     CandidateFeatures,
     FusionWeights,
@@ -1573,10 +1574,7 @@ def _city_extent_reach_m(city: str, cache_path) -> float | None:
     cen = default_geocode_fn(cache_path)(city) if ext is not None else None
     if ext is None or cen is None:
         return None
-    lat0 = np.radians(ext[0])
-    dc = float(np.hypot((cen[0] - ext[0]) * 111320.0,
-                        (cen[1] - ext[1]) * 111320.0 * np.cos(lat0)))
-    return dc + float(ext[2])
+    return geodesic_distance_m(cen[0], cen[1], ext[0], ext[1]) + float(ext[2])
 
 
 def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
@@ -1931,10 +1929,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     # extent is measured about the BBOX centre — cover the
                     # bbox from the centroid: dist(centroid, bbox centre) +
                     # half-diagonal (triangle inequality).
-                    _dc = float(np.hypot(
-                        (center[0] - _ext[0]) * 111320.0,
-                        (center[1] - _ext[1]) * 111320.0
-                        * np.cos(np.radians(center[0]))))
+                    _dc = geodesic_distance_m(center[0], center[1],
+                                              _ext[0], _ext[1])
                     _cover = float(np.clip(_dc + _ext[2],
                                            cfg.vpr_search_radius_m,
                                            _PASS1_COVER_MAX_M))
@@ -2198,7 +2194,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 cen = ox.geocode(cfg.city)
             sh_times = list(np.linspace(cfg.vo_start_sec,
                                         cfg.vo_end_sec or (cfg.vo_start_sec + 420.0), 30))
-            sh = estimate_heading(str(video_path), cen, sh_times)
+            sh = estimate_heading(str(video_path), cen, sh_times,
+                                  ocr_engine=cfg.ocr_engine)
             result_sun_heading = sh
             if sh and sh.get("available"):
                 print(f"[4b] Sun heading: {sh['median_heading']:.0f} deg via {sh['source']} "
@@ -2473,12 +2470,10 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # a VLM-fallback prior is a geocoded district centroid that can sit
             # kilometres from a correct on-route anchor.
             if vpr_center is not None and anchor_origin == "vpr" and ocr_anchors:
-                import math as _om
                 _vlat, _vlon = vpr_center
                 _kept = []
                 for a in ocr_anchors:
-                    _d = _om.hypot((a.lat - _vlat) * 111320.0,
-                                   (a.lon - _vlon) * 111320.0 * _om.cos(_om.radians(_vlat)))
+                    _d = geodesic_distance_m(a.lat, a.lon, _vlat, _vlon)
                     if _d <= 1500.0:
                         _kept.append(a)
                     else:
@@ -3193,16 +3188,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # gets a strong weight to pull the pick toward the right district and kill
         # gross km-scale errors. No-op (rank = shape) when no district was found.
         if plate_center is not None:
-            import math as _math
             from .position import xy_to_latlon as _xy2ll
             _plat, _plon = plate_center
-            _cl = _math.cos(_math.radians(_plat))
             _pd = []
             for _c in candidates:
                 _ll = _xy2ll(np.asarray(_c.aligned_traj_xy[:1], dtype=np.float64), road.crs)
                 _la, _lo = float(_ll[0][0]), float(_ll[0][1])
-                _pd.append(_math.hypot((_la - _plat) * 111320.0,
-                                       (_lo - _plon) * 111320.0 * _cl))
+                _pd.append(geodesic_distance_m(_la, _lo, _plat, _plon))
             _order = np.argsort(_pd)
             plate_rank = {int(idx): r + 1 for r, idx in enumerate(_order)}
             # DISTANCE-based penalty (not rank — rank loses magnitude). Each
@@ -3237,10 +3229,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # track instead: the sequence-median distance also penalises
         # correctly-centred but flipped/rotated candidates.
         if vpr_center is not None:
-            import math as _vm
             from .position import latlon_to_xy as _vll2xy, xy_to_latlon as _vxy2ll
             _vlat, _vlon = vpr_center
-            _vcl = _vm.cos(_vm.radians(_vlat))
             track_xy = None
             if cfg.use_vpr_sequence and vpr_track is not None:
                 try:
@@ -3259,8 +3249,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 if _d is None:
                     _cen = np.asarray(_c.aligned_traj_xy, dtype=np.float64).mean(axis=0)
                     _ll = _vxy2ll(_cen[None, :], road.crs)
-                    _d = _vm.hypot((float(_ll[0][0]) - _vlat) * 111320.0,
-                                   (float(_ll[0][1]) - _vlon) * 111320.0 * _vcl)
+                    _d = geodesic_distance_m(float(_ll[0][0]), float(_ll[0][1]),
+                                             _vlat, _vlon)
                 vpr_penalty[i] = _vpr_distance_penalty(
                     _d, _VPR_FREE_RADIUS_M if anchor_origin == "vpr"
                     else _PLATE_FREE_RADIUS_M)
