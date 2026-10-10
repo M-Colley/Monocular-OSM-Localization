@@ -1761,6 +1761,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # (monocular_osm/kartaview_vpr.py). Used as a re-rank centre + the anchor-primary
     # placement prior; gating the OSM graph to its disc was refuted (664->1276 m).
     osm_around = cfg.osm_around
+    frame_seed_source: str | None = None
     # GPS-free frame-based coarse seed (deployable): plate district / VLM read
     # of the scene, bounding the graph + VPR near the drive when no disc and
     # no title-derived prior were given.
@@ -1772,6 +1773,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                                  ocr_engine=cfg.ocr_engine)
         if _fp is not None:
             osm_around = _fp[:3]
+            frame_seed_source = str(_fp[3])
             print(f"      -> [coarse] frame-based prior "
                   f"{_fp[0]:.5f},{_fp[1]:.5f} r={_fp[2]:.0f} m ({_fp[3]})")
     vpr_center: tuple | None = None
@@ -4057,6 +4059,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             "sun": (cfg.use_sun_heading, bool((result_sun_heading or {}).get("available"))),
             "ocr_anchor": (cfg.enable_ocr_anchor, bool(ocr_anchors or street_anchors)),
             "loop_closure": (cfg.enable_loop_closure, result_loop_closure is not None),
+            "coarse_from_frames": (cfg.coarse_from_frames and cfg.osm_around is None,
+                                   frame_seed_source is not None),
             "orienternet": (cfg.use_orienternet,
                             bool((result.get("orienternet") or {}).get("applied"))),
         },

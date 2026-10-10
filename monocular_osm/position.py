@@ -148,6 +148,11 @@ def classify_confidence(
 
     out: dict = {
         "level": level,
+        # This grades how well the winner's SHAPE fits — which, in dense
+        # grids, is measured to be uncorrelated with being in the right place
+        # (hypotheses.py). It is not a probability of correctness; the
+        # agreement-based "spatial_confidence" is the better guide.
+        "basis": "shape_fit",
         "score_rms_m": round(rms, 1),
         "bearing_corr": round(corr, 3),
     }
@@ -260,9 +265,10 @@ def format_position_summary(position: dict) -> str:
         f"  Route center:     {center.get('latitude', float('nan')):.6f}, "
         f"{center.get('longitude', float('nan')):.6f}",
         f"  Streets:          {streets}",
-        f"  Confidence:       {conf.get('level', 'unknown')} "
+        f"  Shape fit:        {conf.get('level', 'unknown')} "
         f"(RMS {conf.get('score_rms_m', '?')} m, "
-        f"bearing corr {conf.get('bearing_corr', '?')})",
+        f"bearing corr {conf.get('bearing_corr', '?')}; "
+        f"fit quality, not a correctness estimate)",
         f"  Google Maps:      {position['google_maps_url']}",
         f"  OpenStreetMap:    {position['openstreetmap_url']}",
         "=" * 64,
