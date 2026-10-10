@@ -1404,6 +1404,13 @@ def _orienternet_refine(cfg, frames, cand, road, position, result,
         position["google_maps_url"] = google_maps_url(lat0, lon0)
         position["orienternet_route_latlon"] = [
             [round(float(a), 6), round(float(b), 6)] for a, b in refined]
+        # The reported route must be the route the headline start belongs
+        # to: keep the coarse one aside and report the refined keyframe
+        # route (its per-point times are not tracked, so drop route_t_sec).
+        position["coarse_route_latlon"] = position.get("route_latlon")
+        position["route_latlon"] = position["orienternet_route_latlon"]
+        if "route_t_sec" in position:
+            position["coarse_route_t_sec"] = position.pop("route_t_sec")
         result["orienternet"] = {"applied": True, "keyframes": len(kf),
                                  "tile_m": cfg.orienternet_tile_m}
         print(f"      -> refined start: {lat0:.6f}, {lon0:.6f}")
@@ -3993,6 +4000,19 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             if hyps:
                 spatial_conf = hypothesis_confidence(ranked_pool, hyps)
                 position["spatial_confidence"] = spatial_conf
+                def _hyp_route(h):
+                    # The representative candidate's aligned route, so an
+                    # evaluator can score the shortlist route-to-route, not
+                    # only by start point.
+                    try:
+                        from .position import xy_to_latlon as _hxy2ll
+                        _xy = np.asarray(ranked_pool[h.candidate_index].aligned_traj_xy,
+                                         dtype=np.float64)
+                        return [[round(float(a), 6), round(float(b), 6)]
+                                for a, b in _hxy2ll(_xy, road.crs)]
+                    except Exception:
+                        return None
+
                 position["hypotheses"] = [
                     {
                         "rank": h.rank,
@@ -4001,6 +4021,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         "street_names": h.street_names,
                         "support": h.support,
                         "google_maps_url": google_maps_url(h.lat, h.lon),
+                        "route_latlon": _hyp_route(h),
                     }
                     for h in hyps
                 ]
