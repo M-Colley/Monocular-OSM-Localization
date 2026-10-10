@@ -512,6 +512,11 @@ def cmd_run(args) -> int:
             res = _find_result(pipeline_out)
             if res is not None:
                 shutil.copy2(res, rep_dir / "result.json")
+                # The per-candidate fusion table lets scripts/ablate.py
+                # re-score channel ablations offline for this exact rep.
+                feats = res.parent / "fusion_features.json"
+                if feats.exists():
+                    shutil.copy2(feats, rep_dir / "fusion_features.json")
             redactions = (redact_file(rep_dir / "log.txt", secret)
                           + redact_file(rep_dir / "result.json", secret))
             status = {
