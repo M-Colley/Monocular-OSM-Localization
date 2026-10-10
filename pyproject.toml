@@ -53,7 +53,6 @@ dependencies = [
     "open3d>=0.19.0",
     "plotly>=6.8.0",
     "tqdm>=4.68.2",
-    "pycolmap>=4.1.0",
     "pysolar>=0.11",
     "timezonefinder>=6.0",
 ]
@@ -63,17 +62,18 @@ dev = ["pytest>=7.4.0"]
 # OCR channel: scene-text anchors (--enable-ocr-anchor) and automatic ground
 # truth from clips with a burned-in GPS stamp (scripts/build_overlay_fleet.py).
 # Installs the DEFAULT engine (--ocr-engine rapidocr): PP-OCRv6 on onnxruntime,
-# which reads the dashcam stamps better than easyocr (yield 92.5 -> 96.6%,
-# gross misreads 4.1 -> 2.6% over 320 overlay-fleet frames) and, unlike easyocr,
-# pulls no torch. Its metadata asks for "opencv_python" while this project
-# installs "opencv-python-headless" — the same cv2 under another distribution
-# name, satisfying its actual >=4.5.1.48 constraint, so pip warns and
-# everything works.
+# which reads the dashcam stamps better than easyocr (yield and gross-misread
+# rates over 320 overlay-fleet frames: see the CHANGELOG table) and, unlike
+# easyocr, pulls no torch. Its "opencv_python" requirement is met by the core
+# opencv-python dependency.
 ocr = ["rapidocr>=3.9", "onnxruntime>=1.20"]
 rapidocr = ["rapidocr>=3.9", "onnxruntime>=1.20"]
 # The alternative backend (--ocr-engine easyocr). Heavier: pulls torch. Every
 # result published before 2026-08-12 was measured with it.
 easyocr = ["easyocr>=1.7.2"]
+# COLMAP/GLOMAP structure-from-motion, used only by the experiment script
+# scripts/test_glomap_traj.py — not by the package.
+sfm = ["pycolmap>=4.1.0"]
 
 [project.scripts]
 osm-localize = "monocular_osm.cli:main"

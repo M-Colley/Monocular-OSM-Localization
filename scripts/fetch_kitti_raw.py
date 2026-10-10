@@ -30,22 +30,37 @@ BASE_URL = "https://s3.eu-central-1.amazonaws.com/avg-kitti/raw_data"
 WANTED_DIRS = ("image_02/", "oxts/")
 
 
-def _extract(url: str, out_root: Path, keep) -> int:
-    n = 0
+def _extract(url: str, out_root: Path, keep, workers: int = 16) -> int:
+    """Extract matching members; one range request per member, so members
+    are fetched by a thread pool (each worker holds its own RemoteZip) —
+    serially the per-request latency, not bandwidth, dominates."""
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
     with RemoteZip(url) as z:
         members = [m for m in z.infolist() if not m.is_dir() and keep(m.filename)]
-        total = sum(m.file_size for m in members)
-        print(f"  {url.rsplit('/', 1)[-1]}: {len(members)} files, "
-              f"{total / 1e6:.0f} MB", flush=True)
-        for i, m in enumerate(members, 1):
-            target = out_root / m.filename
-            if target.exists() and target.stat().st_size == m.file_size:
-                continue
-            z.extract(m, out_root)
-            n += 1
-            if i % 200 == 0:
-                print(f"    {i}/{len(members)}", flush=True)
-    return n
+    todo = [m for m in members
+            if not ((out_root / m.filename).exists()
+                    and (out_root / m.filename).stat().st_size == m.file_size)]
+    total = sum(m.file_size for m in members)
+    print(f"  {url.rsplit('/', 1)[-1]}: {len(members)} files, {total / 1e6:.0f} MB "
+          f"({len(todo)} to fetch)", flush=True)
+    local = threading.local()
+    done = [0]
+    lock = threading.Lock()
+
+    def fetch(m) -> None:
+        if not hasattr(local, "z"):
+            local.z = RemoteZip(url)
+        local.z.extract(m, out_root)
+        with lock:
+            done[0] += 1
+            if done[0] % 200 == 0:
+                print(f"    {done[0]}/{len(todo)}", flush=True)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(fetch, todo))
+    return len(todo)
 
 
 def fetch_drive(drive: str, raw_root: Path) -> Path:
