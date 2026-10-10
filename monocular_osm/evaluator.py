@@ -33,6 +33,8 @@ from pathlib import Path
 
 import networkx as nx
 import numpy as np
+import shapely
+from shapely.geometry import LineString, Point
 
 from .osm_data import RoadGraph
 from .position import latlon_to_xy
@@ -104,55 +106,59 @@ def _gt_polylines(road: RoadGraph, gt_streets: list[str]) -> list[np.ndarray]:
     return polys
 
 
-def _segment_to_polyline_distance(p: np.ndarray, polyline: np.ndarray) -> float:
-    """Min distance from a single point to any segment of the polyline."""
-    if len(polyline) < 2:
-        if len(polyline) == 1:
-            return float(np.linalg.norm(polyline[0] - p))
-        return float("inf")
-    seg_a = polyline[:-1]
-    seg_b = polyline[1:]
-    seg_v = seg_b - seg_a
-    seg_len_sq = (seg_v ** 2).sum(axis=1)
-    seg_len_sq = np.maximum(seg_len_sq, 1e-9)
-    pa = p - seg_a
-    t = np.clip((pa * seg_v).sum(axis=1) / seg_len_sq, 0.0, 1.0)
-    proj = seg_a + t[:, None] * seg_v
-    d = np.linalg.norm(proj - p, axis=1)
-    return float(d.min())
+def _as_geometry(poly: np.ndarray):
+    """Shapely geometry of an Nx2 metric polyline: a LineString for >=2
+    distinct vertices, a Point for one, ``None`` for none.
 
-
-def _densify_polyline(poly: np.ndarray, spacing_m: float = 10.0) -> np.ndarray:
-    """Insert vertices so consecutive points are at most `spacing_m` apart.
-
-    Unsimplified straight OSM edges carry only their two endpoints, so a
-    vertex-sampled distance across a long edge misses the closest
-    mid-segment approach entirely. Densifying makes the vertex-to-segment
-    minimum below accurate to ~spacing_m/2 at negligible cost.
+    Consecutive duplicate vertices (stationary samples) are dropped first:
+    they carry no geometry, and a polyline that collapses to one location is
+    a point, not a zero-length (invalid) LineString.
     """
-    if len(poly) < 2:
-        return poly
-    pieces: list[np.ndarray] = []
-    for p0, p1 in zip(poly[:-1], poly[1:]):
-        seg_len = float(np.linalg.norm(p1 - p0))
-        n = max(1, int(np.ceil(seg_len / spacing_m)))
-        t = np.linspace(0.0, 1.0, n, endpoint=False)
-        pieces.append(p0 + t[:, None] * (p1 - p0))
-    pieces.append(poly[-1:])
-    return np.vstack(pieces)
+    poly = np.asarray(poly, dtype=np.float64).reshape(-1, 2)
+    if len(poly) == 0:
+        return None
+    if len(poly) >= 2:
+        keep = np.ones(len(poly), dtype=bool)
+        # NaN rows are kept (NaN poisons the distance, as before) rather
+        # than silently dropped as "duplicates".
+        keep[1:] = ~np.all(np.abs(np.diff(poly, axis=0)) <= 1e-12, axis=1)
+        poly = poly[keep]
+    if len(poly) == 1:
+        return Point(poly[0])
+    return LineString(poly)
+
+
+def _segment_to_polyline_distance(p: np.ndarray, polyline: np.ndarray) -> float:
+    """Exact min distance from a single point to any segment of the polyline
+    (shapely/GEOS point-to-segment distance; ``inf`` for an empty polyline)."""
+    geom = _as_geometry(polyline)
+    if geom is None:
+        return float("inf")
+    return float(geom.distance(Point(np.asarray(p, dtype=np.float64).reshape(2))))
+
+
+def _points_to_polyline_distances(points: np.ndarray, polyline: np.ndarray) -> np.ndarray:
+    """Vectorised :func:`_segment_to_polyline_distance` for an Mx2 array."""
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    geom = _as_geometry(polyline)
+    if geom is None:
+        return np.full(len(pts), np.inf)
+    return np.asarray(shapely.distance(shapely.points(pts), geom), dtype=np.float64)
 
 
 def _polyline_to_polyline_distance(a: np.ndarray, b: np.ndarray) -> float:
-    """Min distance from polyline `a` to the segments of polyline `b`.
+    """Exact min distance between polyline `a` and polyline `b`.
 
-    `a` is densified to ~10 m vertex spacing first, so the result is a
-    true point-to-SEGMENT distance in both directions (up to ~5 m
-    quantization) rather than a vertex-sampled one that overestimates
-    across long straight OSM edges.
+    Computed by GEOS as a true segment-to-segment distance, so a mid-segment
+    approach between two long straight OSM edges (which carry only their
+    two endpoints) and a crossing (distance 0) are both exact — no vertex
+    sampling and no densification quantisation. Symmetric in its arguments;
+    the signature is kept because trajectory_matching imports it.
     """
-    if len(a) == 0 or len(b) == 0:
+    ga, gb = _as_geometry(a), _as_geometry(b)
+    if ga is None or gb is None:
         return float("inf")
-    return min(_segment_to_polyline_distance(p, b) for p in _densify_polyline(a))
+    return float(ga.distance(gb))
 
 
 def _candidate_gt_names(
@@ -300,9 +306,7 @@ def evaluate_candidates_against_waypoints(
             results.append(WaypointEval(i, float("inf"), float("inf"), float("inf")))
             continue
         start_error = float(np.linalg.norm(traj[0] - wp_xy[0]))
-        dists = [
-            _segment_to_polyline_distance(wp, traj) for wp in wp_xy
-        ]
+        dists = _points_to_polyline_distances(wp_xy, traj)
         results.append(WaypointEval(
             candidate_index=i,
             start_error_m=start_error,
