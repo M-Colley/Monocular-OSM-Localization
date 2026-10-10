@@ -50,9 +50,19 @@ def _extract(url: str, out_root: Path, keep, workers: int = 16) -> int:
     lock = threading.Lock()
 
     def fetch(m) -> None:
-        if not hasattr(local, "z"):
-            local.z = RemoteZip(url)
-        local.z.extract(m, out_root)
+        # requests has no default timeout: one stalled range request used to
+        # hang a worker forever and leave a zero-byte member behind.
+        for attempt in range(4):
+            try:
+                if not hasattr(local, "z"):
+                    local.z = RemoteZip(url, timeout=60)
+                local.z.extract(m, out_root)
+                break
+            except Exception:
+                if hasattr(local, "z"):
+                    del local.z                   # fresh connection on retry
+                if attempt == 3:
+                    raise
         with lock:
             done[0] += 1
             if done[0] % 200 == 0:
