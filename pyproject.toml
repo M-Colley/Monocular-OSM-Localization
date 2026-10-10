@@ -92,3 +92,9 @@ version = { attr = "monocular_osm.__version__" }
 # convenience shim (`python main.py ...`) and is deliberately not packaged;
 # installed users get the `osm-localize` console script instead.
 include = ["monocular_osm*"]
+
+[tool.pytest.ini_options]
+# scripts/ holds ~46 experiment scripts named test_*.py that need GPUs,
+# datasets or optional packages; they are not unit tests. Without this a bare
+# `pytest` from the repo root fails at collection.
+testpaths = ["tests"]
