@@ -239,8 +239,15 @@ def test_city_extent_radius_bbox_and_cache(tmp_path, monkeypatch) -> None:
     assert r is not None
     clat, clon, half = r
     assert abs(clat - 36.7) < 1e-6 and abs(clon + 4.4) < 1e-6
-    exp = math.hypot(0.2 * 111320, 0.2 * 111320 * math.cos(math.radians(36.7))) / 2
-    assert abs(half - exp) < 1.0
+    # WGS84 geodesic from the centre to the farthest bbox corner (pyproj).
+    from pyproj import Geod
+    g = Geod(ellps="WGS84")
+    exp = max(g.inv(-4.4, 36.7, lo, la)[2]
+              for la in (36.6, 36.8) for lo in (-4.5, -4.3))
+    assert abs(half - exp) < 1e-3
+    # ...within 0.5 % of the former flat 111 320 m/deg half-diagonal.
+    flat = math.hypot(0.2 * 111320, 0.2 * 111320 * math.cos(math.radians(36.7))) / 2
+    assert abs(half - flat) / flat < 0.005
     # cached: a second call does not re-invoke the (rate-limited) lookup
     city_extent_radius("Málaga, Spain", cp)
     assert calls == ["Málaga, Spain"]

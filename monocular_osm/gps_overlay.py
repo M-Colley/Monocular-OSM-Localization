@@ -34,6 +34,7 @@ from typing import Callable
 
 import numpy as np
 
+from .geo import geodesic_distance_m
 from .scene_text import OcrReader
 
 
@@ -331,7 +332,7 @@ def _consensus(fixes: list[tuple[float, float]]) -> tuple[float, float]:
     """
     for i, a in enumerate(fixes):
         group = [b for b in fixes[i:]
-                 if _haversine_m(GpsFix(0.0, *a), GpsFix(0.0, *b)) <= _AGREE_M]
+                 if _geodesic_m(GpsFix(0.0, *a), GpsFix(0.0, *b)) <= _AGREE_M]
         if len(group) >= 2:
             return (float(np.mean([g[0] for g in group])),
                     float(np.mean([g[1] for g in group])))
@@ -446,12 +447,14 @@ def extract_gps_track(
     return track
 
 
-def _haversine_m(a: GpsFix, b: GpsFix) -> float:
-    R = 6371000.0
-    la1, lo1, la2, lo2 = map(np.radians, [a.lat, a.lon, b.lat, b.lon])
-    h = (np.sin((la2 - la1) / 2) ** 2
-         + np.cos(la1) * np.cos(la2) * np.sin((lo2 - lo1) / 2) ** 2)
-    return float(2 * R * np.arcsin(np.sqrt(h)))
+def _geodesic_m(a: GpsFix, b: GpsFix) -> float:
+    """WGS84 geodesic distance between two fixes (metres)."""
+    return geodesic_distance_m(a.lat, a.lon, b.lat, b.lon)
+
+
+# Former name (a 6371 km-sphere haversine, 0.1-0.5 % off the ellipsoid);
+# kept as an alias because scripts/build_overlay_fleet.py imports it.
+_haversine_m = _geodesic_m
 
 
 def _reject_jumps(fixes: list[GpsFix], max_jump_m: float) -> list[GpsFix]:
@@ -466,7 +469,7 @@ def _reject_jumps(fixes: list[GpsFix], max_jump_m: float) -> list[GpsFix]:
     med = GpsFix(0.0, float(np.median([f.lat for f in fixes])),
                  float(np.median([f.lon for f in fixes])))
     # Coarse gate: within ~30 km of the median (a single clip stays local).
-    near = [f for f in fixes if _haversine_m(f, med) < 30000.0]
+    near = [f for f in fixes if _geodesic_m(f, med) < 30000.0]
     if len(near) < 2:
         return near
     # Seed from the median of the first few plausible fixes rather than
@@ -481,17 +484,17 @@ def _reject_jumps(fixes: list[GpsFix], max_jump_m: float) -> list[GpsFix]:
         if not out:
             # Generous gate: the vehicle moves < ~max_jump_m within the
             # few samples the seed median spans.
-            if _haversine_m(f, seed) <= 2.0 * max_jump_m:
+            if _geodesic_m(f, seed) <= 2.0 * max_jump_m:
                 out.append(f)
             continue
-        if _haversine_m(out[-1], f) <= max_jump_m * max(1.0, (f.t_sec - out[-1].t_sec)):
+        if _geodesic_m(out[-1], f) <= max_jump_m * max(1.0, (f.t_sec - out[-1].t_sec)):
             out.append(f)
     if not out:
         # Every fix disagrees with the seed (degenerate); keep the old
         # first-fix seeding rather than dropping the track entirely.
         out = [near[0]]
         for f in near[1:]:
-            if _haversine_m(out[-1], f) <= max_jump_m * max(1.0, (f.t_sec - out[-1].t_sec)):
+            if _geodesic_m(out[-1], f) <= max_jump_m * max(1.0, (f.t_sec - out[-1].t_sec)):
                 out.append(f)
     return out
 
@@ -525,7 +528,7 @@ def split_on_discontinuities(
     runs: list[list[GpsFix]] = [[fixes[0]]]
     for prev, cur in zip(fixes, fixes[1:]):
         dt = cur.t_sec - prev.t_sec
-        kmh = (_haversine_m(prev, cur) / dt) * 3.6 if dt > 0 else float("inf")
+        kmh = (_geodesic_m(prev, cur) / dt) * 3.6 if dt > 0 else float("inf")
         if kmh > max_speed_kmh:
             runs.append([])
         runs[-1].append(cur)
@@ -567,9 +570,7 @@ def osm_around_for_track(
     clon = float((lons.max() + lons.min()) / 2.0)
     # Radius = farthest fix from the chosen centre (+margin), so every
     # fix is inside the disc by construction.
-    dlat_m = (lats - clat) * 111320.0
-    dlon_m = (lons - clon) * 111320.0 * np.cos(np.radians(clat))
-    radius = float(np.hypot(dlat_m, dlon_m).max() + margin_m)
+    radius = float(geodesic_distance_m(clat, clon, lats, lons).max() + margin_m)
     return clat, clon, radius
 
 

@@ -35,6 +35,8 @@ import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .geo import geodesic_distance_m
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .osm_data import RoadGraph
     from .text_anchor import PoiAnchor
@@ -286,16 +288,6 @@ def _download_entries(bbox: tuple[float, float, float, float]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    r = 6371000.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = (math.sin(dp / 2) ** 2
-         + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
-    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
-
-
 def _resolve_instances(
     instances: list[dict], *, max_instances: int, cluster_radius_m: float
 ) -> "tuple[float, float] | None":
@@ -312,8 +304,9 @@ def _resolve_instances(
         return (instances[0]["lat"], instances[0]["lon"])
     lat_c = sum(i["lat"] for i in instances) / len(instances)
     lon_c = sum(i["lon"] for i in instances) / len(instances)
-    spread = max(_haversine_m(lat_c, lon_c, i["lat"], i["lon"])
-                 for i in instances)
+    spread = float(geodesic_distance_m(
+        lat_c, lon_c,
+        [i["lat"] for i in instances], [i["lon"] for i in instances]).max())
     if spread <= cluster_radius_m:
         return (lat_c, lon_c)  # co-located duplicates → safe centroid
     if len(instances) > max_instances:

@@ -26,6 +26,7 @@ from typing import Callable
 
 import numpy as np
 
+from .geo import geodesic_distance_m
 from .osm_data import RoadGraph
 from .scene_text import SceneText
 
@@ -187,9 +188,12 @@ def city_extent_radius(
         min_lon, min_lat, max_lon, max_lat = (float(x) for x in gdf.total_bounds)
         clat = (min_lat + max_lat) / 2.0
         clon = (min_lon + max_lon) / 2.0
-        half_diag = float(np.hypot(
-            (max_lat - min_lat) * 111320.0,
-            (max_lon - min_lon) * 111320.0 * np.cos(np.radians(clat))) / 2.0)
+        # Centre-to-farthest-corner WGS84 geodesic: the radius of the disc
+        # around (clat, clon) that covers the whole bbox (the half-diagonal
+        # of a flat rectangle).
+        half_diag = float(geodesic_distance_m(
+            clat, clon, [min_lat, min_lat, max_lat, max_lat],
+            [min_lon, max_lon, min_lon, max_lon]).max())
         result = (clat, clon, half_diag)
         cache[key] = [clat, clon, half_diag]
     except Exception:

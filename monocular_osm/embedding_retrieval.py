@@ -11,6 +11,7 @@ import numpy as np
 from pyproj import Transformer
 
 from .aerial_match import render_osm_patch
+from .geo import metres_per_degree
 from .osm_data import RoadGraph
 from .trajectory_matching import MatchCandidate
 
@@ -272,8 +273,9 @@ def _crop_embedding_cube(
     try:
         from pyproj import CRS
         if CRS.from_user_input(crs).is_geographic:
-            px_x *= 111_320.0 * max(np.cos(np.deg2rad(lat)), 1e-6)
-            px_y *= 110_540.0
+            m_per_deg_lat, m_per_deg_lon = metres_per_degree(lat)
+            px_x *= max(m_per_deg_lon, 1e-6)
+            px_y *= m_per_deg_lat
     except Exception:
         pass
     if px_x <= 0 or px_y <= 0:
