@@ -7,11 +7,23 @@ a final table: GT mean/start error for both the HEADLINE answer
 raw matcher pick (result["matcher_position"]), plus rc so failed runs are
 visible in the summary, not just in scrollback.
 
-    python scripts/run_all_gt.py            # gated sweep (GT-centered discs)
-    python scripts/run_all_gt.py --blind    # honest blind mode: drops the
-                                            # --osm-around GT leak (mega-city
-                                            # London keeps its point+radius
-                                            # fetch — full-city is infeasible)
+    python scripts/run_all_gt.py            # GT-SEEDED sweep (GT-centred discs)
+    python scripts/run_all_gt.py --blind    # blind: no GT-derived disc on ANY
+                                            # clip (London included) and the
+                                            # manifest's title/dataset-named
+                                            # city instead of GT-informed ones
+
+The default mode is GT-SEEDED: every clip gets an ``--osm-around`` disc centred
+on its ground-truth track, so its numbers measure the pipeline given a
+GT-derived search region. They are NOT GPS-free results and are labelled
+GT-SEEDED in the printed table. ``--blind`` drops every disc; London then
+relies on the pipeline's own coarse-to-fine VPR disc (a full-city fetch is the
+honest failure mode if VPR cannot place it).
+
+Both modes still pass ``--ground-truth-waypoints`` so the pipeline can print
+its own GT errors; the pipeline only reads that file for evaluation. The
+canonical leak-free, repeated, offline-scored evaluation is
+``scripts/benchmark.py`` (see benchmarks/manifest.json).
 """
 
 from __future__ import annotations
@@ -99,10 +111,14 @@ CLIPS = [
         "--scale-lock", "--no-splat", "--no-aerial"]),
 ]
 
-# Mega-cities keep their point+radius graph fetch even in --blind mode: a
-# full-city London graph is not enumerable, so the disc is an infra
-# necessity there, not a GT leak we can drop.
-MEGA_CITY_CLIPS = {"London (Bloomsbury)"}
+# --blind used to keep London's GT-centred 1.5 km disc ("mega-city infra
+# necessity"). A disc centred on the ground truth is a GT leak whatever the
+# reason, so blind mode now strips it from every clip; the pipeline's
+# coarse-to-fine VPR supplies a non-GT disc for mega-cities. Kept (empty) for
+# callers that imported it.
+MEGA_CITY_CLIPS: set[str] = set()
+
+MANIFEST = ROOT / "benchmarks" / "manifest.json"
 
 # --- the overlay fleet (opt-in, --overlay) ---------------------------------
 #
@@ -189,6 +205,58 @@ def _strip_osm_around(args: list[str]) -> list[str]:
     return out
 
 
+def _arg_value(args: list[str], flag: str) -> str | None:
+    if flag in args:
+        i = args.index(flag)
+        if i + 1 < len(args):
+            return args[i + 1]
+    return None
+
+
+def _manifest_city(args: list[str], manifest: dict | None) -> str | None:
+    """The benchmark manifest's city for this clip (matched by GT file, then
+    by video), i.e. the city the video title / dataset names -- not one
+    picked with knowledge of where the GT track lies."""
+    if not manifest:
+        return None
+    gt = _arg_value(args, "--ground-truth-waypoints")
+    url = _arg_value(args, "--url")
+    video = _arg_value(args, "--video")
+    for e in manifest.get("clips", []):
+        if gt and e.get("gt") == gt:
+            return e.get("city")
+    for e in manifest.get("clips", []):
+        v = e.get("video", {})
+        if (url and v.get("url") == url) or (video and v.get("path") == video):
+            return e.get("city")
+    return None
+
+
+def _swap_city(args: list[str], city: str) -> list[str]:
+    out = list(args)
+    if "--city" in out:
+        out[out.index("--city") + 1] = city
+    return out
+
+
+def _blind_args(args: list[str], manifest: dict | None) -> list[str]:
+    """Blind mode: no GT-derived disc, and the manifest's (title/dataset) city."""
+    args = _strip_osm_around(args)
+    city = _manifest_city(args, manifest)
+    if city and _arg_value(args, "--city") != city:
+        print(f"NOTE: blind mode uses the manifest city {city!r} instead of "
+              f"{_arg_value(args, '--city')!r} (GT-informed).", flush=True)
+        args = _swap_city(args, city)
+    return args
+
+
+def _load_manifest(path: Path = MANIFEST) -> dict | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def _stash_previous_result(res: Path) -> None:
     """Move an existing result.json aside so a failed run can't leave a
     stale file that the sweep would report as fresh numbers."""
@@ -220,7 +288,10 @@ def _result_row(name: str, rc: int, result: dict | None) -> dict:
     if result is None:
         return row
     p = result.get("position") or {}
+    # matcher_position is the RAW matcher pick (no anchor pin); the
+    # anchor-pinned route, when built, is its own report (pinned_position).
     mp = result.get("matcher_position") or p
+    pn = result.get("pinned_position") or {}
     sc = p.get("spatial_confidence", {})
     row.update(
         source=p.get("source", "matcher"),
@@ -228,12 +299,19 @@ def _result_row(name: str, rc: int, result: dict | None) -> dict:
         gt_start=p.get("gt_start_error_m"),
         m_gt_mean=mp.get("gt_mean_route_error_m"),
         m_gt_start=mp.get("gt_start_error_m"),
+        p_gt_mean=pn.get("gt_mean_route_error_m"),
+        p_source=pn.get("source"),
         ranking=p.get("ranking", ""),
         streets=", ".join(p.get("street_names", [])[:3]),
         conf=sc.get("level"), spread=sc.get("spread_m"),
         n_hyp=len(p.get("hypotheses", [])),
     )
     return row
+
+
+def mode_label(blind: bool) -> str:
+    return ("BLIND (no GT-derived disc on any clip)" if blind
+            else "GT-SEEDED (GT-centred --osm-around discs; NOT GPS-free)")
 
 
 def _fmt(v, spec="%.0f", missing="-") -> str:
@@ -243,8 +321,9 @@ def _fmt(v, spec="%.0f", missing="-") -> str:
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--blind", action="store_true",
-                    help="drop the GT-centered --osm-around discs (except "
-                         "mega-city clips) for an honest blind number")
+                    help="drop the GT-centred --osm-around disc from EVERY clip "
+                         "and use the manifest's title/dataset-named city; "
+                         "without it the sweep is GT-SEEDED")
     ap.add_argument("--overlay", action="store_true",
                     help="run the GPS-overlay fleet (ground truth OCR'd off the "
                          "burned-in stamp; see scripts/build_overlay_fleet.py) "
@@ -285,6 +364,7 @@ def main(argv: list[str] | None = None) -> None:
                 "    python scripts/build_overlay_fleet.py")
         selected = (selected + overlay) if opts.all_fleets else overlay
 
+    manifest = _load_manifest() if opts.blind else None
     rows = []
     for name, slug, args in selected:
         args = args + vpr
@@ -299,9 +379,10 @@ def main(argv: list[str] | None = None) -> None:
                       f"({traj}); using default trajectory.", flush=True)
         if opts.vggt_best and name in VITERBI_OFF:
             args = args + ["--no-vpr-viterbi"]
-        if opts.blind and name not in MEGA_CITY_CLIPS:
-            args = _strip_osm_around(args)
-        print(f"\n{'='*70}\nRUNNING: {name}{' [blind]' if opts.blind else ''}\n{'='*70}",
+        if opts.blind:
+            args = _blind_args(args, manifest)
+        print(f"\n{'='*70}\nRUNNING: {name} "
+              f"{'[blind]' if opts.blind else '[GT-SEEDED: GT-centred disc]'}\n{'='*70}",
               flush=True)
         res = ROOT / "output" / slug / "result.json"
         _stash_previous_result(res)
@@ -314,20 +395,27 @@ def main(argv: list[str] | None = None) -> None:
         rows.append(row)
         print(f"  -> rc={rc}  source={row.get('source')}  "
               f"mean={row.get('gt_mean')}  start={row.get('gt_start')}  "
-              f"matcher_mean={row.get('m_gt_mean')}", flush=True)
+              f"matcher_mean={row.get('m_gt_mean')}  "
+              f"pinned_mean={row.get('p_gt_mean')}", flush=True)
 
-    mode = "BLIND (no GT discs)" if opts.blind else "gated"
-    print(f"\n\n{'='*112}\nFINAL RESULTS — all GT clips, {mode} (current pipeline)\n{'='*112}")
+    print(f"\n\n{'='*122}\nFINAL RESULTS — all GT clips, {mode_label(opts.blind)} "
+          f"(current pipeline)\n{'='*122}")
     print(f"{'clip':24s} {'rc':>3s} {'source':>19s} {'mean(m)':>8s} {'start(m)':>9s} "
-          f"{'mMean(m)':>9s} {'mStart(m)':>10s} {'conf':>7s} {'spread':>7s}  pick streets")
-    print("-" * 112)
+          f"{'mMean(m)':>9s} {'mStart(m)':>10s} {'pMean(m)':>9s} {'conf':>7s} "
+          f"{'spread':>7s}  pick streets")
+    print("-" * 122)
     for r in rows:
         print(f"{r['name']:24s} {r['rc']:>3d} {str(r.get('source', '-')):>19s} "
               f"{_fmt(r.get('gt_mean'), missing='FAIL'):>8s} "
               f"{_fmt(r.get('gt_start')):>9s} "
               f"{_fmt(r.get('m_gt_mean')):>9s} {_fmt(r.get('m_gt_start')):>10s} "
+              f"{_fmt(r.get('p_gt_mean')):>9s} "
               f"{str(r.get('conf')):>7s} {_fmt(r.get('spread')):>7s}  "
               f"{r.get('streets', '')}")
+    print("mMean = raw matcher pick; pMean = anchor-pinned route (when built).")
+    if not opts.blind:
+        print("GT-SEEDED: every clip was given a disc centred on its ground truth. "
+              "These are NOT GPS-free numbers; use --blind or scripts/benchmark.py.")
 
 
 if __name__ == "__main__":

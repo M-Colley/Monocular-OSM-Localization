@@ -1,0 +1,469 @@
+{
+  "schema_version": 1,
+  "description": "GPS-free localisation benchmark. Every run gets ONLY the video, the `city` string and `vo_segment`; ground truth is used for offline scoring only (scripts/benchmark.py aggregate). Core and overlay fleets are reported separately and never pooled.",
+  "generated_by": "python benchmarks/build_manifest.py",
+  "vocabulary": {
+    "gt_source": {
+      "hand-labelled": "GPS fixes typed in by a person from map look-ups of the video",
+      "kitti_oxts": "KITTI raw OXTS RT3003 GPS/IMU (INS) global pose",
+      "comma_ins": "comma2k19 global_pose: INS/GNSS/vision fusion (ECEF -> WGS84)",
+      "consumer_gps": "consumer GPS receiver @1 Hz (no IMU fusion)",
+      "applanix": "Applanix POS LV post-processed GNSS/INS poses",
+      "overlay_ocr": "OCR of the GPS stamp burned into the video frame (not hand-verified)"
+    },
+    "window_source": {
+      "full": "the whole recording / dataset extract as distributed",
+      "prefix": "the first N seconds of a longer video; N is where the hand labels end",
+      "operator_selected": "a sub-sequence of a longer recording picked by an operator who had the GT track available; treat as potentially GT-informed",
+      "gt_continuous": "window boundaries cut FROM the GT track (longest cut-free run of OCR'd GPS fixes) -- GT-derived by construction"
+    }
+  },
+  "splits": {
+    "dev": "Every clip that existed before this benchmark: all were used to tune the pipeline, so dev numbers are optimistic by construction.",
+    "test": "Reserved for FRESH clips added after the method is frozen. Empty today. `run` skips split=test unless --split test is given explicitly."
+  },
+  "clips": [
+    {
+      "id": "ulm4k_0-300",
+      "name": "Ulm 4K (ULl8s4qydrk), 0-300 s",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/ulm_ULl8s4qydrk_0-300.json",
+      "gt_source": "hand-labelled",
+      "gt_n_waypoints": 8,
+      "gt_waypoints_sha256": "55273069ff9ffcd370a5c0d1f52b7963beed6854d767307bb2ae9acf20bf6b0c",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=ULl8s4qydrk"
+      },
+      "vo_segment": "0:300",
+      "vo_segment_source": "gt_file",
+      "window_source": "prefix",
+      "window_note": "First 300 s of a longer upload. The GT file is a trimmed copy (t<=300 s) of the 0-420 s hand labels, cut for the tile3d cross-check; 300 s is the README row's window.",
+      "city": "Ulm, Germany",
+      "city_basis": "the video title names Ulm ('Ulm Germany 4K Drive')",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Ulm, Germany",
+      "available_locally": true
+    },
+    {
+      "id": "ulm2",
+      "name": "Ulm #2 (LC9Sa--u5KE)",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/ulm_LC9Sa--u5KE.json",
+      "gt_source": "hand-labelled",
+      "gt_n_waypoints": 15,
+      "gt_waypoints_sha256": "c91370dd9cf7a7581c513706e13193e17370c75846d7bd3d0130d3d4c418223b",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=LC9Sa--u5KE"
+      },
+      "vo_segment": "0:500",
+      "vo_segment_source": "gt_file",
+      "window_source": "prefix",
+      "window_note": "First 500 s; the hand labels cover exactly this span.",
+      "city": "Ulm, Germany",
+      "city_basis": "the video title names Ulm ('Ulm DE Centre-ville dashcam 4K ...')",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Ulm, Germany",
+      "available_locally": true
+    },
+    {
+      "id": "berlin_0-420",
+      "name": "Berlin (lBlKR2ek0w4), 0-420 s",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/berlin_lBlKR2ek0w4_0-420.json",
+      "gt_source": "hand-labelled",
+      "gt_n_waypoints": 8,
+      "gt_waypoints_sha256": "da700d4ba4fb70f52a439ebfa4c8e8e1efef0e8b678ec5126a4fcfbe33edc37f",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=lBlKR2ek0w4"
+      },
+      "vo_segment": "0:420",
+      "vo_segment_source": "gt_file",
+      "window_source": "prefix",
+      "window_note": "First 420 s of a 41-min crossing (the pipeline's default 7-min window); the GT file is a trimmed copy (t<=420 s) of 26 min of 1-minute hand labels.",
+      "city": "Berlin, Germany",
+      "city_basis": "the video title names Berlin ('Berlin Germany 4K Driving Tour ...')",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Berlin, Germany",
+      "available_locally": true
+    },
+    {
+      "id": "london",
+      "name": "London (T4wTL3LpLqU)",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/london_T4wTL3LpLqU.json",
+      "gt_source": "hand-labelled",
+      "gt_n_waypoints": 9,
+      "gt_waypoints_sha256": "06cf4be7d3d0789880233b752fe7987359972a21e318553722928f44caed1f01",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=T4wTL3LpLqU"
+      },
+      "vo_segment": "0:295",
+      "vo_segment_source": "gt_file",
+      "window_source": "prefix",
+      "window_note": "First 295 s; the hand labels cover exactly this span.",
+      "city": "London, UK",
+      "city_basis": "clip curated as a central-London drive; the upload title is not recorded in-repo (verify it names London)",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "London, UK",
+      "available_locally": true
+    },
+    {
+      "id": "kitti_0009",
+      "name": "KITTI 2011_09_26 drive 0009",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/kitti_drive_0009.json",
+      "gt_source": "kitti_oxts",
+      "gt_n_waypoints": 12,
+      "gt_waypoints_sha256": "454ce00d41b381c0e881a4e6e89a8bde598b7acbd54187753c72aea49f9fef72",
+      "video": {
+        "path": "data/kitti/drive_0009.mp4"
+      },
+      "vo_segment": "0:46",
+      "vo_segment_source": "gt_file",
+      "window_source": "full",
+      "window_note": "The whole synced drive (~46 s).",
+      "city": "Karlsruhe, Germany",
+      "city_basis": "KITTI raw documentation: all drives recorded in Karlsruhe",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Karlsruhe, Germany",
+      "available_locally": true,
+      "acquire": "Render image_02 of the raw drive: python scripts/make_kitti_gt.py data/kitti/raw/2011_09_26/2011_09_26_drive_0009_sync --out-video data/kitti/drive_0009.mp4 --out-gt <scratch>.json"
+    },
+    {
+      "id": "kitti_0033",
+      "name": "KITTI 2011_09_30 drive 0033",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/kitti_drive_0033.json",
+      "gt_source": "kitti_oxts",
+      "gt_n_waypoints": 14,
+      "gt_waypoints_sha256": "08122bcc75c98355dde4850255a915419cdc731419a59b5f0896d966421bf356",
+      "video": {
+        "path": "data/kitti/drive_0033.mp4"
+      },
+      "vo_segment": "0:165",
+      "vo_segment_source": "gt_file",
+      "window_source": "full",
+      "window_note": "The whole synced drive (~165 s).",
+      "city": "Karlsruhe, Germany",
+      "city_basis": "KITTI raw documentation: all drives recorded in Karlsruhe",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Karlsruhe, Germany",
+      "available_locally": true,
+      "acquire": "Render image_02 of the raw drive: python scripts/make_kitti_gt.py data/kitti/raw/2011_09_30/2011_09_30_drive_0033_sync --out-video data/kitti/drive_0033.mp4 --out-gt <scratch>.json"
+    },
+    {
+      "id": "comma_148",
+      "name": "comma2k19 route b0c9d2329ad1606b (segments 1-4)",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/comma_148.json",
+      "gt_source": "comma_ins",
+      "gt_n_waypoints": 14,
+      "gt_waypoints_sha256": "61d01d5348bd2f5ede910d5dc7b1689dbfc50bbce0170181a47d807839380875",
+      "video": {
+        "path": "data/comma/route_148.mp4"
+      },
+      "vo_segment": "0:239",
+      "vo_segment_source": "gt_file",
+      "window_source": "operator_selected",
+      "window_note": "Four consecutive 1-minute segments of a longer commute, chosen for trajectory shape by an operator with the pose track at hand.",
+      "city": "San Francisco Peninsula, California, USA",
+      "city_basis": "comma2k19 documents its data as commutes on California's I-280 (San Jose - San Francisco); the GT file written by monocular_osm/comma2k19.py says 'San Francisco Peninsula'",
+      "city_alternatives": [
+        "San Francisco, California, USA",
+        "Daly City, California, USA"
+      ],
+      "city_alternatives_notes": {
+        "San Francisco, California, USA": "metro-level name a user might type; its centroid is ~14 km from this route",
+        "Daly City, California, USA": "GT-INFORMED: chosen for the README's deployable row because the route is in Daly City -- not a blind choice"
+      },
+      "legacy_city": "Daly City, California, USA",
+      "available_locally": false,
+      "acquire": "comma2k19 Chunk_1 via scripts/extract_comma_segments.py (route 'b0c9d2329ad1606b|2018-08-17--14-55-39', segments 1-4) then scripts/make_comma_gt.py"
+    },
+    {
+      "id": "malaga_07",
+      "name": "Malaga Urban extract 07",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/malaga_extract07.json",
+      "gt_source": "consumer_gps",
+      "gt_n_waypoints": 14,
+      "gt_waypoints_sha256": "b8530ac6fd55f93d7feb06545cc9930ebd6e9b2446f7926476bb3b694d5b0dc6",
+      "video": {
+        "path": "data/malaga-urban-extract07-spain/input.mp4"
+      },
+      "vo_segment": "0:105",
+      "vo_segment_source": "gt_file",
+      "window_source": "full",
+      "window_note": "The whole extract (~105 s; the builder's 200 s cap is not reached).",
+      "city": "Málaga, Spain",
+      "city_basis": "dataset name (Malaga Urban Dataset)",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Málaga, Spain",
+      "available_locally": false,
+      "acquire": "Malaga Urban extract 07 via scripts/build_ext_clips.py (build_malaga)"
+    },
+    {
+      "id": "boreas_glenshields",
+      "name": "Boreas 2020-11-26-13-58 (Glen Shields)",
+      "fleet": "core",
+      "split": "dev",
+      "gt": "ground_truth/boreas_glenshields.json",
+      "gt_source": "applanix",
+      "gt_n_waypoints": 14,
+      "gt_waypoints_sha256": "e098b0022c3d091785461efc4f7526cfacf3d55cf9ea894152aed281bc92829f",
+      "video": {
+        "path": "data/boreas-glenshields-vaughan-canada/input.mp4"
+      },
+      "vo_segment": "0:179",
+      "vo_segment_source": "gt_file",
+      "window_source": "operator_selected",
+      "window_note": "Seconds 300-480 of the sequence, picked by an operator with the Applanix track available (scripts/build_ext_clips.py).",
+      "city": "Toronto, Ontario, Canada",
+      "city_basis": "the Boreas dataset describes its route as driven in Toronto",
+      "city_alternatives": [
+        "Vaughan, Ontario, Canada"
+      ],
+      "city_alternatives_notes": {
+        "Vaughan, Ontario, Canada": "GT-INFORMED: the town the GT track lies in; used by the earlier README rows"
+      },
+      "legacy_city": "Vaughan, Ontario, Canada",
+      "available_locally": false,
+      "acquire": "Boreas sequence boreas-2020-11-26-13-58 via scripts/_dl_boreas.py then scripts/build_ext_clips.py (build_boreas)"
+    },
+    {
+      "id": "overlay_vCSEG6KaFng",
+      "name": "Chicago (vCSEG6KaFng)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_vCSEG6KaFng.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "5a2fadb3900df864ca91401d8f96bd58feae7b03a45757f4ac9dbbd8e0aa3c6c",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=vCSEG6KaFng"
+      },
+      "title": "Chicago | Viofo A229 Pro Front Unit Day Time Testing |",
+      "vo_segment": "5:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Chicago, Illinois, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Chicago, Illinois, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_LmIHvLMLqFk",
+      "name": "Chicago (LmIHvLMLqFk)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_LmIHvLMLqFk.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "c62a82711199566467bf507fc5e22c218cf94b839ad8e521c7a830d55e35e25e",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=LmIHvLMLqFk"
+      },
+      "title": "Chicago | Weekend Night Drive | December 16, 2023",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Chicago, Illinois, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Chicago, Illinois, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_wJsEQTCAg1c",
+      "name": "Phoenix (wJsEQTCAg1c)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_wJsEQTCAg1c.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "5fb8d6aacdb94cfd326b53a6a34bab8b4349163566cd70f500d79ea66d08979e",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=wJsEQTCAg1c"
+      },
+      "title": "Driving in Phoenix, Tempe, Scottsdale, Chandler, Gilbert, Queen Creek, I-10,Loop101,202,Arizona.",
+      "vo_segment": "400:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (30 fixes dropped to edit cuts).",
+      "city": "Phoenix, Arizona, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [
+        "Scottsdale, Arizona, USA"
+      ],
+      "city_alternatives_notes": {
+        "Scottsdale, Arizona, USA": "GT-INFORMED: reverse-geocoded from the OCR'd GT track by scripts/build_overlay_fleet.py; used by run_all_gt.py --overlay"
+      },
+      "legacy_city": "Scottsdale, Arizona, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_ZhGb8q1kliY",
+      "name": "Detroit (ZhGb8q1kliY)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_ZhGb8q1kliY.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "a0bb663976f164f3221b0ed1652412b4cf51972dc38fb29a97167eddab201cb4",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=ZhGb8q1kliY"
+      },
+      "title": "Detroit: Driving From Downtown to Northwest 'n Back, Dashcam, 10/16/2016.",
+      "vo_segment": "0:275",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (61 fixes dropped to edit cuts).",
+      "city": "Detroit, Michigan, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Detroit, Michigan, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_1nF_7l07i-E",
+      "name": "Detroit (1nF_7l07i-E)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_1nF_7l07i-E.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "efeb58917da1e80e49351a8290ea68aa9b683143ff2462e722a9d7ace6f599a2",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=1nF_7l07i-E"
+      },
+      "title": "Amazing Detroit - Come 'n Visit: Dashcam Driving Into Downtown, USA, 08/15/2016.",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Detroit, Michigan, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Detroit, Michigan, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_g5lnpYCk1Ec",
+      "name": "Detroit (g5lnpYCk1Ec)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_g5lnpYCk1Ec.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "5d00981605431fc082532911bb446051131df3e9eb96757d8bfddad1272ffeaf",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=g5lnpYCk1Ec"
+      },
+      "title": "Driving from Detroit, Michigan to Roseville, Michigan",
+      "vo_segment": "4:599",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Detroit, Michigan, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Detroit, Michigan, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_y66ZkRpUh4k",
+      "name": "Atlanta (y66ZkRpUh4k)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_y66ZkRpUh4k.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "459a32c5e16fbf66617a5cdf7936d0779ce4dabb05d8367a76a79011142dddb8",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=y66ZkRpUh4k"
+      },
+      "title": "ASMR Driving in Atlanta at night in a Tesla Model 3 WolfBox i07 Dashcam",
+      "vo_segment": "0:295",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (47 fixes dropped to edit cuts).",
+      "city": "Atlanta, Georgia, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Atlanta, Georgia, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_kxEDNj5L_yQ",
+      "name": "Atlanta (kxEDNj5L_yQ)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_kxEDNj5L_yQ.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "47a77d25fd7cc71f0c021acb56b4d9dfc582f5e1d2912f700f2f17e7e210dd67",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=kxEDNj5L_yQ"
+      },
+      "title": "ASMR Driving through Atlanta, Vinings, Midtown, and Buckhead ( No talking, No Music )",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Atlanta, Georgia, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Atlanta, Georgia, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_Wrn4_uCxRCQ",
+      "name": "Newcastle upon Tyne (Wrn4_uCxRCQ)",
+      "fleet": "overlay",
+      "split": "dev",
+      "gt": "ground_truth/overlay_Wrn4_uCxRCQ.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "2689a523a5719cbaa6000a4bc2d18436050d82c875578ae9adccd4be4f38b045",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=Wrn4_uCxRCQ"
+      },
+      "title": "Newcastle Driving - Tyne Bridge, Central Motorway, Jesmond and Coast Road",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Newcastle upon Tyne, England, UK",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Newcastle upon Tyne, England, UK",
+      "available_locally": true
+    }
+  ]
+}
