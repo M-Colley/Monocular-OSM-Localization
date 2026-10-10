@@ -1,0 +1,72 @@
+{
+  "Atlanta, Georgia, USA": {
+    "lat": 33.7544657,
+    "lon": -84.3898151,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:00:49+00:00"
+  },
+  "Berlin, Germany": {
+    "lat": 52.5173885,
+    "lon": 13.3951309,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:00:50+00:00"
+  },
+  "Chicago, Illinois, USA": {
+    "lat": 41.8755616,
+    "lon": -87.6244212,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:00:52+00:00"
+  },
+  "Detroit, Michigan, USA": {
+    "lat": 42.3315509,
+    "lon": -83.0466403,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:00:53+00:00"
+  },
+  "Newcastle upon Tyne, England, UK": {
+    "lat": 54.9738474,
+    "lon": -1.6131572,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:00:55+00:00"
+  },
+  "Phoenix, Arizona, USA": {
+    "lat": 33.4484367,
+    "lon": -112.074141,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:00:56+00:00"
+  },
+  "San Francisco Peninsula, California, USA": {
+    "lat": 37.5338023,
+    "lon": -122.3970102,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:00:58+00:00"
+  },
+  "San Francisco, California, USA": {
+    "lat": 37.7879363,
+    "lon": -122.4075201,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:01:00+00:00"
+  },
+  "Scottsdale, Arizona, USA": {
+    "lat": 33.4942189,
+    "lon": -111.926018,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:01:01+00:00"
+  },
+  "Toronto, Ontario, Canada": {
+    "lat": 43.6534817,
+    "lon": -79.3839347,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-10T13:01:03+00:00"
+  }
+}
