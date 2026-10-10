@@ -86,15 +86,31 @@ def _parse_clock(text):
     return None
 
 
-def _ocr_clock_datetime(path, lat, lon):
-    """Best-effort burned-in clock -> tz-aware UTC datetime (anchored at t=0), or None."""
+def _ocr_clock_datetime(path, lat, lon, *, ocr_engine="rapidocr", ocr_use_gpu=True,
+                        ocr_reader=None):
+    """Best-effort burned-in clock -> tz-aware UTC datetime (anchored at t=0), or None.
+
+    The reader comes from the project's OCR-engine factory
+    (:func:`monocular_osm.scene_text._default_reader`): ``ocr_engine`` picks
+    rapidocr (default) or easyocr, falling back to the other one when only
+    that is installed. (This used to import easyocr directly and return
+    ``None`` without it -- so on a default install, whose OCR extra ships
+    rapidocr only, the burned-in-clock channel was silently dead.)
+    ``ocr_use_gpu`` only matters for easyocr; ``ocr_reader`` injects a
+    reader (tests).
+    """
     try:
         import cv2
-        import easyocr
     except Exception:
         return None
+    reader = ocr_reader
+    if reader is None:
+        from .scene_text import _default_reader
+        try:
+            reader = _default_reader(("en",), ocr_use_gpu, ocr_engine)
+        except (ImportError, OSError, RuntimeError):
+            return None             # no OCR backend installed / model unavailable
     try:
-        reader = easyocr.Reader(["en"], gpu=True, verbose=False)
         cap = cv2.VideoCapture(str(path))
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         hits = []                                    # (t_sec, parsed_naive_dt)
@@ -128,12 +144,18 @@ def TimezoneFinder_at(lat, lon):
     return TimezoneFinder().timezone_at(lat=lat, lng=lon) or "UTC"
 
 
-def capture_datetime(path, lat, lon):
-    """Absolute capture instant (tz-aware UTC) at t=0 of the clip + source, or None."""
+def capture_datetime(path, lat, lon, *, ocr_engine="rapidocr", ocr_use_gpu=True,
+                     ocr_reader=None):
+    """Absolute capture instant (tz-aware UTC) at t=0 of the clip + source, or None.
+
+    Container metadata first; otherwise the burned-in clock, OCR'd with
+    ``ocr_engine`` (see :func:`_ocr_clock_datetime`).
+    """
     d = _ffprobe_creation_time(path)
     if d is not None:
         return d, "metadata"
-    d = _ocr_clock_datetime(path, lat, lon)
+    d = _ocr_clock_datetime(path, lat, lon, ocr_engine=ocr_engine,
+                            ocr_use_gpu=ocr_use_gpu, ocr_reader=ocr_reader)
     if d is not None:
         return d, "burned-in-clock"
     return None
@@ -170,11 +192,17 @@ def detect_sun_bearing(bgr, focal_px):
 
 
 def estimate_heading(video_path, center_latlon, times_sec, focal_px=None,
-                     cam_pitch_deg=0.0, elev_tol_deg=18.0, assume_capture_utc=None):
+                     cam_pitch_deg=0.0, elev_tol_deg=18.0, assume_capture_utc=None,
+                     *, ocr_engine: str = "rapidocr", ocr_use_gpu: bool = True,
+                     ocr_reader=None):
     """Per-frame absolute vehicle heading from the sun, or ``None`` if unavailable.
 
     ``assume_capture_utc`` (tz-aware datetime) overrides timestamp extraction — for
     when the user knows the capture time, or to validate the image side.
+    ``ocr_engine`` ("rapidocr" | "easyocr", same meaning and fallback as the
+    pipeline's ``--ocr-engine``), ``ocr_use_gpu`` (easyocr only) and
+    ``ocr_reader`` (an injected reader) configure the burned-in-clock read used
+    when the container carries no creation time.
     Returns a dict: available, source, capture_utc, headings (compass deg per time,
     nan where unusable), median_heading, n_used, confidence.
     """
@@ -186,7 +214,8 @@ def estimate_heading(video_path, center_latlon, times_sec, focal_px=None,
     if assume_capture_utc is not None:
         dt0, source = assume_capture_utc.astimezone(_dt.timezone.utc), "assumed"
     else:
-        cap_dt = capture_datetime(video_path, lat, lon)
+        cap_dt = capture_datetime(video_path, lat, lon, ocr_engine=ocr_engine,
+                                  ocr_use_gpu=ocr_use_gpu, ocr_reader=ocr_reader)
         if cap_dt is None:
             return {"available": False, "reason": "no capture timestamp (metadata or clock)"}
         dt0, source = cap_dt

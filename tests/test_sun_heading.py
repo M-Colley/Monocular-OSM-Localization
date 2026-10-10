@@ -59,3 +59,123 @@ def test_detect_sun_bearing_synthetic():
     assert conf > 0
     # no bright blob -> None
     assert detect_sun_bearing(np.zeros((480, 640, 3), np.uint8), 500.0) is None
+
+
+# ---------------------------------------------------------------------------
+# Burned-in clock OCR goes through the project's OCR-engine factory
+# ---------------------------------------------------------------------------
+
+
+class _FakeCapture:
+    """cv2.VideoCapture stand-in: every read returns a blank 1080p frame."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def get(self, prop):
+        return 30.0
+
+    def set(self, prop, value):
+        return True
+
+    def read(self):
+        return True, np.zeros((1080, 1920, 3), np.uint8)
+
+    def release(self):
+        pass
+
+
+class _ClockReader:
+    """Reads a clock that advances with video time on the BOTTOM strip
+    (2 readtext calls per frame: bottom, top; frames at t = 5, 30, 90 s)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def readtext(self, image):
+        i, self.calls = self.calls, self.calls + 1
+        if i % 2:
+            return []                                      # top strip: nothing
+        t = (5, 30, 90)[i // 2]
+        stamp = datetime.datetime(2023, 7, 15, 12, 0, 0) + datetime.timedelta(seconds=t)
+        return [([[0, 0], [1, 0], [1, 1], [0, 1]],
+                 stamp.strftime("%Y-%m-%d %H:%M:%S"), 0.9)]
+
+
+def _patch_video(monkeypatch):
+    import cv2
+
+    import monocular_osm.sun_heading as sh
+
+    monkeypatch.setattr(cv2, "VideoCapture", _FakeCapture)
+    monkeypatch.setattr(sh, "TimezoneFinder_at", lambda lat, lon: "Europe/Berlin")
+    return sh
+
+
+def test_ocr_clock_uses_the_configured_engine(monkeypatch):
+    """The clock read must come from scene_text's engine factory (rapidocr by
+    default, honouring --ocr-engine) -- it used to import easyocr directly and
+    silently return None on a default (rapidocr-only) install."""
+    sh = _patch_video(monkeypatch)
+    import monocular_osm.scene_text as st
+
+    calls = []
+
+    def fake_default_reader(languages, use_gpu, engine="rapidocr"):
+        calls.append((tuple(languages), use_gpu, engine))
+        return _ClockReader()
+
+    monkeypatch.setattr(st, "_default_reader", fake_default_reader)
+    got = sh._ocr_clock_datetime("clip.mp4", 48.4, 9.99)
+    # 12:00:05 CEST at t=5 s -> t=0 is 12:00:00 CEST = 10:00:00 UTC.
+    assert got == datetime.datetime(2023, 7, 15, 10, 0, 0, tzinfo=datetime.timezone.utc)
+    assert calls == [(("en",), True, "rapidocr")]
+
+    calls.clear()
+    sh._ocr_clock_datetime("clip.mp4", 48.4, 9.99, ocr_engine="easyocr", ocr_use_gpu=False)
+    assert calls == [(("en",), False, "easyocr")]
+
+
+def test_ocr_clock_injected_reader_and_missing_backend(monkeypatch):
+    sh = _patch_video(monkeypatch)
+    import monocular_osm.scene_text as st
+
+    got = sh._ocr_clock_datetime("clip.mp4", 48.4, 9.99, ocr_reader=_ClockReader())
+    assert got == datetime.datetime(2023, 7, 15, 10, 0, 0, tzinfo=datetime.timezone.utc)
+
+    def no_backend(languages, use_gpu, engine="rapidocr"):
+        raise ImportError("No OCR backend available")
+
+    monkeypatch.setattr(st, "_default_reader", no_backend)
+    assert sh._ocr_clock_datetime("clip.mp4", 48.4, 9.99) is None
+
+
+def test_estimate_heading_threads_ocr_engine(monkeypatch):
+    import inspect
+
+    import monocular_osm.sun_heading as sh
+
+    assert inspect.signature(sh.estimate_heading).parameters["ocr_engine"].default == "rapidocr"
+    seen = {}
+
+    def fake_capture_datetime(path, lat, lon, **kw):
+        seen.update(kw)
+        return None
+
+    monkeypatch.setattr(sh, "capture_datetime", fake_capture_datetime)
+    out = sh.estimate_heading("clip.mp4", (48.4, 9.99), [0.0], ocr_engine="easyocr",
+                              ocr_use_gpu=False)
+    assert out["available"] is False
+    assert seen["ocr_engine"] == "easyocr" and seen["ocr_use_gpu"] is False
+
+
+def test_sun_heading_does_not_import_easyocr_directly():
+    import ast
+    from pathlib import Path
+
+    import monocular_osm.sun_heading as sh
+
+    tree = ast.parse(Path(sh.__file__).read_text(encoding="utf-8"))
+    imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    assert "easyocr" not in imported
