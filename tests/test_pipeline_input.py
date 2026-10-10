@@ -1102,3 +1102,51 @@ def test_vlm_prior_gets_district_level_slack() -> None:
     assert _vpr_distance_penalty(1000.0) == pytest.approx(
         15.0 * (1000.0 - _VPR_FREE_RADIUS_M) / 1000.0)
     assert _vpr_distance_penalty(1000.0, _PLATE_FREE_RADIUS_M) == 0.0
+
+
+class _Txt:
+    def __init__(self, text):
+        self.text = text
+
+
+@pytest.mark.parametrize("ocr,expect_seed", [
+    (["KA.GC"], False),                     # one fragment, outside the city
+    (["Mühlburg"], False),                  # one real name: not enough votes
+    (["Mühlburg", "Weststadt"], True),      # two agreeing names in the city
+    (["Mühlburg", "Bruchsal"], False),      # second name outside the city
+])
+def test_ocr_coarse_seed_needs_two_names_inside_the_city(
+        tmp_path, monkeypatch, ocr, expect_seed) -> None:
+    """A false OCR seed is a hard 800 m gate on VPR and the road graph:
+    "KA.GC" geocoded 15 km outside Karlsruhe put KITTI 0009 18.3 km off."""
+    import monocular_osm.location_prior as lp
+    import monocular_osm.scene_text as stx
+
+    places = {
+        "Karlsruhe, Germany": (49.0069, 8.4034),
+        "KA.GC, Karlsruhe, Germany": (49.1414, 8.5948),       # ~20 km out
+        "Mühlburg, Karlsruhe, Germany": (49.0090, 8.3720),
+        "Weststadt, Karlsruhe, Germany": (49.0080, 8.3850),
+        "Bruchsal, Karlsruhe, Germany": (49.1240, 8.5980),     # ~20 km out
+    }
+    monkeypatch.setattr(lp, "_default_geocode", lambda q: places.get(q))
+    monkeypatch.setattr(stx, "extract_scene_text",
+                        lambda *a, **k: [_Txt(t) for t in ocr])
+    monkeypatch.setattr(pipeline, "_city_extent_reach_m", lambda c, p: 13887.0)
+    seed = pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
+                                       "Karlsruhe, Germany", cache_dir=tmp_path)
+    assert (seed is not None) is expect_seed
+    if seed is not None:
+        assert seed[3].startswith("ocr:")
+
+
+def test_ocr_coarse_seed_refuses_without_city_extent(tmp_path, monkeypatch) -> None:
+    import monocular_osm.location_prior as lp
+    import monocular_osm.scene_text as stx
+
+    monkeypatch.setattr(lp, "_default_geocode", lambda q: (49.0, 8.4))
+    monkeypatch.setattr(stx, "extract_scene_text",
+                        lambda *a, **k: [_Txt("Mühlburg"), _Txt("Weststadt")])
+    monkeypatch.setattr(pipeline, "_city_extent_reach_m", lambda c, p: None)
+    assert pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
+                                       "Karlsruhe, Germany", cache_dir=tmp_path) is None

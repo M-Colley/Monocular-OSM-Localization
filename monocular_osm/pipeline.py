@@ -1555,9 +1555,33 @@ def _fetch_road_graph(
         ) from e
 
 
+# OCR place names must agree before they may seed the search disc. The seed
+# becomes a hard gate on both the VPR fetch and the road graph, so a false
+# seed is unrecoverable, while a missed one only falls back to the whole city.
+# Observed: rapidocr read "KA.GC" (a Karlsruhe licence-plate fragment) on
+# KITTI 0009; geocoded as "KA.GC, Karlsruhe" it landed 15 km outside the city
+# and the run finished 18.3 km off (city centroid: 2.6 km). Same two-vote rule
+# as the plate seed.
+_OCR_SEED_MIN_PLACES = 2
+
+
+def _city_extent_reach_m(city: str, cache_path) -> float | None:
+    """How far from the city's geocode centroid its OSM bounding box reaches:
+    dist(centroid, bbox centre) + half-diagonal (triangle inequality)."""
+    from .text_anchor import city_extent_radius, default_geocode_fn
+    ext = city_extent_radius(city, cache_path)
+    cen = default_geocode_fn(cache_path)(city) if ext is not None else None
+    if ext is None or cen is None:
+        return None
+    lat0 = np.radians(ext[0])
+    dc = float(np.hypot((cen[0] - ext[0]) * 111320.0,
+                        (cen[1] - ext[1]) * 111320.0 * np.cos(lat0)))
+    return dc + float(ext[2])
+
+
 def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
                        vo_start: float = 0.0, vo_end: float | None = None,
-                       ocr_engine: str = "rapidocr"):
+                       ocr_engine: str = "rapidocr", cache_dir=None):
     """GPS-free coarse seed from the video FRAMES. Fast deterministic signals
     first — license-plate registration district, then legible place names
     read by OCR (geocoded through the same resolver as the title) — and only
@@ -1578,7 +1602,21 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
         st = extract_scene_text(video_path, start_sec=vo_start, end_sec=vo_end,
                                 engine=ocr_engine)
         ocr_text = " , ".join(s.text for s in st if getattr(s, "text", None))
-        pr = resolve_coarse_prior(city, ocr_text, None)
+        # Scene text is noisy (plates, shop signs, direction signs naming
+        # OTHER places), unlike an uploader's title. Accept only names inside
+        # the named city's own extent - the user said which city it is - and
+        # require two of them (_OCR_SEED_MIN_PLACES). Unknown extent: refuse
+        # rather than fall back to the title resolver's 60 km.
+        reach_m = None
+        if cache_dir is not None:
+            try:
+                reach_m = _city_extent_reach_m(city, Path(cache_dir) / "geocode_cache.json")
+            except Exception as e:
+                print(f"      -> [coarse] city extent unavailable ({e})")
+        pr = (resolve_coarse_prior(city, ocr_text, None,
+                                   max_km_from_city=reach_m / 1000.0,
+                                   min_places=_OCR_SEED_MIN_PLACES)
+              if reach_m is not None else None)
         if pr is not None:
             return (pr[0], pr[1], pr[2],
                     f"ocr:{','.join(pr[3][:3])}")
@@ -1802,6 +1840,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # no title-derived prior were given.
     if osm_around is None and cfg.coarse_from_frames:
         _fp = _frame_coarse_seed(video_path, frames.frames, cfg.city,
+                                 cache_dir=cfg.data_dir,
                                  want_vlm=cfg.coarse_from_vlm,
                                  vo_start=cfg.vo_start_sec,
                                  vo_end=cfg.vo_end_sec,
