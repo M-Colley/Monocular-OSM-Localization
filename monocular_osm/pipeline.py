@@ -4067,9 +4067,19 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # were set (never their values). Without it a result cannot be traced to
     # the code and settings that produced it.
     from .provenance import collect_provenance
+    # The OSM snapshot matters too: OSM is edited continuously and the graph
+    # is cached, so record when (and with what) this run's graph was fetched.
+    _g = road.graph.graph
     result["provenance"] = collect_provenance(
         cfg, extra={"vo_algo_version": VO_ALGO_VERSION,
-                    "vo_cache": str(vo_cache) if vo_cache is not None else None},
+                    "vo_cache": str(vo_cache) if vo_cache is not None else None,
+                    "osm_graph": {
+                        "cache": str(cache_path),
+                        "created_date": _g.get("created_date"),
+                        "created_with": _g.get("created_with"),
+                        "nodes": road.graph.number_of_nodes(),
+                        "edges": road.graph.number_of_edges(),
+                    }},
     )
 
     out_json = cfg.output_dir / "result.json"
