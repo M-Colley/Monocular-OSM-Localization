@@ -24,6 +24,7 @@ from pathlib import Path
 import numpy as np
 
 from .citygml_lod2 import Lod2Mesh, _triangulate_ring
+from .geo import LocalFrame
 
 __all__ = ["fetch_osm_building_mesh", "parse_osm_height_m", "extrude_footprint"]
 
@@ -106,14 +107,15 @@ def _grid_centers(lat: float, lon: float, radius_m: float,
     if radius_m <= tile_r * 1.3:
         return [(lat, lon)]
     step = tile_r * 1.4                 # tiles just cover (slight overlap)
-    dlat = step / 111_320.0
-    dlon = step / (111_320.0 * max(0.2, np.cos(np.radians(lat))))
     n = int(np.ceil(radius_m / step))
+    # Lay the grid out in a local metric frame (WGS84 aeqd, geo.py) and map
+    # each node back to lat/lon, instead of a flat 111 320 m/deg conversion.
+    frame = LocalFrame(lat, lon)
     centres: list[tuple[float, float]] = []
-    for i in range(-n, n + 1):
+    for i in range(-n, n + 1):          # i: north steps, j: east steps
         for j in range(-n, n + 1):
             if np.hypot(i * step, j * step) <= radius_m + tile_r:
-                centres.append((lat + i * dlat, lon + j * dlon))
+                centres.append(frame.to_latlon(j * step, i * step))
     return centres
 
 

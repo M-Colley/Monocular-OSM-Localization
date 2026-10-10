@@ -26,6 +26,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
+from .geo import LocalFrame, degree_half_extent
+
 _MEAN = None
 _STD = None
 _MODEL = None
@@ -131,8 +133,7 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
             if isinstance(blob, dict) and blob.get("signature") == sig:
                 return blob["refs"]
     clat, clon = center
-    dlat = radius_m / 111320.0
-    dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
+    dlat, dlon = degree_half_extent(clat, clon, radius_m)
     sess = requests.Session()
     refs = {}
     # Latitude-aware lon step so query discs tile uniformly at any latitude
@@ -250,8 +251,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
     if not token:
         return []
     clat, clon = center
-    dlat = radius_m / 111320.0
-    dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
+    dlat, dlon = degree_half_extent(clat, clon, radius_m)
     # Small cells: the Graph API rejects a bbox that covers too many images.
     # To bound API cost on large radii we COARSEN the step so the grid stays
     # under the cell budget while still covering the whole disc. (The old
@@ -368,8 +368,7 @@ def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):
         except Exception:
             pass
     clat, clon = center
-    dlat = radius_m / 111320.0
-    dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
+    dlat, dlon = degree_half_extent(clat, clon, radius_m)
     # The meta-catalog serves at most ~500 features per search and (observed)
     # no next-page link, so tile the disc into sub-bboxes small enough that
     # each stays under that ceiling in dense areas.
@@ -731,7 +730,6 @@ def _robust_center(latlons, sims):
     (top ~40%), similarity-weighted geometric median, then a spatial-MAD outlier
     rejection + refit. On Ulm this lands 91 m from the GT route (vs 109 m without
     the MAD step, 512 m for a plain median). Returns (lat, lon)."""
-    import math as _m
     latlons = np.asarray(latlons, float)
     sims = np.asarray(sims, float)
     keep = sims >= float(np.percentile(sims, 60))
@@ -741,17 +739,17 @@ def _robust_center(latlons, sims):
     # Weiszfeld in a LOCAL METRIC frame: one degree of longitude is cos(lat)
     # times shorter than one of latitude, so a raw-degree median is biased
     # along the east-west axis (tens of metres at 48-60N — audit kartaview:155).
-    dm = 111320.0
-    lat0 = float(np.mean(pts[:, 0]))
-    coslat = _m.cos(_m.radians(lat0))
-    xy = np.column_stack([(pts[:, 1]) * dm * coslat, (pts[:, 0]) * dm])
+    # WGS84 azimuthal-equidistant frame around the cloud's mean (geo.py).
+    frame = LocalFrame(float(np.mean(pts[:, 0])), float(np.mean(pts[:, 1])))
+    xy = np.column_stack(frame.to_xy(pts[:, 0], pts[:, 1]))
     p = _geometric_median(xy, weights=wts)
     d = np.linalg.norm(xy - p, axis=1)
     mad = float(np.median(np.abs(d - np.median(d)))) + 1e-6
     good = d <= np.median(d) + 2.5 * 1.4826 * mad
     if int(good.sum()) >= 5:
         p = _geometric_median(xy[good], weights=wts[good])
-    return float(p[1] / dm), float(p[0] / (dm * coslat))
+    lat, lon = frame.to_latlon(float(p[0]), float(p[1]))
+    return float(lat), float(lon)
 
 
 def _resolve_backbone(model_name, device):
@@ -880,10 +878,11 @@ def _viterbi_decode(sims: np.ndarray, ref_latlon: np.ndarray,
     if n_r > 6000:
         raise ValueError(f"viterbi decode skipped: {n_r} refs exceeds the "
                          f"O(n^2) memory bound (6000); using argmax track")
-    lat0 = float(np.mean(ref_latlon[:, 0]))
-    xy = np.column_stack([
-        ref_latlon[:, 1] * 111320.0 * np.cos(np.radians(lat0)),
-        ref_latlon[:, 0] * 111320.0]).astype(np.float32)
+    ref_latlon = np.asarray(ref_latlon, dtype=np.float64)
+    frame = LocalFrame(float(np.mean(ref_latlon[:, 0])),
+                       float(np.mean(ref_latlon[:, 1])))
+    xy = np.column_stack(frame.to_xy(ref_latlon[:, 0], ref_latlon[:, 1])
+                         ).astype(np.float32)
     d = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=2)
     free = 30.0 + 40.0 * max(dt_s, 0.5)          # generous urban speed cap
     trans = -0.02 * np.maximum(0.0, d - free)    # sim-points per excess metre

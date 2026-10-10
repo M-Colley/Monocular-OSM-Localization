@@ -2,13 +2,38 @@
 district / seat name. Used by the license-plate district anchor to turn the modal
 plate prefix into a coarse location.
 
-Not exhaustive (Germany has ~300 active codes) but covers all major cities/
-districts nationwide and is dense around our test clips (Baden-Wurttemberg +
-Bavarian Swabia, the Ulm region). Codes not present here simply don't vote.
-Values are place names that geocode cleanly via Nominatim ("<name>, Germany").
+Two layers:
+
+* ``data/kfz_codes.json`` - a committed, dated snapshot derived from Wikidata
+  (property P395 "licence plate code" on German districts, urban districts and
+  municipalities, current and historic) by ``scripts/update_kfz_codes.py``.
+  Each code maps to its district seat as ``"<seat>, <state>"`` plus the seat's
+  coordinates and Wikidata ids (see :data:`KFZ_SNAPSHOT`).
+* :data:`MANUAL_OVERRIDES` - the original hand-curated table, applied ON TOP of
+  the snapshot. It is dense around our test clips (Baden-Wurttemberg + Bavarian
+  Swabia) and encodes verified disambiguations (FDB = Friedberg in Bayern vs
+  FB = Friedberg in Hessen, MN = Mindelheim, EN = Schwelm, ...), so every code
+  it lists resolves exactly as before the snapshot existed -- except RID, LOS
+  and PM, three entries the snapshot showed to be wrong (fixed 2026-10).
+  ``scripts/update_kfz_codes.py`` prints every override that names a
+  different place than Wikidata, for review.
+
+:data:`KFZ_DISTRICTS` is the merged view (snapshot, then overrides). Codes in
+neither simply don't vote. Values are place names that geocode cleanly via
+Nominatim (``"<name>, Germany"``).
 """
 
-KFZ_DISTRICTS: dict[str, str] = {
+from __future__ import annotations
+
+import json
+import re
+import warnings
+from importlib import resources
+
+_CODE_RE = re.compile(r"^[A-ZÄÖÜ]{1,3}$")
+_SNAPSHOT = "data/kfz_codes.json"
+
+MANUAL_OVERRIDES: dict[str, str] = {
     # --- city-states & major cities ---
     "B": "Berlin", "M": "München", "HH": "Hamburg", "K": "Köln",
     "F": "Frankfurt am Main", "S": "Stuttgart", "D": "Düsseldorf",
@@ -49,7 +74,11 @@ KFZ_DISTRICTS: dict[str, str] = {
     "FS": "Freising", "ED": "Erding", "EBE": "Ebersberg", "STA": "Starnberg",
     "WÜM": "Waldmünchen", "AS": "Amberg", "SAD": "Schwandorf",
     "CHA": "Cham", "BGL": "Bad Reichenhall", "TS": "Traunstein", "MÜ": "Mühldorf am Inn",
-    "AÖ": "Altötting", "RID": "Rottal-Inn", "FRG": "Freyung", "REG": "Regen",
+    "AÖ": "Altötting", "FRG": "Freyung", "REG": "Regen",
+    # RID was "Rottal-Inn" (whose codes are PAN/EG/GRI, ~100 km away): RID is
+    # the reintroduced code of the former Landkreis Riedenburg, now in Kelheim
+    # (corrected 2026-10 against the Wikidata snapshot).
+    "RID": "Riedenburg",
     "KEH": "Kelheim", "NM": "Neumarkt in der Oberpfalz", "WEN": "Weiden",
     "BA": "Bamberg", "CO": "Coburg", "HO": "Hof", "KU": "Kulmbach",
     "LIF": "Lichtenfels", "FO": "Forchheim", "ER": "Erlangen",
@@ -99,8 +128,40 @@ KFZ_DISTRICTS: dict[str, str] = {
     "SLF": "Saalfeld", "GRZ": "Greiz", "ABG": "Altenburg", "Z": "Zwickau",
     "V": "Plauen", "FG": "Freiberg", "PIR": "Pirna", "GR": "Görlitz",
     "BZ": "Bautzen", "MEI": "Meißen", "TDO": "Torgau", "LÖB": "Löbau",
-    "BAR": "Eberswalde", "MOL": "Strausberg", "LOS": "Frankfurt (Oder)",
-    "TF": "Luckenwalde", "PM": "Brandenburg an der Havel", "HVL": "Rathenow",
+    "BAR": "Eberswalde", "MOL": "Strausberg",
+    # LOS / PM named the neighbouring kreisfreie Staedte Frankfurt (Oder) (FF)
+    # and Brandenburg an der Havel (BRB), which lie OUTSIDE those districts;
+    # use the district seats (Oder-Spree: Beeskow, Potsdam-Mittelmark: Bad
+    # Belzig; corrected 2026-10 against the Wikidata snapshot).
+    "LOS": "Beeskow", "PM": "Bad Belzig",
+    "TF": "Luckenwalde", "HVL": "Rathenow",
     "OPR": "Neuruppin", "PR": "Perleberg", "UM": "Prenzlau", "CB": "Cottbus",
     "SPN": "Spremberg", "EE": "Herzberg", "OHV": "Oranienburg",
+}
+
+
+def _load_snapshot() -> tuple[dict[str, dict], dict]:
+    """``(codes, meta)`` from the packaged Wikidata snapshot; empty (with a
+    warning) if it is missing or unreadable, so the overrides still work."""
+    try:
+        raw = resources.files("monocular_osm").joinpath(
+            *_SNAPSHOT.split("/")).read_text(encoding="utf-8")
+        blob = json.loads(raw)
+        codes = {c: r for c, r in blob["codes"].items()
+                 if _CODE_RE.fullmatch(c) and isinstance(r, dict) and r.get("seat")}
+        return codes, blob.get("_meta", {})
+    except (OSError, ValueError, KeyError, TypeError) as e:  # pragma: no cover
+        warnings.warn(f"Kfz snapshot {_SNAPSHOT} unavailable ({e}); using the "
+                      f"{len(MANUAL_OVERRIDES)} manual codes only", RuntimeWarning,
+                      stacklevel=2)
+        return {}, {}
+
+
+#: Wikidata snapshot records keyed by code (seat, state, lat/lon, QIDs, historic).
+KFZ_SNAPSHOT, KFZ_SNAPSHOT_META = _load_snapshot()
+
+#: Merged code -> geocodable seat name: Wikidata snapshot, manual overrides win.
+KFZ_DISTRICTS: dict[str, str] = {
+    **{c: r["seat"] for c, r in KFZ_SNAPSHOT.items()},
+    **MANUAL_OVERRIDES,
 }

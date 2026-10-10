@@ -16,8 +16,9 @@ them — a drop-in ``osm_around`` derived from the video instead of GPS truth.
 
 from __future__ import annotations
 
-import math
 import re
+
+from .geo import geodesic_distance_m
 
 __all__ = ["resolve_coarse_prior", "extract_place_candidates"]
 
@@ -75,12 +76,9 @@ def extract_place_candidates(title: str | None, description: str | None,
     return out
 
 
-def _haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
-    r = 6_371_000.0
-    la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
-    h = (math.sin((la2 - la1) / 2) ** 2
-         + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2)
-    return 2 * r * math.asin(min(1.0, math.sqrt(h)))
+def _geodesic_m(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """WGS84 geodesic distance between two ``(lat, lon)`` points (metres)."""
+    return geodesic_distance_m(a[0], a[1], b[0], b[1])
 
 
 def _median(xs: list[float]) -> float:
@@ -130,13 +128,13 @@ def resolve_coarse_prior(
         ll = geocode_fn(f"{c}, {city}")
         if ll is None:
             continue
-        if _haversine_m(city_ll, ll) / 1000.0 <= max_km_from_city:
+        if _geodesic_m(city_ll, ll) / 1000.0 <= max_km_from_city:
             hits.append((c, ll))
     if len(hits) < min_places:
         return None
     lats = [h[1][0] for h in hits]
     lons = [h[1][1] for h in hits]
     centre = (_median(lats), _median(lons))
-    radius = max((_haversine_m(centre, h[1]) for h in hits), default=0.0) + margin_m
+    radius = max((_geodesic_m(centre, h[1]) for h in hits), default=0.0) + margin_m
     radius = min(max(radius, min_radius_m), max_radius_m)
     return (centre[0], centre[1], radius, [h[0] for h in hits])
