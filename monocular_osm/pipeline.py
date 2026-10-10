@@ -39,6 +39,14 @@ from .evaluator import (
     load_gt_waypoints,
 )
 from .frame_extraction import extract_frames
+from .fusion import (
+    CandidateFeatures,
+    FusionWeights,
+    consensus_order as fusion_consensus_order,
+    effective_weights as fusion_effective_weights,
+    fused_score as fusion_fused_score,
+    write_feature_table,
+)
 from .ipm import render_ipm_canvas
 from .osm_data import RoadGraph, fetch_city_graph
 from .hypotheses import distinct_hypotheses, hypothesis_confidence
@@ -86,7 +94,19 @@ class PipelineConfig:
     frame_stride: int = 6
     vo_start_sec: float = 0.0
     vo_end_sec: float | None = 300.0
-    top_k: int = 5
+    # How many matcher candidates the fusion channels see. 10 matches the CLI
+    # default every published run used (the config default used to be 5, so
+    # API callers silently got a different pipeline).
+    top_k: int = 10
+    # Walk-enumeration budget per start node (trajectory_matching). With the
+    # default 40, routes with >2 deliberate turns or a turn after the 8th
+    # intersection cannot be generated from their true start; raising it is
+    # a runtime/recall trade-off to measure (scripts/diagnose_pool_recall.py).
+    walks_per_node: int = 40
+    # Consensus-fusion weight overrides, e.g. {"sliding": 0.0} (see
+    # monocular_osm/fusion.py: FusionWeights). None = the defaults the
+    # published results used. Exposed for ablation, not tuning on the fleet.
+    fusion_weights: dict | None = None
     # Route-length prior for OSM walk enumeration. None (default) derives
     # it from the analyzed duration at urban average speed — see
     # _auto_estimated_length_m. A wrong prior is costly: walks much longer
@@ -1536,9 +1556,49 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
     return None
 
 
+def _record_channel(status: dict, name: str, state: str, *,
+                    error: BaseException | None = None, **info) -> None:
+    """Record a channel's outcome: "ok" | "inactive" | "failed" | "disabled".
+
+    A channel that raised used to be indistinguishable in result.json from
+    one that ran and changed nothing (each failure was only printed), which
+    makes any ablation over these channels untrustworthy.
+    """
+    entry: dict = {"status": state, **info}
+    if error is not None:
+        entry["error"] = f"{type(error).__name__}: {error}"
+    status[name] = entry
+
+
+def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
+                        fusion: dict | None) -> dict:
+    """Fill in a status for every channel that did not record a failure.
+
+    ``produced`` maps channel -> (enabled, produced_output). Fusion rank
+    channels are "ok" when their effective weight was non-zero.
+    """
+    for name, (enabled, made) in produced.items():
+        if name in status:
+            continue
+        if not enabled:
+            _record_channel(status, name, "disabled")
+        else:
+            _record_channel(status, name, "ok" if made else "inactive")
+    eff = (fusion or {}).get("weights_effective") or {}
+    for name, w in eff.items():
+        key = f"fusion_{name}"
+        if key not in status:
+            _record_channel(status, key, "ok" if w else "inactive", weight=w)
+    return status
+
+
 def run_pipeline(cfg: PipelineConfig) -> dict:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
+    # Consensus-fusion weights (defaults = the published values) and the
+    # per-channel outcome record written to result["channels"].
+    fusion_w = FusionWeights.from_overrides(cfg.fusion_weights)
+    channel_status: dict[str, dict] = {}
 
     # 1. Acquire the input video (local file / cache / download).
     video_path = _resolve_input_video(cfg)
@@ -1621,6 +1681,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 result_ipm_scale = {"status": "rejected", "length_m": round(flow_len, 1)}
         except Exception as e:
             print(f"      -> IPM-scale failed: {e}")
+            _record_channel(channel_status, 'ipm_scale', "failed", error=e)
             result_ipm_scale = {"status": "error", "error": str(e)}
     else:
         result_ipm_scale = None
@@ -1956,6 +2017,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> VPR unavailable; keeping full-city graph")
         except Exception as e:
             print(f"      -> VPR prior failed ({e}); keeping full-city graph")
+            _record_channel(channel_status, 'vpr', "failed", error=e)
 
     # [4a'] License-plate district anchor: an independent, absolute coarse prior.
     # Reads EU plate region prefixes across the clip, votes on the registration
@@ -1986,6 +2048,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> no confident district")
         except Exception as e:
             print(f"      -> plate anchor failed ({e})")
+            _record_channel(channel_status, 'plate', "failed", error=e)
 
     # [4a''] VLM (Gemma 4) district/landmark prior — a coverage FALLBACK: only
     # runs when VPR produced no centre (no nearby street-photo references). Reads
@@ -2019,6 +2082,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> VLM produced no geocodable district/name")
         except Exception as e:
             print(f"      -> VLM anchor failed ({e})")
+            _record_channel(channel_status, 'vlm', "failed", error=e)
 
     # 4. OSM road graph for the city.
     if osm_around is not None:
@@ -2058,6 +2122,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                       f"({(sh or {}).get('reason', 'module missing')})")
         except Exception as e:
             print(f"[4b] Sun heading failed ({e})")
+            _record_channel(channel_status, 'sun', "failed", error=e)
             result_sun_heading = {"available": False, "reason": str(e)}
     else:
         result_sun_heading = None
@@ -2179,6 +2244,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 result_traj_source = _staged_traj_source
         except Exception as e:
             print(f"      -> DA3 trajectory failed ({e}); falling back to VO path")
+            _record_channel(channel_status, 'da3_trajectory', "failed", error=e)
             da3_rec = None
             result_traj_source = _staged_traj_source
     else:
@@ -2225,6 +2291,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> no verifiable loop (end does not revisit start)")
         except Exception as e:
             print(f"      -> loop-closure failed ({e}); using VO path unchanged")
+            _record_channel(channel_status, 'loop_closure', "failed", error=e)
 
     # 4c. Optional: OCR scene-text → geocoded POI anchors. Computed before
     # the match so the anchors can *seed* enumeration (add walk roots near
@@ -2347,6 +2414,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         print(f"        poi REJECTED (direction sign): {_nm!r}")
                 except Exception as e:
                     print(f"      -> sign classification failed ({e})")
+                    _record_channel(channel_status, 'sign_classification', "failed", error=e)
 
             # --- Scale recovery / georeferencing (ideas 1 & 2) ----------
             # Use the *pre-cluster-filter* anchors here: scale needs
@@ -2448,6 +2516,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                   f"anchor(s); {len(anchor_seed)} enumeration seed node(s)")
         except Exception as e:
             print(f"      -> OCR-anchor channel failed: {e}")
+            _record_channel(channel_status, 'ocr_anchor', "failed", error=e)
             ocr_anchor_error = str(e)
 
     # 5. Match. When confident OCR anchors exist, gate enumeration to the
@@ -2485,6 +2554,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> VGGT unavailable (no package/GPU/weights); skipping")
         except Exception as e:
             print(f"      -> VGGT gating failed ({e}); skipping")
+            _record_channel(channel_status, 'vggt', "failed", error=e)
 
     seed = list(dict.fromkeys((anchor_seed or []) + vggt_seed))
     gated = bool((cfg.enable_ocr_anchor and anchor_seed) or vggt_seed)
@@ -2505,12 +2575,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         c = match_trajectory(
             match_xz, road, final_top_k=_pool_k, sample_every=cfg.sample_every,
             estimated_length_m=est_len, extra_start_nodes=seed or None,
-            restrict_to_start_nodes=gated, locked_scale=loc_scale)
+            restrict_to_start_nodes=gated, locked_scale=loc_scale,
+            walks_per_node=cfg.walks_per_node)
         if gated and not c:
             print("      -> gated match found nothing; falling back to full scan")
             c = match_trajectory(
                 match_xz, road, final_top_k=_pool_k, sample_every=cfg.sample_every,
-                estimated_length_m=est_len, locked_scale=loc_scale)
+                estimated_length_m=est_len, locked_scale=loc_scale,
+                walks_per_node=cfg.walks_per_node)
         return c
 
     candidates = _run_match(locked_scale, estimated_length_m)
@@ -2551,6 +2623,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                           f"fit {_as:.0f} m not <90% of base {_bs:.0f} m)")
             except Exception as e:
                 print(f"      -> VPR two-pass compare failed ({e}); keeping base")
+                _record_channel(channel_status, 'vpr_two_pass', "failed", error=e)
     # Keep the wider geometric pool for the calibrated multi-hypothesis
     # output, but run the rest of the pipeline (heavy channels, headline
     # pick, GT eval) on the top_k slice exactly as before.
@@ -2697,6 +2770,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             result["ipm"] = str(ipm_path.relative_to(cfg.output_dir))
         except Exception as e:
             print(f"      -> IPM failed: {e}")
+            _record_channel(channel_status, 'ipm', "failed", error=e)
             result["ipm_error"] = str(e)
             ipm_canvas = None
 
@@ -2761,7 +2835,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 m["aerial_inliers"] = ar.n_inliers
                 m["aerial_inlier_ratio"] = ar.inlier_ratio
                 m["aerial_rank"] = aerial_rank[i]
-            W_AERIAL = 0.5
+            W_AERIAL = fusion_w.aerial
         else:
             # Neutral channel: uniform rank, zero weight — the same no-op
             # pattern the anchor channel uses when it has no data.
@@ -2910,7 +2984,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                             [r.tile3d_score for r in t3_results])
                         result["tile3d"]["adaptive_weight"] = round(W_TILE3D, 3)
                     else:
-                        W_TILE3D = 0.4
+                        W_TILE3D = fusion_w.tile3d
                     # Stash mesh + samples so an optional post-selection
                     # placement refinement (--tile3d-refine) can reuse them.
                     t3_mesh_ref = t3_mesh
@@ -2929,6 +3003,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 pass
             except Exception as e:  # fetch/render failure: channel no-ops
                 print(f"      -> tile3d channel failed ({e}); inactive")
+                _record_channel(channel_status, 'tile3d', "failed", error=e)
 
         for i in range(len(candidates)):
             result["matches"][i]["shape_rank"] = i + 1
@@ -3016,13 +3091,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         #   * un-gated (anchors present but enumeration not restricted):
         #     strong weight (2.0) to pull toward the anchored area.
         #   * no anchors: 0 (clean no-op).
-        W_SHAPE, W_SLIDING, W_TURN = 1.0, 1.0, 0.0
-        if not have_anchors:
-            W_ANCHOR = 0.0
-        elif anchor_gated:
-            W_ANCHOR = 0.25
-        else:
-            W_ANCHOR = 2.0
+        # Weights live in fusion.FusionWeights (defaults = the published
+        # values); effective_weights() applies the gating rule above.
+        fusion_eff = fusion_effective_weights(
+            fusion_w, have_anchors=have_anchors, anchor_gated=anchor_gated,
+            aerial_active=W_AERIAL > 0, tile3d_weight=W_TILE3D)
+        W_ANCHOR = fusion_eff["anchor"]
 
         # License-plate district anchor (shape-INDEPENDENT absolute prior): rank
         # candidates by distance from their start to the voted district centroid.
@@ -3150,28 +3224,60 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                       f"fused as orientation penalty")
 
         def _sliding_rank(i: int) -> int:
+            # Falls back to the shape rank when sliding windows did not run
+            # (the default) — which is why shape's effective weight is
+            # shape + sliding (see fusion.py).
             return int(result["matches"][i].get("sliding_window_rank", i + 1))
 
-        def _fused(i: int) -> float:
-            return (
-                W_SHAPE * (i + 1)
-                + W_SLIDING * _sliding_rank(i)
-                + W_TURN * turn_rank[i]
-                + W_ANCHOR * anchor_rank[i]
-                + W_AERIAL * aerial_rank[i]
-                + W_TILE3D * tile3d_rank[i]
-                + plate_penalty[i]
-                + vpr_penalty[i]
-                + sun_penalty[i]
+        fusion_features = [
+            CandidateFeatures(
+                shape_rank=i + 1,
+                sliding_rank=_sliding_rank(i),
+                turn_rank=int(turn_rank[i]),
+                anchor_rank=int(anchor_rank[i]),
+                aerial_rank=int(aerial_rank[i]),
+                tile3d_rank=int(tile3d_rank[i]),
+                plate_penalty=float(plate_penalty[i]),
+                vpr_penalty=float(vpr_penalty[i]),
+                sun_penalty=float(sun_penalty[i]),
+                extra={k: result["matches"][i].get(k) for k in (
+                    "anchor_distance_m", "traj_coverage", "tile3d_score",
+                    "tile3d_skyline_err_deg", "sun_heading_diff_deg",
+                    "turn_match_distance", "sliding_window_score")
+                    if result["matches"][i].get(k) is not None}
+                | {"rms_m": float(candidates[i].score),
+                   "bearing_corr": float(candidates[i].bearing_corr)},
             )
+            for i in range(len(candidates))
+        ]
+
+        def _fused(i: int) -> float:
+            return fusion_fused_score(fusion_features[i], fusion_eff)
 
         for i in range(len(candidates)):
             result["matches"][i]["consensus_score"] = _fused(i)
 
-        consensus_order = sorted(
-            range(len(candidates)),
-            key=lambda i: (_fused(i), i),
-        )
+        consensus_order = fusion_consensus_order(fusion_features, fusion_eff)
+
+        # Persist the per-candidate feature table (matcher order) so any
+        # re-weighting / leave-one-channel-out ablation can be scored
+        # offline against GT without re-running the pipeline.
+        try:
+            from .position import xy_to_latlon as _fxy2ll
+            _froutes = []
+            for _c in candidates:
+                _xy = np.asarray(_c.aligned_traj_xy, dtype=np.float64)
+                _step = max(1, len(_xy) // 100)
+                _froutes.append([[round(float(a), 6), round(float(b), 6)]
+                                 for a, b in _fxy2ll(_xy[::_step], road.crs)])
+            write_feature_table(
+                cfg.output_dir / "fusion_features.json", fusion_features,
+                fusion_eff, routes_latlon=_froutes, weights=fusion_w,
+                channel_status=channel_status)
+        except Exception as e:
+            print(f"        fusion feature table not written ({e})")
+        result["fusion"] = {"weights_effective": fusion_eff,
+                            "features_file": "fusion_features.json"}
 
         # Opt-in tile3d tie-break (experiment; --tile3d-tiebreak). The 0.4
         # rank weight is deliberately too small to let the skyline channel
@@ -3467,6 +3573,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     }
                 except Exception as e:
                     print(f"      -> 3DGS training failed: {e}")
+                    _record_channel(channel_status, 'train_3dgs', "failed", error=e)
                     result["trained_3dgs_error"] = str(e)
 
             result["da3"] = {
@@ -3480,6 +3587,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             }
         except Exception as e:
             print(f"      -> DA3 failed: {e}")
+            _record_channel(channel_status, 'da3', "failed", error=e)
             result["da3_error"] = str(e)
 
     # 10. Optional: ground-truth evaluation.
@@ -3564,6 +3672,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             except Exception as e:
                 print(f"      -> start-pin placement failed ({e}); "
                       f"falling back to centroid")
+                _record_channel(channel_status, 'start_pin_placement', "failed", error=e)
                 _placed = None
         if _placed is None:
             _best_rank = 0
@@ -3599,6 +3708,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                           f"{_rinfo['score_after']:.2f})")
             except Exception as e:
                 print(f"      -> tile3d placement refine failed ({e}); skipped")
+                _record_channel(channel_status, 'tile3d_refine', "failed", error=e)
         _astart = _xy2ll2(_placed[:1], road.crs)[0]
         # The source names the channel + placement mode: a VLM district centroid
         # is far coarser than a MegaLoc VPR endpoint fit; accuracy studies need
@@ -3759,6 +3869,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                       f"(t={a_t[lead_i]:.0f}s, d_to_walk={dist_to_walk[lead_i]:.0f} m)")
             except Exception as e:
                 print(f"      -> anchor-pin failed: {e}")
+                _record_channel(channel_status, 'anchor_pin', "failed", error=e)
                 world_route_latlon = None
         if world_route_latlon is None and anchor_world_route is not None:
             from .position import xy_to_latlon as _xy2ll
@@ -3926,6 +4037,21 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             "track_frames": (int(len(vpr_track[0]))
                              if vpr_track is not None else None),
         }
+
+    result["channels"] = _summarize_channels(
+        channel_status, cfg,
+        produced={
+            "vpr": (cfg.use_vpr_prior, vpr_center is not None),
+            "plate": (cfg.use_plate_anchor, plate_center is not None),
+            "vlm": (cfg.use_vlm_anchor, result_vlm_anchor is not None),
+            "sun": (cfg.use_sun_heading, bool((result_sun_heading or {}).get("available"))),
+            "ocr_anchor": (cfg.enable_ocr_anchor, bool(ocr_anchors or street_anchors)),
+            "loop_closure": (cfg.enable_loop_closure, result_loop_closure is not None),
+            "orienternet": (cfg.use_orienternet,
+                            bool((result.get("orienternet") or {}).get("applied"))),
+        },
+        fusion=result.get("fusion"),
+    )
 
     # Provenance: commit, full config, library versions, whether credentials
     # were set (never their values). Without it a result cannot be traced to
