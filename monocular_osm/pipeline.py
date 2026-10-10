@@ -1815,6 +1815,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     vpr_track = None
     _c2f_info: dict | None = None      # coarse-to-fine record, attached to result later
     anchor_origin: str | None = None   # which channel produced vpr_center: vpr|vlm
+    vpr_source_used: str | None = None  # effective reference source after fallbacks
     # VPR runs whenever enabled — it re-ranks + drives anchor-primary, so it is
     # NOT conditioned on osm_around (mega-cities pass --osm-around AND want VPR).
     if cfg.use_vpr_prior:
@@ -1940,6 +1941,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # disc hurt end-to-end: 664 -> 1276 m).
                 vpr_center = _robust_center(v_ll, v_sims)
                 anchor_origin = "vpr"
+                vpr_source_used = _vpr_src
                 print(f"      -> VPR prior {vpr_center[0]:.5f}, {vpr_center[1]:.5f} "
                       f"({len(v_idx)}-frame track); re-rank + anchor-primary fit")
                 # [4a2] COARSE-TO-FINE refine: when pass 1 ran over a WIDE disc
@@ -2056,7 +2058,10 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                           f"pass-1 centre ({_slat:.4f}, {_slon:.4f}, "
                           f"{osm_around[2]:.0f} m)")
             else:
-                print("      -> VPR unavailable; keeping full-city graph")
+                from . import kartaview_vpr as _kv
+                _why = _kv.LAST_FAILURE or "no reference track"
+                print(f"      -> VPR unavailable ({_why}); keeping full-city graph")
+                _record_channel(channel_status, "vpr", "inactive", reason=_why)
         except Exception as e:
             print(f"      -> VPR prior failed ({e}); keeping full-city graph")
             _record_channel(channel_status, 'vpr', "failed", error=e)
@@ -4099,9 +4104,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         result["vlm_anchor"] = {"applied_as_prior": False,
                                 "status": "no_geocodable_prior"}
     if vpr_center is not None:
+        from .kartaview_vpr import backbone_info as _vpr_backbone
         result["vpr_prior"] = {
             "lat": float(vpr_center[0]), "lon": float(vpr_center[1]),
             "origin": anchor_origin,
+            # The source actually queried: "mapillary" falls back to
+            # "kartaview" without a token, and results differ by kilometres.
+            "source": vpr_source_used,
+            "backbone": _vpr_backbone() if anchor_origin == "vpr" else None,
             "track_frames": (int(len(vpr_track[0]))
                              if vpr_track is not None else None),
         }

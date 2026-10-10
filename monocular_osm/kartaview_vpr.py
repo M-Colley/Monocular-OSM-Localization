@@ -31,6 +31,25 @@ _STD = None
 _MODEL = None
 _MODEL_NAME = None   # backbone actually resident in _MODEL (survives fallback)
 
+# torch.hub sources, pinned to commits so an upstream change to a backbone
+# cannot silently change results (recorded via backbone_info()).
+# trust_repo=True is passed explicitly: without it torch.hub ASKS on stdin
+# whether to trust the repo, and an unattended run reads EOF as "no" — the
+# model never loads and the VPR channel, the main accuracy lever, silently
+# drops out ("VPR unavailable") on every fresh machine.
+HUB_MEGALOC = "gmberton/MegaLoc:5fe0dd697c4a70ba3e23607f6716ab3c606b16db"
+HUB_EIGENPLACES = "gmberton/eigenplaces:a2969f71d5ea31017443af490b15273ca4c50af1"
+
+# Why the last VPR entrypoint returned None (None after a success), so the
+# pipeline can record the reason instead of a bare "unavailable".
+LAST_FAILURE: str | None = None
+
+
+def backbone_info() -> dict:
+    """Which retrieval backbone is resident and where it came from."""
+    hub = {"megaloc": HUB_MEGALOC, "eigenplaces": HUB_EIGENPLACES}
+    return {"name": _MODEL_NAME, "hub": hub.get(_MODEL_NAME or "")}
+
 
 def _atomic_write_json(path: str, obj) -> None:
     """Write JSON via a temp file + os.replace, so an interrupted/concurrent
@@ -754,13 +773,19 @@ def _resolve_backbone(model_name, device):
     resolved = model_name
     if model_name == "megaloc":
         try:
-            _MODEL = torch.hub.load("gmberton/MegaLoc", "get_trained_model",
+            _MODEL = torch.hub.load(HUB_MEGALOC, "get_trained_model",
+                                    trust_repo=True,
                                     verbose=False).to(device).eval()
-        except Exception:
+        except Exception as e:
+            # Not silent: EigenPlaces is a different (weaker) embedding, and
+            # results computed with it are not comparable to MegaLoc ones.
+            print(f"      -> MegaLoc unavailable ({type(e).__name__}: {e}); "
+                  f"falling back to EigenPlaces")
             resolved = "eigenplaces"
     if _MODEL is None:
-        _MODEL = torch.hub.load("gmberton/eigenplaces", "get_trained_model",
+        _MODEL = torch.hub.load(HUB_EIGENPLACES, "get_trained_model",
                                 backbone="ResNet50", fc_output_dim=2048,
+                                trust_repo=True,
                                 verbose=False).to(device).eval()
     _MODEL_NAME = resolved
     return resolved
@@ -775,7 +800,7 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
     references are unavailable / too sparse. Callers own the tail (single
     robust centre vs. per-frame track).
     """
-    global _MEAN, _STD
+    global _MEAN, _STD, LAST_FAILURE
     import torch
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -787,9 +812,13 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
     else:
         refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
         if len(refs) < 30:
+            LAST_FAILURE = (f"only {len(refs)} {source} reference images within "
+                            f"{radius_m:.0f} m (need 30)")
             return None
         ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved)
     if ref_emb is None or len(ref_xy) < 30:
+        LAST_FAILURE = (f"too few embeddable {source} references "
+                        f"({0 if ref_xy is None else len(ref_xy)})")
         return None
     idx = np.linspace(0, len(frames_bgr) - 1,
                       min(n_query, len(frames_bgr))).astype(int)
@@ -813,6 +842,8 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         import torch  # noqa: F401 - availability guard; helper re-imports
     except Exception:
         return None
+    global LAST_FAILURE
+    LAST_FAILURE = None
     try:
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
@@ -823,7 +854,8 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         top1 = sims.argmax(1)
         maxsim = sims.max(1)
         return _robust_center(ref_xy[top1], maxsim)
-    except Exception:
+    except Exception as e:
+        LAST_FAILURE = f"{type(e).__name__}: {e}"
         return None
 
 
@@ -885,6 +917,8 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
         import torch  # noqa: F401 - availability guard; helper re-imports
     except Exception:
         return None
+    global LAST_FAILURE
+    LAST_FAILURE = None
     try:
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
@@ -900,5 +934,6 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
                 pass                      # keep the argmax track
         maxsim = sims[np.arange(len(idx)), top1]
         return idx, ref_xy[top1].astype(float), maxsim.astype(float)
-    except Exception:
+    except Exception as e:
+        LAST_FAILURE = f"{type(e).__name__}: {e}"
         return None
