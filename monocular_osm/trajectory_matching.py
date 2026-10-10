@@ -229,6 +229,7 @@ def match_trajectory(
     extra_start_nodes: list | None = None,
     restrict_to_start_nodes: bool = False,
     locked_scale: float | None = None,
+    walk_observer: Callable[[str, np.ndarray], None] | None = None,
 ) -> list[MatchCandidate]:
     """Localize the trajectory: return up to `final_top_k` best walks.
 
@@ -258,6 +259,13 @@ def match_trajectory(
         shape-match better are excluded from the pool entirely, so shape
         ranks only *within* the anchored area. No-op (falls back to the
         full scan) if no start nodes are supplied.
+    walk_observer:
+        Optional ``f(stage, walk_xy)`` called for every walk that reaches a
+        stage: ``"enumerated"`` (generated and long enough),
+        ``"prefiltered"`` (survived the bearing-correlation cut) and
+        ``"final"`` (returned). Diagnostics only — e.g. measuring whether
+        the true route is in the pool at each stage
+        (scripts/diagnose_pool_recall.py). Never affects the result.
     """
     # Degenerate input — empty, a single point, or a stationary segment
     # (VO emitted identical poses, zero total arc length) — cannot be
@@ -327,9 +335,14 @@ def match_trajectory(
                 continue
             corr = _bearing_corr(traj_sig, sig)
             rough.append((corr, start, walk))
+            if walk_observer is not None:
+                walk_observer("enumerated", poly)
 
     rough.sort(key=lambda r: -r[0])
     rough = rough[:bearing_top_k]
+    if walk_observer is not None:
+        for _corr, _start, _walk in rough:
+            walk_observer("prefiltered", walk_to_polyline(road.graph, _walk))
 
     # ---- Stage 2: Procrustes alignment on the survivors ----
     candidates: list[MatchCandidate] = []
@@ -383,6 +396,9 @@ def match_trajectory(
         return c.score - bearing_corr_weight * c.bearing_corr
 
     candidates.sort(key=_combined)
+    if walk_observer is not None:
+        for c in candidates[:final_top_k]:
+            walk_observer("final", c.walk_xy)
     return candidates[:final_top_k]
 
 

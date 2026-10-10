@@ -527,3 +527,38 @@ def test_overlap_rejects_a_parallel_street_one_block_over() -> None:
     route = _stub_candidate(g, [], np.array([[0.0, 0.0], [1500.0, 0.0]]))
     parallel = _stub_candidate(g, [], np.array([[0.0, 120.0], [400.0, 120.0]]))
     assert not _candidates_overlap(route, parallel, g, support_radius_m=60.0)
+
+
+def test_walk_observer_sees_every_stage_and_changes_nothing() -> None:
+    road = _l_shape_graph()
+    traj = np.array([[0, -i] for i in range(0, 201, 5)], dtype=float)
+    kw = dict(n_samples=48, walks_per_node=4, walk_depth=6, bearing_top_k=20,
+              final_top_k=3, estimated_length_m=180.0, progress=False)
+    seen: dict[str, int] = {}
+
+    def observer(stage: str, walk_xy: np.ndarray) -> None:
+        assert walk_xy.ndim == 2 and walk_xy.shape[1] == 2
+        seen[stage] = seen.get(stage, 0) + 1
+
+    plain = match_trajectory(traj, road, **kw)
+    observed = match_trajectory(traj, road, walk_observer=observer, **kw)
+    assert [c.walk for c in observed] == [c.walk for c in plain]
+    assert seen["enumerated"] >= seen["prefiltered"] >= seen["final"] == len(observed)
+
+
+def test_pool_recall_observer_finds_the_true_route() -> None:
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "diagnose_pool_recall",
+        Path(__file__).resolve().parents[1] / "scripts" / "diagnose_pool_recall.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    gt = np.array([[0.0, 0.0], [0.0, -200.0]])
+    obs = mod.RecallObserver(gt)
+    obs("enumerated", np.array([[500.0, 0.0], [500.0, -200.0]]))   # 500 m off
+    obs("enumerated", np.array([[0.0, 0.0], [0.0, -200.0]]))       # the route
+    rep = obs.report()["enumerated"]
+    assert rep["n"] == 2 and rep["best_sym_m"] == 0.0
+    assert rep["n_sym_le_50m"] == 1
