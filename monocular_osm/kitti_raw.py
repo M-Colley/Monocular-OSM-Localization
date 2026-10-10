@@ -82,14 +82,28 @@ def load_oxts_track(drive_dir: Path) -> list[GpsFix]:
     return fixes
 
 
+#: Provenance text for KITTI GT files. The shared GT writer defaults to an
+#: OCR-overlay description, which this source is not.
+KITTI_GT_DESCRIPTION = (
+    "KITTI raw {drive}: ground truth from the OXTS RT3003 GPS/IMU inertial "
+    "navigation system (oxts/data lat/lon, WGS84), {n_fixes} fixes at ~10 Hz "
+    "evenly subsampled to {n_waypoints} waypoints; t_sec from "
+    "oxts/timestamps.txt relative to the first fix. Not OCR."
+)
+
+
 def kitti_ground_truth(drive_dir: Path, *, n_waypoints: int = 12) -> dict:
     """Build the project's ground-truth JSON from a KITTI drive's OXTS."""
     fixes = load_oxts_track(drive_dir)
     drive = Path(drive_dir).name
-    return track_to_ground_truth(
+    gt = track_to_ground_truth(
         fixes, video_id=drive, video_url="https://www.cvlibs.net/datasets/kitti/raw_data.php",
         city="Karlsruhe, Germany", n_waypoints=n_waypoints,
-    ) | {"source": "kitti_raw_oxts"}
+        source="kitti_raw_oxts", description="",
+    )
+    gt["description"] = KITTI_GT_DESCRIPTION.format(
+        drive=drive, n_fixes=len(fixes), n_waypoints=len(gt["waypoints"]))
+    return gt
 
 
 def render_images_to_video(

@@ -3,7 +3,7 @@
   "video_url": "https://www.cvlibs.net/datasets/kitti/raw_data.php",
   "city": "Karlsruhe, Germany",
   "vo_segment": "0:46",
-  "description": "Auto-extracted from a burned-in GPS overlay via OCR (447 fixes → 12 waypoints). Verify before trusting.",
+  "description": "KITTI raw 2011_09_26_drive_0009_sync: ground truth from the OXTS RT3003 GPS/IMU inertial navigation system (oxts/data lat/lon, WGS84), 447 fixes at ~10 Hz evenly subsampled to 12 waypoints; t_sec from oxts/timestamps.txt relative to the first fix. Not OCR.",
   "source": "kitti_raw_oxts",
   "waypoints": [
     {

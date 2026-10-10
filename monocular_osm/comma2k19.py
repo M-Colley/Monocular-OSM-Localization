@@ -96,18 +96,33 @@ def load_route_track(seg_dirs: list[Path]) -> list[GpsFix]:
     return track
 
 
+#: Provenance text for comma2k19 GT files. The shared GT writer defaults to an
+#: OCR-overlay description, which this source is not.
+COMMA_GT_DESCRIPTION = (
+    "comma2k19 route {route_id}: ground truth from the dataset's fused "
+    "INS/GNSS/vision global pose (global_pose/frame_positions, ECEF -> WGS84 "
+    "via pyproj), {n_fixes} poses (one per video frame, 20 Hz) evenly "
+    "subsampled to {n_waypoints} waypoints; consecutive segments laid "
+    "end-to-end on one clock. Not OCR."
+)
+
+
 def comma_ground_truth(seg_dirs: list[Path], *, n_waypoints: int = 12) -> dict:
     """Build the project's ground-truth JSON from a comma2k19 route."""
     fixes = load_route_track(seg_dirs)
     if not fixes:
         raise ValueError("no poses found in the given segments")
     route_id = Path(seg_dirs[0]).parent.name or Path(seg_dirs[0]).name
-    return track_to_ground_truth(
+    gt = track_to_ground_truth(
         fixes, video_id=f"comma2k19_{route_id}",
         video_url="https://huggingface.co/datasets/commaai/comma2k19",
         city="San Francisco Peninsula, California, USA",
         n_waypoints=n_waypoints,
-    ) | {"source": "comma2k19_global_pose"}
+        source="comma2k19_global_pose", description="",
+    )
+    gt["description"] = COMMA_GT_DESCRIPTION.format(
+        route_id=route_id, n_fixes=len(fixes), n_waypoints=len(gt["waypoints"]))
+    return gt
 
 
 def render_route_to_video(
