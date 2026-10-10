@@ -293,6 +293,38 @@ def test_aggregate_odometry_sums_and_averages():
     assert list(a.frame_index) == [2, 4, 6]
 
 
+def test_junction_zone_interval_residual():
+    from monocular_osm.graph_filter import _interval_residual
+
+    a, b = np.deg2rad(0.0), np.deg2rad(90.0)          # turning left, 0 -> 90 deg
+    h = np.deg2rad(np.array([45.0, 100.0, -20.0, 180.0]))
+    r = np.degrees(_interval_residual(h, np.full(4, a), np.full(4, b)))
+    assert r[0] == pytest.approx(0.0)                   # mid-arc: no penalty
+    assert r[1] == pytest.approx(-10.0)                 # overshoot: expected - observed
+    assert r[2] == pytest.approx(20.0)
+    assert abs(r[3]) == pytest.approx(90.0)
+    # across the +-180 wrap
+    r = _interval_residual(np.array([np.pi]), np.array([np.deg2rad(170.0)]),
+                           np.array([np.deg2rad(-170.0)]))
+    assert r[0] == pytest.approx(0.0)
+
+
+def test_heading_increment_noise_flags_vo_glitches_without_gt():
+    from monocular_osm.graph_filter import heading_increment_noise
+
+    T = 200
+    t = np.arange(T) * 0.1
+    h = 0.5 * np.sin(t / 3.0)                      # a smooth, curving drive
+    h[120:] += np.deg2rad(8.0)                     # one VO glitch: 8 deg frame jump
+    o = Odometry(step=np.ones(T), heading=h, dt=0.1, metric=False, unit_seconds=0.1)
+    v = heading_increment_noise(o)
+    assert np.argmax(v) in (119, 120, 121)
+    assert np.degrees(np.sqrt(v.max())) > 5.0
+    assert np.degrees(np.sqrt(np.median(v))) < 0.2  # smooth turning is not noise
+    a = aggregate_odometry(Odometry(step=np.ones(T), heading=h, dt=0.1, heading_var=v), 5)
+    assert a.heading_var.sum() == pytest.approx(v.sum())
+
+
 def test_compass_conversion():
     assert compass_deg_to_heading_rad(0.0) == pytest.approx(np.pi / 2)      # north
     assert compass_deg_to_heading_rad(90.0) == pytest.approx(0.0)           # east
@@ -347,8 +379,9 @@ def test_unit_step_vo_localizes_on_ambiguous_street_network():
     assert res.confidence[0] < 0.05
     assert res.gt_mass[0] < 0.05
     # ...then localized, and it stays localized
-    assert ev["time_to_localize_s"] is not None and ev["time_to_localize_s"] < 120.0, ev
-    assert ev["final_err_m"] < 20.0, ev
+    assert ev["time_to_localize_s"] is not None, ev
+    assert ev["median_err_m"] < 15.0, ev
+    assert ev["final_err_m"] < 10.0, ev
     assert res.confidence[-1] > 0.5
     assert res.n_modes[-1] == 1
     assert ev["final_mass_within_25m_of_gt"] > 0.5

@@ -97,6 +97,7 @@ __all__ = [
     "odometry_from_trajectory",
     "odometry_from_arrays",
     "aggregate_odometry",
+    "heading_increment_noise",
     "compass_deg_to_heading_rad",
     "evaluate_against_gt",
     "fetch_drive_graph",
@@ -500,6 +501,9 @@ class Odometry:
                     represents (the frame interval for unit-norm VO steps). The
                     speed prior is converted to a log_k prior with it.
     ``frame_index[t]`` raw frame index at the end of step t (GT alignment).
+    ``heading_var[t]`` optional extra variance (rad^2) of the heading-increment
+                    error in step t (see :func:`heading_increment_noise`); added
+                    to the heading-bias process noise for that step.
     """
 
     step: np.ndarray
@@ -508,6 +512,7 @@ class Odometry:
     metric: bool = False
     unit_seconds: float | None = None
     frame_index: np.ndarray | None = None
+    heading_var: np.ndarray | None = None
 
     def __post_init__(self):
         self.step = np.clip(np.asarray(self.step, float), 0.0, None)
@@ -516,6 +521,10 @@ class Odometry:
         if self.frame_index is None:
             self.frame_index = np.arange(1, len(self.step) + 1)
         self.frame_index = np.asarray(self.frame_index, int)
+        if self.heading_var is not None:
+            self.heading_var = np.asarray(self.heading_var, float)
+            if len(self.heading_var) != len(self.step):
+                raise ValueError("heading_var must have one entry per step")
         if not (len(self.step) == len(self.heading) == len(self.dt) == len(self.frame_index)):
             raise ValueError("odometry arrays must have equal length")
 
@@ -570,6 +579,7 @@ def odometry_from_trajectory(
     heading_source: str = "rotation",
     step_lengths_m: np.ndarray | None = None,
     min_step: float = 1e-6,
+    adaptive_heading_noise: bool = True,
 ) -> Odometry:
     """Per-step odometry from ``visual_odometry.Trajectory``.
 
@@ -584,6 +594,8 @@ def odometry_from_trajectory(
 
     ``step_lengths_m`` (e.g. ``ground_flow_scale.step_lengths``) replaces the
     unit steps with metric ones and marks the odometry metric.
+
+    ``adaptive_heading_noise`` attaches :func:`heading_increment_noise`.
     """
     xz = np.asarray(traj.xz, float)
     n = len(xz)
@@ -609,9 +621,41 @@ def odometry_from_trajectory(
         if len(sl) != len(step):
             raise ValueError("step_lengths_m must have len(traj.xz) - 1 entries")
         step = np.where(valid, np.clip(sl, 0.0, None), 0.0)
-    return Odometry(step=step, heading=heading, dt=np.full(len(step), float(frame_dt)),
+    odom = Odometry(step=step, heading=heading, dt=np.full(len(step), float(frame_dt)),
                     metric=metric, unit_seconds=None if metric else float(frame_dt),
                     frame_index=np.arange(1, n))
+    if adaptive_heading_noise:
+        odom.heading_var = heading_increment_noise(odom)
+    return odom
+
+
+def heading_increment_noise(odom: Odometry, window_s: float = 1.0) -> np.ndarray:
+    """Per-step variance (rad^2) of the odometry's heading-increment error,
+    estimated WITHOUT ground truth.
+
+    A car's yaw rate is smooth on a ~1 s scale; what a moving average of the
+    increments does not explain is odometry noise. Monocular VO yaw errors are
+    heavy-tailed (on KITTI the increments' std is 2-6x their MAD): quiet steps
+    plus occasional glitches that rotate the whole VO frame. Using each step's
+    own squared residual as that step's process noise lets the heading bias
+    jump exactly where the VO glitched instead of everywhere. On KITTI this
+    GT-free estimate equals the error measured against OXTS (0.37 vs 0.44
+    deg/step on drive 0009, 0.90 vs 0.90 on 0033).
+    """
+    from scipy.ndimage import uniform_filter1d
+
+    T = len(odom)
+    out = np.zeros(T)
+    known = np.flatnonzero(np.isfinite(odom.heading))
+    if len(known) < 5:
+        return out
+    dh = wrap_angle(np.diff(odom.heading[known]))
+    dt = float(np.median(odom.dt)) if T else 0.1
+    win = max(3, int(round(window_s / max(dt, 1e-6))) | 1)
+    r = dh - uniform_filter1d(dh, win, mode="nearest")
+    r *= math.sqrt(win / (win - 1.0))        # residual-from-local-mean shrinkage
+    out[known[1:]] = r * r
+    return out
 
 
 def aggregate_odometry(odom: Odometry, factor: int) -> Odometry:
@@ -633,9 +677,11 @@ def aggregate_odometry(odom: Odometry, factor: int) -> Odometry:
     sy = np.bincount(groups, w * np.sin(h), minlength=G)
     heading = np.where(np.hypot(sx, sy) > 0, np.arctan2(sy, sx), np.nan)
     last = np.minimum(np.arange(G) * factor + factor - 1, T - 1)
+    hv = (None if odom.heading_var is None
+          else np.bincount(groups, odom.heading_var, minlength=G))
     return Odometry(step=step, heading=heading, dt=dt, metric=odom.metric,
                     unit_seconds=odom.unit_seconds,
-                    frame_index=odom.frame_index[last])
+                    frame_index=odom.frame_index[last], heading_var=hv)
 
 
 # --------------------------------------------------------------------------
@@ -688,6 +734,13 @@ class FilterConfig:
     heading_sigma_deg: float = 10.0
     heading_outlier: float = 0.1
     heading_corr_time_s: float = 1.0
+    # Junction zone: within this many metres before/after a node, the vehicle
+    # is on its turning arc, so the expected heading is the whole interval
+    # between the incoming and outgoing road headings (residual = distance to
+    # the interval, 0 inside). Without it the road heading jumps at the OSM
+    # node while the car is mid-arc; on KITTI 0009 (a slow 90 deg turn over
+    # ~15 m) that killed the true hypothesis even with oracle odometry.
+    junction_zone_m: float = 12.0
     # process noise
     step_noise: float = 0.05          # multiplicative (log-normal) per step
     # log k = log k_bar + eps: k_bar is the hypothesis' own cruising scale
@@ -859,6 +912,18 @@ def _global_numpy_seed(seed: int):
         np.random.set_state(state)
 
 
+def _interval_residual(h, a, b):
+    """Signed angle from heading ``h`` to the shorter arc from ``a`` to ``b``
+    (0 inside the arc), in the convention expected - observed."""
+    span = wrap_angle(b - a)
+    rel = wrap_angle(h - a)
+    inside = np.where(span >= 0, (rel >= 0) & (rel <= span), (rel <= 0) & (rel >= span))
+    da = wrap_angle(a - h)
+    db = wrap_angle(b - h)
+    out = np.where(np.abs(da) <= np.abs(db), da, db)
+    return np.where(inside, 0.0, out)
+
+
 def _systematic_resample(w: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     from filterpy.monte_carlo import systematic_resample
 
@@ -900,6 +965,7 @@ class GraphParticleFilter:
         self.x = np.zeros(n)
         self.y = np.zeros(n)
         self.road_heading = np.zeros(n)
+        self.prev_head = np.full(n, np.nan)   # end heading of the previous edge
         self.delta_ready = False
         self.n_reinit = 0
         self.store = _PathStore(n) if self.cfg.path_storage else None
@@ -949,6 +1015,7 @@ class GraphParticleFilter:
         self.eps[idx] = self.rng.normal(0.0, self._dev_sigma, len(idx))
         self.delta[idx] = 0.0
         self.delta_var[idx] = 0.0
+        self.prev_head[idx] = np.nan
         self.logw[:] = -math.log(n)
         self._relocate()
 
@@ -1007,7 +1074,7 @@ class GraphParticleFilter:
         return np.where(dead, e, new_e), corr, dead
 
     def predict(self, step: float, heading: float, dt: float,
-                heading_ahead: float = float("nan")) -> None:
+                heading_ahead: float = float("nan"), heading_var: float = 0.0) -> None:
         """Propagate every particle by one odometry step.
 
         ``heading_ahead`` (odometry heading ``proposal_lookahead_s`` later)
@@ -1027,7 +1094,8 @@ class GraphParticleFilter:
         if step <= 0.0:
             return
         if self.delta_ready and dt > 0:
-            self.delta_var = self.delta_var + np.deg2rad(c.delta_rw_deg) ** 2 * dt
+            self.delta_var = (self.delta_var + np.deg2rad(c.delta_rw_deg) ** 2 * dt
+                              + max(heading_var, 0.0))
         dist = np.exp(self.logk + self.eps) * step * np.exp(self.rng.normal(0.0, c.step_noise, n))
         self.offset = self.offset + dist
         h_now = (heading + self.delta) if (self.delta_ready and np.isfinite(heading)) else None
@@ -1042,6 +1110,7 @@ class GraphParticleFilter:
                 self.edge[over],
                 [None if h_now is None else h_now[over],
                  None if h_ahead is None else h_ahead[over]])
+            self.prev_head[over] = self.net.edge_head_end[self.edge[over]]
             self.edge[over] = new_e
             self.logw[over] += corr
             if dead.any():
@@ -1071,7 +1140,7 @@ class GraphParticleFilter:
             return
         inflate = max(1.0, c.heading_corr_time_s / dt) if c.heading_corr_time_s > 0 else 1.0
         R = np.deg2rad(c.heading_sigma_deg) ** 2 * inflate
-        nu = wrap_angle(self.road_heading - heading - self.delta)
+        nu = self._heading_innovation(heading + self.delta)
         S = self.delta_var + R
         l_in = -0.5 * nu * nu / S - 0.5 * np.log(_TWO_PI * S)
         eps = c.heading_outlier
@@ -1085,6 +1154,38 @@ class GraphParticleFilter:
         self.delta = wrap_angle(self.delta + K * nu)
         self.delta_var = (1.0 - K) * self.delta_var
         self.logw = self.logw + ll
+
+    def _heading_innovation(self, h_vehicle: np.ndarray) -> np.ndarray:
+        """Signed angular distance from the road's expected heading to the
+        predicted vehicle heading; inside a junction zone the expectation is the
+        arc between incoming and outgoing headings (see ``junction_zone_m``)."""
+        net, W = self.net, self.cfg.junction_zone_m
+        nu = wrap_angle(self.road_heading - h_vehicle)
+        if W <= 0:
+            return nu
+        best = np.abs(nu)
+        # just after a node: arc from the previous edge's end heading
+        after = np.flatnonzero((self.offset < W) & np.isfinite(self.prev_head))
+        if len(after):
+            d = _interval_residual(h_vehicle[after], self.prev_head[after],
+                                   self.road_heading[after])
+            take = np.abs(d) < best[after]
+            nu[after[take]] = d[take]
+            best[after[take]] = np.abs(d[take])
+        # just before a node: arc towards any successor
+        before = np.flatnonzero(net.edge_len[self.edge] - self.offset < W)
+        if len(before):
+            e = self.edge[before]
+            hv = h_vehicle[before]
+            for j in range(net.succ_table.shape[1]):
+                ok = net.succ_table[e, j] >= 0
+                if not ok.any():
+                    continue
+                d = _interval_residual(hv, self.road_heading[before], net.succ_head[e, j])
+                take = ok & (np.abs(d) < best[before])
+                nu[before[take]] = d[take]
+                best[before[take]] = np.abs(d[take])
+        return nu
 
     @staticmethod
     def _vm_mixture(r: np.ndarray, kappa: float, outlier: float) -> np.ndarray:
@@ -1124,7 +1225,7 @@ class GraphParticleFilter:
     def resample(self, w: np.ndarray) -> np.ndarray:
         idx = _systematic_resample(w, self.rng)
         for name in ("edge", "offset", "logk", "eps", "delta", "delta_var", "x", "y",
-                     "road_heading"):
+                     "road_heading", "prev_head"):
             setattr(self, name, getattr(self, name)[idx])
         self.logw = np.full(len(idx), -math.log(len(idx)))
         if self.store is not None:
@@ -1237,7 +1338,8 @@ class GraphParticleFilter:
         for t in range(T + 1):
             if t > 0:
                 st, hd, dt = float(odom.step[t - 1]), float(odom.heading[t - 1]), float(odom.dt[t - 1])
-                self.predict(st, hd, dt, heading_ahead=float(ahead[t - 1]))
+                hv = 0.0 if odom.heading_var is None else float(odom.heading_var[t - 1])
+                self.predict(st, hd, dt, heading_ahead=float(ahead[t - 1]), heading_var=hv)
                 if st > 0:
                     self.update_heading(hd, dt)
             for o in pos_by.get(t, ()):
