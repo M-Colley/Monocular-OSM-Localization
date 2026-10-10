@@ -18,12 +18,15 @@ from monocular_osm.pipeline import (
     _auto_estimated_length_m,
     _fetch_road_graph,
     _find_vo_cache,
+    _vo_cache_candidates,
     _heading_diff_deg,
     _length_sane,
     _match_timestamps,
     _mean_bearing_deg,
     _remap_frame_pair_to_poses,
     _resolve_input_video,
+    pick_cached_input,
+    rank_cached_inputs,
     _sun_bearing_penalty,
     _vpr_distance_penalty,
     _vpr_sequence_median_m,
@@ -336,6 +339,80 @@ def test_length_sane_accepts_user_length() -> None:
     assert _length_sane(7900.0, 2310.0, user_length_m=8000.0) is True
     # Still rejects lengths far from BOTH references.
     assert _length_sane(25000.0, 2310.0, user_length_m=8000.0) is False
+
+
+# ---------------------------------------------------------------------------
+# VO cache versioning — a cache is only valid for the code that wrote it
+# ---------------------------------------------------------------------------
+
+
+def test_vo_cache_key_carries_algorithm_version(tmp_path: Path) -> None:
+    from monocular_osm.visual_odometry import VO_ALGO_VERSION
+
+    cfg = _cfg(tmp_path, vo_start_sec=0.0, vo_end_sec=420.0, frame_stride=3)
+    canonical, siblings, stale = _vo_cache_candidates(cfg)
+    assert canonical.parent == cfg.data_dir
+    assert canonical.name == f"trajectory_v2_0-420.0_s3_fauto_vo{VO_ALGO_VERSION}.npz"
+    assert siblings == [] and stale == []
+
+
+def test_pre_version_vo_caches_are_never_loadable(tmp_path: Path) -> None:
+    """Caches written before the mirroring / burned-in-graphics fixes carry
+    no version suffix; they must be reported stale, never offered for load,
+    even when their frame count matches."""
+    from monocular_osm.visual_odometry import VO_ALGO_VERSION
+
+    cfg = _cfg(tmp_path, vo_start_sec=0.0, vo_end_sec=420.0, frame_stride=3)
+    old_canonical = cfg.data_dir / "trajectory_v2_0-420.0_s3_fauto.npz"
+    old_legacy = cfg.data_dir / "trajectory_v2_0-420.0_s3.npz"
+    older_version = cfg.data_dir / (
+        f"trajectory_v2_0-420.0_s3_fauto_vo{VO_ALGO_VERSION - 1}.npz")
+    sibling = cfg.data_dir / f"trajectory_v2_0-420.0_s3_f4200_vo{VO_ALGO_VERSION}.npz"
+    for q in (old_canonical, old_legacy, older_version, sibling):
+        _write_vo_npz(q, 100)
+    canonical, siblings, stale = _vo_cache_candidates(cfg)
+    assert siblings == [sibling]
+    assert set(stale) == {old_canonical, old_legacy, older_version}
+    assert _find_vo_cache([canonical, *siblings], n_frames=100) == sibling
+
+
+def test_vo_cache_never_looks_outside_the_clip_folder(tmp_path: Path) -> None:
+    """The old flat-layout fallback read <data>/../trajectory_*.npz, so any
+    clip whose frame count matched loaded ANOTHER clip's trajectory."""
+    cfg = _cfg(tmp_path, vo_start_sec=0.0, vo_end_sec=300.0, frame_stride=6)
+    _write_vo_npz(cfg.data_dir.parent / "trajectory_v2_0-300.0_s6.npz", 1499)
+    canonical, siblings, stale = _vo_cache_candidates(cfg)
+    assert _find_vo_cache([canonical, *siblings], n_frames=1499) is None
+
+
+# ---------------------------------------------------------------------------
+# Cached-input pick — yt-dlp intermediates are not finished downloads
+# ---------------------------------------------------------------------------
+
+
+def test_rank_cached_inputs_drops_intermediates_and_sidecars(tmp_path: Path) -> None:
+    real = tmp_path / "input.mp4"
+    temp = tmp_path / "input.temp.mp4"
+    fmt = tmp_path / "input.f399.mp4"
+    side = tmp_path / "input.download.json"
+    for q in (real, temp, fmt, side):
+        q.write_bytes(b"\x00")
+    # Intermediates are NEWER than the real file: they used to win on mtime.
+    for i, q in enumerate((temp, fmt, side), start=1):
+        os.utime(q, (real.stat().st_mtime + i, real.stat().st_mtime + i))
+    assert rank_cached_inputs(tmp_path.glob("input.*")) == [real]
+
+
+def test_pick_cached_input_prefers_download_marker(tmp_path: Path) -> None:
+    import json
+
+    webm = tmp_path / "input.webm"
+    mp4 = tmp_path / "input.mp4"
+    webm.write_bytes(b"\x00")
+    mp4.write_bytes(b"\x00")
+    (tmp_path / "input.download.json").write_text(
+        json.dumps({"file": "input.webm", "url": "u"}), encoding="utf-8")
+    assert pick_cached_input(tmp_path) == webm
 
 
 # ---------------------------------------------------------------------------

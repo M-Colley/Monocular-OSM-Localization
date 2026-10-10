@@ -61,7 +61,12 @@ from .trajectory_matching import (
     match_trajectory,
     score_candidates_with_sliding_windows,
 )
-from .visual_odometry import Trajectory, default_intrinsics, estimate_trajectory
+from .visual_odometry import (
+    VO_ALGO_VERSION,
+    Trajectory,
+    default_intrinsics,
+    estimate_trajectory,
+)
 
 
 class _Tile3DInactive(Exception):
@@ -541,6 +546,26 @@ def _length_sane(
     if user_length_m is not None and user_length_m > 0:
         refs.append(float(user_length_m))
     return any(0.5 * r <= candidate_m <= 2.0 * r for r in refs)
+
+
+def _vo_cache_candidates(cfg: "PipelineConfig"):
+    """(canonical path, loadable same-version siblings, stale caches) for VO.
+
+    Key: ``trajectory_v2_<s>-<e>_s<stride>_f<max_frames>_vo<N>.npz`` with
+    N = :data:`visual_odometry.VO_ALGO_VERSION`. Only files carrying the
+    current version are loadable; a sibling with another ``max_frames``
+    suffix still qualifies when its frame count matches (checked by
+    :func:`_find_vo_cache`). Nothing outside ``cfg.data_dir`` is considered.
+    """
+    seg_key = (f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
+               f"_s{cfg.frame_stride}")
+    suffix = f"_vo{VO_ALGO_VERSION}"
+    canonical = cfg.data_dir / f"{seg_key}_f{cfg.max_frames or 'auto'}{suffix}.npz"
+    siblings = sorted(q for q in cfg.data_dir.glob(f"{seg_key}_f*{suffix}.npz")
+                      if q != canonical)
+    stale = sorted(q for q in cfg.data_dir.glob(f"{seg_key}*.npz")
+                   if not q.stem.endswith(suffix))
+    return canonical, siblings, stale
 
 
 def _find_vo_cache(candidates: list, n_frames: int):
@@ -1359,23 +1384,47 @@ def _da3_trajectory_plausible(xy: np.ndarray) -> bool:
 
 
 _VIDEO_EXT_RANK = {".mp4": 0, ".mkv": 1, ".webm": 2}
+_NON_VIDEO_SUFFIXES = {".json", ".part", ".ytdl", ".txt"}
 
 
 def rank_cached_inputs(paths) -> list:
-    """Deterministic order for cached ``input.*`` files: fixed extension
-    preference (mp4 < mkv < webm, other suffixes last — a ``.download.json``
-    sidecar sorts to the end), then newest, then name.
+    """Deterministic order for cached ``input.*`` video files: fixed extension
+    preference (mp4 < mkv < webm, other suffixes last), then newest, then name.
 
-    Shared by :func:`_resolve_input_video` and main.py's fps probe so the file
-    whose fps is probed for stride selection is the SAME file the pipeline
-    analyzes — a bare ``sorted(glob("input.*"))`` picks ``input.download.json``
-    first alphabetically, giving a stride tuned to no video at all.
+    yt-dlp intermediates (``input.temp.mp4``, per-format ``input.f399.mp4``)
+    and sidecars (``input.download.json``, ``.part``, ``.ytdl``) are not
+    finished videos and are dropped — an intermediate shares the ``.mp4``
+    suffix and, being newer, used to outrank the real download.
     """
+    from .download import _INTERMEDIATE
+
+    finished = [
+        p for p in paths
+        if p.suffix.lower() not in _NON_VIDEO_SUFFIXES
+        and not _INTERMEDIATE.search(p.name)
+    ]
     return sorted(
-        paths,
+        finished,
         key=lambda p: (_VIDEO_EXT_RANK.get(p.suffix.lower(), len(_VIDEO_EXT_RANK)),
                        -p.stat().st_mtime, p.name),
     )
+
+
+def pick_cached_input(data_dir: Path) -> Path | None:
+    """The cached download to analyse, or None.
+
+    The marker :func:`download.download_video` writes names the finished
+    file and wins; otherwise the best of :func:`rank_cached_inputs`. Shared by
+    :func:`_resolve_input_video` and the CLI's fps probe so the file whose fps
+    picks the stride is the file the pipeline analyses.
+    """
+    from .download import _existing_download
+
+    marked = _existing_download(Path(data_dir), "input")
+    if marked is not None:
+        return marked
+    ranked = rank_cached_inputs(Path(data_dir).glob("input.*"))
+    return ranked[0] if ranked else None
 
 
 def _resolve_input_video(cfg: PipelineConfig) -> Path:
@@ -1395,14 +1444,11 @@ def _resolve_input_video(cfg: PipelineConfig) -> Path:
         print(f"[1/5] Using local video: {video_path}")
         return video_path
     if cfg.skip_download:
-        existing = rank_cached_inputs(cfg.data_dir.glob("input.*"))
-        if not existing:
+        picked = pick_cached_input(cfg.data_dir)
+        if picked is None:
             raise FileNotFoundError("--skip-download but no cached video in data/")
-        if len(existing) > 1:
-            print(f"      -> {len(existing)} cached inputs "
-                  f"({', '.join(p.name for p in existing)}); picking {existing[0].name}")
-        print(f"[1/5] Using cached video: {existing[0]}")
-        return existing[0]
+        print(f"[1/5] Using cached video: {picked}")
+        return picked
     print(f"[1/5] Downloading video from {cfg.url}")
     video_path = download_video(cfg.url, cfg.data_dir)
     print(f"      -> {video_path}")
@@ -1566,51 +1612,29 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # re-run with the same VO parameters can short-circuit straight to
     # step 5.
     #
-    # Cache key formats, newest first:
-    #   v2 with max_frames:  trajectory_v2_<s>-<e>_s<stride>_f<max_frames>.npz
-    #   v2 legacy:           trajectory_v2_<s>-<e>_s<stride>.npz  (max_frames was
-    #                        implicit; loaded if shapes are consistent)
-    # The legacy fallback exists because we have v2-legacy files on disk
-    # from earlier runs (no _fN suffix); without this fallback every run
-    # after the cache key change burns minutes redoing identical work.
-    cache_v2_with_frames = cfg.data_dir / (
-        f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
-        f"_s{cfg.frame_stride}_f{cfg.max_frames or 'auto'}.npz"
-    )
-    cache_v2_legacy = cfg.data_dir / (
-        f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
-        f"_s{cfg.frame_stride}.npz"
-    )
-    # Older runs predate per-submission slug folders — fall back to a
-    # flat-layout cache at the data-dir parent if nothing is in the slug.
-    cache_v2_flat = cfg.data_dir.parent / cache_v2_legacy.name
-    # Any cache for this (segment, stride) with a different max_frames
-    # suffix is still usable when the frame count matches (the shape
-    # check below verifies) — e.g. an old `_f4200` cache after the
-    # default became uncapped.
-    sibling_caches = sorted(cfg.data_dir.glob(
-        f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
-        f"_s{cfg.frame_stride}_f*.npz"
-    ))
+    # Cache key: trajectory_v2_<s>-<e>_s<stride>_f<max_frames>_vo<N>.npz,
+    # where N is visual_odometry.VO_ALGO_VERSION. The version is part of the
+    # key because a cache is only valid for the code that wrote it: without
+    # it, re-runs silently kept matching trajectories from before the
+    # mirroring and burned-in-graphics fixes. Pre-version caches (no _vo<N>)
+    # and the old flat-layout fallback at the data-dir PARENT are never
+    # loaded — the latter could hand one clip another clip's trajectory
+    # whenever their frame counts matched.
+    vo_cache_canonical, sibling_caches, stale = _vo_cache_candidates(cfg)
+    if stale:
+        print(f"[3/5] Ignoring {len(stale)} VO cache(s) written by an older VO "
+              f"(current VO_ALGO_VERSION={VO_ALGO_VERSION}): "
+              f"{', '.join(q.name for q in stale[:3])}")
 
     # Every candidate — including the canonical key — must PASS the
     # frame-count shape check before it may be loaded. A stale canonical
     # cache (same key, different stream fps after a re-download) used to
     # slip through and misassociate poses with frames downstream.
-    vo_cache = _find_vo_cache(
-        [cache_v2_with_frames, cache_v2_legacy, cache_v2_flat, *sibling_caches],
-        len(frames.frames),
-    )
-    legacy_used: Path | None = (
-        vo_cache if (vo_cache is not None and vo_cache != cache_v2_with_frames)
-        else None
-    )
+    vo_cache = _find_vo_cache([vo_cache_canonical, *sibling_caches],
+                              len(frames.frames))
 
     if vo_cache is not None:
-        msg = f"[3/5] Loading cached trajectory: {vo_cache}"
-        if legacy_used is not None:
-            msg += "  (legacy cache key)"
-        print(msg)
+        print(f"[3/5] Loading cached trajectory: {vo_cache}")
         with np.load(vo_cache) as z:
             traj = Trajectory(
                 centers=z["centers"],
@@ -1623,29 +1647,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         n_valid = int(traj.valid.sum())
         print(f"      -> {n_valid}/{len(traj.valid)} valid relative poses, "
               f"trajectory shape {traj.xz.shape}")
-        # Promote the legacy cache to the canonical key so subsequent
-        # runs don't pay the lookup cost again.
-        if legacy_used is not None:
-            cache_v2_with_frames.parent.mkdir(parents=True, exist_ok=True)
-            np.savez(
-                cache_v2_with_frames,
-                centers=traj.centers,
-                xz=traj.xz,
-                valid=traj.valid,
-                n_inliers=np.asarray(traj.n_inliers),
-                rotations=traj.rotations,
-                translations=traj.translations,
-            )
-            print(f"      -> promoted legacy cache to {cache_v2_with_frames.name}")
-        vo_cache = cache_v2_with_frames
     else:
-        vo_cache = cache_v2_with_frames
+        vo_cache = vo_cache_canonical
         print(f"[3/5] Running visual odometry on {len(frames.frames)} frames "
               f"(n_workers={cfg.vo_workers or 'auto'})")
         traj = estimate_trajectory(frames.frames, n_workers=cfg.vo_workers)
         n_valid = int(traj.valid.sum())
         print(f"      -> {n_valid}/{len(traj.valid)} valid relative poses, "
               f"trajectory shape {traj.xz.shape}")
+        vo_cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             vo_cache,
             centers=traj.centers,
@@ -1654,6 +1664,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             n_inliers=np.asarray(traj.n_inliers),
             rotations=traj.rotations,
             translations=traj.translations,
+            vo_algo_version=np.int64(VO_ALGO_VERSION),
         )
     if cfg.use_ground_flow_scale:
         traj = _apply_ground_flow_scale(traj, video_path, frames, cfg)
@@ -3892,6 +3903,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             "track_frames": (int(len(vpr_track[0]))
                              if vpr_track is not None else None),
         }
+
+    # Provenance: commit, full config, library versions, whether credentials
+    # were set (never their values). Without it a result cannot be traced to
+    # the code and settings that produced it.
+    from .provenance import collect_provenance
+    result["provenance"] = collect_provenance(
+        cfg, extra={"vo_algo_version": VO_ALGO_VERSION,
+                    "vo_cache": str(vo_cache) if vo_cache is not None else None},
+    )
 
     out_json = cfg.output_dir / "result.json"
     with out_json.open("w", encoding="utf-8") as f:

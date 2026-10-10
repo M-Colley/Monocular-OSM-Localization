@@ -30,6 +30,17 @@ from typing import Sequence
 import cv2
 import numpy as np
 
+# Version of the trajectory estimate this module produces. The pipeline's VO
+# cache key carries it, so a trajectory computed by older code is never loaded
+# in place of a fresh one. BUMP IT whenever a change alters the output of
+# estimate_trajectory / project_to_plane. History:
+#   1 — original ORB + essential-matrix chain
+#   2 — 2026-07-02: plane-fit handedness fixed (paths could be mirrored),
+#       stationary pairs no longer emit unit steps
+#   3 — 2026-08-10: correspondences selected by parallax, not descriptor
+#       distance (burned-in graphics were blinding the motion test)
+VO_ALGO_VERSION = 3
+
 # Below this displacement (pixels) a correspondence carries no parallax and
 # must not be fitted: burned-in graphics — a channel watermark, a dashcam's
 # GPS/speed stamp, the dashboard, a hood reflection — match themselves
