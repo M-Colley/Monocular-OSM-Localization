@@ -103,6 +103,10 @@ class PipelineConfig:
     # intersection cannot be generated from their true start; raising it is
     # a runtime/recall trade-off to measure (scripts/diagnose_pool_recall.py).
     walks_per_node: int = 40
+    # Where cfg.osm_around came from: "user" (--osm-around), "video_title"
+    # (place names in the title/description), or None. Recorded so an
+    # evaluator can tell a deployable seed from a ground-truth disc.
+    osm_around_source: str | None = None
     # Consensus-fusion weight overrides, e.g. {"sliding": 0.0} (see
     # monocular_osm/fusion.py: FusionWeights). None = the defaults the
     # published results used. Exposed for ablation, not tuning on the fleet.
@@ -1205,6 +1209,25 @@ def _sun_bearing_penalty(mean_bearing_deg: float, sun_heading_deg: float) -> flo
     return _W_SUN * max(0.0, (d - _SUN_FREE_DEG) / (180.0 - _SUN_FREE_DEG))
 
 
+def _arc_param_times(traj_xy, traj_t_sec, n_points: int):
+    """Video time of each point of an arc-length-resampled trajectory.
+
+    The matcher resamples the VO path to ``n_points`` equidistant in ARC
+    LENGTH (visual_odometry.resample_uniform), so candidate routes carry no
+    times. Map each sample's arc position back through the VO path's
+    cumulative arc length to its frame time. Returns None when the inputs
+    cannot support it (degenerate path, length mismatch).
+    """
+    xy = np.asarray(traj_xy, dtype=np.float64)
+    t = np.asarray(traj_t_sec, dtype=np.float64)
+    if len(xy) < 2 or len(xy) != len(t) or n_points < 1:
+        return None
+    s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))])
+    if not np.isfinite(s).all() or s[-1] <= 0:
+        return None
+    return np.interp(np.linspace(0.0, s[-1], n_points), s, t)
+
+
 def _final_position_reports(
     candidates,
     road,
@@ -1212,6 +1235,8 @@ def _final_position_reports(
     matches,
     ranking: str,
     world_route_latlon=None,
+    world_route_t_sec=None,
+    cand_t_sec=None,
     world_route_source: str = "ocr_anchor_pin",
     pinned_ranking: str | None = None,
     anchored_cand=None,
@@ -1240,6 +1265,7 @@ def _final_position_reports(
     """
     matcher_position = build_position_report(
         candidates[0], road, matches=matches, ranking=ranking,
+        route_t_sec=cand_t_sec,
     )
     if matcher_position is not None:
         matcher_position["source"] = "matcher"
@@ -1250,6 +1276,7 @@ def _final_position_reports(
             candidates[0], road, matches=matches,
             ranking=pinned_ranking or ranking,
             world_route_latlon=world_route_latlon,
+            route_t_sec=world_route_t_sec,
         )
         if pinned_position is not None:
             pinned_position["source"] = world_route_source
@@ -1262,6 +1289,7 @@ def _final_position_reports(
             road,
             matches=matches,
             ranking=f"anchored({origin})",
+            route_t_sec=cand_t_sec,
         )
         if anchored is not None:
             anchored["source"] = f"anchor_primary_{origin}"
@@ -3799,6 +3827,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # the free-scale shape alignment. Street names still come from
         # the matched candidate.
         world_route_latlon = None
+        world_route_t_sec = None
         world_route_source = "ocr_anchor_pin"
         pos_ranking = ranking_mode
         # Scale-lock + single-anchor pin: keep the locked metric extent
@@ -3870,6 +3899,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     a_vo, a_world, weights=wts,
                 )
                 world_route_latlon = _xy2ll(route_xy, road.crs)
+                world_route_t_sec = np.asarray(match_ts, dtype=np.float64)
                 n_poi = len(ocr_anchors)
                 n_st = len(a_world) - n_poi
                 pos_ranking = (ranking_mode
@@ -3887,6 +3917,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             from .position import xy_to_latlon as _xy2ll
             try:
                 world_route_latlon = _xy2ll(anchor_world_route, road.crs)
+                world_route_t_sec = _match_timestamps(
+                    frames.timestamps, len(anchor_world_route))
                 world_route_source = "anchor_georef"
                 pos_ranking = ranking_mode + "+anchor-georef"
             except Exception:
@@ -3904,6 +3936,9 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             matches=result["matches"],
             ranking=ranking_mode,
             world_route_latlon=world_route_latlon,
+            world_route_t_sec=world_route_t_sec,
+            cand_t_sec=_arc_param_times(
+                match_xz, match_ts, len(candidates[0].aligned_traj_xy)),
             world_route_source=world_route_source,
             pinned_ranking=pos_ranking,
             anchored_cand=anchored_cand,

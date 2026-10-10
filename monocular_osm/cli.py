@@ -679,6 +679,7 @@ def main() -> None:
         # gets. Behaves exactly like --osm-around but is sourced from the
         # video, not from ground truth.
         sub_osm_around = osm_around
+        osm_around_source = "user" if osm_around is not None else None
         if sub_osm_around is None and args.coarse_from_video:
             from .location_prior import resolve_coarse_prior
             prior = resolve_coarse_prior(city, metadata.title,
@@ -686,6 +687,7 @@ def main() -> None:
             if prior is not None:
                 plat, plon, prad, places = prior
                 sub_osm_around = (plat, plon, prad)
+                osm_around_source = "video_title"
                 print(f"[coarse] video-named prior {plat:.5f},{plon:.5f} "
                       f"r={prad:.0f} m from: {', '.join(places[:5])}")
             else:
@@ -773,6 +775,7 @@ def main() -> None:
             use_ipm_scale=args.use_ipm_scale,
             scale_lock=args.scale_lock,
             osm_around=sub_osm_around,
+            osm_around_source=osm_around_source,
             coarse_from_frames=args.coarse_from_frames or args.coarse_from_vlm,
             coarse_from_vlm=args.coarse_from_vlm,
             use_vpr_prior=args.use_vpr_prior,

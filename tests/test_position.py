@@ -487,3 +487,30 @@ def test_anchor_primary_outranks_pin_and_both_are_reported() -> None:
     assert pinned["source"] == "anchor_georef"
     assert matcher_pos["source"] == "matcher"
     assert len({id(headline), id(matcher_pos), id(pinned)}) == 3
+
+
+def test_arc_param_times_follow_arc_length_not_index() -> None:
+    """A resampled route point's time must come from where it sits along
+    the path: on a path that covers its first half in 10 s and its second
+    half in 30 s, the midpoint is at t=10, not at the middle index's time."""
+    from monocular_osm.pipeline import _arc_param_times
+
+    xy = np.array([[0.0, 0.0], [100.0, 0.0], [200.0, 0.0]])
+    t = np.array([0.0, 10.0, 40.0])
+    times = _arc_param_times(xy, t, 3)
+    assert times == pytest.approx([0.0, 10.0, 40.0])
+    assert _arc_param_times(xy, t[:2], 3) is None            # length mismatch
+    assert _arc_param_times(np.zeros((3, 2)), t, 3) is None  # zero-length path
+
+
+def test_route_times_are_emitted_and_subsampled_with_the_route() -> None:
+    road = _road_with_one_street()
+    matcher, _ = _matcher_and_anchored(road)
+    n = len(np.asarray(matcher.aligned_traj_xy))
+    times = np.linspace(0.0, 30.0, n)
+    pos = build_position_report(matcher, road, route_t_sec=times)
+    assert pos["route_t_sec"] == pytest.approx(list(times), abs=0.01)
+    assert len(pos["route_t_sec"]) == len(pos["route_latlon"])
+    # Mismatched times are dropped, never misaligned.
+    assert "route_t_sec" not in build_position_report(
+        matcher, road, route_t_sec=times[:-1])

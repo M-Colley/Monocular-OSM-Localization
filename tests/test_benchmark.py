@@ -467,3 +467,15 @@ def test_cmd_aggregate_writes_summary_files(tmp_path: Path, monkeypatch) -> None
     assert summary["provenance"]["commits"] == ["abc123"]
     assert summary["provenance"]["ocr_engines"] == ["rapidocr"]
     assert (run_dir / "summary.md").read_text(encoding="utf-8").startswith("# Benchmark run")
+
+
+@pytest.mark.parametrize("source,leaks", [
+    ("video_title", False),   # derived from the video: deployable
+    ("user", True),           # set by hand: may encode ground truth
+    (None, True),             # unknown origin (pre-provenance result)
+])
+def test_leak_audit_trusts_only_video_derived_discs(source, leaks) -> None:
+    prov = {"argv": [], "osm_around_cfg": [48.4, 9.99, 3000.0],
+            "osm_around_source_cfg": source}
+    assert bool(M.leak_audit(prov)) is leaks
+    assert M.leak_audit({"argv": [], "osm_around_cfg": None}) == []

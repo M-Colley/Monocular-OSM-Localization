@@ -177,8 +177,9 @@ def build_position_report(
     *,
     matches: list[dict] | None = None,
     ranking: str = "shape",
-    max_route_points: int = 50,
+    max_route_points: int = 1000,
     world_route_latlon: np.ndarray | None = None,
+    route_t_sec: np.ndarray | None = None,
 ) -> dict | None:
     """Build the JSON-safe ``position`` block for the winning candidate.
 
@@ -199,6 +200,12 @@ def build_position_report(
     channel (idea 2), where the absolute position comes from timed sign
     anchors rather than the free-scale shape fit. Street names still
     come from the matched candidate.
+
+    ``route_t_sec`` (one video time per route point) is emitted as
+    ``route_t_sec`` alongside ``route_latlon`` so an evaluator can compare
+    the route with ground truth at matched times, not just by proximity.
+    The route keeps up to ``max_route_points`` points (it used to be cut to
+    50 — ~250 m spacing on a 12 km clip, a chord error in every score).
     """
     crs = _usable_crs(road.crs)
     if crs is None:
@@ -228,7 +235,17 @@ def build_position_report(
     start = route[0]
     end = route[-1]
     center = route.mean(axis=0)
-    route_sub = _subsample_route(route, max_route_points)
+    times = None
+    if route_t_sec is not None:
+        times = np.asarray(route_t_sec, dtype=np.float64)
+        if times.shape != (len(route),) or not np.isfinite(times).all():
+            times = None
+    if len(route) > max_route_points:
+        keep = np.unique(np.linspace(0, len(route) - 1, max_route_points)
+                         .round().astype(int))
+    else:
+        keep = np.arange(len(route))
+    route_sub = route[keep]
 
     summary = candidate_geographic_summary(cand, road.graph)
 
@@ -242,6 +259,8 @@ def build_position_report(
         "route_latlon": [
             [round(float(la), 6), round(float(lo), 6)] for la, lo in route_sub
         ],
+        **({"route_t_sec": [round(float(t), 2) for t in times[keep]]}
+           if times is not None else {}),
         "street_names": summary["street_names"],
         "google_maps_url": google_maps_url(lat, lon),
         "openstreetmap_url": openstreetmap_url(lat, lon),

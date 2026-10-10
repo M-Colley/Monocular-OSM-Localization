@@ -587,6 +587,8 @@ def _provenance_of(result: dict | None) -> dict:
         "argv": prov.get("argv") or [],
         "gt_waypoints_cfg": cfg.get("ground_truth_waypoints"),
         "gt_streets_cfg": cfg.get("ground_truth_streets") or [],
+        "osm_around_cfg": cfg.get("osm_around"),
+        "osm_around_source_cfg": cfg.get("osm_around_source"),
     }
 
 
@@ -603,6 +605,13 @@ def leak_audit(prov: dict) -> list[str]:
         problems.append("config.ground_truth_waypoints is set")
     if prov.get("gt_streets_cfg"):
         problems.append("config.ground_truth_streets is set")
+    # A search disc is deployable only when the pipeline derived it from the
+    # video itself (title/description place names). Any other disc — set by
+    # hand, or of unknown origin in a pre-provenance result — may encode GT.
+    if prov.get("osm_around_cfg") and prov.get("osm_around_source_cfg") != "video_title":
+        problems.append(
+            f"config.osm_around is set (source="
+            f"{prov.get('osm_around_source_cfg')!r}), not derived from the video")
     return problems
 
 
