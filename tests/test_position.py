@@ -371,11 +371,12 @@ def test_headline_is_anchored_route_when_anchor_fired() -> None:
     matcher, anchored = _matcher_and_anchored(road)
     prior = (ULM_LAT + 0.006, ULM_LON + 0.001)
 
-    headline, matcher_pos = _final_position_reports(
+    headline, matcher_pos, pinned = _final_position_reports(
         [matcher], road, matches=[{}], ranking="consensus(shape+vpr)",
         anchored_cand=anchored, anchor_origin="vpr", prior_latlon=prior,
     )
     assert headline is not None and matcher_pos is not None
+    assert pinned is None                      # no anchor-pinned route given
     # Headline = anchored start, NOT the matcher start.
     assert headline["latitude"] == pytest.approx(ULM_LAT + 0.005, abs=1e-4)
     assert matcher_pos["latitude"] == pytest.approx(ULM_LAT, abs=1e-4)
@@ -394,7 +395,7 @@ def test_headline_source_reflects_vlm_origin() -> None:
 
     road = _road_with_one_street()
     matcher, anchored = _matcher_and_anchored(road)
-    headline, _ = _final_position_reports(
+    headline, _, _ = _final_position_reports(
         [matcher], road, matches=[{}], ranking="shape",
         anchored_cand=anchored, anchor_origin="vlm",
         prior_latlon=(ULM_LAT, ULM_LON),
@@ -409,9 +410,10 @@ def test_headline_is_matcher_pick_without_anchor() -> None:
 
     road = _road_with_one_street()
     matcher, _ = _matcher_and_anchored(road)
-    headline, matcher_pos = _final_position_reports(
+    headline, matcher_pos, pinned = _final_position_reports(
         [matcher], road, matches=[{}], ranking="shape",
     )
+    assert pinned is None
     assert headline is matcher_pos
     assert headline is not None
     assert headline["source"] == "matcher"
@@ -430,7 +432,7 @@ def test_headline_falls_back_when_anchored_report_fails() -> None:
     bad_traj = np.asarray(anchored.aligned_traj_xy, dtype=np.float64).copy()
     bad_traj[0, 0] = np.nan
     anchored = dataclasses.replace(anchored, aligned_traj_xy=bad_traj)
-    headline, matcher_pos = _final_position_reports(
+    headline, matcher_pos, _ = _final_position_reports(
         [matcher], road, matches=[{}], ranking="shape",
         anchored_cand=anchored, anchor_origin="vpr",
         prior_latlon=(ULM_LAT, ULM_LON),
@@ -438,3 +440,50 @@ def test_headline_falls_back_when_anchored_report_fails() -> None:
     assert headline is matcher_pos
     assert headline is not None
     assert headline["source"] == "matcher"
+
+
+def _pinned_route(shift_deg: float = 0.003):
+    return [
+        (ULM_LAT + shift_deg, ULM_LON + shift_deg),
+        (ULM_LAT + shift_deg + 0.001, ULM_LON + shift_deg + 0.001),
+        (ULM_LAT + shift_deg + 0.002, ULM_LON + shift_deg + 0.002),
+    ]
+
+
+def test_matcher_report_never_carries_the_pinned_route() -> None:
+    """The anchor-pinned route used to be emitted AS matcher_position
+    (source "matcher"), so "matcher-only" numbers on sign-rich clips were
+    really matcher + OCR pin. The matcher report must be the raw pick."""
+    from monocular_osm.pipeline import _final_position_reports
+
+    road = _road_with_one_street()
+    matcher, _ = _matcher_and_anchored(road)
+    headline, matcher_pos, pinned = _final_position_reports(
+        [matcher], road, matches=[{}], ranking="shape",
+        world_route_latlon=_pinned_route(), pinned_ranking="shape+scalelock+anchor-pin",
+    )
+    assert matcher_pos["source"] == "matcher"
+    assert matcher_pos["ranking"] == "shape"
+    assert matcher_pos["latitude"] == pytest.approx(ULM_LAT, abs=1e-4)
+    assert pinned["source"] == "ocr_anchor_pin"
+    assert pinned["ranking"] == "shape+scalelock+anchor-pin"
+    assert pinned["latitude"] == pytest.approx(ULM_LAT + 0.003, abs=1e-4)
+    # Without an anchor-primary route the pinned route is the headline.
+    assert headline is pinned
+
+
+def test_anchor_primary_outranks_pin_and_both_are_reported() -> None:
+    from monocular_osm.pipeline import _final_position_reports
+
+    road = _road_with_one_street()
+    matcher, anchored = _matcher_and_anchored(road)
+    headline, matcher_pos, pinned = _final_position_reports(
+        [matcher], road, matches=[{}], ranking="shape",
+        world_route_latlon=_pinned_route(), world_route_source="anchor_georef",
+        anchored_cand=anchored, anchor_origin="vpr",
+        prior_latlon=(ULM_LAT, ULM_LON),
+    )
+    assert headline["source"] == "anchor_primary_vpr"
+    assert pinned["source"] == "anchor_georef"
+    assert matcher_pos["source"] == "matcher"
+    assert len({id(headline), id(matcher_pos), id(pinned)}) == 3

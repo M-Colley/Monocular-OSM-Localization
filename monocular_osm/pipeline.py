@@ -1187,30 +1187,49 @@ def _final_position_reports(
     matches,
     ranking: str,
     world_route_latlon=None,
+    world_route_source: str = "ocr_anchor_pin",
+    pinned_ranking: str | None = None,
     anchored_cand=None,
     anchor_origin: str | None = None,
     prior_latlon=None,
 ):
-    """Build (headline, matcher) position reports per the output contract.
+    """Build (headline, matcher, pinned) position reports.
 
-    ``matcher`` is ALWAYS the raw matcher-pick report (old ``position``
-    schema, ``source: "matcher"``). When an anchor-primary candidate
-    exists its report becomes the HEADLINE (``source:
-    "anchor_primary_vpr"|"anchor_primary_vlm"`` + ``prior_latlon``) —
-    the anchored answer is the project's proven accuracy win and must be
-    what ``result["position"]`` carries. Falls back to the matcher
-    report when the anchored one can't be built.
+    Three answers can exist, each reported under an honest label:
+
+    * ``matcher`` — ALWAYS the raw matcher pick (``source: "matcher"``):
+      the top candidate's own aligned route, nothing else applied. It is
+      the "trajectory matcher alone" ablation, so it must never carry a
+      route another channel moved.
+    * ``pinned`` — the same candidate's route georeferenced by anchors
+      (``world_route_latlon``): the scale-locked OCR anchor pin
+      (``source: "ocr_anchor_pin"``) or the anchor similarity fit
+      (``"anchor_georef"``). None when no such route exists. This used to
+      be emitted AS ``matcher`` (``source: "matcher"``), so every
+      "matcher-only" number on sign-rich clips was really matcher + pin.
+    * ``headline`` — the answer ``result["position"]`` carries: the
+      anchor-primary route (``"anchor_primary_vpr"|"anchor_primary_vlm"``)
+      when a retrieval/VLM prior placed one, else ``pinned``, else
+      ``matcher``. VPR placement outranks the OCR pin because it measured
+      better where both fired (Ulm 4K: 48 m vs 160 m mean route error).
     """
     matcher_position = build_position_report(
-        candidates[0],
-        road,
-        matches=matches,
-        ranking=ranking,
-        world_route_latlon=world_route_latlon,
+        candidates[0], road, matches=matches, ranking=ranking,
     )
     if matcher_position is not None:
         matcher_position["source"] = "matcher"
-    headline = matcher_position
+
+    pinned_position = None
+    if world_route_latlon is not None:
+        pinned_position = build_position_report(
+            candidates[0], road, matches=matches,
+            ranking=pinned_ranking or ranking,
+            world_route_latlon=world_route_latlon,
+        )
+        if pinned_position is not None:
+            pinned_position["source"] = world_route_source
+
+    headline = pinned_position if pinned_position is not None else matcher_position
     if anchored_cand is not None:
         origin = anchor_origin or "vpr"
         anchored = build_position_report(
@@ -1226,7 +1245,7 @@ def _final_position_reports(
                     float(prior_latlon[0]), float(prior_latlon[1]),
                 ]
             headline = anchored
-    return headline, matcher_position
+    return headline, matcher_position, pinned_position
 
 
 def _orienternet_refine(cfg, frames, cand, road, position, result,
@@ -3658,6 +3677,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # the free-scale shape alignment. Street names still come from
         # the matched candidate.
         world_route_latlon = None
+        world_route_source = "ocr_anchor_pin"
         pos_ranking = ranking_mode
         # Scale-lock + single-anchor pin: keep the locked metric extent
         # AND the shape-fit rotation, but pin absolute position with the
@@ -3744,55 +3764,56 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             from .position import xy_to_latlon as _xy2ll
             try:
                 world_route_latlon = _xy2ll(anchor_world_route, road.crs)
+                world_route_source = "anchor_georef"
                 pos_ranking = ranking_mode + "+anchor-georef"
             except Exception:
                 world_route_latlon = None
 
-        # Output contract: result["position"] is the HEADLINE answer —
-        # the ANCHORED route when anchor-primary fired (VPR/VLM prior),
-        # else the matcher pick. result["matcher_position"] always
-        # carries the raw matcher-pick report (old schema). The anchored
-        # answer used to live only in the anchored_position side field
-        # while position/printed summary carried the matcher pick,
-        # silently discarding the project's main accuracy win.
-        position, matcher_position = _final_position_reports(
+        # Output contract (see _final_position_reports): result["position"]
+        # is the HEADLINE — the anchored route when anchor-primary fired
+        # (VPR/VLM prior), else the anchor-pinned route, else the matcher
+        # pick. result["matcher_position"] is always the raw matcher pick;
+        # result["pinned_position"] carries the anchor-pinned route when one
+        # was built.
+        position, matcher_position, pinned_position = _final_position_reports(
             candidates,
             road,
             matches=result["matches"],
-            ranking=pos_ranking,
+            ranking=ranking_mode,
             world_route_latlon=world_route_latlon,
+            world_route_source=world_route_source,
+            pinned_ranking=pos_ranking,
             anchored_cand=anchored_cand,
             anchor_origin=anchor_origin,
             prior_latlon=vpr_center,
         )
-        if matcher_position is not None:
-            if world_route_latlon is not None and cfg.ground_truth_waypoints:
-                # GT error of the georeferenced route (the candidate-based
-                # waypoint_evals don't describe this route).
-                try:
-                    from .evaluator import _segment_to_polyline_distance
-                    from .position import latlon_to_xy
-                    wps = load_gt_waypoints(cfg.ground_truth_waypoints)
-                    wp_xy = latlon_to_xy(wps, road.crs)
-                    rt_xy = latlon_to_xy(world_route_latlon, road.crs)
-                    d0 = float(np.linalg.norm(rt_xy[0] - wp_xy[0]))
-                    dm = float(np.mean([
-                        _segment_to_polyline_distance(w, rt_xy) for w in wp_xy]))
-                    matcher_position["gt_start_error_m"] = round(d0, 1)
-                    matcher_position["gt_mean_route_error_m"] = round(dm, 1)
-                except Exception as e:
-                    print(f"      -> georef GT eval failed: {e}")
-            elif waypoint_evals:
-                matcher_position["gt_start_error_m"] = round(
-                    waypoint_evals[0].start_error_m, 1
-                )
-                matcher_position["gt_mean_route_error_m"] = round(
-                    waypoint_evals[0].mean_route_error_m, 1
-                )
-        # GT errors of the headline: the anchored route's own when the
-        # anchor fired, else it shares the matcher pick's numbers.
-        if (position is not None and position is not matcher_position
-                and anchored_eval is not None):
+        # GT errors (only when the caller supplied GT for in-run scoring; the
+        # benchmark scores offline instead). Each report gets its OWN route's
+        # numbers — the pinned route used to be scored under "matcher".
+        if matcher_position is not None and waypoint_evals:
+            matcher_position["gt_start_error_m"] = round(
+                waypoint_evals[0].start_error_m, 1)
+            matcher_position["gt_mean_route_error_m"] = round(
+                waypoint_evals[0].mean_route_error_m, 1)
+        if (pinned_position is not None and world_route_latlon is not None
+                and cfg.ground_truth_waypoints):
+            try:
+                from .evaluator import _segment_to_polyline_distance
+                from .position import latlon_to_xy
+                wps = load_gt_waypoints(cfg.ground_truth_waypoints)
+                wp_xy = latlon_to_xy(wps, road.crs)
+                rt_xy = latlon_to_xy(world_route_latlon, road.crs)
+                d0 = float(np.linalg.norm(rt_xy[0] - wp_xy[0]))
+                dm = float(np.mean([
+                    _segment_to_polyline_distance(w, rt_xy) for w in wp_xy]))
+                pinned_position["gt_start_error_m"] = round(d0, 1)
+                pinned_position["gt_mean_route_error_m"] = round(dm, 1)
+            except Exception as e:
+                print(f"      -> pinned-route GT eval failed: {e}")
+        # The anchored headline carries the anchored route's own numbers.
+        if (position is not None and anchored_eval is not None
+                and position is not matcher_position
+                and position is not pinned_position):
             position["gt_start_error_m"] = round(anchored_eval.start_error_m, 1)
             position["gt_mean_route_error_m"] = round(
                 anchored_eval.mean_route_error_m, 1)
@@ -3801,6 +3822,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # the contract's "always present" holds even if the headline
             # report fails to build.
             result["matcher_position"] = matcher_position
+        if pinned_position is not None:
+            result["pinned_position"] = pinned_position
         if position is not None:
             # Calibrated multi-hypothesis output. Collapse the candidate
             # pool (final-ranked top_k + geometric tail) into distinct
