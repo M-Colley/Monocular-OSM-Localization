@@ -1091,3 +1091,14 @@ def test_rotation_refine_degenerate_inputs() -> None:
     stub = np.array([[0.0, 0.0], [30.0, 0.0], [60.0, 0.0]])
     idx2, track2, sims2 = _track_for(stub, n_track=12)
     assert pipeline._rotation_refine_about_start(stub, idx2, track2, sims2, 300) is None
+
+
+def test_vlm_prior_gets_district_level_slack() -> None:
+    """A VLM-fallback prior is a geocoded district centroid, not a 150 m
+    retrieval fix: the same 1 km offset must cost nothing under the
+    district free radius but be penalised under the retrieval one."""
+    from monocular_osm.pipeline import _PLATE_FREE_RADIUS_M, _VPR_FREE_RADIUS_M
+
+    assert _vpr_distance_penalty(1000.0) == pytest.approx(
+        15.0 * (1000.0 - _VPR_FREE_RADIUS_M) / 1000.0)
+    assert _vpr_distance_penalty(1000.0, _PLATE_FREE_RADIUS_M) == 0.0

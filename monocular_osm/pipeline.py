@@ -662,10 +662,15 @@ _VPR_FREE_RADIUS_M = 150.0
 _PLATE_FREE_RADIUS_M = 1500.0
 
 
-def _vpr_distance_penalty(d_m: float) -> float:
-    """Consensus penalty for a candidate ``d_m`` metres from the VPR prior:
-    free inside the prior's own error bar, then 15 rank-points per km."""
-    return 15.0 * max(0.0, (d_m - _VPR_FREE_RADIUS_M) / 1000.0)
+def _vpr_distance_penalty(d_m: float, free_radius_m: float = _VPR_FREE_RADIUS_M) -> float:
+    """Consensus penalty for a candidate ``d_m`` metres from the prior: free
+    inside the prior's own error bar, then 15 rank-points per km.
+
+    The 150 m default is the error bar of a retrieval (VPR) prior. A prior
+    from the VLM fallback is a geocoded district/street centroid, km-coarse,
+    and is given the district-level free radius instead (see the call site).
+    """
+    return 15.0 * max(0.0, (d_m - free_radius_m) / 1000.0)
 
 
 def _drop_direction_anchors(ocr_anchors, detections, ocr_source, *,
@@ -2383,7 +2388,10 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # prior exists, reject OCR anchors > 1.5 km from it — this drops the
             # misleading direction signs while keeping local street/POI plates,
             # leaving only anchors usable in the anchor-primary fit.
-            if vpr_center is not None and ocr_anchors:
+            # Only a retrieval prior is route-accurate enough to veto anchors;
+            # a VLM-fallback prior is a geocoded district centroid that can sit
+            # kilometres from a correct on-route anchor.
+            if vpr_center is not None and anchor_origin == "vpr" and ocr_anchors:
                 import math as _om
                 _vlat, _vlon = vpr_center
                 _kept = []
@@ -3172,7 +3180,9 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     _ll = _vxy2ll(_cen[None, :], road.crs)
                     _d = _vm.hypot((float(_ll[0][0]) - _vlat) * 111320.0,
                                    (float(_ll[0][1]) - _vlon) * 111320.0 * _vcl)
-                vpr_penalty[i] = _vpr_distance_penalty(_d)
+                vpr_penalty[i] = _vpr_distance_penalty(
+                    _d, _VPR_FREE_RADIUS_M if anchor_origin == "vpr"
+                    else _PLATE_FREE_RADIUS_M)
         else:
             vpr_penalty = {i: 0.0 for i in range(len(candidates))}
 
