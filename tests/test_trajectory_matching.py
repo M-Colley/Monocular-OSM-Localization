@@ -505,3 +505,25 @@ def test_anchor_pinned_route_places_anchor_exactly() -> None:
     assert np.allclose(route[2], anchor_world, atol=1e-6)
     # extent preserved (100 units * scale 5 = 500 m)
     assert np.linalg.norm(route[-1] - route[0]) == pytest.approx(500.0, rel=1e-6)
+
+
+def test_overlap_rejects_a_crossing_street() -> None:
+    """A window walk that merely CROSSES the candidate (a perpendicular
+    street) shares one point with it. The old closest-approach test called
+    that support, so in a small disc every window supported every
+    candidate."""
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    g.add_node(0, x=0.0, y=0.0)
+    route = _stub_candidate(g, [], np.array([[0.0, 0.0], [1500.0, 0.0]]))
+    crossing = _stub_candidate(g, [], np.array([[700.0, -200.0], [700.0, 200.0]]))
+    assert not _candidates_overlap(route, crossing, g, support_radius_m=60.0)
+
+
+def test_overlap_rejects_a_parallel_street_one_block_over() -> None:
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    g.add_node(0, x=0.0, y=0.0)
+    route = _stub_candidate(g, [], np.array([[0.0, 0.0], [1500.0, 0.0]]))
+    parallel = _stub_candidate(g, [], np.array([[0.0, 120.0], [400.0, 120.0]]))
+    assert not _candidates_overlap(route, parallel, g, support_radius_m=60.0)
