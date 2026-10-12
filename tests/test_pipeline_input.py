@@ -14,6 +14,7 @@ import pytest
 
 import monocular_osm.pipeline as pipeline
 import monocular_osm.stages.acquire as stage_acquire
+import monocular_osm.stages.placement as stage_placement
 import monocular_osm.stages.graph as stage_graph
 import monocular_osm.stages.prior as stage_prior
 from monocular_osm.pipeline import (
@@ -886,8 +887,8 @@ def test_place_candidate_rescue_tries_second_pin_after_first_fails_guard(
                                   np.linspace(0.0, 1000.0, len(t))])
         return (placed, 90.0, 500.0, 100.0)
 
-    monkeypatch.setattr(pipeline, "_rotation_refine_about_start", fake_rot)
-    monkeypatch.setattr(pipeline, "_elastic_fuse_track", lambda *a, **k: None)
+    monkeypatch.setattr(stage_placement, "_rotation_refine_about_start", fake_rot)
+    monkeypatch.setattr(stage_placement, "_elastic_fuse_track", lambda *a, **k: None)
     res = pipeline._place_candidate_on_track(
         cand, s_xy, e_xy_bad, vpr_xy, idx, track, sims, n)
     assert res is not None                          # plain-pin rotation rescued
