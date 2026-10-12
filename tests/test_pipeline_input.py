@@ -13,6 +13,10 @@ import numpy as np
 import pytest
 
 import monocular_osm.pipeline as pipeline
+import monocular_osm.stages.acquire as stage_acquire
+import monocular_osm.stages.placement as stage_placement
+import monocular_osm.stages.graph as stage_graph
+import monocular_osm.stages.prior as stage_prior
 from monocular_osm.pipeline import (
     PipelineConfig,
     _auto_estimated_length_m,
@@ -50,7 +54,7 @@ def _forbid_download(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*args: object, **kwargs: object) -> None:
         raise AssertionError("download_video must not be called")
 
-    monkeypatch.setattr(pipeline, "download_video", _boom)
+    monkeypatch.setattr(stage_acquire, "download_video", _boom)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +116,7 @@ def test_url_branch_downloads(
         calls.append((url, out_dir))
         return sentinel
 
-    monkeypatch.setattr(pipeline, "download_video", fake_download)
+    monkeypatch.setattr(stage_acquire, "download_video", fake_download)
     cfg = _cfg(tmp_path)
     assert _resolve_input_video(cfg) == sentinel
     assert calls == [(cfg.url, cfg.data_dir)]
@@ -142,7 +146,7 @@ def test_fetch_road_graph_passes_through(
 ) -> None:
     sentinel = object()
     monkeypatch.setattr(
-        pipeline, "fetch_city_graph",
+        stage_graph, "fetch_city_graph",
         lambda city, cache_path, around=None: sentinel,
     )
     assert _fetch_road_graph("Ulm, Germany", tmp_path / "g.graphml") is sentinel
@@ -153,7 +157,7 @@ def test_fetch_road_graph_passes_around(
 ) -> None:
     seen = {}
     monkeypatch.setattr(
-        pipeline, "fetch_city_graph",
+        stage_graph, "fetch_city_graph",
         lambda city, cache_path, around=None: seen.setdefault("around", around),
     )
     _fetch_road_graph("London, UK", tmp_path / "g.graphml", around=(51.5, -0.13, 2500.0))
@@ -166,7 +170,7 @@ def test_fetch_road_graph_wraps_geocode_failure(
     def boom(city: str, cache_path: Path, around=None) -> None:
         raise RuntimeError("Nominatim could not geocode 'Ulmm'")
 
-    monkeypatch.setattr(pipeline, "fetch_city_graph", boom)
+    monkeypatch.setattr(stage_graph, "fetch_city_graph", boom)
     with pytest.raises(ValueError) as exc_info:
         _fetch_road_graph("Ulmm, Germany", tmp_path / "g.graphml")
 
@@ -883,8 +887,8 @@ def test_place_candidate_rescue_tries_second_pin_after_first_fails_guard(
                                   np.linspace(0.0, 1000.0, len(t))])
         return (placed, 90.0, 500.0, 100.0)
 
-    monkeypatch.setattr(pipeline, "_rotation_refine_about_start", fake_rot)
-    monkeypatch.setattr(pipeline, "_elastic_fuse_track", lambda *a, **k: None)
+    monkeypatch.setattr(stage_placement, "_rotation_refine_about_start", fake_rot)
+    monkeypatch.setattr(stage_placement, "_elastic_fuse_track", lambda *a, **k: None)
     res = pipeline._place_candidate_on_track(
         cand, s_xy, e_xy_bad, vpr_xy, idx, track, sims, n)
     assert res is not None                          # plain-pin rotation rescued
@@ -1132,7 +1136,7 @@ def test_ocr_coarse_seed_needs_two_names_inside_the_city(
     monkeypatch.setattr(lp, "_default_geocode", lambda q: places.get(q))
     monkeypatch.setattr(stx, "extract_scene_text",
                         lambda *a, **k: [_Txt(t) for t in ocr])
-    monkeypatch.setattr(pipeline, "_city_extent_reach_m", lambda c, p: 13887.0)
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: 13887.0)
     seed = pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
                                        "Karlsruhe, Germany", cache_dir=tmp_path)
     assert (seed is not None) is expect_seed
@@ -1147,6 +1151,6 @@ def test_ocr_coarse_seed_refuses_without_city_extent(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(lp, "_default_geocode", lambda q: (49.0, 8.4))
     monkeypatch.setattr(stx, "extract_scene_text",
                         lambda *a, **k: [_Txt("Mühlburg"), _Txt("Weststadt")])
-    monkeypatch.setattr(pipeline, "_city_extent_reach_m", lambda c, p: None)
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: None)
     assert pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
                                        "Karlsruhe, Germany", cache_dir=tmp_path) is None

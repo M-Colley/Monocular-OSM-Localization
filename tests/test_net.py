@@ -108,14 +108,14 @@ def test_geocode_failure_is_not_retried(monkeypatch) -> None:
 
 
 def test_network_error_message_does_not_blame_the_spelling(monkeypatch, tmp_path) -> None:
-    import monocular_osm.pipeline as pipeline
+    import monocular_osm.stages.graph as stage_graph
 
     def down(*a, **k):
         raise requests.exceptions.ConnectTimeout("connect timeout=180")
 
-    monkeypatch.setattr(pipeline, "fetch_city_graph", down)
+    monkeypatch.setattr(stage_graph, "fetch_city_graph", down)
     with pytest.raises(ValueError, match="Could not reach Overpass") as ei:
-        pipeline._fetch_road_graph("Ulm, Germany", tmp_path / "g.graphml")
+        stage_graph._fetch_road_graph("Ulm, Germany", tmp_path / "g.graphml")
     assert "spelling" not in str(ei.value)
 
 

@@ -174,28 +174,24 @@ def test_gps_overlay_track_cache_separates_the_engines(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# scope check — cfg is not available everywhere in pipeline.py
+# scope check — cfg is not available everywhere in the pipeline modules
 # ---------------------------------------------------------------------------
 
 
-def test_pipeline_never_reads_cfg_outside_a_function_that_has_it() -> None:
-    """`cfg` is a local of run_pipeline, not a global.
-
-    Threading the engine through touched a module-level helper
-    (_frame_coarse_seed) where writing `cfg.ocr_engine` parses fine and
-    raises NameError only when that branch runs — which is behind a
-    default-on flag and an OCR pass, so no cheap test would reach it.
-    This walks the AST instead.
-    """
-    tree = ast.parse((REPO / "monocular_osm" / "pipeline.py").read_text(encoding="utf-8"))
+def _module_level_cfg_offenders(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     # MODULE-LEVEL functions only. A nested helper (there are several inside
-    # run_pipeline) closes over cfg perfectly legitimately; a module-level one
+    # the stages) closes over cfg perfectly legitimately; a module-level one
     # cannot, so a bare `cfg.` there is always a latent NameError.
     offenders = []
     for fn in [n for n in tree.body if isinstance(n, ast.FunctionDef)]:
         names = {a.arg for a in fn.args.args} | {a.arg for a in fn.args.kwonlyargs}
         if "cfg" in names:
             continue                       # cfg is a parameter here: fine
+        if any(isinstance(s, ast.Assign)
+               and any(isinstance(t, ast.Name) and t.id == "cfg" for t in s.targets)
+               for s in fn.body):
+            continue                       # a stage's `cfg = ctx.cfg` prologue: fine
         nested = {n for f in ast.walk(fn) if isinstance(f, ast.FunctionDef) and f is not fn
                   for n in ast.walk(f)}
         for node in ast.walk(fn):
@@ -203,6 +199,21 @@ def test_pipeline_never_reads_cfg_outside_a_function_that_has_it() -> None:
                 continue                   # belongs to an inner closure
             if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
                     and node.value.id == "cfg"):
-                offenders.append(f"{fn.name}:{node.lineno} reads cfg.{node.attr}")
+                offenders.append(f"{path.name}:{fn.name}:{node.lineno} reads cfg.{node.attr}")
+    return offenders
+
+
+def test_pipeline_never_reads_cfg_outside_a_function_that_has_it() -> None:
+    """`cfg` is a parameter / local of the function that uses it, not a global.
+
+    Threading the engine through touched a module-level helper
+    (_frame_coarse_seed) where writing `cfg.ocr_engine` parses fine and
+    raises NameError only when that branch runs — which is behind a
+    default-on flag and an OCR pass, so no cheap test would reach it.
+    This walks the AST instead, over pipeline.py and every stage module.
+    """
+    pkg = REPO / "monocular_osm"
+    files = [pkg / "pipeline.py", *sorted((pkg / "stages").glob("*.py"))]
+    offenders = [o for f in files for o in _module_level_cfg_offenders(f)]
     assert not offenders, "cfg referenced in a module-level function:\n  " + \
         "\n  ".join(offenders)
