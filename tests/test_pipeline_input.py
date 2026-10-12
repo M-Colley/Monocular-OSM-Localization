@@ -14,6 +14,7 @@ import pytest
 
 import monocular_osm.pipeline as pipeline
 import monocular_osm.stages.acquire as stage_acquire
+import monocular_osm.stages.prior as stage_prior
 from monocular_osm.pipeline import (
     PipelineConfig,
     _auto_estimated_length_m,
@@ -1133,7 +1134,7 @@ def test_ocr_coarse_seed_needs_two_names_inside_the_city(
     monkeypatch.setattr(lp, "_default_geocode", lambda q: places.get(q))
     monkeypatch.setattr(stx, "extract_scene_text",
                         lambda *a, **k: [_Txt(t) for t in ocr])
-    monkeypatch.setattr(pipeline, "_city_extent_reach_m", lambda c, p: 13887.0)
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: 13887.0)
     seed = pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
                                        "Karlsruhe, Germany", cache_dir=tmp_path)
     assert (seed is not None) is expect_seed
@@ -1148,6 +1149,6 @@ def test_ocr_coarse_seed_refuses_without_city_extent(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(lp, "_default_geocode", lambda q: (49.0, 8.4))
     monkeypatch.setattr(stx, "extract_scene_text",
                         lambda *a, **k: [_Txt("Mühlburg"), _Txt("Weststadt")])
-    monkeypatch.setattr(pipeline, "_city_extent_reach_m", lambda c, p: None)
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: None)
     assert pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
                                        "Karlsruhe, Germany", cache_dir=tmp_path) is None
