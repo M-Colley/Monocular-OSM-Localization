@@ -1546,9 +1546,19 @@ def _fetch_road_graph(
     what to fix. Re-raise as a ValueError that names the city and the
     expected format, keeping the original as __cause__.
     """
+    from .net import is_transient
+
     try:
         return fetch_city_graph(city, cache_path=cache_path, around=around)
     except Exception as e:
+        if is_transient(e):
+            # Retries are already exhausted inside fetch_city_graph; the city
+            # name is probably fine, so don't send the user to check spelling.
+            raise ValueError(
+                f"Could not reach Overpass to fetch the OSM road graph for "
+                f"{city!r} (network error after retries; try again later). "
+                f"Original error: {e}"
+            ) from e
         raise ValueError(
             f"Could not fetch an OSM road graph for {city!r}. Check the "
             f"spelling and use the form 'City, Country' (e.g. 'Ulm, "

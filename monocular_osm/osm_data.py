@@ -16,6 +16,8 @@ import numpy as np
 import osmnx as ox
 from shapely.geometry import LineString
 
+from .net import transient_retry
+
 
 @dataclass
 class RoadGraph:
@@ -29,6 +31,19 @@ class RoadGraph:
     polylines: list[np.ndarray]
     edge_keys: list[tuple]
     crs: str  # the EPSG / wkt string of the projection
+
+
+@transient_retry()
+def _download_graph(place: str, network_type: str,
+                    around: tuple[float, float, float] | None):
+    """The Overpass download, retried on transient network errors only (a
+    geocode failure for a misspelt city is not transient and fails at once)."""
+    if around is not None:
+        lat, lon, radius_m = around
+        return ox.graph_from_point(
+            (lat, lon), dist=float(radius_m), network_type=network_type,
+        )
+    return ox.graph_from_place(place, network_type=network_type)
 
 
 def fetch_city_graph(
@@ -51,13 +66,7 @@ def fetch_city_graph(
     if cache_path and cache_path.exists():
         graph = ox.load_graphml(cache_path)
     else:
-        if around is not None:
-            lat, lon, radius_m = around
-            graph = ox.graph_from_point(
-                (lat, lon), dist=float(radius_m), network_type=network_type,
-            )
-        else:
-            graph = ox.graph_from_place(place, network_type=network_type)
+        graph = _download_graph(place, network_type, around)
         graph = ox.project_graph(graph)  # UTM in meters
         if cache_path:
             cache_path.parent.mkdir(parents=True, exist_ok=True)

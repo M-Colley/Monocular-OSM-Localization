@@ -10,6 +10,8 @@ from pathlib import Path
 
 import yt_dlp
 
+from .net import transient_retry
+
 # yt-dlp intermediates: per-format streams ("input.f399.mp4") and the FFmpeg
 # merge temp file ("input.temp.mp4"). Neither is a finished download.
 _INTERMEDIATE = re.compile(r"\.(?:temp|f\d+)\.[^.]+$", re.IGNORECASE)
@@ -226,6 +228,12 @@ def _existing_download(out_dir: Path, filename_stem: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
+@transient_retry(attempts=3, first_wait_s=30.0)
+def _extract_with_retry(ydl, url: str):
+    """yt-dlp extract+download, retried on one-off 403/429/5xx/timeouts."""
+    return ydl.extract_info(url, download=True)
+
+
 def download_video(
     url: str,
     out_dir: Path,
@@ -277,7 +285,7 @@ def download_video(
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            info = _extract_with_retry(ydl, url)
             path = Path(ydl.prepare_filename(info))
             if path.suffix != ".mp4":
                 merged = path.with_suffix(".mp4")
