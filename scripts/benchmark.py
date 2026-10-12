@@ -442,6 +442,34 @@ def infra_failure_reason(outcome: dict, log_path: Path, tail_bytes: int = 60000)
     return None
 
 
+def wait_for_overpass(max_wait_s: float, poll_s: float = 120.0, *,
+                      probe=None, sleep=None, announce=print) -> bool:
+    """Block until an Overpass machine accepts a TCP connection (or the budget
+    is spent); True when reachable.
+
+    A run needs the road graph at the END of 10+ minutes of VO and image
+    retrieval, so launching into an Overpass outage wastes the whole attempt
+    (a 15-clip benchmark lost every rep that way). Waiting at the gate is
+    cheap. Runs whose graph is already cached do not need Overpass, but there
+    is no way to know in advance, and a short wait is harmless then.
+    """
+    if probe is None:
+        from monocular_osm.net import reachable_address
+
+        probe = lambda: reachable_address("overpass-api.de", 443, probe_timeout=6.0)
+    sleep = sleep or time.sleep
+    waited = 0.0
+    while probe() is None:
+        if waited >= max_wait_s:
+            announce(f"  -> Overpass still unreachable after {waited:.0f} s; launching anyway")
+            return False
+        announce(f"  -> Overpass unreachable; waiting {poll_s:.0f} s "
+                 f"({waited:.0f}/{max_wait_s:.0f} s)")
+        sleep(poll_s)
+        waited += poll_s
+    return True
+
+
 def _find_result(pipeline_out: Path) -> Path | None:
     hits = sorted(Path(pipeline_out).glob("*/result.json"))
     return hits[0] if len(hits) == 1 else (max(hits, key=lambda p: p.stat().st_mtime)
@@ -534,6 +562,8 @@ def cmd_run(args) -> int:
 
             infra_retries: list[dict] = []
             for attempt in range(1, args.infra_retries + 2):
+                if getattr(args, "overpass_wait", 0) > 0:
+                    wait_for_overpass(args.overpass_wait)
                 cold: dict = {}
                 slug_dirs = (candidate_slug_dirs(entry, city, ROOT / data_dir)
                              if args.cold_vpr else [])
@@ -1263,6 +1293,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "timeout); genuine pipeline failures are never retried")
     r.add_argument("--infra-wait", type=float, default=90.0,
                    help="seconds to wait before an infrastructure retry")
+    r.add_argument("--overpass-wait", type=float, default=7200.0,
+                   help="before each attempt, wait up to this many seconds for "
+                        "overpass-api.de to accept connections (0 = don't check)")
     r.add_argument("--include-unavailable", action="store_true",
                    help="also try clips marked available_locally=false")
     r.add_argument("--skip-download", action="store_true",

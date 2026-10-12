@@ -156,7 +156,8 @@ def _write_manifest(root: Path, clips: list[dict]) -> None:
 
 
 def _run_args(**over) -> argparse.Namespace:
-    ns = M.build_parser().parse_args(["run", "--run-name", "r1"])
+    # --overpass-wait 0: unit tests must neither probe nor wait on the network.
+    ns = M.build_parser().parse_args(["run", "--run-name", "r1", "--overpass-wait", "0"])
     for k, v in over.items():
         setattr(ns, k, v)
     return ns
@@ -604,7 +605,7 @@ def test_cmd_run_retries_infrastructure_failures_only(tmp_path, monkeypatch, cap
     args = M.build_parser().parse_args([
         "run", "--run-name", "t", "--manifest", "benchmarks/manifest.json",
         "--clips", "clipA", "clipB", "--repeats", "1", "--infra-retries", "2",
-        "--infra-wait", "0", "--include-unavailable"])
+        "--infra-wait", "0", "--overpass-wait", "0", "--include-unavailable"])
     M.cmd_run(args)
     st_a = json.loads((root / M.RUNS_DIR / "t" / "clipA" / "rep0" / "status.json").read_text())
     st_b = json.loads((root / M.RUNS_DIR / "t" / "clipB" / "rep0" / "status.json").read_text())
@@ -612,3 +613,28 @@ def test_cmd_run_retries_infrastructure_failures_only(tmp_path, monkeypatch, cap
     assert st_a["rc"] == 0 and len(st_a["infra_retries"]) == 1
     assert "abnormal native termination" in st_a["infra_retries"][0]["reason"]
     assert st_b["rc"] == 1 and st_b["infra_retries"] == []
+
+
+# --- Overpass preflight ---------------------------------------------------------------
+
+def test_wait_for_overpass_polls_until_reachable() -> None:
+    answers = iter([None, None, "65.109.112.52"])
+    slept, said = [], []
+    ok = M.wait_for_overpass(600, 120, probe=lambda: next(answers),
+                             sleep=slept.append, announce=said.append)
+    assert ok is True and slept == [120, 120]
+    assert len(said) == 2 and "unreachable" in said[0]
+
+
+def test_wait_for_overpass_gives_up_after_its_budget() -> None:
+    slept, said = [], []
+    ok = M.wait_for_overpass(240, 120, probe=lambda: None,
+                             sleep=slept.append, announce=said.append)
+    assert ok is False and slept == [120, 120]
+    assert "launching anyway" in said[-1]
+
+
+def test_wait_for_overpass_is_immediate_when_reachable() -> None:
+    slept = []
+    assert M.wait_for_overpass(600, probe=lambda: "1.2.3.4", sleep=slept.append) is True
+    assert slept == []
