@@ -430,8 +430,14 @@ from .stages.match import (  # noqa: F401
     vggt_gate,
 )
 from .stages.channels import (  # noqa: F401
+    _BEV_FUSION_CAP,
+    _fuse_bev_rank,
     _Tile3DInactive,
+    _W_BEV,
     aerial_channel,
+    bevsplat_channel,
+    da3_dense_channel,
+    embedding_channel,
     ipm_channel,
     sliding_window_channel,
     splat_channel,
@@ -453,49 +459,6 @@ from .stages.consensus import (  # noqa: F401
     _W_SUN,
     fuse_channels,
 )
-
-
-# Weight of the BevSplat appearance rank in the consensus fusion. On the
-# Ulm GT run the channel decisively down-ranked the wrong geometric
-# winner (rank 9/10) while top-scoring the best-corridor candidate, so
-# it earns a strong weight — but below the geometric channels (1.0)
-# until it's validated on more than one GT clip.
-_W_BEV = 0.75
-
-# Rank cap for BevSplat fusion. Appearance may only reorder candidates
-# already in the top-N by geometric (base) consensus; candidates ranked
-# worse than this by geometry keep their order below the reordered group.
-# This is a guardrail: on the 10-min Ulm run, unconstrained fusion let a
-# geometrically-implausible candidate (2.3 km from GT) win on appearance
-# alone. Capping means appearance refines the geometric shortlist but
-# can't promote a long-shot to #1.
-_BEV_FUSION_CAP = 5
-
-def _fuse_bev_rank(
-    base_scores: list[float],
-    bev_ranks: list[int],
-    w_bev: float = _W_BEV,
-    cap: int = _BEV_FUSION_CAP,
-) -> list[int]:
-    """New candidate order after folding the BevSplat appearance rank
-    into the geometric (base) consensus scores (lower = better).
-
-    Only the top-``cap`` candidates by base score are reorderable by
-    appearance; the rest keep their base order appended after the
-    reordered group. This prevents appearance from promoting a
-    geometrically-implausible candidate to the top (the 10-min Ulm
-    backfire). ``cap >= len`` reproduces unconstrained fusion. Ties are
-    broken by base order, which already encodes the geometric ranking.
-    """
-    n = len(base_scores)
-    by_base = sorted(range(n), key=lambda i: (base_scores[i], i))
-    cap = max(1, min(cap, n))
-    shortlist, tail = by_base[:cap], by_base[cap:]
-    reordered = sorted(
-        shortlist,
-        key=lambda i: (base_scores[i] + w_bev * bev_ranks[i], base_scores[i], i),
-    )
-    return reordered + tail
 
 
 # Anchor-orientation refine (_rotation_refine_about_start): accept a rotation
@@ -1041,13 +1004,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     aerial_channel(ctx)
     tile3d_channel(ctx)
     fuse_channels(ctx)
+    embedding_channel(ctx)
+    bevsplat_channel(ctx)
+    da3_dense_channel(ctx)
 
     # --- not yet extracted: the remaining stages still run inline on locals ---
     channel_status = ctx.channel_status
     result = ctx.result
     frames = ctx.frames
     result_ipm_scale = ctx.result_ipm_scale
-    traj = ctx.traj
     vo_cache = ctx.vo_cache
     frame_seed_source = ctx.frame_seed_source
     vpr_center = ctx.vpr_center
@@ -1063,7 +1028,6 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     result_sun_heading = ctx.result_sun_heading
     match_xz = ctx.match_xz
     match_ts = ctx.match_ts
-    da3_rec = ctx.da3_rec
     result_scale_recovery = ctx.result_scale_recovery
     result_loop_closure = ctx.result_loop_closure
     ocr_anchors = ctx.ocr_anchors
@@ -1073,245 +1037,11 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     result_vggt = ctx.result_vggt
     candidates = ctx.candidates
     geom_pool = ctx.geom_pool
-    splat_img_rgb = ctx.splat_img_rgb
-    ipm_canvas = ctx.ipm_canvas
     ranking_mode = ctx.ranking_mode
     t3_mesh_ref = ctx.t3_mesh_ref
     t3_samples_ref = ctx.t3_samples_ref
     t3_K_ref = ctx.t3_K_ref
     t3_skyline_ref = ctx.t3_skyline_ref
-
-    if cfg.embedding_sources and candidates:
-        if ipm_canvas is not None:
-            embedding_query = cv2.cvtColor(ipm_canvas, cv2.COLOR_BGR2RGB)
-            embedding_query_name = "ipm_bev"
-        elif splat_img_rgb is not None:
-            embedding_query = splat_img_rgb
-            embedding_query_name = "splat_topdown"
-        else:
-            embedding_query = None
-            embedding_query_name = None
-
-        print(
-            f"[8b] Deep embedding retrieval "
-            f"({', '.join(cfg.embedding_sources)} via {cfg.embedding_model})"
-        )
-        if embedding_query is None:
-            print("      -> skipped: no top-down query image available")
-            result["embedding_retrieval_error"] = (
-                "Embedding retrieval needs IPM or splat top-down imagery."
-            )
-        else:
-            embedding_results = score_candidates_by_embeddings(
-                embedding_query,
-                road,
-                candidates,
-                output_dir=cfg.output_dir / "embeddings",
-                sources=cfg.embedding_sources,
-                model_name=cfg.embedding_model,
-                geotessera_year=cfg.geotessera_year,
-            )
-            result["embedding_query"] = embedding_query_name
-            result["embedding_retrieval"] = {
-                "model": cfg.embedding_model,
-                "sources": list(cfg.embedding_sources),
-            }
-            for source, source_results in embedding_results.items():
-                order = sorted(
-                    range(len(source_results)),
-                    key=lambda i: -source_results[i].cosine_similarity,
-                )
-                rank_map = {idx: rank + 1 for rank, idx in enumerate(order)}
-                print(f"      -> {source}:")
-                for i, emb in enumerate(source_results):
-                    result["matches"][i][f"{source}_embedding_score"] = emb.cosine_similarity
-                    result["matches"][i][f"{source}_embedding_rank"] = rank_map[i]
-                    if emb.image_path is not None:
-                        result["matches"][i][f"{source}_embedding_image"] = str(
-                            emb.image_path.relative_to(cfg.output_dir)
-                        )
-                    if emb.error:
-                        result["matches"][i][f"{source}_embedding_error"] = emb.error
-                    print(
-                        f"        #{i+1}  sim={emb.cosine_similarity:+.3f}  "
-                        f"rank=#{rank_map[i]}"
-                        + (f"  error={emb.error}" if emb.error else "")
-                    )
-
-    # 8c. Optional: BevSplat cross-view localization channel.
-    if cfg.enable_bev_splat and candidates:
-        print(
-            f"[8c] BevSplat cross-view localization "
-            f"(source={cfg.bev_splat_source}, "
-            f"tile={cfg.bev_splat_tile_size}px / {cfg.bev_splat_half_extent_m}m)"
-        )
-        h_img, w_img = frames.frames[0].shape[:2]
-        K = default_intrinsics(w_img, h_img)
-        # Pick a frame near the middle of the window as the BevSplat query
-        # — the middle is the most "average" view of the whole route and
-        # avoids start-of-clip warmup or end-of-clip drift.
-        mid = len(frames.frames) // 2
-        query_rgb = cv2.cvtColor(frames.frames[mid], cv2.COLOR_BGR2RGB)
-        bev_results = score_candidates_with_bevsplat(
-            query_rgb, K, road, candidates,
-            output_dir=cfg.output_dir / "bev_splat",
-            config=BevSplatConfig(
-                weights_path=cfg.bev_splat_weights,
-                repo_path=cfg.bev_splat_repo_path,
-                model_module=cfg.bev_splat_model_module,
-                satellite_source=cfg.bev_splat_source,
-                satellite_size=cfg.bev_splat_tile_size,
-                half_extent_m=cfg.bev_splat_half_extent_m,
-                geotessera_year=cfg.geotessera_year,
-            ),
-        )
-        if bev_results:
-            n_failed = sum(1 for r in bev_results if r.error)
-            n_ok = len(bev_results) - n_failed
-            if n_ok > 0:
-                order = sorted(
-                    range(len(bev_results)),
-                    key=lambda i: -bev_results[i].score,
-                )
-                bev_rank = {idx: r + 1 for r, idx in enumerate(order)}
-            else:
-                bev_rank = {i: i + 1 for i in range(len(bev_results))}
-            print(f"      -> {n_ok}/{len(bev_results)} candidates scored "
-                  f"({n_failed} skipped — see result.json for per-candidate errors)")
-            for i, bv in enumerate(bev_results):
-                m = result["matches"][i]
-                m["bev_splat_score"] = bv.score
-                m["bev_splat_pred_shift_u"] = bv.pred_shift_u
-                m["bev_splat_pred_shift_v"] = bv.pred_shift_v
-                m["bev_splat_pred_heading"] = bv.pred_heading
-                m["bev_splat_rank"] = bev_rank[i]
-                if bv.satellite_path is not None:
-                    m["bev_splat_tile"] = str(bv.satellite_path.relative_to(cfg.output_dir))
-                if bv.error:
-                    m["bev_splat_error"] = bv.error
-                tag = f" rank=#{bev_rank[i]}" if n_ok > 0 else ""
-                err = f" error={bv.error}" if bv.error else ""
-                print(f"        #{i+1}  score={bv.score:.3f}{tag}{err}")
-            result["bev_splat"] = {
-                "source": cfg.bev_splat_source,
-                "tile_size": cfg.bev_splat_tile_size,
-                "half_extent_m": cfg.bev_splat_half_extent_m,
-                "n_candidates_scored": n_ok,
-                "n_candidates_failed": n_failed,
-            }
-
-            # Fuse the appearance rank into the consensus. Only when
-            # scoring succeeded broadly — with many failed tiles the
-            # surviving ranks are not comparable across candidates.
-            if n_ok >= max(2, int(0.8 * len(bev_results))) and len(candidates) >= 2:
-                base = [
-                    float(result["matches"][i].get("consensus_score", i + 1.0))
-                    for i in range(len(bev_results))
-                ]
-                ranks = [bev_rank[i] for i in range(len(bev_results))]
-                order = _fuse_bev_rank(base, ranks, cap=cfg.bev_fusion_cap)
-                for new_pos, i in enumerate(order):
-                    m = result["matches"][i]
-                    m["consensus_score"] = base[i] + _W_BEV * ranks[i]
-                    m["final_rank"] = new_pos + 1
-                result["matches"] = [result["matches"][i] for i in order]
-                candidates = [candidates[i] for i in order]
-                ranking_mode = ranking_mode + "+bev"
-                result["ranking_mode"] = ranking_mode
-                result["bev_splat"]["fused"] = True
-                result["bev_splat"]["weight"] = _W_BEV
-                print(f"        BevSplat fused into consensus (w={_W_BEV}); new #1: "
-                      f"{', '.join(result['matches'][0]['street_names'][:3]) or '(unnamed)'}")
-            else:
-                result["bev_splat"]["fused"] = False
-
-    # 9. Optional: DA3 dense reconstruction (proper splat replacement).
-    if cfg.enable_da3:
-        print(f"[9] Depth Anything 3 dense reconstruction "
-              f"({cfg.da3_keyframes} keyframes)")
-        from .da3_reconstruction import (
-            reconstruct_with_da3,
-            da3_trajectory_xy,
-        )
-        try:
-            # Reuse the reconstruction already computed for the matcher
-            # trajectory (step 4b) instead of running DA3 twice.
-            if da3_rec is not None:
-                rec = da3_rec
-                print("      -> reusing DA3 reconstruction from step [4b]")
-            else:
-                rec = reconstruct_with_da3(
-                    frames.frames,
-                    n_keyframes=cfg.da3_keyframes,
-                    valid_mask=traj.valid,
-                    device="cuda",
-                )
-            print(f"      -> {len(rec.points_world)} dense points; "
-                  f"{rec.extrinsics_w2c.shape[0]} keyframe poses")
-
-            ply = cfg.output_dir / "splat_da3.ply"
-            save_ply(rec.points_world, rec.colors_rgb, ply)
-            print(f"      -> wrote {ply}")
-            html = cfg.output_dir / "splat_da3.html"
-            save_interactive_html(
-                rec.points_world, rec.colors_rgb, html,
-                title="Depth Anything 3 dense reconstruction",
-            )
-            print(f"      -> wrote {html}")
-            top = cfg.output_dir / "splat_da3_topdown.png"
-            render_topdown_to_file(rec.points_world, rec.colors_rgb, top,
-                                   resolution=1024, point_radius_px=1)
-            print(f"      -> wrote {top}")
-
-            if cfg.enable_full_splat:
-                from .full_splat import render_full_splat_to_file
-                hq = cfg.output_dir / "splat_da3_topdown_hq.png"
-                render_full_splat_to_file(
-                    rec.points_world, rec.colors_rgb, hq,
-                    scale=cfg.full_splat_scale,
-                    opacity=cfg.full_splat_opacity,
-                    progress=True,
-                )
-                print(f"      -> wrote {hq} (anisotropic Gaussian render)")
-
-            if cfg.enable_train_3dgs:
-                print(f"      -> training real 3DGS via gsplat ({cfg.train_3dgs_iters} iters)")
-                try:
-                    from .full_splat import fit_3dgs, save_trained_splat_ply
-                    trained = fit_3dgs(
-                        rec, frames.frames,
-                        n_iters=cfg.train_3dgs_iters,
-                        device="cuda",
-                    )
-                    out_ply = cfg.output_dir / "splat_3dgs.ply"
-                    save_trained_splat_ply(trained, out_ply)
-                    print(f"      -> wrote {out_ply} "
-                          f"(open in SuperSplat / antimatter15 viewer; "
-                          f"final loss={trained.final_loss:.4f})")
-                    result["trained_3dgs"] = {
-                        "n_gaussians": int(len(trained.means)),
-                        "n_iters": int(trained.n_iters),
-                        "final_loss": float(trained.final_loss),
-                        "ply": str(out_ply.relative_to(cfg.output_dir)),
-                    }
-                except Exception as e:
-                    print(f"      -> 3DGS training failed: {e}")
-                    _record_channel(channel_status, 'train_3dgs', "failed", error=e)
-                    result["trained_3dgs_error"] = str(e)
-
-            result["da3"] = {
-                "n_points": int(len(rec.points_world)),
-                "n_keyframes": int(rec.extrinsics_w2c.shape[0]),
-                "outputs": [
-                    str(ply.relative_to(cfg.output_dir)),
-                    str(html.relative_to(cfg.output_dir)),
-                    str(top.relative_to(cfg.output_dir)),
-                ],
-            }
-        except Exception as e:
-            print(f"      -> DA3 failed: {e}")
-            _record_channel(channel_status, 'da3', "failed", error=e)
-            result["da3_error"] = str(e)
 
     # 10. Optional: ground-truth evaluation.
     if cfg.ground_truth_streets and candidates:
