@@ -6,7 +6,138 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Reproducible, leak-free evaluation
+
+Every published number should be traceable to a commit, a configuration and a
+map snapshot, and comparable against a trivial baseline. A review found that
+the 0.1.x GPS-free headline was none of these (one row had no committed source;
+rows came from at least two code states; repeated runs of one clip differed by
+hundreds of metres), and that guessing the **centre of the named city** beat
+the pipeline on 5 of 8 clips. This release builds the machinery to measure
+honestly; the re-measured results are in the README.
+
+- **Provenance in every `result.json`**: git commit / branch / dirty flag,
+  package and library versions, full config, argv, CUDA availability, VO
+  algorithm version, the OSM graph's cache path / creation date / size, which
+  retrieval backbone (pinned hub commit) and reference source were *actually*
+  used, and whether `MLY_TOKEN` was set — never its value.
+- **VO cache versioning.** Cache keys carry `VO_ALGO_VERSION`; trajectories
+  written by older code (before the plane-handedness and burned-in-graphics
+  fixes) are reported stale and never loaded. The flat-layout fallback that
+  could hand one clip *another clip's* trajectory is gone, and the two
+  May-2026 Ulm caches that were committed to `data/` are removed.
+- **`benchmarks/manifest.json` + `scripts/benchmark.py`**: the committed
+  benchmark definition (clips, user-level city strings, analysis windows, GT
+  provenance, dev/test split) and a runner that passes the pipeline *only*
+  video, city and window — ground truth is applied offline, so leakage is
+  impossible by construction (every command is audited before launch, and
+  every result's recorded argv/config is re-audited at aggregation, including
+  whether the search disc came from the video rather than from GT).
+  Repeated runs, a cold-cache option, bootstrap confidence intervals over
+  clips, per-clip median/IQR, provenance consistency checks.
+- **`monocular_osm/metrics.py`**: two-directional route metrics (start, end,
+  GT→prediction, prediction→GT, symmetric mean, Hausdorff, Fréchet) and
+  success rates at 25/50/100/250/500/1000 m. The legacy mean route error was
+  one-directional, so a prediction that follows the route and then wanders 3 km
+  away scored 0.
+- **`monocular_osm/baselines.py`**: city centroid, retrieval-prior-only,
+  matcher-only, pinned-only and best-of-shortlist oracle — the rows every
+  result is compared against.
+- **`scripts/ablate.py`**: re-scores channel ablations, the removed shape
+  double-count, and leave-one-clip-out conditional-logit fusion offline from
+  each run's `fusion_features.json`.
+- **`scripts/diagnose_pool_recall.py`** (plus a `walk_observer` hook on the
+  matcher): is the true route even in the candidate pool, per stage and walk
+  budget?
+- **`scripts/golden_pipeline.py`**: behaviour-preservation check for
+  refactoring (full default run from warm caches, normalised diff).
+- `scripts/fetch_kitti_raw.py`: fetches only the camera frames, OXTS and
+  calibration out of KITTI's multi-GB archives with HTTP range requests.
+
 ### Added
+
+- `monocular_osm/fusion.py`: the consensus rule and its weights as one explicit
+  module; `--fusion-weights JSON` for ablations; each run writes
+  `fusion_features.json` (every candidate's per-channel ranks, penalties and
+  route). Two facts the README table hid are now stated and tested: with
+  sliding windows off (the default) shape effectively weighs **2.0**, and the
+  "aerial" channel re-scores the same trajectory/walk pair the shape fit scored.
+- `result["channels"]`: ok / inactive / failed / disabled per channel, with the
+  exception text on failure (18 channels used to fail into a `print()` only).
+- `result["pinned_position"]`; position routes carry `route_t_sec` (video time
+  per point) and keep up to 1000 points (was 50, ~250 m spacing on a 12 km
+  clip); hypotheses carry their routes; `osm_around_source` records whether the
+  search disc came from the user or the video title.
+- CLI parity: `--walks-per-node`, `--scale-recovery-thresh-m`,
+  `--scale-recovery-min-inliers`, `--scale-recovery-min-baseline-m`; a test fails
+  if any `PipelineConfig` field has no CLI mapping.
+- `monocular_osm/geo.py` (pyproj geodesy) and `monocular_osm/net.py`
+  (tenacity-based bounded retries).
+- `monocular_osm/data/kfz_codes.json`: 698 licence-plate district codes from
+  Wikidata (was 311 hand-entered), refreshed by `scripts/update_kfz_codes.py`.
+
+### Changed
+
+- **`result["matcher_position"]` is now the raw matcher pick.** On any run where
+  the scale-locked OCR anchor pin succeeded it used to carry the pinned route
+  under `source: "matcher"`, so every "matcher-only" number on sign-rich clips
+  was really matcher + pin. The pinned route is `pinned_position`; headline
+  selection is unchanged (anchor-primary > pinned > matcher).
+- **OCR coarse seeds need two place names inside the named city.** One
+  geocoded fragment anywhere within 60 km used to become an 800 m hard gate on
+  both retrieval and the road graph; on KITTI 0009 rapidocr read `KA.GC` (a
+  plate fragment), the run searched 20 km away and finished 18.3 km off. The
+  same clip now finishes 5.3 km off.
+- `PipelineConfig.top_k` defaults to 10 (the CLI default every published run
+  used; the Python API silently ran 5).
+- Evaluator distances are exact (shapely), not a 10 m densified approximation.
+- The position summary prints `Shape fit`, not `Confidence` (it grades fit
+  quality, which is not correctness); the JSON keeps `confidence.level` and adds
+  `basis: "shape_fit"`.
+- A VLM-fallback prior gets district-level (1.5 km), not retrieval-level
+  (150 m), trust.
+- Library reuse: `skimage.measure.ransac` for the anchor similarity fit (94.7%
+  identical on 3000 synthetic cases; where it differs the scale error is lower:
+  median 10.3% vs 12.2%); pyproj for all geodesy (distances shift 0.1–0.5%;
+  `enu_to_latlon` was up to 0.54 m off at 1.8 km); rapidfuzz for name matching;
+  exact shapely anchor distances; a cKDTree radius query for anchor seeding;
+  osmnx's own Nominatim throttling instead of an extra sleep.
+- `rapidfuzz` and `tenacity` are core dependencies; `fast-alpr` is the `[plates]`
+  extra; `pycolmap` (used by one experiment script) is the `[sfm]` extra.
+- Licence-plate table: RID was "Rottal-Inn" (now Riedenburg), LOS was "Frankfurt
+  (Oder)" (now Beeskow), PM was "Brandenburg an der Havel" (now Bad Belzig).
+  Codes of retired plate systems (occupation zones, GDR letters) are dropped so
+  they cannot vote for the wrong city.
+- GT provenance: KITTI and comma ground truth said "Auto-extracted from a
+  burned-in GPS overlay via OCR"; they come from OXTS / the comma INS pose.
+- `scripts/run_all_gt.py --blind` is now actually blind (London kept a
+  ground-truth-centred disc); non-blind output is labelled GT-SEEDED.
+
+### Fixed
+
+- **Image retrieval silently never loaded on a fresh machine.** `torch.hub`
+  asks on stdin whether to trust the MegaLoc/EigenPlaces repos; an unattended
+  run read EOF as "no", so the retrieval channel — the main accuracy lever —
+  dropped out with only "VPR unavailable" printed. The repos are now trusted
+  explicitly and pinned to commits, a MegaLoc→EigenPlaces fallback is printed,
+  and the failure reason is recorded in `result["channels"]`.
+- `--skip-download` could analyse a yt-dlp intermediate (`input.temp.mp4`),
+  which shares the `.mp4` suffix and is newer than the real file.
+- `SimilarityTransform.from_estimate` reports failure with a *falsy* object,
+  not `None`; degenerate Procrustes input raised instead of returning the
+  inf-residual fallback.
+- Sliding-window support counted any walk that crossed or touched a candidate
+  (closest approach ≤ 250 m), so in a small search disc every window supported
+  every candidate; it now requires ≥ 50% of the window walk within 60 m.
+- The sun-heading clock reader imported `easyocr` directly and returned nothing
+  on a default install (which ships rapidocr); it uses the shared engine factory.
+- A Nominatim error body was cached forever as "not found" (osmnx raises the
+  same exception for both); only a genuine "could not geocode" is cached.
+- One transient Overpass `ConnectTimeout` or YouTube 403 killed runs that had
+  already spent minutes on VO and retrieval; downloads and the graph fetch now
+  retry with exponential backoff (bounded, announced, transient errors only).
+
+### Added (OCR engine, earlier in this release cycle)
 
 - **`--ocr-engine rapidocr`** — an alternative OCR backend (PP-OCRv6 on
   onnxruntime) behind the existing `OcrReader` Protocol, serving both OCR
