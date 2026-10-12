@@ -1,14 +1,16 @@
 """End-to-end pipeline: video (local file or YouTube URL) + city name
 -> WGS84 position of the video.
 
-The CLI in `main.py` is a thin wrapper around `run_pipeline` here.
+The CLI in `main.py` is a thin wrapper around `run_pipeline` here. The
+configuration (`PipelineConfig`) and the orchestration live in this module; each
+stage is a function in `monocular_osm/stages/` that reads and extends the shared
+`RunContext` (see `stages/context.py`).
 """
 
 from __future__ import annotations
 
-import json
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 # When stdout is redirected to a file Python uses block-buffering, which
@@ -16,66 +18,6 @@ from pathlib import Path
 # line-buffering so every print() call is visible in the log immediately.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
-
-import cv2
-import matplotlib
-
-matplotlib.use("Agg")  # headless: don't try to open a window
-import matplotlib.pyplot as plt
-import numpy as np
-
-from .aerial_match import match_splat_against_candidates
-from .bev_splat_match import (
-    BevSplatConfig,
-    score_candidates_with_bevsplat,
-)
-from .download import download_video
-from .embedding_retrieval import score_candidates_by_embeddings
-from .evaluator import (
-    best_rank_for_gt,
-    best_rank_for_waypoints,
-    evaluate_candidates,
-    evaluate_candidates_against_waypoints,
-    load_gt_waypoints,
-)
-from .frame_extraction import extract_frames
-from .geo import geodesic_distance_m
-from .fusion import (
-    CandidateFeatures,
-    FusionWeights,
-    consensus_order as fusion_consensus_order,
-    effective_weights as fusion_effective_weights,
-    fused_score as fusion_fused_score,
-    write_feature_table,
-)
-from .ipm import render_ipm_canvas
-from .osm_data import RoadGraph, fetch_city_graph
-from .hypotheses import distinct_hypotheses, hypothesis_confidence
-from .position import (
-    build_position_report,
-    candidate_center_latlon,
-    format_position_summary,
-    google_maps_url,
-)
-from .splat import (
-    build_splat_points,
-    render_topdown_splat,
-    render_topdown_to_file,
-    save_interactive_html,
-    save_ply,
-)
-from .trajectory_matching import (
-    MatchCandidate,
-    candidate_geographic_summary,
-    match_trajectory,
-    score_candidates_with_sliding_windows,
-)
-from .visual_odometry import (
-    VO_ALGO_VERSION,
-    Trajectory,
-    default_intrinsics,
-    estimate_trajectory,
-)
 
 
 @dataclass
@@ -360,9 +302,7 @@ from .stages.context import (  # noqa: F401
     RunContext,
 )
 from .stages.acquire import (  # noqa: F401
-    _NON_VIDEO_SUFFIXES,
     _resolve_input_video,
-    _VIDEO_EXT_RANK,
     pick_cached_input,
     rank_cached_inputs,
     acquire_video,
@@ -371,17 +311,13 @@ from .stages.acquire import (  # noqa: F401
 from .stages.length_prior import (  # noqa: F401
     _auto_estimated_length_m,
     _length_sane,
-    _URBAN_AVG_SPEED_MPS,
     estimate_flow_scale,
     estimate_length_prior,
 )
 from .stages.trajectory import (  # noqa: F401
-    _apply_ground_flow_scale,
     _da3_trajectory_plausible,
     _find_vo_cache,
     _match_timestamps,
-    _plot_trajectory,
-    _plot_xy,
     _pose_txt_xz,
     _remap_frame_pair_to_poses,
     _vo_cache_candidates,
@@ -390,14 +326,8 @@ from .stages.trajectory import (  # noqa: F401
     select_matcher_trajectory,
 )
 from .stages.prior import (  # noqa: F401
-    _C2F_SIM_MARGIN,
-    _C2F_SNAP_TOL_M,
     _city_extent_reach_m,
     _frame_coarse_seed,
-    _OCR_SEED_MIN_PLACES,
-    _PASS1_COVER_CAP,
-    _PASS1_COVER_MAX_M,
-    _PASS1_TOKEN_CAP,
     coarse_seed_from_frames,
     plate_district_prior,
     vlm_district_prior,
@@ -409,7 +339,6 @@ from .stages.graph import (  # noqa: F401
 )
 from .stages.anchors import (  # noqa: F401
     _drop_direction_anchors,
-    _SignRep,
     estimate_sun_heading,
     ocr_scene_text_anchors,
 )
@@ -421,19 +350,13 @@ from .stages.vpr_track import (  # noqa: F401
     _vpr_track_geometry,
 )
 from .stages.match import (  # noqa: F401
-    _HYP_POOL,
-    _plot_match,
-    _vpr_alt_scale,
     lock_alignment_scale,
     match_candidates,
     summarise_matches,
     vggt_gate,
 )
 from .stages.channels import (  # noqa: F401
-    _BEV_FUSION_CAP,
     _fuse_bev_rank,
-    _Tile3DInactive,
-    _W_BEV,
     aerial_channel,
     bevsplat_channel,
     da3_dense_channel,
@@ -444,19 +367,9 @@ from .stages.channels import (  # noqa: F401
     tile3d_channel,
 )
 from .stages.consensus import (  # noqa: F401
-    _anchor_channel,
-    _consensus,
     _heading_diff_deg,
     _mean_bearing_deg,
-    _plate_channel,
     _sun_bearing_penalty,
-    _sun_channel,
-    _SUN_FREE_DEG,
-    _SUN_MIN_CONFIDENCE,
-    _turn_channel,
-    _vpr_channel,
-    _vpr_chord_diagnostic,
-    _W_SUN,
     fuse_channels,
 )
 from .stages.evaluation import (  # noqa: F401
@@ -467,22 +380,9 @@ from .stages.placement import (  # noqa: F401
     _arc_param_times,
     _elastic_fuse_track,
     _final_position_reports,
-    _FUSE_HUBER_M,
-    _FUSE_MARGIN_ABS_M,
-    _FUSE_MARGIN_RATIO,
-    _FUSE_MAX_DEFORM_M,
-    _FUSE_MIN_TRACK_PTS,
-    _FUSE_SMOOTH_D1,
-    _FUSE_SMOOTH_D2,
     _orienternet_refine,
     _pick_top_k_placement,
-    _pin_route_to_anchors,
     _place_candidate_on_track,
-    _ROT_EXPLAIN_M,
-    _ROT_MARGIN_ABS_M,
-    _ROT_MARGIN_RATIO,
-    _ROT_MIN_EXTENT_M,
-    _ROT_MIN_TRACK_PTS,
     _rotation_refine_about_start,
     anchor_primary_placement,
     final_position,
@@ -492,43 +392,117 @@ from .stages.report import (  # noqa: F401
     finalize_result,
 )
 
+# The public surface of this module: the configuration, the entry point, and
+# the helpers that tests and external callers import from here.
+__all__ = [
+    "_arc_param_times",
+    "_auto_estimated_length_m",
+    "_city_extent_reach_m",
+    "_da3_trajectory_plausible",
+    "_drop_direction_anchors",
+    "_elastic_fuse_track",
+    "_fetch_road_graph",
+    "_final_position_reports",
+    "_find_vo_cache",
+    "_frame_coarse_seed",
+    "_fuse_bev_rank",
+    "_heading_diff_deg",
+    "_length_sane",
+    "_match_timestamps",
+    "_mean_bearing_deg",
+    "_orienternet_refine",
+    "pick_cached_input",
+    "_pick_top_k_placement",
+    "PipelineConfig",
+    "_place_candidate_on_track",
+    "_PLATE_FREE_RADIUS_M",
+    "_pose_txt_xz",
+    "rank_cached_inputs",
+    "_record_channel",
+    "_remap_frame_pair_to_poses",
+    "_resolve_input_video",
+    "_rotation_refine_about_start",
+    "run_pipeline",
+    "RunContext",
+    "_summarize_channels",
+    "_sun_bearing_penalty",
+    "_vo_cache_candidates",
+    "_vpr_distance_penalty",
+    "_VPR_FREE_RADIUS_M",
+    "_vpr_sequence_median_m",
+    "_vpr_track_geometry",
+]
+
 
 
 
 def run_pipeline(cfg: PipelineConfig) -> dict:
+    """Run every stage on ``cfg`` and return the result.json payload.
+
+    The stages share one :class:`RunContext`; each reads what the earlier ones
+    produced and extends it. An optional channel that fails or finds nothing
+    records that in ``result["channels"]`` instead of raising.
+    """
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     ctx = RunContext.create(cfg)
+
+    # 1-2. The video and its frames.
     acquire_video(ctx)
     extract_video_frames(ctx)
+
+    # 2b-2c. Route-length prior for OSM walk enumeration (and the opt-in
+    # ground-plane flow measurement of it).
     estimate_length_prior(ctx)
     estimate_flow_scale(ctx)
+
+    # 3. Visual odometry (cached to disk).
     run_visual_odometry(ctx)
+
+    # 4a. Absolute coarse priors that locate the clip independently of shape:
+    # frame seed, blind VPR (+ coarse-to-fine), plate district, VLM fallback.
     coarse_seed_from_frames(ctx)
     vpr_coarse_prior(ctx)
     plate_district_prior(ctx)
     vlm_district_prior(ctx)
+
+    # 4. The OSM road graph, then the optional sun heading.
     load_road_graph(ctx)
     estimate_sun_heading(ctx)
+
+    # 4b. The trajectory the shape matcher consumes, and loop closure.
     select_matcher_trajectory(ctx)
     close_loop(ctx)
+
+    # 4c. OCR scene-text anchors (computed before the match so they can seed it).
     ocr_scene_text_anchors(ctx)
+
+    # 5. Match the trajectory against the graph.
     lock_alignment_scale(ctx)
     vggt_gate(ctx)
     match_candidates(ctx)
     summarise_matches(ctx)
+
+    # 5b-8c. Optional channels over the candidates, then the weighted
+    # rank-fusion consensus that reorders them.
     sliding_window_channel(ctx)
     splat_channel(ctx)
     ipm_channel(ctx)
     aerial_channel(ctx)
     tile3d_channel(ctx)
     fuse_channels(ctx)
+
+    # 8b-9. Late appearance channels.
     embedding_channel(ctx)
     bevsplat_channel(ctx)
     da3_dense_channel(ctx)
+
+    # 10-11. In-run evaluation, anchor-primary placement and the final position.
     evaluate_ground_truth_streets(ctx)
     anchor_primary_placement(ctx)
     evaluate_waypoints(ctx)
     final_position(ctx)
+
+    # Diagnostics, channel summary, provenance, result.json.
     finalize_result(ctx)
     return ctx.result

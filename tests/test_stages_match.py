@@ -11,7 +11,7 @@ import monocular_osm.stages.match as stage_match
 import monocular_osm.vggt_trajectory as vggt_trajectory
 from monocular_osm.position import xy_to_latlon
 
-from ._stage_fixtures import make_ctx, make_cfg, make_candidates, make_road
+from ._stage_fixtures import make_cfg, make_ctx, make_road
 from monocular_osm.stages.context import RunContext
 
 

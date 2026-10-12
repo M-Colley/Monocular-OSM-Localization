@@ -13,7 +13,7 @@ import monocular_osm.stages.placement as placement
 from monocular_osm.position import latlon_to_xy, xy_to_latlon
 from monocular_osm.stages.context import RunContext
 
-from ._stage_fixtures import UTM32N, make_ctx, make_road, prime_ranks
+from ._stage_fixtures import UTM32N, make_ctx, prime_ranks
 
 
 def _line(road, street: int, n: int = 41, dy: float = 0.0, dx: float = 0.0) -> np.ndarray:

@@ -6,19 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import networkx as nx
-import numpy as np
 import pytest
 
-import monocular_osm.scene_text as scene_text
 import monocular_osm.stages.anchors as anchors
 import monocular_osm.stages.graph as stage_graph
 import monocular_osm.sun_heading as sun_heading
-import monocular_osm.text_anchor as text_anchor
-from monocular_osm.frame_extraction import ExtractedFrames
 from monocular_osm.pipeline import PipelineConfig
-from monocular_osm.position import xy_to_latlon
 from monocular_osm.stages.context import RunContext
-from monocular_osm.visual_odometry import Trajectory
 
 CRS = "EPSG:32632"
 

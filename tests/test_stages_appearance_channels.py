@@ -12,12 +12,8 @@ import numpy as np
 import pytest
 
 import monocular_osm.da3_reconstruction as da3_reconstruction
-import monocular_osm.osm_buildings3d as osm_buildings3d
 import monocular_osm.stages.channels as channels
-import monocular_osm.tile3d_match as tile3d_match
-from monocular_osm.aerial_match import AerialMatchResult
 from monocular_osm.stages.context import RunContext
-from monocular_osm.trajectory_matching import SlidingWindowMatchResult
 
 from ._stage_fixtures import make_ctx
 

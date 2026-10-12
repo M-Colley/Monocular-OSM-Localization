@@ -11,8 +11,6 @@ import pytest
 
 import monocular_osm.scene_text as scene_text
 import monocular_osm.stages.anchors as anchors
-import monocular_osm.stages.graph as stage_graph
-import monocular_osm.sun_heading as sun_heading
 import monocular_osm.text_anchor as text_anchor
 from monocular_osm.frame_extraction import ExtractedFrames
 from monocular_osm.pipeline import PipelineConfig
