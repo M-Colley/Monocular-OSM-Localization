@@ -382,10 +382,17 @@ from .stages.length_prior import (  # noqa: F401
 )
 from .stages.trajectory import (  # noqa: F401
     _apply_ground_flow_scale,
+    _da3_trajectory_plausible,
     _find_vo_cache,
+    _match_timestamps,
     _plot_trajectory,
+    _plot_xy,
+    _pose_txt_xz,
+    _remap_frame_pair_to_poses,
     _vo_cache_candidates,
+    close_loop,
     run_visual_odometry,
+    select_matcher_trajectory,
 )
 from .stages.prior import (  # noqa: F401
     _C2F_SIM_MARGIN,
@@ -409,21 +416,6 @@ from .stages.anchors import (  # noqa: F401
     estimate_sun_heading,
 )
 from .stages.length_prior import _length_sane_here as _length_sane_here_ctx
-
-
-def _plot_xy(xy: np.ndarray, out_path: Path, title: str) -> None:
-    """Minimal top-down polyline plot (used for the DA3 trajectory)."""
-    fig, ax = plt.subplots(figsize=(7, 7))
-    ax.plot(xy[:, 0], xy[:, 1], "-", color="C2", linewidth=1.4)
-    ax.scatter(xy[0, 0], xy[0, 1], color="green", s=60, label="start", zorder=5)
-    ax.scatter(xy[-1, 0], xy[-1, 1], color="red", s=60, label="end", zorder=5)
-    ax.set_aspect("equal")
-    ax.set_title(title)
-    ax.grid(alpha=0.3)
-    ax.legend(loc="best")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=140)
-    plt.close(fig)
 
 
 def _plot_match(
@@ -528,48 +520,6 @@ def _fuse_bev_rank(
         key=lambda i: (base_scores[i] + w_bev * bev_ranks[i], base_scores[i], i),
     )
     return reordered + tail
-
-
-def _match_timestamps(frame_timestamps, n_rows: int) -> np.ndarray:
-    """Timestamp axis aligned to the matcher trajectory's rows.
-
-    A staged trajectory (OpenVO / DA3 / MapAnything) has FEWER rows than
-    extracted frames (Ulm: 1260 poses vs 4196 frames), so indexing it
-    with per-frame timestamps is out of bounds. Spread the clip's frame
-    time span uniformly over the pose rows instead.
-    """
-    ts = np.asarray(frame_timestamps, dtype=np.float64)
-    if len(ts) == 0:
-        return np.zeros(n_rows, dtype=np.float64)
-    if n_rows == len(ts):
-        return ts
-    return np.linspace(ts[0], ts[-1], n_rows)
-
-
-def _remap_frame_pair_to_poses(
-    pair, n_frames: int, n_poses: int
-):
-    """Map a loop-closure (i, j) frame-index pair into pose-index space.
-
-    ``detect_end_to_start_loop`` indexes the extracted frames, but the
-    drift redistribution acts on the matcher trajectory, which has a
-    different row count whenever a staged (OpenVO/DA3/MapAnything) path
-    is in use. Scale proportionally; return ``None`` when the remapped
-    pair is degenerate (so the caller skips instead of warping poses).
-    """
-    if pair is None:
-        return None
-    i, j = int(pair[0]), int(pair[1])
-    if n_frames == n_poses:
-        return (i, j) if 0 <= i < j < n_poses else None
-    if n_frames < 2 or n_poses < 2:
-        return None
-    scale = (n_poses - 1) / (n_frames - 1)
-    ip = int(round(i * scale))
-    jp = int(round(j * scale))
-    if not (0 <= ip < jp < n_poses):
-        return None
-    return (ip, jp)
 
 
 # VPR re-rank penalty: metres of slack before a candidate is penalized for
@@ -1045,24 +995,6 @@ def _vpr_alt_scale(match_xz, vpr_track, vpr_center, road, locked_scale,
     return None
 
 
-def _pose_txt_xz(path) -> np.ndarray | None:
-    """Top-down ``(tx, tz)`` path from a pose text file: KITTI 3x4 rows
-    (12 columns) or flattened 4x4 C2W rows (16 columns, VGGT-Long's
-    ``camera_poses.txt``). In both row-major layouts the translation sits at
-    columns 3/7/11, so the ground projection is columns ``[3, 11]``.
-    Returns ``None`` for unreadable/degenerate files."""
-    try:
-        P = np.loadtxt(str(path))
-        if P.ndim != 2 or P.shape[1] not in (12, 16):
-            return None
-        xz = P[:, [3, 11]].astype(np.float64)
-        if len(xz) < 2 or not bool(np.isfinite(xz).all()):
-            return None
-        return xz
-    except Exception:
-        return None
-
-
 def _mean_bearing_deg(xy: np.ndarray) -> float | None:
     """Length-weighted circular mean compass bearing (0=N, 90=E) of a
     projected polyline, or ``None`` when degenerate."""
@@ -1330,31 +1262,6 @@ def _orienternet_refine(cfg, frames, cand, road, position, result,
         print(f"      -> OrienterNet refine failed ({e})")
 
 
-def _da3_trajectory_plausible(xy: np.ndarray) -> bool:
-    """Reject DA3 camera paths that look like pose-estimation failures.
-
-    DA3 needs visually-overlapping keyframes; on sparse keyframes (long
-    clips) its solver can return near-random poses. A real driven path
-    almost never reverses heading by >120° between consecutive keyframe
-    segments, while a failed solve zigzags constantly — on the Ulm clip
-    a failed 48-keyframe solve had ~40% reversals and silently produced
-    a 2.3 km localization error. Threshold 0.15 leaves room for genuine
-    U-turns and noisy stationary segments.
-    """
-    xy = np.asarray(xy, dtype=np.float64)
-    if len(xy) < 3:
-        return False
-    seg = np.diff(xy, axis=0)
-    norms = np.linalg.norm(seg, axis=1)
-    moving = norms > 1e-9
-    if moving.sum() < 2:
-        return False
-    d = seg[moving] / norms[moving][:, None]
-    cos_between = (d[:-1] * d[1:]).sum(axis=1)
-    reversal_ratio = float((cos_between < -0.5).mean())
-    return reversal_ratio <= 0.15
-
-
 def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
                         fusion: dict | None) -> dict:
     """Fill in a status for every channel that did not record a failure.
@@ -1394,6 +1301,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     vlm_district_prior(ctx)
     load_road_graph(ctx)
     estimate_sun_heading(ctx)
+    select_matcher_trajectory(ctx)
+    close_loop(ctx)
 
     # --- not yet extracted: the remaining stages still run inline on locals ---
     fusion_w = ctx.fusion_w
@@ -1418,175 +1327,15 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     road = ctx.road
     cache_path = ctx.cache_path
     result_sun_heading = ctx.result_sun_heading
+    match_xz = ctx.match_xz
+    match_ts = ctx.match_ts
+    da3_rec = ctx.da3_rec
+    result_scale_recovery = ctx.result_scale_recovery
+    result_traj_source = ctx.result_traj_source
+    result_loop_closure = ctx.result_loop_closure
 
     def _length_sane_here(candidate_m: float) -> bool:
         return _length_sane_here_ctx(ctx, candidate_m)
-
-    # 4b. Optional: use Depth Anything 3's globally-consistent camera path
-    # as the trajectory the shape matcher consumes. Monocular VO drifts
-    # over long clips (the true Olgastraße route's bearing correlation was
-    # only 0.16 vs 0.29–0.32 for *wrong* parallel streets — pure drift),
-    # which lets several parallel streets fit equally well. DA3 is metric
-    # and multi-frame-consistent, so its trajectory has far less drift.
-    # We keep the VO `traj` for the splat/IPM renders (those are tied to
-    # the per-frame VO poses) and only swap the matcher's input here.
-    match_xz = traj.xz
-    _staged_traj_source = "vo"     # relabelled by whichever staging block wins
-    if cfg.use_mapanything_trajectory:
-        print("[4b'] MapAnything submap-stitched trajectory (matcher input)")
-        from .mapanything_trajectory import mapanything_trajectory_xy
-        end_s = cfg.vo_end_sec if cfg.vo_end_sec else (cfg.vo_start_sec + 420.0)
-        ma = mapanything_trajectory_xy(str(video_path), cfg.vo_start_sec, end_s)
-        if ma is not None and len(ma[0]) >= 2 and bool(np.isfinite(ma[0]).all()):
-            match_xz = ma[0]
-            _staged_traj_source = "mapanything"
-            _plot_xy(match_xz, cfg.output_dir / "trajectory_mapanything.png",
-                     "MapAnything submap-stitched trajectory (matcher input)")
-            print(f"      -> using MapAnything trajectory: {len(match_xz)} stitched poses")
-        else:
-            print("      -> MapAnything unavailable/invalid; keeping VO path")
-    # OpenVO is the default matcher trajectory when one is staged for this clip
-    # (explicit --openvo-trajectory, else <data_dir>/openvo_trajectory.txt). It is
-    # intrinsic-free metric dashcam VO with lower drift than our frame-to-frame VO
-    # (196 vs 241 m global-fit RMS on Ulm). Poses are KITTI 3x4 rows; the top-down
-    # ground projection is (tx, tz) = cols 3,11. Falls back to VO if none present.
-    ov_path = cfg.openvo_trajectory_path
-    if ov_path is None and cfg.prefer_openvo_trajectory:
-        cand = cfg.data_dir / "openvo_trajectory.txt"
-        if cand.exists():
-            ov_path = cand
-    if ov_path is not None:
-        print(f"[4b''] OpenVO metric trajectory (matcher input): {ov_path}")
-        ov = _pose_txt_xz(ov_path)
-        if ov is not None:
-            match_xz = ov
-            _staged_traj_source = "openvo"
-            _plot_xy(ov, cfg.output_dir / "trajectory_openvo.png",
-                     "OpenVO metric trajectory (matcher input)")
-            print(f"      -> using OpenVO trajectory: {len(ov)} poses")
-        else:
-            print("      -> OpenVO trajectory invalid/unreadable; keeping VO path")
-    # VGGT-Long chunked-VGGT trajectory (ICRA'25): explicit opt-in, takes
-    # precedence over the staged OpenVO default when given. ~30% lower
-    # Procrustes shape RMS than OpenVO on KITTI 0033 (148.6 vs 211.0 m,
-    # scripts/test_vggt_long_kitti.py) — but better shape has NOT implied
-    # better end-to-end before (MapAnything), hence flag-gated for A/B.
-    if cfg.vggt_long_trajectory_path is not None:
-        print(f"[4b'''] VGGT-Long trajectory (matcher input): "
-              f"{cfg.vggt_long_trajectory_path}")
-        vl = _pose_txt_xz(cfg.vggt_long_trajectory_path)
-        if vl is not None:
-            match_xz = vl
-            _staged_traj_source = "vggt_long"
-            _plot_xy(vl, cfg.output_dir / "trajectory_vggt_long.png",
-                     "VGGT-Long trajectory (matcher input)")
-            print(f"      -> using VGGT-Long trajectory: {len(vl)} poses")
-        else:
-            print("      -> VGGT-Long trajectory invalid/unreadable; "
-                  "keeping prior path")
-    da3_rec = None
-    result_scale_recovery: dict | None = None   # set by DA3 (4b) or anchors (4c)
-    if cfg.use_da3_trajectory:
-        print("[4b] Depth Anything 3 trajectory (drift-free matcher input)")
-        from .da3_reconstruction import da3_trajectory_xy, reconstruct_with_da3
-        try:
-            da3_rec = reconstruct_with_da3(
-                frames.frames,
-                n_keyframes=cfg.da3_keyframes,
-                valid_mask=traj.valid,
-                device="cuda",
-            )
-            da3_xy = da3_trajectory_xy(da3_rec)
-            da3_valid = len(da3_xy) >= 2 and bool(np.isfinite(da3_xy).all())
-            if da3_valid and not _da3_trajectory_plausible(da3_xy):
-                # A garbage path scores walks all over the city and is
-                # strictly worse than drifty-but-coherent VO.
-                print("      -> DA3 trajectory implausible (heading reverses "
-                      "constantly — pose solve likely failed on sparse "
-                      "keyframes); falling back to VO path")
-                _plot_xy(
-                    da3_xy, cfg.output_dir / "trajectory_da3_rejected.png",
-                    "DA3 trajectory (REJECTED: implausible)",
-                )
-                da3_valid = False
-            if da3_valid:
-                match_xz = da3_xy
-                _plot_xy(
-                    da3_xy, cfg.output_dir / "trajectory_da3.png",
-                    "DA3 globally-consistent trajectory (matcher input)",
-                )
-                print(f"      -> using DA3 trajectory: {len(da3_xy)} keyframe poses")
-                result_traj_source = "da3"
-                # Idea 4: DA3 is metric, so its arc length IS the route
-                # length — adopt it as the prior when it sanity-checks
-                # against the duration estimate.
-                from .visual_odometry import trajectory_arc_length as _arclen
-                da3_len = float(_arclen(da3_xy)[-1])
-                if _length_sane_here(da3_len):
-                    print(f"      -> DA3 metric length {da3_len:.0f} m adopted as "
-                          f"route prior (was {estimated_length_m:.0f} m)")
-                    estimated_length_m = float(np.clip(da3_len, 500.0, 12000.0))
-                    result_scale_recovery = {
-                        "status": "ok", "source": "da3",
-                        "estimated_length_m": round(estimated_length_m, 1),
-                    }
-                else:
-                    print(f"      -> DA3 metric length {da3_len:.0f} m rejected "
-                          f"(sanity vs prior {estimated_length_m:.0f} m)")
-            else:
-                if len(da3_xy) < 2 or not bool(np.isfinite(da3_xy).all()):
-                    print("      -> DA3 trajectory invalid; falling back to VO path")
-                result_traj_source = _staged_traj_source
-        except Exception as e:
-            print(f"      -> DA3 trajectory failed ({e}); falling back to VO path")
-            _record_channel(channel_status, 'da3_trajectory', "failed", error=e)
-            da3_rec = None
-            result_traj_source = _staged_traj_source
-    else:
-        result_traj_source = _staged_traj_source
-
-    # Timestamp axis aligned to the matcher trajectory. The staged
-    # OpenVO/DA3/MapAnything paths have FEWER rows than extracted frames
-    # (Ulm: 1260 poses vs 4196 frames), so anything that maps a time to
-    # a match_xz row must use this axis, not frames.timestamps.
-    match_ts = _match_timestamps(frames.timestamps, len(match_xz))
-
-    # 4b2. Optional: loop-closure drift correction. On a route that returns
-    # near its start, monocular VO leaves a large end-start gap (pure
-    # drift) that warps the whole shape — the dominant geometric error.
-    # If the last frames verifiably revisit the first, redistribute the
-    # gap back along the trajectory. Pair with a real metric scale
-    # (--use-ipm-scale): closing the loop at a wrong scale doesn't help.
-    result_loop_closure: dict | None = None
-    if cfg.enable_loop_closure:
-        from .loop_closure import detect_end_to_start_loop, redistribute_drift
-        from .visual_odometry import trajectory_arc_length as _arclen2
-        print("[4b2] Loop-closure drift correction")
-        try:
-            frame_pair = detect_end_to_start_loop(frames.frames)
-            # The detector indexes the extracted FRAMES; the drift fix acts
-            # on match_xz POSES, which is a different (shorter) axis when a
-            # staged trajectory is in use — remap proportionally.
-            pair = _remap_frame_pair_to_poses(
-                frame_pair, len(frames.frames), len(match_xz))
-            if pair is not None:
-                i, j = pair
-                gap = float(np.linalg.norm(match_xz[j] - match_xz[i]))
-                arclen = float(_arclen2(match_xz)[-1])
-                match_xz = redistribute_drift(match_xz, i, j)
-                result_loop_closure = {"closed": True, "i": int(i), "j": int(j),
-                                       "frame_i": int(frame_pair[0]),
-                                       "frame_j": int(frame_pair[1]),
-                                       "gap_units": round(gap, 2)}
-                print(f"      -> loop detected (frames {frame_pair[0]}↔"
-                      f"{frame_pair[1]} -> poses {i}↔{j}); closed "
-                      f"{gap:.1f}-unit gap ({100 * gap / max(arclen, 1e-6):.0f}% of arc)")
-            else:
-                result_loop_closure = {"closed": False}
-                print("      -> no verifiable loop (end does not revisit start)")
-        except Exception as e:
-            print(f"      -> loop-closure failed ({e}); using VO path unchanged")
-            _record_channel(channel_status, 'loop_closure', "failed", error=e)
 
     # 4c. Optional: OCR scene-text → geocoded POI anchors. Computed before
     # the match so the anchors can *seed* enumeration (add walk roots near
