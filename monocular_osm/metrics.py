@@ -69,6 +69,15 @@ THRESHOLDS_M: tuple[int, ...] = (25, 50, 100, 250, 500, 1000)
 
 #: Resampling step (metres) for pred->GT and the curve distances.
 DENSIFY_M: float = 10.0
+# GEOS' discrete Fréchet distance recurses to a depth of about n + m vertices
+# and takes the whole interpreter down (a native stack overflow, no exception)
+# once a curve has roughly 3,000-4,000 vertices alongside a ~1,200-vertex
+# partner - i.e. a predicted route of 40+ km at the 10 m densification. An
+# erratic track (a particle-filter mode, a runaway VO) easily gets there.
+# Each curve is therefore resampled by arc length to at most this many
+# vertices FOR THE FRÉCHET ONLY; routes up to 15 km at 10 m are untouched
+# (bit-identical), longer ones lose at most half the new spacing.
+FRECHET_MAX_VERTICES: int = 1500
 
 #: Metrics that get success flags, in report order.
 SUCCESS_METRICS: tuple[str, ...] = ("start_error_m", "symmetric_mean_m")
@@ -124,6 +133,15 @@ def _resample_by_arc_length(geom, step_m: float) -> np.ndarray:
     d = np.linspace(0.0, length, n + 1)
     pts = shapely.line_interpolate_point(geom, d)
     return shapely.get_coordinates(pts)
+
+
+def _cap_vertices(geom, max_vertices: int = FRECHET_MAX_VERTICES):
+    """``geom`` resampled by arc length to at most ``max_vertices`` vertices
+    (endpoints kept); a Point or an already-small line is returned as is."""
+    if isinstance(geom, Point) or shapely.get_num_coordinates(geom) <= max_vertices:
+        return geom
+    d = np.linspace(0.0, geom.length, max_vertices)
+    return LineString(shapely.get_coordinates(shapely.line_interpolate_point(geom, d)))
 
 
 def _segmentized(geom, step_m: float):
@@ -207,7 +225,7 @@ def score_route(
     pred_d = _segmentized(pred_geom, densify_m)
     gt_d = _segmentized(gt_geom, densify_m)
     hausdorff = float(shapely.hausdorff_distance(pred_d, gt_d))
-    frechet = float(shapely.frechet_distance(pred_d, gt_d))
+    frechet = float(shapely.frechet_distance(_cap_vertices(pred_d), _cap_vertices(gt_d)))
 
     g2p_mean = float(g2p.mean())
     p2g_mean = float(p2g.mean())

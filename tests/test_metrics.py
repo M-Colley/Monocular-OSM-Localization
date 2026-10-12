@@ -169,3 +169,56 @@ def test_gt_to_pred_reproduces_the_legacy_evaluator() -> None:
     assert s.gt_to_pred_mean_m == pytest.approx(legacy.mean_route_error_m, abs=1.0)
     assert s.gt_to_pred_max_m == pytest.approx(legacy.max_route_error_m, abs=1.0)
     assert s.start_error_m == pytest.approx(legacy.start_error_m, abs=1.0)
+
+
+# --- GEOS stack-overflow guard -------------------------------------------------------
+
+def test_cap_vertices_keeps_endpoints_and_leaves_short_lines_alone() -> None:
+    import numpy as np
+    from shapely.geometry import LineString
+
+    from monocular_osm.metrics import _cap_vertices
+
+    short = LineString([(0, 0), (1, 0), (2, 0)])
+    assert _cap_vertices(short) is short
+    long_line = LineString(np.column_stack([np.arange(5000.0), np.zeros(5000)]))
+    capped = _cap_vertices(long_line, 1500)
+    coords = np.asarray(capped.coords)
+    assert len(coords) == 1500
+    assert coords[0].tolist() == [0.0, 0.0] and coords[-1].tolist() == [4999.0, 0.0]
+
+
+def test_normal_routes_are_bit_identical_after_the_cap() -> None:
+    """A 12 km route at 10 m spacing is 1,200 vertices: below the cap, so the
+    Fréchet is computed on exactly the same geometry as before."""
+    import numpy as np
+
+    from monocular_osm.metrics import _cap_vertices, _segmentized, _geometry
+
+    xy = np.column_stack([np.linspace(0, 12000, 40), np.sin(np.linspace(0, 9, 40)) * 300])
+    seg = _segmentized(_geometry(xy), 10.0)
+    assert _cap_vertices(seg) is seg
+
+
+def test_a_very_long_prediction_does_not_kill_the_interpreter() -> None:
+    """Run in a subprocess: before the cap this took the whole process down
+    (native stack overflow in GEOS), which would kill pytest itself."""
+    import subprocess
+    import sys
+
+    code = (
+        "import numpy as np\n"
+        "from pyproj import Transformer\n"
+        "from monocular_osm.metrics import score_route\n"
+        "rng = np.random.default_rng(0)\n"
+        "gt_xy = np.column_stack([np.linspace(0, 2000, 30), np.zeros(30)])\n"
+        "pred_xy = np.cumsum(rng.normal(0, 400, (400, 2)), axis=0)   # ~150 km of path\n"
+        "inv = Transformer.from_crs('+proj=aeqd +lat_0=48.4 +lon_0=9.99 +datum=WGS84', 4326, always_xy=True)\n"
+        "ll = lambda xy: np.column_stack(inv.transform(xy[:, 0], xy[:, 1])[::-1])\n"
+        "s = score_route(ll(pred_xy), ll(gt_xy))\n"
+        "assert s.pred_length_m > 100000 and np.isfinite(s.frechet_m), s\n"
+        "print('OK', round(s.pred_length_m / 1000), 'km')\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         timeout=300)
+    assert out.returncode == 0 and "OK" in out.stdout, (out.returncode, out.stderr[-400:])
