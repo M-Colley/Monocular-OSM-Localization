@@ -6,10 +6,10 @@
 > run side-by-side (route shape, OSM aerial feature matching, dense splat
 > reconstruction) and a consensus rank picks the best agreement.
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
-![Tests](https://img.shields.io/badge/tests-605%2F605-brightgreen)
+![Tests](https://img.shields.io/badge/unit%20tests-1%2C100%2B%20passing-brightgreen)
 ![BevSplat](https://img.shields.io/badge/BevSplat-live%20inference%20%E2%9C%93-blue)
 
 Reference clip used in the demo:
@@ -20,10 +20,11 @@ Reference clip used in the demo:
 >
 > The single biggest accuracy lever in this whole pipeline is **dense street-level
 > Visual Place Recognition against Mapillary imagery**. It is what turns "roughly
-> the right city" into "the right street." Fully GPS-free (city name only), it
-> localizes to **30–156 m on the clips with enough distinctive signal** — the
-> honest deployable result, no GPS prior (see the
-> [deployable results table](#accuracy--deployable-gps-free-the-honest-headline)).
+> the right city" into "the right street." Fully GPS-free (city name only), the
+> one clip fully re-measured so far (Ulm 4K) reaches about 34 m; the full
+> re-measurement, with a city-centre baseline and repeated runs, is in
+> [Accuracy](#accuracy--deployable-gps-free) — the older 30–156 m headline was
+> not reproducible and has been retired.
 > The best configuration (VPR prior + dense Mapillary + coarse-to-fine +
 > video/frame coarse seeds + scale-lock) is now **on by default**, but the
 > Mapillary parts only light up if you give the pipeline a token.
@@ -41,9 +42,9 @@ Reference clip used in the demo:
 > ```
 >
 > **Without a key** the pipeline still runs — it falls back to the sparse,
-> tokenless KartaView source — but on most footage the deployable (GPS-free)
-> localization **collapses to kilometre-scale error** because KartaView coverage
-> is too thin to disambiguate the district. If you take away one thing from this
+> tokenless KartaView source. In earlier sweeps that coverage was too thin to
+> disambiguate a district (kilometre-scale error); the tokenless case has not
+> been re-measured under the new benchmark. If you take away one thing from this
 > README: **set `MLY_TOKEN`.**
 
 ---
@@ -62,27 +63,31 @@ where it fits. If the video happens to show readable **street signs or landmarks
 it also reads them and uses them to pin the location down further.
 
 What you get back is a **best-guess location** (latitude/longitude + the street
-names), a **short list of other likely spots**, and an **honest confidence score**.
+names) and a **short list of other likely spots**. It also prints a "shape fit"
+grade; treat that as a measure of how well the path fits the map, *not* as the
+probability of being right — on dense street grids many routes fit the shape
+equally well, and the spread of the shortlist is the better guide to how much to
+trust the answer.
 
-How well does it work right now? Being honest about the **fully GPS-free** case
-(you give it only the city name, nothing else): on **3 of our 9 test clips it
-localizes to the right street — 30–156 m** (sign-rich central Ulm, a Málaga
-residential drive, and a held-out Ulm drive). Two mega-city clips (Berlin,
-London) reach the right corridor but stay ~1.5–2.5 km coarse. And **4 clips
-collapse to 5–7 km, in the wrong district** — old low-res KITTI footage (2011,
-unreadable plates, no title) and self-similar suburban grids (Daly City, Vaughan)
-where the coarse pass has no distinctive signal to grab. Crucially, in those hard
-cases **it says so** — low confidence plus a shortlist — rather than confidently
-returning a single wrong pin. The honest takeaway: where the footage gives it
-something to latch onto, it lands on the right street with no GPS; where it
-doesn't, it fails openly instead of bluffing. (Some tables further down this
-README quote much tighter numbers like ~77–150 m across the fleet — those are
-**GT-seeded**, i.e. measured with a coarse GPS prior supplied, and are *not*
-deployable numbers. The GPS-free table is the honest one.)
+How well does it work? The honest answer is: **it depends on the footage, and the
+numbers are being re-measured.** Where the video names a place, shows legible
+signs and the area has dense street-level photos, it can land on the right street
+without any GPS — the one clip fully re-measured so far (Ulm 4K) lands within
+about 34 m. On other footage it can be kilometres off, and on several clips it is
+no better than simply guessing the centre of the city you named. The previous
+version of this README claimed 30–156 m on 3 of 9 clips; that table could not be
+reproduced (it mixed code versions, used city names picked with knowledge of the
+route, and recorded no configuration), so it has been retired. The new benchmark
+refuses to leak ground truth, repeats every clip, records its own provenance and
+always reports the "centre of the named city" baseline — see
+[Accuracy](#accuracy--deployable-gps-free). (Numbers elsewhere in this README that
+look much tighter, such as ~77–150 m, were measured with a coarse GPS prior
+supplied and are **not** deployable.)
 
-We didn't just test this on one video — it's checked against **real driving
-datasets from three cities** (Ulm and Karlsruhe in Germany, San Francisco in the
-US) that ship with real GPS, so every answer can be scored against the truth. See
+We did not just test this on one video: the benchmark is 18 clips in a dozen
+cities on three continents, scored against GPS from a dataset's own INS, from
+hand-labelled map look-ups, or from the position stamp burned into dashcam
+footage. See
 [Final results](#final-results--multi-clip-ground-truth-benchmark) below.
 
 The rest of this README is the engineering detail behind each of those steps.
