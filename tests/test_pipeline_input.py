@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 import monocular_osm.pipeline as pipeline
+import monocular_osm.stages.acquire as stage_acquire
 from monocular_osm.pipeline import (
     PipelineConfig,
     _auto_estimated_length_m,
@@ -50,7 +51,7 @@ def _forbid_download(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*args: object, **kwargs: object) -> None:
         raise AssertionError("download_video must not be called")
 
-    monkeypatch.setattr(pipeline, "download_video", _boom)
+    monkeypatch.setattr(stage_acquire, "download_video", _boom)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +113,7 @@ def test_url_branch_downloads(
         calls.append((url, out_dir))
         return sentinel
 
-    monkeypatch.setattr(pipeline, "download_video", fake_download)
+    monkeypatch.setattr(stage_acquire, "download_video", fake_download)
     cfg = _cfg(tmp_path)
     assert _resolve_input_video(cfg) == sentinel
     assert calls == [(cfg.url, cfg.data_dir)]

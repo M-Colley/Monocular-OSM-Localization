@@ -486,12 +486,6 @@ def _plot_match(
     plt.close(fig)
 
 
-# Urban average driving speed including traffic-light stops. The Ulm GT
-# track averaged 5.0 m/s point-to-point; the driven path is a bit longer
-# than the straight segments between fixes, so 5.5 m/s is a reasonable
-# city-wide prior.
-_URBAN_AVG_SPEED_MPS = 5.5
-
 # Weight of the BevSplat appearance rank in the consensus fusion. On the
 # Ulm GT run the channel decisively down-ranked the wrong geometric
 # winner (rank 9/10) while top-scoring the best-corridor candidate, so
@@ -542,35 +536,6 @@ def _fuse_bev_rank(
         key=lambda i: (base_scores[i] + w_bev * bev_ranks[i], base_scores[i], i),
     )
     return reordered + tail
-
-
-def _auto_estimated_length_m(duration_sec: float) -> float:
-    """Route-length prior from the analyzed duration at urban speed.
-
-    Clamped to [500, 12000]: below 500 m walk enumeration degenerates
-    (every micro-walk matches anything), above 12 km the walk depth cap
-    truncates walks anyway.
-    """
-    return float(np.clip(duration_sec * _URBAN_AVG_SPEED_MPS, 500.0, 12000.0))
-
-
-def _length_sane(
-    candidate_m: float,
-    duration_prior_m: float,
-    user_length_m: float | None = None,
-) -> bool:
-    """A recovered length is trustworthy if it's within 2x of the
-    duration-based estimate (the robust reference) — or, when the user
-    supplied an explicit ``--estimated-length-m``, within 2x of THAT.
-
-    Without the user gate, a correct recovered length on a fast
-    (highway) clip is rejected against the conservative 5.5 m/s prior
-    even though the user already told us the true extent.
-    """
-    refs = [duration_prior_m]
-    if user_length_m is not None and user_length_m > 0:
-        refs.append(float(user_length_m))
-    return any(0.5 * r <= candidate_m <= 2.0 * r for r in refs)
 
 
 def _vo_cache_candidates(cfg: "PipelineConfig"):
@@ -1463,78 +1428,6 @@ def _da3_trajectory_plausible(xy: np.ndarray) -> bool:
     return reversal_ratio <= 0.15
 
 
-_VIDEO_EXT_RANK = {".mp4": 0, ".mkv": 1, ".webm": 2}
-_NON_VIDEO_SUFFIXES = {".json", ".part", ".ytdl", ".txt"}
-
-
-def rank_cached_inputs(paths) -> list:
-    """Deterministic order for cached ``input.*`` video files: fixed extension
-    preference (mp4 < mkv < webm, other suffixes last), then newest, then name.
-
-    yt-dlp intermediates (``input.temp.mp4``, per-format ``input.f399.mp4``)
-    and sidecars (``input.download.json``, ``.part``, ``.ytdl``) are not
-    finished videos and are dropped — an intermediate shares the ``.mp4``
-    suffix and, being newer, used to outrank the real download.
-    """
-    from .download import _INTERMEDIATE
-
-    finished = [
-        p for p in paths
-        if p.suffix.lower() not in _NON_VIDEO_SUFFIXES
-        and not _INTERMEDIATE.search(p.name)
-    ]
-    return sorted(
-        finished,
-        key=lambda p: (_VIDEO_EXT_RANK.get(p.suffix.lower(), len(_VIDEO_EXT_RANK)),
-                       -p.stat().st_mtime, p.name),
-    )
-
-
-def pick_cached_input(data_dir: Path) -> Path | None:
-    """The cached download to analyse, or None.
-
-    The marker :func:`download.download_video` writes names the finished
-    file and wins; otherwise the best of :func:`rank_cached_inputs`. Shared by
-    :func:`_resolve_input_video` and the CLI's fps probe so the file whose fps
-    picks the stride is the file the pipeline analyses.
-    """
-    from .download import _existing_download
-
-    marked = _existing_download(Path(data_dir), "input")
-    if marked is not None:
-        return marked
-    ranked = rank_cached_inputs(Path(data_dir).glob("input.*"))
-    return ranked[0] if ranked else None
-
-
-def _resolve_input_video(cfg: PipelineConfig) -> Path:
-    """Return the path of the video to analyze.
-
-    Resolution order:
-    1. ``cfg.video_path`` — a local file supplied by the user. Used as-is
-       (never copied; multi-GB dashcam files shouldn't be duplicated).
-    2. ``cfg.skip_download`` — a previously-downloaded ``input.*`` in
-       ``cfg.data_dir``.
-    3. Otherwise download ``cfg.url`` with yt-dlp.
-    """
-    if cfg.video_path is not None:
-        video_path = Path(cfg.video_path)
-        if not video_path.exists():
-            raise FileNotFoundError(f"local video not found: {video_path}")
-        print(f"[1/5] Using local video: {video_path}")
-        return video_path
-    if cfg.skip_download:
-        picked = pick_cached_input(cfg.data_dir)
-        if picked is None:
-            raise FileNotFoundError("--skip-download but no cached video in data/")
-        print(f"[1/5] Using cached video: {picked}")
-        return picked
-    print(f"[1/5] Downloading video from {cfg.url}")
-    video_path = download_video(cfg.url, cfg.data_dir)
-    print(f"      -> {video_path}")
-    return video_path
-
-
 def _fetch_road_graph(
     city: str, cache_path: Path,
     around: tuple[float, float, float] | None = None,
@@ -1642,20 +1535,6 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
     return None
 
 
-def _record_channel(status: dict, name: str, state: str, *,
-                    error: BaseException | None = None, **info) -> None:
-    """Record a channel's outcome: "ok" | "inactive" | "failed" | "disabled".
-
-    A channel that raised used to be indistinguishable in result.json from
-    one that ran and changed nothing (each failure was only printed), which
-    makes any ablation over these channels untrustworthy.
-    """
-    entry: dict = {"status": state, **info}
-    if error is not None:
-        entry["error"] = f"{type(error).__name__}: {error}"
-    status[name] = entry
-
-
 def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
                         fusion: dict | None) -> dict:
     """Fill in a status for every channel that did not record a failure.
@@ -1678,99 +1557,51 @@ def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
     return status
 
 
+
+# Names that moved into monocular_osm/stages/ stay importable from here.
+from .stages.context import (  # noqa: F401
+    _record_channel,
+    RunContext,
+)
+from .stages.acquire import (  # noqa: F401
+    _NON_VIDEO_SUFFIXES,
+    _resolve_input_video,
+    _VIDEO_EXT_RANK,
+    pick_cached_input,
+    rank_cached_inputs,
+    acquire_video,
+    extract_video_frames,
+)
+from .stages.length_prior import (  # noqa: F401
+    _auto_estimated_length_m,
+    _length_sane,
+    _URBAN_AVG_SPEED_MPS,
+    estimate_flow_scale,
+    estimate_length_prior,
+)
+from .stages.length_prior import _length_sane_here as _length_sane_here_ctx
+
+
 def run_pipeline(cfg: PipelineConfig) -> dict:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
-    # Consensus-fusion weights (defaults = the published values) and the
-    # per-channel outcome record written to result["channels"].
-    fusion_w = FusionWeights.from_overrides(cfg.fusion_weights)
-    channel_status: dict[str, dict] = {}
+    ctx = RunContext.create(cfg)
+    acquire_video(ctx)
+    extract_video_frames(ctx)
+    estimate_length_prior(ctx)
+    estimate_flow_scale(ctx)
 
-    # 1. Acquire the input video (local file / cache / download).
-    video_path = _resolve_input_video(cfg)
-
-    # 2. Frames.
-    print(f"[2/5] Extracting frames (stride={cfg.frame_stride}, "
-          f"window={cfg.vo_start_sec}-{cfg.vo_end_sec}s)")
-    frames = extract_frames(
-        video_path,
-        stride=cfg.frame_stride,
-        max_frames=cfg.max_frames,
-        start_sec=cfg.vo_start_sec,
-        end_sec=cfg.vo_end_sec,
-    )
-    print(f"      -> {len(frames.frames)} frames @ {frames.fps:.1f} fps")
-
-    # 2b. Route-length prior for OSM walk enumeration. The
-    # duration-based estimate is the *stable sanity reference* that every
-    # (noisier) scale source — IPM flow (2c), DA3 (4b), anchors (4c) — is
-    # gated against. Gating each source against this fixed baseline
-    # rather than against the running prior avoids one unreliable source
-    # opening the gate for another (e.g. IPM flow lowering the prior so a
-    # wrong anchor scale then passes).
-    analyzed_sec = (
-        frames.timestamps[-1] - frames.timestamps[0]
-        if len(frames.timestamps) >= 2 else 0.0
-    )
-    duration_prior_m = _auto_estimated_length_m(analyzed_sec)
-    if cfg.estimated_length_m is not None:
-        estimated_length_m = float(cfg.estimated_length_m)
-    else:
-        estimated_length_m = duration_prior_m
-        print(f"      -> estimated route length: {estimated_length_m:.0f} m "
-              f"(auto: {analyzed_sec:.0f} s at urban avg speed; "
-              f"override with --estimated-length-m)")
+    # --- not yet extracted: the remaining stages still run inline on locals ---
+    fusion_w = ctx.fusion_w
+    channel_status = ctx.channel_status
+    video_path = ctx.video_path
+    frames = ctx.frames
+    duration_prior_m = ctx.duration_prior_m
+    estimated_length_m = ctx.estimated_length_m
+    result_ipm_scale = ctx.result_ipm_scale
 
     def _length_sane_here(candidate_m: float) -> bool:
-        """A recovered length is trustworthy only if it's within 2x of the
-        duration-based estimate — or of an explicit user-provided
-        ``--estimated-length-m`` (see module-level ``_length_sane``)."""
-        return _length_sane(candidate_m, duration_prior_m,
-                            user_length_m=cfg.estimated_length_m)
-
-    # 2c. Idea 3: ground-plane optical-flow metric scale (opt-in). Sets
-    # the length prior from road-feature motion, sanity-gated against the
-    # duration estimate. Off by default — unreliable without real camera
-    # calibration.
-    if cfg.use_ipm_scale:
-        print("[2c] Ground-plane optical-flow scale")
-        try:
-            from .speed_scale import estimate_route_length_from_flow
-            h_img, w_img = frames.frames[0].shape[:2]
-            K_flow = default_intrinsics(w_img, h_img)
-            # Subsample to ~3 fps so the flow pass is quick.
-            step = max(1, int(round(frames.fps / 3.0)) // max(1, cfg.frame_stride))
-            sub = frames.frames[::step] if step > 1 else frames.frames
-            flow_len, motions = estimate_route_length_from_flow(
-                sub, K_flow, camera_height_m=cfg.ipm_scale_camera_height_m,
-                pitch_deg=cfg.ipm_scale_pitch_deg, fps=frames.fps,
-                frame_stride=cfg.frame_stride * step,
-            )
-            # IPM flow is a *physical measurement* (optical flow + camera
-            # height), so trust it on a looser bound than the generic 2x
-            # sanity gate: the duration prior uses a conservative 5.5 m/s,
-            # so a faster drive legitimately measures ~2x it (KITTI 0033:
-            # true 1705 m vs 876 m prior = 1.95x), which the 2x gate would
-            # wrongly reject. Accept within [0.3x, 3x] of the prior.
-            if flow_len > 0 and 0.3 * duration_prior_m <= flow_len <= 3.0 * duration_prior_m:
-                print(f"      -> flow length {flow_len:.0f} m adopted (was "
-                      f"{estimated_length_m:.0f} m)")
-                estimated_length_m = float(np.clip(flow_len, 500.0, 12000.0))
-                result_ipm_scale = {"status": "ok", "length_m": round(flow_len, 1)}
-            else:
-                # Report the duration_prior_m the gate ACTUALLY compares
-                # against, not estimated_length_m (they differ when the length
-                # prior was overridden — printing the wrong one misleads scale
-                # debugging).
-                print(f"      -> flow length {flow_len:.0f} m rejected (sanity vs "
-                      f"prior {duration_prior_m:.0f} m); keeping prior")
-                result_ipm_scale = {"status": "rejected", "length_m": round(flow_len, 1)}
-        except Exception as e:
-            print(f"      -> IPM-scale failed: {e}")
-            _record_channel(channel_status, 'ipm_scale', "failed", error=e)
-            result_ipm_scale = {"status": "error", "error": str(e)}
-    else:
-        result_ipm_scale = None
+        return _length_sane_here_ctx(ctx, candidate_m)
 
     # 3. Visual odometry. Cache to disk: VO is the slowest CPU stage of
     # the pipeline (minutes on a 7-minute clip), and the recovered
