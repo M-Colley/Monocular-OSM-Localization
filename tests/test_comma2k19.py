@@ -123,6 +123,10 @@ def test_comma_ground_truth_schema(tmp_path: Path) -> None:
     assert 2 <= len(gt["waypoints"]) <= 10
     for w in gt["waypoints"]:
         assert set(w) == {"t_sec", "lat", "lon"}
+    # Provenance text: global pose, never the shared writer's OCR default.
+    assert "global pose" in gt["description"]
+    assert "OCR" not in gt["description"].replace("Not OCR", "")
+    assert "30 poses" in gt["description"]
     import json
     json.dumps(gt)
 

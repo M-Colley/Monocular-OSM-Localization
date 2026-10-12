@@ -26,9 +26,11 @@ to the existing behaviour.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
+from skimage.measure import ransac
 from skimage.transform import SimilarityTransform
 
 from .visual_odometry import trajectory_arc_length
@@ -88,6 +90,18 @@ class AnchorTransform:
     world_baseline_m: float   # spatial span of the inlier world points
 
 
+def _pair_coverage_trials(n_pairs: int, miss_prob: float = 1e-9) -> int:
+    """Uniform 2-subset draws needed so that *every* one of ``n_pairs``
+    pairs is drawn at least once with probability >= 1 - ``miss_prob``.
+
+    Coupon-collector union bound: P(some pair never drawn in T draws)
+    <= n_pairs * exp(-T / n_pairs), so T = n_pairs * (ln n_pairs +
+    ln 1/miss_prob) suffices.
+    """
+    n_pairs = max(int(n_pairs), 1)
+    return int(np.ceil(n_pairs * (np.log(n_pairs) + np.log(1.0 / miss_prob))))
+
+
 def fit_similarity_ransac(
     vo_pts: np.ndarray,
     world_pts: np.ndarray,
@@ -100,52 +114,70 @@ def fit_similarity_ransac(
 ) -> AnchorTransform | None:
     """RANSAC similarity transform mapping VO coords to world metres.
 
-    Samples 2 correspondences per iteration (a similarity is exactly
-    determined by two point pairs), scores inliers by reprojection
-    residual, and refits on the largest inlier set. Returns ``None``
-    unless at least ``min_inliers`` agree *and* they span at least
-    ``min_world_baseline_m`` — a short baseline yields an unreliable
-    scale, so we'd rather decline than emit a bad georeference.
+    Thin wrapper over :func:`skimage.measure.ransac` with
+    :class:`~skimage.transform.SimilarityTransform`: 2 correspondences
+    per hypothesis (a 2-D similarity is exactly determined by two point
+    pairs), inliers are correspondences with reprojection residual
+    ``< thresh_m``, and the model is refit on the largest consensus set
+    (ties broken by the smaller sum of squared residuals). Returns
+    ``None`` unless at least ``min_inliers`` agree *and* they span at
+    least ``min_world_baseline_m`` — a short baseline yields an
+    unreliable scale, so we'd rather decline than emit a bad
+    georeference.
+
+    Sampling budget. The previous hand-rolled loop swept every pair
+    exhaustively whenever ``n*(n-1)/2 <= n_iter``. skimage samples
+    pairs at random, so for that small-``n`` regime ``max_trials`` is
+    raised to the coupon-collector bound (:func:`_pair_coverage_trials`,
+    every pair drawn with probability >= 1 - 1e-9). skimage however
+    also stops early once it is (1 - 2**-52)-confident that an
+    all-inlier pair has been drawn (``stop_probability=1`` cannot
+    disable this), so the result is the standard RANSAC consensus, not
+    a provable maximum over all pairs. Measured against the old
+    exhaustive sweep on 3000 synthetic anchor sets (n = 3..10, 10-80 m
+    anchor noise, 0-50 % gross outliers, thresh 150 m): 94.7 % identical
+    results, 4.5 % a different inlier set of mostly equal size (tie
+    broken by lower squared-residual sum), 0.8 % accept/decline flips;
+    on the 136 differing sets the relative scale error w.r.t. the true
+    scale was lower, not higher (median 10.3 % vs 12.2 %, mean 17.8 %
+    vs 34.8 %). With more pairs
+    than ``n_iter`` the budget is ``n_iter`` random draws, as before.
+    ``rng_seed`` makes the fit deterministic.
     """
     vo_pts = np.asarray(vo_pts, dtype=np.float64)
     world_pts = np.asarray(world_pts, dtype=np.float64)
     n = len(vo_pts)
-    if n < min_inliers:
-        return None
-    rng = np.random.default_rng(rng_seed)
-
-    best_inliers: np.ndarray | None = None
-    pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
-    # Deterministic sweep over all pairs when few anchors; else sample.
-    if len(pairs) <= n_iter:
-        samples = pairs
-    else:
-        samples = [tuple(rng.choice(n, size=2, replace=False)) for _ in range(n_iter)]
-
-    for i, j in samples:
-        t = SimilarityTransform()
-        if not t.estimate(vo_pts[[i, j]], world_pts[[i, j]]):
-            continue
-        resid = np.linalg.norm(t(vo_pts) - world_pts, axis=1)
-        inliers = np.where(resid <= thresh_m)[0]
-        if best_inliers is None or len(inliers) > len(best_inliers):
-            best_inliers = inliers
-
-    if best_inliers is None or len(best_inliers) < min_inliers:
+    if n < max(min_inliers, 2):
         return None
 
-    # Refit on all inliers.
-    t = SimilarityTransform()
-    if not t.estimate(vo_pts[best_inliers], world_pts[best_inliers]):
+    n_pairs = n * (n - 1) // 2
+    max_trials = _pair_coverage_trials(n_pairs) if n_pairs <= n_iter else int(n_iter)
+    with warnings.catch_warnings():
+        # "No inliers found" is reported via the (None, None) return,
+        # which is handled below.
+        warnings.simplefilter("ignore", UserWarning)
+        model, inlier_mask = ransac(
+            (vo_pts, world_pts),
+            SimilarityTransform,
+            min_samples=2,
+            residual_threshold=thresh_m,
+            max_trials=max_trials,
+            rng=np.random.default_rng(rng_seed),
+        )
+    if inlier_mask is None or not model:
         return None
-    resid = np.linalg.norm(t(vo_pts[best_inliers]) - world_pts[best_inliers], axis=1)
-    scale = float(np.sqrt(np.linalg.det(t.params[:2, :2])))
+    best_inliers = np.flatnonzero(inlier_mask)
+    if len(best_inliers) < min_inliers:
+        return None
+
+    resid = model.residuals(vo_pts[best_inliers], world_pts[best_inliers])
+    scale = float(model.scale)
     w = world_pts[best_inliers]
     baseline = float(np.linalg.norm(w.max(axis=0) - w.min(axis=0)))
     if baseline < min_world_baseline_m or not np.isfinite(scale) or scale <= 0:
         return None
     return AnchorTransform(
-        transform=t, scale=scale, inlier_idx=best_inliers,
+        transform=model, scale=scale, inlier_idx=best_inliers,
         rms_m=float(np.sqrt((resid ** 2).mean())), world_baseline_m=baseline,
     )
 

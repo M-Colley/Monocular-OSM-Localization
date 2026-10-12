@@ -26,10 +26,31 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
+from .geo import LocalFrame, degree_half_extent
+
 _MEAN = None
 _STD = None
 _MODEL = None
 _MODEL_NAME = None   # backbone actually resident in _MODEL (survives fallback)
+
+# torch.hub sources, pinned to commits so an upstream change to a backbone
+# cannot silently change results (recorded via backbone_info()).
+# trust_repo=True is passed explicitly: without it torch.hub ASKS on stdin
+# whether to trust the repo, and an unattended run reads EOF as "no" — the
+# model never loads and the VPR channel, the main accuracy lever, silently
+# drops out ("VPR unavailable") on every fresh machine.
+HUB_MEGALOC = "gmberton/MegaLoc:5fe0dd697c4a70ba3e23607f6716ab3c606b16db"
+HUB_EIGENPLACES = "gmberton/eigenplaces:a2969f71d5ea31017443af490b15273ca4c50af1"
+
+# Why the last VPR entrypoint returned None (None after a success), so the
+# pipeline can record the reason instead of a bare "unavailable".
+LAST_FAILURE: str | None = None
+
+
+def backbone_info() -> dict:
+    """Which retrieval backbone is resident and where it came from."""
+    hub = {"megaloc": HUB_MEGALOC, "eigenplaces": HUB_EIGENPLACES}
+    return {"name": _MODEL_NAME, "hub": hub.get(_MODEL_NAME or "")}
 
 
 def _atomic_write_json(path: str, obj) -> None:
@@ -112,8 +133,7 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
             if isinstance(blob, dict) and blob.get("signature") == sig:
                 return blob["refs"]
     clat, clon = center
-    dlat = radius_m / 111320.0
-    dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
+    dlat, dlon = degree_half_extent(clat, clon, radius_m)
     sess = requests.Session()
     refs = {}
     # Latitude-aware lon step so query discs tile uniformly at any latitude
@@ -231,8 +251,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
     if not token:
         return []
     clat, clon = center
-    dlat = radius_m / 111320.0
-    dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
+    dlat, dlon = degree_half_extent(clat, clon, radius_m)
     # Small cells: the Graph API rejects a bbox that covers too many images.
     # To bound API cost on large radii we COARSEN the step so the grid stays
     # under the cell budget while still covering the whole disc. (The old
@@ -349,8 +368,7 @@ def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):
         except Exception:
             pass
     clat, clon = center
-    dlat = radius_m / 111320.0
-    dlon = radius_m / (111320.0 * np.cos(np.radians(clat)))
+    dlat, dlon = degree_half_extent(clat, clon, radius_m)
     # The meta-catalog serves at most ~500 features per search and (observed)
     # no next-page link, so tile the disc into sub-bboxes small enough that
     # each stays under that ceiling in dense areas.
@@ -712,7 +730,6 @@ def _robust_center(latlons, sims):
     (top ~40%), similarity-weighted geometric median, then a spatial-MAD outlier
     rejection + refit. On Ulm this lands 91 m from the GT route (vs 109 m without
     the MAD step, 512 m for a plain median). Returns (lat, lon)."""
-    import math as _m
     latlons = np.asarray(latlons, float)
     sims = np.asarray(sims, float)
     keep = sims >= float(np.percentile(sims, 60))
@@ -722,17 +739,17 @@ def _robust_center(latlons, sims):
     # Weiszfeld in a LOCAL METRIC frame: one degree of longitude is cos(lat)
     # times shorter than one of latitude, so a raw-degree median is biased
     # along the east-west axis (tens of metres at 48-60N — audit kartaview:155).
-    dm = 111320.0
-    lat0 = float(np.mean(pts[:, 0]))
-    coslat = _m.cos(_m.radians(lat0))
-    xy = np.column_stack([(pts[:, 1]) * dm * coslat, (pts[:, 0]) * dm])
+    # WGS84 azimuthal-equidistant frame around the cloud's mean (geo.py).
+    frame = LocalFrame(float(np.mean(pts[:, 0])), float(np.mean(pts[:, 1])))
+    xy = np.column_stack(frame.to_xy(pts[:, 0], pts[:, 1]))
     p = _geometric_median(xy, weights=wts)
     d = np.linalg.norm(xy - p, axis=1)
     mad = float(np.median(np.abs(d - np.median(d)))) + 1e-6
     good = d <= np.median(d) + 2.5 * 1.4826 * mad
     if int(good.sum()) >= 5:
         p = _geometric_median(xy[good], weights=wts[good])
-    return float(p[1] / dm), float(p[0] / (dm * coslat))
+    lat, lon = frame.to_latlon(float(p[0]), float(p[1]))
+    return float(lat), float(lon)
 
 
 def _resolve_backbone(model_name, device):
@@ -754,13 +771,19 @@ def _resolve_backbone(model_name, device):
     resolved = model_name
     if model_name == "megaloc":
         try:
-            _MODEL = torch.hub.load("gmberton/MegaLoc", "get_trained_model",
+            _MODEL = torch.hub.load(HUB_MEGALOC, "get_trained_model",
+                                    trust_repo=True,
                                     verbose=False).to(device).eval()
-        except Exception:
+        except Exception as e:
+            # Not silent: EigenPlaces is a different (weaker) embedding, and
+            # results computed with it are not comparable to MegaLoc ones.
+            print(f"      -> MegaLoc unavailable ({type(e).__name__}: {e}); "
+                  f"falling back to EigenPlaces")
             resolved = "eigenplaces"
     if _MODEL is None:
-        _MODEL = torch.hub.load("gmberton/eigenplaces", "get_trained_model",
+        _MODEL = torch.hub.load(HUB_EIGENPLACES, "get_trained_model",
                                 backbone="ResNet50", fc_output_dim=2048,
+                                trust_repo=True,
                                 verbose=False).to(device).eval()
     _MODEL_NAME = resolved
     return resolved
@@ -775,7 +798,7 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
     references are unavailable / too sparse. Callers own the tail (single
     robust centre vs. per-frame track).
     """
-    global _MEAN, _STD
+    global _MEAN, _STD, LAST_FAILURE
     import torch
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -787,9 +810,13 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
     else:
         refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
         if len(refs) < 30:
+            LAST_FAILURE = (f"only {len(refs)} {source} reference images within "
+                            f"{radius_m:.0f} m (need 30)")
             return None
         ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved)
     if ref_emb is None or len(ref_xy) < 30:
+        LAST_FAILURE = (f"too few embeddable {source} references "
+                        f"({0 if ref_xy is None else len(ref_xy)})")
         return None
     idx = np.linspace(0, len(frames_bgr) - 1,
                       min(n_query, len(frames_bgr))).astype(int)
@@ -813,6 +840,8 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         import torch  # noqa: F401 - availability guard; helper re-imports
     except Exception:
         return None
+    global LAST_FAILURE
+    LAST_FAILURE = None
     try:
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
@@ -823,7 +852,8 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         top1 = sims.argmax(1)
         maxsim = sims.max(1)
         return _robust_center(ref_xy[top1], maxsim)
-    except Exception:
+    except Exception as e:
+        LAST_FAILURE = f"{type(e).__name__}: {e}"
         return None
 
 
@@ -848,10 +878,11 @@ def _viterbi_decode(sims: np.ndarray, ref_latlon: np.ndarray,
     if n_r > 6000:
         raise ValueError(f"viterbi decode skipped: {n_r} refs exceeds the "
                          f"O(n^2) memory bound (6000); using argmax track")
-    lat0 = float(np.mean(ref_latlon[:, 0]))
-    xy = np.column_stack([
-        ref_latlon[:, 1] * 111320.0 * np.cos(np.radians(lat0)),
-        ref_latlon[:, 0] * 111320.0]).astype(np.float32)
+    ref_latlon = np.asarray(ref_latlon, dtype=np.float64)
+    frame = LocalFrame(float(np.mean(ref_latlon[:, 0])),
+                       float(np.mean(ref_latlon[:, 1])))
+    xy = np.column_stack(frame.to_xy(ref_latlon[:, 0], ref_latlon[:, 1])
+                         ).astype(np.float32)
     d = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=2)
     free = 30.0 + 40.0 * max(dt_s, 0.5)          # generous urban speed cap
     trans = -0.02 * np.maximum(0.0, d - free)    # sim-points per excess metre
@@ -885,6 +916,8 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
         import torch  # noqa: F401 - availability guard; helper re-imports
     except Exception:
         return None
+    global LAST_FAILURE
+    LAST_FAILURE = None
     try:
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
@@ -900,5 +933,6 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
                 pass                      # keep the argmax track
         maxsim = sims[np.arange(len(idx)), top1]
         return idx, ref_xy[top1].astype(float), maxsim.astype(float)
-    except Exception:
+    except Exception as e:
+        LAST_FAILURE = f"{type(e).__name__}: {e}"
         return None

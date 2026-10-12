@@ -41,11 +41,10 @@ STOPPED_M = 15.0
 
 
 def _haversine_m(a: dict, b: dict) -> float:
-    R = 6371000.0
-    la1, lo1, la2, lo2 = map(math.radians, (a["lat"], a["lon"], b["lat"], b["lon"]))
-    h = (math.sin((la2 - la1) / 2) ** 2
-         + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2)
-    return 2 * R * math.asin(math.sqrt(h))
+    """WGS84 geodesic distance between two waypoint dicts (name kept for
+    callers; computed by pyproj via monocular_osm.geo, not a sphere)."""
+    from monocular_osm.geo import geodesic_distance_m
+    return geodesic_distance_m(a["lat"], a["lon"], b["lat"], b["lon"])
 
 
 def _decimals(wps: list[dict]) -> int:

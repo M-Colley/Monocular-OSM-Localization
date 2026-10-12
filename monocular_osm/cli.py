@@ -51,6 +51,25 @@ DEFAULT_URL = "https://www.youtube.com/watch?v=ULl8s4qydrk"
 DEFAULT_CITY = "Ulm, Germany"
 
 
+def _parse_fusion_weights(text: str) -> dict:
+    """argparse type for --fusion-weights: a JSON object of known names."""
+    import json
+
+    from .fusion import FusionWeights
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise argparse.ArgumentTypeError(f"not valid JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise argparse.ArgumentTypeError("expected a JSON object")
+    try:
+        FusionWeights.from_overrides(data)
+    except (ValueError, TypeError) as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+    return {str(k): float(v) for k, v in data.items()}
+
+
 def _parse_segment(s: str) -> tuple[float, float | None]:
     a, _, b = s.partition(":")
     start = float(a) if a else 0.0
@@ -178,7 +197,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
              "~400s is the sweet spot before monocular VO drift degrades shape quality; "
              "a straight-line trajectory has no shape and cannot be localized.",
     )
-    p.add_argument("--top-k", type=int, default=10)
+    p.add_argument("--top-k", type=int, default=10,
+                   help="Matcher candidates passed to the fusion channels.")
+    p.add_argument("--walks-per-node", type=int, default=40,
+                   help="Walk-enumeration budget per start node. Larger values "
+                        "let the matcher generate routes with more turns at a "
+                        "runtime cost; measure recall with "
+                        "scripts/diagnose_pool_recall.py.")
+    p.add_argument("--fusion-weights", type=_parse_fusion_weights, default=None,
+                   metavar="JSON",
+                   help="Override consensus-fusion weights for ablation, e.g. "
+                        "'{\"sliding\": 0}'. Names: shape, sliding, turn, "
+                        "anchor_gated, anchor_ungated, aerial, tile3d "
+                        "(monocular_osm/fusion.py). Default: the published weights.")
+    p.add_argument("--scale-recovery-thresh-m", type=float, default=150.0,
+                   help="RANSAC inlier threshold (m) for the anchor similarity fit.")
+    p.add_argument("--scale-recovery-min-inliers", type=int, default=3,
+                   help="Minimum anchor inliers for the anchor similarity fit.")
+    p.add_argument("--scale-recovery-min-baseline-m", type=float, default=250.0,
+                   help="Minimum world extent (m) the inlier anchors must span.")
     p.add_argument(
         "--estimated-length-m",
         type=float,
@@ -642,6 +679,7 @@ def main() -> None:
         # gets. Behaves exactly like --osm-around but is sourced from the
         # video, not from ground truth.
         sub_osm_around = osm_around
+        osm_around_source = "user" if osm_around is not None else None
         if sub_osm_around is None and args.coarse_from_video:
             from .location_prior import resolve_coarse_prior
             prior = resolve_coarse_prior(city, metadata.title,
@@ -649,6 +687,7 @@ def main() -> None:
             if prior is not None:
                 plat, plon, prad, places = prior
                 sub_osm_around = (plat, plon, prad)
+                osm_around_source = "video_title"
                 print(f"[coarse] video-named prior {plat:.5f},{plon:.5f} "
                       f"r={prad:.0f} m from: {', '.join(places[:5])}")
             else:
@@ -685,6 +724,11 @@ def main() -> None:
             vo_start_sec=start,
             vo_end_sec=end,
             top_k=args.top_k,
+            walks_per_node=args.walks_per_node,
+            fusion_weights=args.fusion_weights,
+            scale_recovery_thresh_m=args.scale_recovery_thresh_m,
+            scale_recovery_min_inliers=args.scale_recovery_min_inliers,
+            scale_recovery_min_baseline_m=args.scale_recovery_min_baseline_m,
             estimated_length_m=args.estimated_length_m,
             skip_download=args.skip_download,
             sample_every=args.sample_every,
@@ -731,6 +775,7 @@ def main() -> None:
             use_ipm_scale=args.use_ipm_scale,
             scale_lock=args.scale_lock,
             osm_around=sub_osm_around,
+            osm_around_source=osm_around_source,
             coarse_from_frames=args.coarse_from_frames or args.coarse_from_vlm,
             coarse_from_vlm=args.coarse_from_vlm,
             use_vpr_prior=args.use_vpr_prior,

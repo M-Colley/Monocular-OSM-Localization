@@ -714,15 +714,20 @@ For the 7-minute GT-evaluated run, the actual route covers **Neutorstraße → K
 
 ### Consensus rank fusion
 
-The final pick is a weighted rank fusion (lower = better) over the channels that ran:
+The final pick is a weighted rank fusion (lower = better) over the channels
+that ran. The rule and its weights live in `monocular_osm/fusion.py`; every run
+writes the per-candidate inputs to `output/<slug>/fusion_features.json` and the
+effective weights to `result["fusion"]`, and `--fusion-weights '{"sliding": 0}'`
+overrides any weight for an ablation (`scripts/ablate.py` re-scores such
+variants offline).
 
 | Channel | Weight | Robust to | Notes |
 |---|---|---|---|
-| Shape (Procrustes RMS + bearing) | 1.0 | — | primary geometric fit |
-| Sliding-window support | 1.0 | local mismatch | falls back to shape rank when disabled |
+| Shape (Procrustes RMS + bearing) | 1.0 (**effectively 2.0** by default — see next row) | — | primary geometric fit |
+| Sliding-window support | 1.0 | local mismatch | off by default; its rank then **falls back to the shape rank**, so shape is counted twice |
 | Turn-sequence (`monocular_osm/turn_matching.py`) | 0.0 (diagnostic) | VO drift | discrete L/S/R turn events matched by edit distance. Computed and stored, but **not fused**: on GT it didn't improve ranking (a turn pattern isn't unique in a dense grid). |
 | **OCR anchor** (`monocular_osm/text_anchor.py`) | 2.0 (when present) | **VO drift** | distance from each candidate to the nearest geocoded POI read off the video. The only **absolute** signal, so it dominates when available — and it also *seeds enumeration* (below). |
-| Aerial coverage | 0.5 | — | trajectory-raster overlap coefficient |
+| Aerial coverage | 0.5 | — | trajectory-raster overlap coefficient — re-scores the same aligned-trajectory/walk pair the shape fit scored, so it is **not** an independent channel |
 | BevSplat appearance | 0.75 | — | **rank-capped**: only reorders the geometric top-5, so appearance can't promote a geometrically-implausible candidate to #1 |
 
 The BevSplat cap is a guardrail learned from a 10-minute run where unconstrained appearance fusion promoted a candidate 2.3 km from ground truth.
@@ -789,7 +794,7 @@ agreement, no GPS in the pipeline (the stamp is read *for evaluation only*, neve
 fed to the localizer).
 
 ```bash
-pip install -e ".[ocr]"                        # easyocr, the OCR engine
+pip install -e ".[ocr]"                        # rapidocr, the default OCR engine
 python scripts/build_overlay_fleet.py          # URL in -> ground_truth/*.json out
 python scripts/check_overlay_gt.py --map       # audit what came out
 python scripts/run_all_gt.py --overlay         # evaluate against it
@@ -1052,33 +1057,47 @@ public code yet.)
 
 ```
 .
-├── README.md
-├── LICENSE                          # MIT
-├── requirements.txt
-├── pyproject.toml                   # packaging metadata + osm-localize console script
-├── main.py                          # CLI shim for source checkouts (python main.py ...)
-├── monocular_osm/                   # importable package (pip install -> osm-localize)
-│   ├── __init__.py
-│   ├── cli.py                       # CLI entry point (osm-localize / python -m monocular_osm.cli)
-│   ├── download.py                  # yt-dlp wrapper
-│   ├── frame_extraction.py          # video → frames
-│   ├── visual_odometry.py           # frames → trajectory + R/t poses (OpenCV)
-│   ├── osm_data.py                  # OSM road graph + walk enumerator
-│   ├── trajectory_matching.py       # SHAPE channel — Procrustes via scikit-image
-│   ├── splat.py                     # sparse splat (triangulation + Open3D PLY + Plotly HTML)
-│   ├── aerial_match.py              # AERIAL channel — ORB+RANSAC homography vs OSM patches
-│   ├── bev_splat_match.py           # OPTIONAL cross-view channel — BevSplat (NeurIPS'26), pending upstream weights
-│   ├── da3_reconstruction.py        # OPTIONAL DENSE channel — Depth Anything 3 (GPU)
-│   ├── ipm.py                       # OPTIONAL BEV — Inverse Perspective Mapping
-│   ├── evaluator.py                 # Ground-truth distance scoring
-│   └── pipeline.py                  # glue
-├── tests/
-│   ├── test_frame_extraction.py
-│   ├── test_visual_odometry.py
-│   ├── test_osm_data.py
-│   ├── test_trajectory_matching.py
-│   ├── test_splat.py
-│   └── test_aerial_match.py
-├── data/                            # per-submission downloads + cached OSM + cached VO  (gitignored)
-└── output/                          # per-submission plots, splat PLY/HTML, OSM patches, IPM canvas (gitignored)
+├── README.md, CHANGELOG.md, LICENSE (MIT)
+├── pyproject.toml, requirements.txt   # core deps + extras: ocr, easyocr, plates, sfm, dev
+├── main.py                            # CLI shim for source checkouts (python main.py ...)
+├── monocular_osm/                     # the package (pip install -> osm-localize)
+│   ├── cli.py, pipeline.py            # entry point; end-to-end orchestration
+│   ├── fusion.py                      # consensus rule + per-candidate feature table
+│   ├── provenance.py                  # commit / config / versions recorded in result.json
+│   │
+│   ├── download.py, frame_extraction.py
+│   ├── visual_odometry.py             # ORB + essential-matrix VO (VO_ALGO_VERSION keys the cache)
+│   ├── ground_flow_scale.py, speed_scale.py, scale_recovery.py, loop_closure.py
+│   ├── da3_reconstruction.py, vggt_trajectory.py, mapanything_trajectory.py  # optional learned trajectories
+│   │
+│   ├── osm_data.py                    # OSM road graph + walk enumeration
+│   ├── trajectory_matching.py         # SHAPE channel: Procrustes + bearing correlation
+│   ├── turn_matching.py, hypotheses.py, position.py
+│   │
+│   ├── kartaview_vpr.py               # VPR prior: Mapillary / KartaView / Panoramax + MegaLoc
+│   ├── location_prior.py, city_inference.py   # title/description and OCR coarse seeds
+│   ├── scene_text.py, text_anchor.py, osm_gazetteer.py   # OCR anchors
+│   ├── plate_anchor.py, kfz_codes.py  # licence-plate district (data/kfz_codes.json from Wikidata)
+│   ├── sun_heading.py, vlm_anchor.py
+│   ├── aerial_match.py, embedding_retrieval.py, satellite.py
+│   ├── bev_splat_match.py, orienternet_localizer.py
+│   ├── citygml_lod2.py, osm_buildings3d.py, tile3d_match.py, sky_segmentation.py
+│   ├── splat.py, full_splat.py, ipm.py
+│   │
+│   ├── geo.py                         # pyproj geodesy (distances, local metric frames)
+│   ├── evaluator.py, metrics.py       # GT scoring: legacy + two-way route metrics
+│   ├── baselines.py                   # city centroid, VPR-only, matcher-only, pinned-only, oracle
+│   ├── gps_overlay.py                 # ground truth from burned-in dashcam GPS stamps
+│   └── kitti_raw.py, comma2k19.py, ext_datasets.py   # dataset adapters
+├── benchmarks/manifest.json           # the benchmark definition (clips, cities, windows, GT)
+├── ground_truth/                      # per-clip GT waypoints
+├── scripts/
+│   ├── benchmark.py                   # leak-free repeated runs + offline aggregation
+│   ├── ablate.py                      # offline channel ablation / learned fusion
+│   ├── diagnose_pool_recall.py        # is the true route in the candidate pool?
+│   ├── fetch_kitti_raw.py, build_overlay_fleet.py, check_overlay_gt.py, ...
+│   └── test_*.py                      # one-off EXPERIMENTS (not unit tests; pytest skips them)
+├── tests/                             # unit tests (pytest, scoped by pyproject testpaths)
+├── data/                              # downloads + caches (ignored, except the geocode snapshots)
+└── output/                            # run outputs and benchmark runs (ignored)
 ```

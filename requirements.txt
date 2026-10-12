@@ -14,19 +14,22 @@ open3d>=0.19.0
 plotly>=6.8.0
 pytest>=7.4.0
 tqdm>=4.68.2
-pycolmap>=4.1.0
 pysolar>=0.11              # absolute camera heading from the sun (--use-sun-heading)
 timezonefinder>=6.0        # timezone lookup for the sun-heading astronomy (--use-sun-heading)
+rapidfuzz>=3.0             # fuzzy street/place-name matching (text_anchor, osm_gazetteer)
 
 # --- OCR: scene-text anchors AND ground truth from GPS-overlay clips -------
-# Needed by --enable-ocr-anchor (monocular_osm/scene_text.py) and by
-# scripts/build_overlay_fleet.py (monocular_osm/gps_overlay.py). Pulls torch,
-# so it is a separate `pip install -e ".[ocr]"` extra in pyproject.toml rather
-# than a hard dependency; uncomment here for the requirements.txt route.
-# easyocr>=1.7.2
-# Alternative backend for --ocr-engine rapidocr (extra: [rapidocr]):
+# Needed by --enable-ocr-anchor (monocular_osm/scene_text.py), the sun-heading
+# clock reader and scripts/build_overlay_fleet.py (monocular_osm/gps_overlay.py).
+# The default engine (--ocr-engine rapidocr) is the `pip install -e ".[ocr]"`
+# extra; uncomment here for the requirements.txt route.
 # rapidocr>=3.9
 # onnxruntime>=1.20
+# Alternative backend --ocr-engine easyocr (extra: [easyocr]; pulls torch):
+# easyocr>=1.7.2
+
+# --- optional: COLMAP/GLOMAP SfM, only for scripts/test_glomap_traj.py ------
+# pycolmap>=4.1.0
 
 # --- optional GPU stack for the dense-splat (DA3) path --------------------
 # These are NOT required for the core trajectory/aerial pipeline; install

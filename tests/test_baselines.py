@@ -1,0 +1,139 @@
+"""Baselines/ablations (monocular_osm/baselines.py). No network anywhere."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from monocular_osm import baselines as B
+from monocular_osm.metrics import score_route
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _no_network(city):  # pragma: no cover - must never be called
+    raise AssertionError(f"network geocode attempted for {city!r}")
+
+
+# ---------------------------------------------------------------------------
+# city centroid
+# ---------------------------------------------------------------------------
+
+
+def test_city_centroid_reads_snapshot_exact_key(tmp_path: Path) -> None:
+    snap = tmp_path / "snap.json"
+    snap.write_text(json.dumps({"Ulm, Germany": [48.3984968, 9.9912458],
+                                "Toronto, Ontario, Canada": {"lat": 43.65, "lon": -79.38}}),
+                    encoding="utf-8")
+    p = B.city_centroid("Ulm, Germany", snapshots=[snap], geocoder=_no_network)
+    assert p.route_latlon == [[48.3984968, 9.9912458]]
+    assert p.kind == "point" and p.source.startswith("snapshot:")
+    p2 = B.city_centroid("Toronto, Ontario, Canada", snapshots=[snap], geocoder=_no_network)
+    assert p2.route_latlon == [[43.65, -79.38]]
+    # Exact-string keys: a different spelling is a miss, not a fuzzy hit.
+    assert B.city_centroid("Ulm", snapshots=[snap], allow_network=False) is None
+
+
+def test_city_centroid_falls_back_to_geocoder_and_records_it(tmp_path: Path) -> None:
+    p = B.city_centroid("Nowhere, XX", snapshots=[tmp_path / "missing.json"],
+                        geocoder=lambda c: (10.0, 20.0))
+    assert p.route_latlon == [[10.0, 20.0]]
+    assert p.source == "osmnx.geocode"
+    failing = B.city_centroid("Nowhere, XX", snapshots=[],
+                              geocoder=lambda c: (_ for _ in ()).throw(RuntimeError()))
+    assert failing is None
+
+
+# The October 2026 review's city-centroid numbers (mean GT->pred, i.e. the
+# legacy "mean route error"), with the city strings the README rows used.
+REVIEW_CENTROID = [
+    ("ulm_ULl8s4qydrk_0-300.json", "Ulm, Germany", 534),
+    ("ulm_LC9Sa--u5KE.json", "Ulm, Germany", 558),
+    ("malaga_extract07.json", "Málaga, Spain", 5352),
+    ("london_T4wTL3LpLqU.json", "London, UK", 1751),
+    ("comma_148.json", "Daly City, California, USA", 2067),
+    ("kitti_drive_0009.json", "Karlsruhe, Germany", 2645),
+    ("kitti_drive_0033.json", "Karlsruhe, Germany", 6843),
+    ("boreas_glenshields.json", "Vaughan, Ontario, Canada", 3805),
+]
+
+
+@pytest.mark.parametrize("gt_file,city,expected", REVIEW_CENTROID)
+def test_city_centroid_regression_against_review(gt_file, city, expected) -> None:
+    gt = json.loads((ROOT / "ground_truth" / gt_file).read_text(encoding="utf-8"))
+    gt_ll = np.array([[w["lat"], w["lon"]] for w in gt["waypoints"]])
+    pred = B.city_centroid(city, allow_network=False)
+    assert pred is not None and pred.source == "snapshot:data/geocode_cache.json"
+    s = score_route(pred.route_latlon, gt_ll)
+    assert s.gt_to_pred_mean_m == pytest.approx(expected, abs=5.0)
+
+
+# ---------------------------------------------------------------------------
+# result.json-derived ablations
+# ---------------------------------------------------------------------------
+
+ROUTE_A = [[48.40, 9.98], [48.41, 9.99]]
+ROUTE_B = [[48.30, 9.90], [48.31, 9.91]]
+
+
+def _result(**over) -> dict:
+    r = {
+        "position": {"source": "anchor_primary_vpr", "route_latlon": ROUTE_A,
+                     "start": {"latitude": 48.40, "longitude": 9.98},
+                     "hypotheses": [
+                         {"rank": 1, "latitude": 48.30, "longitude": 9.90},
+                         {"rank": 2, "latitude": 48.401, "longitude": 9.981},
+                         {"rank": 3, "latitude": 48.50, "longitude": 9.70},
+                     ]},
+        "matcher_position": {"source": "matcher", "route_latlon": ROUTE_B},
+        "pinned_position": {"source": "ocr_anchor_pin", "route_latlon": ROUTE_A},
+        "vpr_prior": {"lat": 48.405, "lon": 9.985, "origin": "vpr", "track_frames": 80},
+    }
+    r.update(over)
+    return r
+
+
+def test_report_derived_baselines() -> None:
+    r = _result()
+    assert B.pipeline_headline(r).route_latlon == ROUTE_A
+    m = B.matcher_only(r)
+    assert m.route_latlon == ROUTE_B and m.meta["report_source"] == "matcher"
+    p = B.pinned_only(r)
+    assert p.route_latlon == ROUTE_A and p.meta["report_source"] == "ocr_anchor_pin"
+    v = B.vpr_prior_only(r)
+    assert v.route_latlon == [[48.405, 9.985]] and v.kind == "point"
+    assert v.meta["origin"] == "vpr"
+
+
+def test_missing_channels_are_none_not_zero() -> None:
+    r = _result()
+    del r["pinned_position"], r["vpr_prior"]
+    assert B.pinned_only(r) is None
+    assert B.vpr_prior_only(r) is None
+    assert B.matcher_only({}) is None
+    assert B.pipeline_headline(None) is None
+
+
+def test_report_route_prefers_orienternet_refinement_and_falls_back() -> None:
+    rep = {"route_latlon": ROUTE_B, "orienternet_route_latlon": ROUTE_A}
+    assert B.report_route(rep) == ROUTE_A
+    assert B.report_route({"start": {"latitude": 1.0, "longitude": 2.0},
+                           "end": {"latitude": 1.5, "longitude": 2.5}}) == [[1.0, 2.0], [1.5, 2.5]]
+    assert B.report_route({"latitude": 1.0, "longitude": 2.0}) == [[1.0, 2.0]]
+    assert B.report_route({"route_latlon": [[1.0, None]]}) is None
+
+
+def test_shortlist_oracle_picks_by_gt_and_is_labelled() -> None:
+    gt = [[48.401, 9.9811], [48.42, 9.99]]
+    o = B.shortlist_oracle(_result(), gt, k=5)
+    assert o.oracle is True and o.name == "shortlist_oracle@5"
+    assert o.route_latlon == [[48.401, 9.981]]
+    assert o.meta == {"k": 5, "k_available": 3, "chosen_rank": 2}
+    # k limits the shortlist: with k=1 only hypothesis #1 is eligible.
+    assert B.shortlist_oracle(_result(), gt, k=1).route_latlon == [[48.30, 9.90]]
+    r = _result()
+    r["position"].pop("hypotheses")
+    assert B.shortlist_oracle(r, gt) is None

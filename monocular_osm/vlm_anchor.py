@@ -21,6 +21,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from .geo import geodesic_distance_m
+
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 # E2B ("effective 2B") fits a 16 GB GPU reliably; E4B (16 GB weights) OOMs the
@@ -116,10 +118,8 @@ def _parse(text: str) -> tuple[str | None, str | None, list[str]]:
 
 
 def _latlon_dist_km(a_lat, a_lon, b_lat, b_lon) -> float:
-    import math
-    dy = (a_lat - b_lat) * 111.32
-    dx = (a_lon - b_lon) * 111.32 * math.cos(math.radians(0.5 * (a_lat + b_lat)))
-    return float(math.hypot(dx, dy))
+    """WGS84 geodesic distance in km."""
+    return geodesic_distance_m(a_lat, a_lon, b_lat, b_lon) / 1000.0
 
 
 # ---------------------------------------------------------------------------

@@ -110,6 +110,36 @@ def test_ransac_declines_too_few_anchors() -> None:
     assert fit_similarity_ransac(vo, world, min_inliers=3) is None
 
 
+def test_ransac_is_deterministic_and_warning_free() -> None:
+    # skimage.measure.ransac samples at random; a fixed rng_seed must give
+    # bit-identical fits, and the non-deprecated from_estimate API must be
+    # used (no FutureWarning from skimage >= 0.26).
+    import warnings
+    rng = np.random.default_rng(3)
+    vo = rng.uniform(-200, 200, size=(12, 2))
+    world = _make_world(vo, scale=6.0, deg=-40, t=np.array([3e5, 5.7e6]))
+    world += rng.normal(0, 30, size=world.shape)
+    world[[1, 7]] += np.array([2500.0, -1800.0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        a = fit_similarity_ransac(vo, world, thresh_m=150, rng_seed=5)
+        b = fit_similarity_ransac(vo, world, thresh_m=150, rng_seed=5)
+    assert a is not None and b is not None
+    assert np.array_equal(a.inlier_idx, b.inlier_idx)
+    assert np.array_equal(a.transform.params, b.transform.params)
+    assert set(a.inlier_idx).isdisjoint({1, 7})
+    assert a.scale == pytest.approx(6.0, rel=0.05)
+
+
+def test_pair_coverage_trials_bound() -> None:
+    from monocular_osm.scale_recovery import _pair_coverage_trials
+    # Union bound: P(miss any pair) <= P * exp(-T / P) <= miss_prob.
+    for n_pairs in (1, 3, 45, 496):
+        t = _pair_coverage_trials(n_pairs, miss_prob=1e-9)
+        assert n_pairs * np.exp(-t / n_pairs) <= 1e-9 * (1 + 1e-9)
+        assert t >= n_pairs
+
+
 # ---------------------------------------------------------------------------
 # scaled_length
 # ---------------------------------------------------------------------------

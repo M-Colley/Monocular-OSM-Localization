@@ -39,6 +39,15 @@ from .evaluator import (
     load_gt_waypoints,
 )
 from .frame_extraction import extract_frames
+from .geo import geodesic_distance_m
+from .fusion import (
+    CandidateFeatures,
+    FusionWeights,
+    consensus_order as fusion_consensus_order,
+    effective_weights as fusion_effective_weights,
+    fused_score as fusion_fused_score,
+    write_feature_table,
+)
 from .ipm import render_ipm_canvas
 from .osm_data import RoadGraph, fetch_city_graph
 from .hypotheses import distinct_hypotheses, hypothesis_confidence
@@ -86,7 +95,23 @@ class PipelineConfig:
     frame_stride: int = 6
     vo_start_sec: float = 0.0
     vo_end_sec: float | None = 300.0
-    top_k: int = 5
+    # How many matcher candidates the fusion channels see. 10 matches the CLI
+    # default every published run used (the config default used to be 5, so
+    # API callers silently got a different pipeline).
+    top_k: int = 10
+    # Walk-enumeration budget per start node (trajectory_matching). With the
+    # default 40, routes with >2 deliberate turns or a turn after the 8th
+    # intersection cannot be generated from their true start; raising it is
+    # a runtime/recall trade-off to measure (scripts/diagnose_pool_recall.py).
+    walks_per_node: int = 40
+    # Where cfg.osm_around came from: "user" (--osm-around), "video_title"
+    # (place names in the title/description), or None. Recorded so an
+    # evaluator can tell a deployable seed from a ground-truth disc.
+    osm_around_source: str | None = None
+    # Consensus-fusion weight overrides, e.g. {"sliding": 0.0} (see
+    # monocular_osm/fusion.py: FusionWeights). None = the defaults the
+    # published results used. Exposed for ablation, not tuning on the fleet.
+    fusion_weights: dict | None = None
     # Route-length prior for OSM walk enumeration. None (default) derives
     # it from the analyzed duration at urban average speed — see
     # _auto_estimated_length_m. A wrong prior is costly: walks much longer
@@ -642,10 +667,15 @@ _VPR_FREE_RADIUS_M = 150.0
 _PLATE_FREE_RADIUS_M = 1500.0
 
 
-def _vpr_distance_penalty(d_m: float) -> float:
-    """Consensus penalty for a candidate ``d_m`` metres from the VPR prior:
-    free inside the prior's own error bar, then 15 rank-points per km."""
-    return 15.0 * max(0.0, (d_m - _VPR_FREE_RADIUS_M) / 1000.0)
+def _vpr_distance_penalty(d_m: float, free_radius_m: float = _VPR_FREE_RADIUS_M) -> float:
+    """Consensus penalty for a candidate ``d_m`` metres from the prior: free
+    inside the prior's own error bar, then 15 rank-points per km.
+
+    The 150 m default is the error bar of a retrieval (VPR) prior. A prior
+    from the VLM fallback is a geocoded district/street centroid, km-coarse,
+    and is given the district-level free radius instead (see the call site).
+    """
+    return 15.0 * max(0.0, (d_m - free_radius_m) / 1000.0)
 
 
 def _drop_direction_anchors(ocr_anchors, detections, ocr_source, *,
@@ -1180,6 +1210,25 @@ def _sun_bearing_penalty(mean_bearing_deg: float, sun_heading_deg: float) -> flo
     return _W_SUN * max(0.0, (d - _SUN_FREE_DEG) / (180.0 - _SUN_FREE_DEG))
 
 
+def _arc_param_times(traj_xy, traj_t_sec, n_points: int):
+    """Video time of each point of an arc-length-resampled trajectory.
+
+    The matcher resamples the VO path to ``n_points`` equidistant in ARC
+    LENGTH (visual_odometry.resample_uniform), so candidate routes carry no
+    times. Map each sample's arc position back through the VO path's
+    cumulative arc length to its frame time. Returns None when the inputs
+    cannot support it (degenerate path, length mismatch).
+    """
+    xy = np.asarray(traj_xy, dtype=np.float64)
+    t = np.asarray(traj_t_sec, dtype=np.float64)
+    if len(xy) < 2 or len(xy) != len(t) or n_points < 1:
+        return None
+    s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))])
+    if not np.isfinite(s).all() or s[-1] <= 0:
+        return None
+    return np.interp(np.linspace(0.0, s[-1], n_points), s, t)
+
+
 def _final_position_reports(
     candidates,
     road,
@@ -1187,30 +1236,53 @@ def _final_position_reports(
     matches,
     ranking: str,
     world_route_latlon=None,
+    world_route_t_sec=None,
+    cand_t_sec=None,
+    world_route_source: str = "ocr_anchor_pin",
+    pinned_ranking: str | None = None,
     anchored_cand=None,
     anchor_origin: str | None = None,
     prior_latlon=None,
 ):
-    """Build (headline, matcher) position reports per the output contract.
+    """Build (headline, matcher, pinned) position reports.
 
-    ``matcher`` is ALWAYS the raw matcher-pick report (old ``position``
-    schema, ``source: "matcher"``). When an anchor-primary candidate
-    exists its report becomes the HEADLINE (``source:
-    "anchor_primary_vpr"|"anchor_primary_vlm"`` + ``prior_latlon``) —
-    the anchored answer is the project's proven accuracy win and must be
-    what ``result["position"]`` carries. Falls back to the matcher
-    report when the anchored one can't be built.
+    Three answers can exist, each reported under an honest label:
+
+    * ``matcher`` — ALWAYS the raw matcher pick (``source: "matcher"``):
+      the top candidate's own aligned route, nothing else applied. It is
+      the "trajectory matcher alone" ablation, so it must never carry a
+      route another channel moved.
+    * ``pinned`` — the same candidate's route georeferenced by anchors
+      (``world_route_latlon``): the scale-locked OCR anchor pin
+      (``source: "ocr_anchor_pin"``) or the anchor similarity fit
+      (``"anchor_georef"``). None when no such route exists. This used to
+      be emitted AS ``matcher`` (``source: "matcher"``), so every
+      "matcher-only" number on sign-rich clips was really matcher + pin.
+    * ``headline`` — the answer ``result["position"]`` carries: the
+      anchor-primary route (``"anchor_primary_vpr"|"anchor_primary_vlm"``)
+      when a retrieval/VLM prior placed one, else ``pinned``, else
+      ``matcher``. VPR placement outranks the OCR pin because it measured
+      better where both fired (Ulm 4K: 48 m vs 160 m mean route error).
     """
     matcher_position = build_position_report(
-        candidates[0],
-        road,
-        matches=matches,
-        ranking=ranking,
-        world_route_latlon=world_route_latlon,
+        candidates[0], road, matches=matches, ranking=ranking,
+        route_t_sec=cand_t_sec,
     )
     if matcher_position is not None:
         matcher_position["source"] = "matcher"
-    headline = matcher_position
+
+    pinned_position = None
+    if world_route_latlon is not None:
+        pinned_position = build_position_report(
+            candidates[0], road, matches=matches,
+            ranking=pinned_ranking or ranking,
+            world_route_latlon=world_route_latlon,
+            route_t_sec=world_route_t_sec,
+        )
+        if pinned_position is not None:
+            pinned_position["source"] = world_route_source
+
+    headline = pinned_position if pinned_position is not None else matcher_position
     if anchored_cand is not None:
         origin = anchor_origin or "vpr"
         anchored = build_position_report(
@@ -1218,6 +1290,7 @@ def _final_position_reports(
             road,
             matches=matches,
             ranking=f"anchored({origin})",
+            route_t_sec=cand_t_sec,
         )
         if anchored is not None:
             anchored["source"] = f"anchor_primary_{origin}"
@@ -1226,7 +1299,7 @@ def _final_position_reports(
                     float(prior_latlon[0]), float(prior_latlon[1]),
                 ]
             headline = anchored
-    return headline, matcher_position
+    return headline, matcher_position, pinned_position
 
 
 def _orienternet_refine(cfg, frames, cand, road, position, result,
@@ -1332,6 +1405,13 @@ def _orienternet_refine(cfg, frames, cand, road, position, result,
         position["google_maps_url"] = google_maps_url(lat0, lon0)
         position["orienternet_route_latlon"] = [
             [round(float(a), 6), round(float(b), 6)] for a, b in refined]
+        # The reported route must be the route the headline start belongs
+        # to: keep the coarse one aside and report the refined keyframe
+        # route (its per-point times are not tracked, so drop route_t_sec).
+        position["coarse_route_latlon"] = position.get("route_latlon")
+        position["route_latlon"] = position["orienternet_route_latlon"]
+        if "route_t_sec" in position:
+            position["coarse_route_t_sec"] = position.pop("route_t_sec")
         result["orienternet"] = {"applied": True, "keyframes": len(kf),
                                  "tile_m": cfg.orienternet_tile_m}
         print(f"      -> refined start: {lat0:.6f}, {lon0:.6f}")
@@ -1476,9 +1556,30 @@ def _fetch_road_graph(
         ) from e
 
 
+# OCR place names must agree before they may seed the search disc. The seed
+# becomes a hard gate on both the VPR fetch and the road graph, so a false
+# seed is unrecoverable, while a missed one only falls back to the whole city.
+# Observed: rapidocr read "KA.GC" (a Karlsruhe licence-plate fragment) on
+# KITTI 0009; geocoded as "KA.GC, Karlsruhe" it landed 15 km outside the city
+# and the run finished 18.3 km off (city centroid: 2.6 km). Same two-vote rule
+# as the plate seed.
+_OCR_SEED_MIN_PLACES = 2
+
+
+def _city_extent_reach_m(city: str, cache_path) -> float | None:
+    """How far from the city's geocode centroid its OSM bounding box reaches:
+    dist(centroid, bbox centre) + half-diagonal (triangle inequality)."""
+    from .text_anchor import city_extent_radius, default_geocode_fn
+    ext = city_extent_radius(city, cache_path)
+    cen = default_geocode_fn(cache_path)(city) if ext is not None else None
+    if ext is None or cen is None:
+        return None
+    return geodesic_distance_m(cen[0], cen[1], ext[0], ext[1]) + float(ext[2])
+
+
 def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
                        vo_start: float = 0.0, vo_end: float | None = None,
-                       ocr_engine: str = "rapidocr"):
+                       ocr_engine: str = "rapidocr", cache_dir=None):
     """GPS-free coarse seed from the video FRAMES. Fast deterministic signals
     first — license-plate registration district, then legible place names
     read by OCR (geocoded through the same resolver as the title) — and only
@@ -1499,7 +1600,21 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
         st = extract_scene_text(video_path, start_sec=vo_start, end_sec=vo_end,
                                 engine=ocr_engine)
         ocr_text = " , ".join(s.text for s in st if getattr(s, "text", None))
-        pr = resolve_coarse_prior(city, ocr_text, None)
+        # Scene text is noisy (plates, shop signs, direction signs naming
+        # OTHER places), unlike an uploader's title. Accept only names inside
+        # the named city's own extent - the user said which city it is - and
+        # require two of them (_OCR_SEED_MIN_PLACES). Unknown extent: refuse
+        # rather than fall back to the title resolver's 60 km.
+        reach_m = None
+        if cache_dir is not None:
+            try:
+                reach_m = _city_extent_reach_m(city, Path(cache_dir) / "geocode_cache.json")
+            except Exception as e:
+                print(f"      -> [coarse] city extent unavailable ({e})")
+        pr = (resolve_coarse_prior(city, ocr_text, None,
+                                   max_km_from_city=reach_m / 1000.0,
+                                   min_places=_OCR_SEED_MIN_PLACES)
+              if reach_m is not None else None)
         if pr is not None:
             return (pr[0], pr[1], pr[2],
                     f"ocr:{','.join(pr[3][:3])}")
@@ -1517,9 +1632,49 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
     return None
 
 
+def _record_channel(status: dict, name: str, state: str, *,
+                    error: BaseException | None = None, **info) -> None:
+    """Record a channel's outcome: "ok" | "inactive" | "failed" | "disabled".
+
+    A channel that raised used to be indistinguishable in result.json from
+    one that ran and changed nothing (each failure was only printed), which
+    makes any ablation over these channels untrustworthy.
+    """
+    entry: dict = {"status": state, **info}
+    if error is not None:
+        entry["error"] = f"{type(error).__name__}: {error}"
+    status[name] = entry
+
+
+def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
+                        fusion: dict | None) -> dict:
+    """Fill in a status for every channel that did not record a failure.
+
+    ``produced`` maps channel -> (enabled, produced_output). Fusion rank
+    channels are "ok" when their effective weight was non-zero.
+    """
+    for name, (enabled, made) in produced.items():
+        if name in status:
+            continue
+        if not enabled:
+            _record_channel(status, name, "disabled")
+        else:
+            _record_channel(status, name, "ok" if made else "inactive")
+    eff = (fusion or {}).get("weights_effective") or {}
+    for name, w in eff.items():
+        key = f"fusion_{name}"
+        if key not in status:
+            _record_channel(status, key, "ok" if w else "inactive", weight=w)
+    return status
+
+
 def run_pipeline(cfg: PipelineConfig) -> dict:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
+    # Consensus-fusion weights (defaults = the published values) and the
+    # per-channel outcome record written to result["channels"].
+    fusion_w = FusionWeights.from_overrides(cfg.fusion_weights)
+    channel_status: dict[str, dict] = {}
 
     # 1. Acquire the input video (local file / cache / download).
     video_path = _resolve_input_video(cfg)
@@ -1602,6 +1757,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 result_ipm_scale = {"status": "rejected", "length_m": round(flow_len, 1)}
         except Exception as e:
             print(f"      -> IPM-scale failed: {e}")
+            _record_channel(channel_status, 'ipm_scale', "failed", error=e)
             result_ipm_scale = {"status": "error", "error": str(e)}
     else:
         result_ipm_scale = None
@@ -1676,23 +1832,27 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     # (monocular_osm/kartaview_vpr.py). Used as a re-rank centre + the anchor-primary
     # placement prior; gating the OSM graph to its disc was refuted (664->1276 m).
     osm_around = cfg.osm_around
+    frame_seed_source: str | None = None
     # GPS-free frame-based coarse seed (deployable): plate district / VLM read
     # of the scene, bounding the graph + VPR near the drive when no disc and
     # no title-derived prior were given.
     if osm_around is None and cfg.coarse_from_frames:
         _fp = _frame_coarse_seed(video_path, frames.frames, cfg.city,
+                                 cache_dir=cfg.data_dir,
                                  want_vlm=cfg.coarse_from_vlm,
                                  vo_start=cfg.vo_start_sec,
                                  vo_end=cfg.vo_end_sec,
                                  ocr_engine=cfg.ocr_engine)
         if _fp is not None:
             osm_around = _fp[:3]
+            frame_seed_source = str(_fp[3])
             print(f"      -> [coarse] frame-based prior "
                   f"{_fp[0]:.5f},{_fp[1]:.5f} r={_fp[2]:.0f} m ({_fp[3]})")
     vpr_center: tuple | None = None
     vpr_track = None
     _c2f_info: dict | None = None      # coarse-to-fine record, attached to result later
     anchor_origin: str | None = None   # which channel produced vpr_center: vpr|vlm
+    vpr_source_used: str | None = None  # effective reference source after fallbacks
     # VPR runs whenever enabled — it re-ranks + drives anchor-primary, so it is
     # NOT conditioned on osm_around (mega-cities pass --osm-around AND want VPR).
     if cfg.use_vpr_prior:
@@ -1769,10 +1929,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     # extent is measured about the BBOX centre — cover the
                     # bbox from the centroid: dist(centroid, bbox centre) +
                     # half-diagonal (triangle inequality).
-                    _dc = float(np.hypot(
-                        (center[0] - _ext[0]) * 111320.0,
-                        (center[1] - _ext[1]) * 111320.0
-                        * np.cos(np.radians(center[0]))))
+                    _dc = geodesic_distance_m(center[0], center[1],
+                                              _ext[0], _ext[1])
                     _cover = float(np.clip(_dc + _ext[2],
                                            cfg.vpr_search_radius_m,
                                            _PASS1_COVER_MAX_M))
@@ -1818,6 +1976,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 # disc hurt end-to-end: 664 -> 1276 m).
                 vpr_center = _robust_center(v_ll, v_sims)
                 anchor_origin = "vpr"
+                vpr_source_used = _vpr_src
                 print(f"      -> VPR prior {vpr_center[0]:.5f}, {vpr_center[1]:.5f} "
                       f"({len(v_idx)}-frame track); re-rank + anchor-primary fit")
                 # [4a2] COARSE-TO-FINE refine: when pass 1 ran over a WIDE disc
@@ -1934,9 +2093,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                           f"pass-1 centre ({_slat:.4f}, {_slon:.4f}, "
                           f"{osm_around[2]:.0f} m)")
             else:
-                print("      -> VPR unavailable; keeping full-city graph")
+                from . import kartaview_vpr as _kv
+                _why = _kv.LAST_FAILURE or "no reference track"
+                print(f"      -> VPR unavailable ({_why}); keeping full-city graph")
+                _record_channel(channel_status, "vpr", "inactive", reason=_why)
         except Exception as e:
             print(f"      -> VPR prior failed ({e}); keeping full-city graph")
+            _record_channel(channel_status, 'vpr', "failed", error=e)
 
     # [4a'] License-plate district anchor: an independent, absolute coarse prior.
     # Reads EU plate region prefixes across the clip, votes on the registration
@@ -1967,6 +2130,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> no confident district")
         except Exception as e:
             print(f"      -> plate anchor failed ({e})")
+            _record_channel(channel_status, 'plate', "failed", error=e)
 
     # [4a''] VLM (Gemma 4) district/landmark prior — a coverage FALLBACK: only
     # runs when VPR produced no centre (no nearby street-photo references). Reads
@@ -2000,6 +2164,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> VLM produced no geocodable district/name")
         except Exception as e:
             print(f"      -> VLM anchor failed ({e})")
+            _record_channel(channel_status, 'vlm', "failed", error=e)
 
     # 4. OSM road graph for the city.
     if osm_around is not None:
@@ -2029,7 +2194,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 cen = ox.geocode(cfg.city)
             sh_times = list(np.linspace(cfg.vo_start_sec,
                                         cfg.vo_end_sec or (cfg.vo_start_sec + 420.0), 30))
-            sh = estimate_heading(str(video_path), cen, sh_times)
+            sh = estimate_heading(str(video_path), cen, sh_times,
+                                  ocr_engine=cfg.ocr_engine)
             result_sun_heading = sh
             if sh and sh.get("available"):
                 print(f"[4b] Sun heading: {sh['median_heading']:.0f} deg via {sh['source']} "
@@ -2039,6 +2205,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                       f"({(sh or {}).get('reason', 'module missing')})")
         except Exception as e:
             print(f"[4b] Sun heading failed ({e})")
+            _record_channel(channel_status, 'sun', "failed", error=e)
             result_sun_heading = {"available": False, "reason": str(e)}
     else:
         result_sun_heading = None
@@ -2160,6 +2327,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 result_traj_source = _staged_traj_source
         except Exception as e:
             print(f"      -> DA3 trajectory failed ({e}); falling back to VO path")
+            _record_channel(channel_status, 'da3_trajectory', "failed", error=e)
             da3_rec = None
             result_traj_source = _staged_traj_source
     else:
@@ -2206,6 +2374,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> no verifiable loop (end does not revisit start)")
         except Exception as e:
             print(f"      -> loop-closure failed ({e}); using VO path unchanged")
+            _record_channel(channel_status, 'loop_closure', "failed", error=e)
 
     # 4c. Optional: OCR scene-text → geocoded POI anchors. Computed before
     # the match so the anchors can *seed* enumeration (add walk roots near
@@ -2297,13 +2466,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # prior exists, reject OCR anchors > 1.5 km from it — this drops the
             # misleading direction signs while keeping local street/POI plates,
             # leaving only anchors usable in the anchor-primary fit.
-            if vpr_center is not None and ocr_anchors:
-                import math as _om
+            # Only a retrieval prior is route-accurate enough to veto anchors;
+            # a VLM-fallback prior is a geocoded district centroid that can sit
+            # kilometres from a correct on-route anchor.
+            if vpr_center is not None and anchor_origin == "vpr" and ocr_anchors:
                 _vlat, _vlon = vpr_center
                 _kept = []
                 for a in ocr_anchors:
-                    _d = _om.hypot((a.lat - _vlat) * 111320.0,
-                                   (a.lon - _vlon) * 111320.0 * _om.cos(_om.radians(_vlat)))
+                    _d = geodesic_distance_m(a.lat, a.lon, _vlat, _vlon)
                     if _d <= 1500.0:
                         _kept.append(a)
                     else:
@@ -2328,6 +2498,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         print(f"        poi REJECTED (direction sign): {_nm!r}")
                 except Exception as e:
                     print(f"      -> sign classification failed ({e})")
+                    _record_channel(channel_status, 'sign_classification', "failed", error=e)
 
             # --- Scale recovery / georeferencing (ideas 1 & 2) ----------
             # Use the *pre-cluster-filter* anchors here: scale needs
@@ -2429,6 +2600,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                   f"anchor(s); {len(anchor_seed)} enumeration seed node(s)")
         except Exception as e:
             print(f"      -> OCR-anchor channel failed: {e}")
+            _record_channel(channel_status, 'ocr_anchor', "failed", error=e)
             ocr_anchor_error = str(e)
 
     # 5. Match. When confident OCR anchors exist, gate enumeration to the
@@ -2466,6 +2638,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 print("      -> VGGT unavailable (no package/GPU/weights); skipping")
         except Exception as e:
             print(f"      -> VGGT gating failed ({e}); skipping")
+            _record_channel(channel_status, 'vggt', "failed", error=e)
 
     seed = list(dict.fromkeys((anchor_seed or []) + vggt_seed))
     gated = bool((cfg.enable_ocr_anchor and anchor_seed) or vggt_seed)
@@ -2486,12 +2659,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         c = match_trajectory(
             match_xz, road, final_top_k=_pool_k, sample_every=cfg.sample_every,
             estimated_length_m=est_len, extra_start_nodes=seed or None,
-            restrict_to_start_nodes=gated, locked_scale=loc_scale)
+            restrict_to_start_nodes=gated, locked_scale=loc_scale,
+            walks_per_node=cfg.walks_per_node)
         if gated and not c:
             print("      -> gated match found nothing; falling back to full scan")
             c = match_trajectory(
                 match_xz, road, final_top_k=_pool_k, sample_every=cfg.sample_every,
-                estimated_length_m=est_len, locked_scale=loc_scale)
+                estimated_length_m=est_len, locked_scale=loc_scale,
+                walks_per_node=cfg.walks_per_node)
         return c
 
     candidates = _run_match(locked_scale, estimated_length_m)
@@ -2532,6 +2707,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                           f"fit {_as:.0f} m not <90% of base {_bs:.0f} m)")
             except Exception as e:
                 print(f"      -> VPR two-pass compare failed ({e}); keeping base")
+                _record_channel(channel_status, 'vpr_two_pass', "failed", error=e)
     # Keep the wider geometric pool for the calibrated multi-hypothesis
     # output, but run the rest of the pipeline (heavy channels, headline
     # pick, GT eval) on the top_k slice exactly as before.
@@ -2678,6 +2854,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             result["ipm"] = str(ipm_path.relative_to(cfg.output_dir))
         except Exception as e:
             print(f"      -> IPM failed: {e}")
+            _record_channel(channel_status, 'ipm', "failed", error=e)
             result["ipm_error"] = str(e)
             ipm_canvas = None
 
@@ -2742,7 +2919,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 m["aerial_inliers"] = ar.n_inliers
                 m["aerial_inlier_ratio"] = ar.inlier_ratio
                 m["aerial_rank"] = aerial_rank[i]
-            W_AERIAL = 0.5
+            W_AERIAL = fusion_w.aerial
         else:
             # Neutral channel: uniform rank, zero weight — the same no-op
             # pattern the anchor channel uses when it has no data.
@@ -2891,7 +3068,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                             [r.tile3d_score for r in t3_results])
                         result["tile3d"]["adaptive_weight"] = round(W_TILE3D, 3)
                     else:
-                        W_TILE3D = 0.4
+                        W_TILE3D = fusion_w.tile3d
                     # Stash mesh + samples so an optional post-selection
                     # placement refinement (--tile3d-refine) can reuse them.
                     t3_mesh_ref = t3_mesh
@@ -2910,6 +3087,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 pass
             except Exception as e:  # fetch/render failure: channel no-ops
                 print(f"      -> tile3d channel failed ({e}); inactive")
+                _record_channel(channel_status, 'tile3d', "failed", error=e)
 
         for i in range(len(candidates)):
             result["matches"][i]["shape_rank"] = i + 1
@@ -2997,13 +3175,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         #   * un-gated (anchors present but enumeration not restricted):
         #     strong weight (2.0) to pull toward the anchored area.
         #   * no anchors: 0 (clean no-op).
-        W_SHAPE, W_SLIDING, W_TURN = 1.0, 1.0, 0.0
-        if not have_anchors:
-            W_ANCHOR = 0.0
-        elif anchor_gated:
-            W_ANCHOR = 0.25
-        else:
-            W_ANCHOR = 2.0
+        # Weights live in fusion.FusionWeights (defaults = the published
+        # values); effective_weights() applies the gating rule above.
+        fusion_eff = fusion_effective_weights(
+            fusion_w, have_anchors=have_anchors, anchor_gated=anchor_gated,
+            aerial_active=W_AERIAL > 0, tile3d_weight=W_TILE3D)
+        W_ANCHOR = fusion_eff["anchor"]
 
         # License-plate district anchor (shape-INDEPENDENT absolute prior): rank
         # candidates by distance from their start to the voted district centroid.
@@ -3011,16 +3188,13 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # gets a strong weight to pull the pick toward the right district and kill
         # gross km-scale errors. No-op (rank = shape) when no district was found.
         if plate_center is not None:
-            import math as _math
             from .position import xy_to_latlon as _xy2ll
             _plat, _plon = plate_center
-            _cl = _math.cos(_math.radians(_plat))
             _pd = []
             for _c in candidates:
                 _ll = _xy2ll(np.asarray(_c.aligned_traj_xy[:1], dtype=np.float64), road.crs)
                 _la, _lo = float(_ll[0][0]), float(_ll[0][1])
-                _pd.append(_math.hypot((_la - _plat) * 111320.0,
-                                       (_lo - _plon) * 111320.0 * _cl))
+                _pd.append(geodesic_distance_m(_la, _lo, _plat, _plon))
             _order = np.argsort(_pd)
             plate_rank = {int(idx): r + 1 for r, idx in enumerate(_order)}
             # DISTANCE-based penalty (not rank — rank loses magnitude). Each
@@ -3055,10 +3229,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # track instead: the sequence-median distance also penalises
         # correctly-centred but flipped/rotated candidates.
         if vpr_center is not None:
-            import math as _vm
             from .position import latlon_to_xy as _vll2xy, xy_to_latlon as _vxy2ll
             _vlat, _vlon = vpr_center
-            _vcl = _vm.cos(_vm.radians(_vlat))
             track_xy = None
             if cfg.use_vpr_sequence and vpr_track is not None:
                 try:
@@ -3077,9 +3249,11 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                 if _d is None:
                     _cen = np.asarray(_c.aligned_traj_xy, dtype=np.float64).mean(axis=0)
                     _ll = _vxy2ll(_cen[None, :], road.crs)
-                    _d = _vm.hypot((float(_ll[0][0]) - _vlat) * 111320.0,
-                                   (float(_ll[0][1]) - _vlon) * 111320.0 * _vcl)
-                vpr_penalty[i] = _vpr_distance_penalty(_d)
+                    _d = geodesic_distance_m(float(_ll[0][0]), float(_ll[0][1]),
+                                             _vlat, _vlon)
+                vpr_penalty[i] = _vpr_distance_penalty(
+                    _d, _VPR_FREE_RADIUS_M if anchor_origin == "vpr"
+                    else _PLATE_FREE_RADIUS_M)
         else:
             vpr_penalty = {i: 0.0 for i in range(len(candidates))}
 
@@ -3131,28 +3305,60 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                       f"fused as orientation penalty")
 
         def _sliding_rank(i: int) -> int:
+            # Falls back to the shape rank when sliding windows did not run
+            # (the default) — which is why shape's effective weight is
+            # shape + sliding (see fusion.py).
             return int(result["matches"][i].get("sliding_window_rank", i + 1))
 
-        def _fused(i: int) -> float:
-            return (
-                W_SHAPE * (i + 1)
-                + W_SLIDING * _sliding_rank(i)
-                + W_TURN * turn_rank[i]
-                + W_ANCHOR * anchor_rank[i]
-                + W_AERIAL * aerial_rank[i]
-                + W_TILE3D * tile3d_rank[i]
-                + plate_penalty[i]
-                + vpr_penalty[i]
-                + sun_penalty[i]
+        fusion_features = [
+            CandidateFeatures(
+                shape_rank=i + 1,
+                sliding_rank=_sliding_rank(i),
+                turn_rank=int(turn_rank[i]),
+                anchor_rank=int(anchor_rank[i]),
+                aerial_rank=int(aerial_rank[i]),
+                tile3d_rank=int(tile3d_rank[i]),
+                plate_penalty=float(plate_penalty[i]),
+                vpr_penalty=float(vpr_penalty[i]),
+                sun_penalty=float(sun_penalty[i]),
+                extra={k: result["matches"][i].get(k) for k in (
+                    "anchor_distance_m", "traj_coverage", "tile3d_score",
+                    "tile3d_skyline_err_deg", "sun_heading_diff_deg",
+                    "turn_match_distance", "sliding_window_score")
+                    if result["matches"][i].get(k) is not None}
+                | {"rms_m": float(candidates[i].score),
+                   "bearing_corr": float(candidates[i].bearing_corr)},
             )
+            for i in range(len(candidates))
+        ]
+
+        def _fused(i: int) -> float:
+            return fusion_fused_score(fusion_features[i], fusion_eff)
 
         for i in range(len(candidates)):
             result["matches"][i]["consensus_score"] = _fused(i)
 
-        consensus_order = sorted(
-            range(len(candidates)),
-            key=lambda i: (_fused(i), i),
-        )
+        consensus_order = fusion_consensus_order(fusion_features, fusion_eff)
+
+        # Persist the per-candidate feature table (matcher order) so any
+        # re-weighting / leave-one-channel-out ablation can be scored
+        # offline against GT without re-running the pipeline.
+        try:
+            from .position import xy_to_latlon as _fxy2ll
+            _froutes = []
+            for _c in candidates:
+                _xy = np.asarray(_c.aligned_traj_xy, dtype=np.float64)
+                _step = max(1, len(_xy) // 100)
+                _froutes.append([[round(float(a), 6), round(float(b), 6)]
+                                 for a, b in _fxy2ll(_xy[::_step], road.crs)])
+            write_feature_table(
+                cfg.output_dir / "fusion_features.json", fusion_features,
+                fusion_eff, routes_latlon=_froutes, weights=fusion_w,
+                channel_status=channel_status)
+        except Exception as e:
+            print(f"        fusion feature table not written ({e})")
+        result["fusion"] = {"weights_effective": fusion_eff,
+                            "features_file": "fusion_features.json"}
 
         # Opt-in tile3d tie-break (experiment; --tile3d-tiebreak). The 0.4
         # rank weight is deliberately too small to let the skyline channel
@@ -3448,6 +3654,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     }
                 except Exception as e:
                     print(f"      -> 3DGS training failed: {e}")
+                    _record_channel(channel_status, 'train_3dgs', "failed", error=e)
                     result["trained_3dgs_error"] = str(e)
 
             result["da3"] = {
@@ -3461,6 +3668,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             }
         except Exception as e:
             print(f"      -> DA3 failed: {e}")
+            _record_channel(channel_status, 'da3', "failed", error=e)
             result["da3_error"] = str(e)
 
     # 10. Optional: ground-truth evaluation.
@@ -3545,6 +3753,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             except Exception as e:
                 print(f"      -> start-pin placement failed ({e}); "
                       f"falling back to centroid")
+                _record_channel(channel_status, 'start_pin_placement', "failed", error=e)
                 _placed = None
         if _placed is None:
             _best_rank = 0
@@ -3580,6 +3789,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                           f"{_rinfo['score_after']:.2f})")
             except Exception as e:
                 print(f"      -> tile3d placement refine failed ({e}); skipped")
+                _record_channel(channel_status, 'tile3d_refine', "failed", error=e)
         _astart = _xy2ll2(_placed[:1], road.crs)[0]
         # The source names the channel + placement mode: a VLM district centroid
         # is far coarser than a MegaLoc VPR endpoint fit; accuracy studies need
@@ -3658,6 +3868,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         # the free-scale shape alignment. Street names still come from
         # the matched candidate.
         world_route_latlon = None
+        world_route_t_sec = None
+        world_route_source = "ocr_anchor_pin"
         pos_ranking = ranking_mode
         # Scale-lock + single-anchor pin: keep the locked metric extent
         # AND the shape-fit rotation, but pin absolute position with the
@@ -3728,6 +3940,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                     a_vo, a_world, weights=wts,
                 )
                 world_route_latlon = _xy2ll(route_xy, road.crs)
+                world_route_t_sec = np.asarray(match_ts, dtype=np.float64)
                 n_poi = len(ocr_anchors)
                 n_st = len(a_world) - n_poi
                 pos_ranking = (ranking_mode
@@ -3739,60 +3952,67 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                       f"(t={a_t[lead_i]:.0f}s, d_to_walk={dist_to_walk[lead_i]:.0f} m)")
             except Exception as e:
                 print(f"      -> anchor-pin failed: {e}")
+                _record_channel(channel_status, 'anchor_pin', "failed", error=e)
                 world_route_latlon = None
         if world_route_latlon is None and anchor_world_route is not None:
             from .position import xy_to_latlon as _xy2ll
             try:
                 world_route_latlon = _xy2ll(anchor_world_route, road.crs)
+                world_route_t_sec = _match_timestamps(
+                    frames.timestamps, len(anchor_world_route))
+                world_route_source = "anchor_georef"
                 pos_ranking = ranking_mode + "+anchor-georef"
             except Exception:
                 world_route_latlon = None
 
-        # Output contract: result["position"] is the HEADLINE answer —
-        # the ANCHORED route when anchor-primary fired (VPR/VLM prior),
-        # else the matcher pick. result["matcher_position"] always
-        # carries the raw matcher-pick report (old schema). The anchored
-        # answer used to live only in the anchored_position side field
-        # while position/printed summary carried the matcher pick,
-        # silently discarding the project's main accuracy win.
-        position, matcher_position = _final_position_reports(
+        # Output contract (see _final_position_reports): result["position"]
+        # is the HEADLINE — the anchored route when anchor-primary fired
+        # (VPR/VLM prior), else the anchor-pinned route, else the matcher
+        # pick. result["matcher_position"] is always the raw matcher pick;
+        # result["pinned_position"] carries the anchor-pinned route when one
+        # was built.
+        position, matcher_position, pinned_position = _final_position_reports(
             candidates,
             road,
             matches=result["matches"],
-            ranking=pos_ranking,
+            ranking=ranking_mode,
             world_route_latlon=world_route_latlon,
+            world_route_t_sec=world_route_t_sec,
+            cand_t_sec=_arc_param_times(
+                match_xz, match_ts, len(candidates[0].aligned_traj_xy)),
+            world_route_source=world_route_source,
+            pinned_ranking=pos_ranking,
             anchored_cand=anchored_cand,
             anchor_origin=anchor_origin,
             prior_latlon=vpr_center,
         )
-        if matcher_position is not None:
-            if world_route_latlon is not None and cfg.ground_truth_waypoints:
-                # GT error of the georeferenced route (the candidate-based
-                # waypoint_evals don't describe this route).
-                try:
-                    from .evaluator import _segment_to_polyline_distance
-                    from .position import latlon_to_xy
-                    wps = load_gt_waypoints(cfg.ground_truth_waypoints)
-                    wp_xy = latlon_to_xy(wps, road.crs)
-                    rt_xy = latlon_to_xy(world_route_latlon, road.crs)
-                    d0 = float(np.linalg.norm(rt_xy[0] - wp_xy[0]))
-                    dm = float(np.mean([
-                        _segment_to_polyline_distance(w, rt_xy) for w in wp_xy]))
-                    matcher_position["gt_start_error_m"] = round(d0, 1)
-                    matcher_position["gt_mean_route_error_m"] = round(dm, 1)
-                except Exception as e:
-                    print(f"      -> georef GT eval failed: {e}")
-            elif waypoint_evals:
-                matcher_position["gt_start_error_m"] = round(
-                    waypoint_evals[0].start_error_m, 1
-                )
-                matcher_position["gt_mean_route_error_m"] = round(
-                    waypoint_evals[0].mean_route_error_m, 1
-                )
-        # GT errors of the headline: the anchored route's own when the
-        # anchor fired, else it shares the matcher pick's numbers.
-        if (position is not None and position is not matcher_position
-                and anchored_eval is not None):
+        # GT errors (only when the caller supplied GT for in-run scoring; the
+        # benchmark scores offline instead). Each report gets its OWN route's
+        # numbers — the pinned route used to be scored under "matcher".
+        if matcher_position is not None and waypoint_evals:
+            matcher_position["gt_start_error_m"] = round(
+                waypoint_evals[0].start_error_m, 1)
+            matcher_position["gt_mean_route_error_m"] = round(
+                waypoint_evals[0].mean_route_error_m, 1)
+        if (pinned_position is not None and world_route_latlon is not None
+                and cfg.ground_truth_waypoints):
+            try:
+                from .evaluator import _segment_to_polyline_distance
+                from .position import latlon_to_xy
+                wps = load_gt_waypoints(cfg.ground_truth_waypoints)
+                wp_xy = latlon_to_xy(wps, road.crs)
+                rt_xy = latlon_to_xy(world_route_latlon, road.crs)
+                d0 = float(np.linalg.norm(rt_xy[0] - wp_xy[0]))
+                dm = float(np.mean([
+                    _segment_to_polyline_distance(w, rt_xy) for w in wp_xy]))
+                pinned_position["gt_start_error_m"] = round(d0, 1)
+                pinned_position["gt_mean_route_error_m"] = round(dm, 1)
+            except Exception as e:
+                print(f"      -> pinned-route GT eval failed: {e}")
+        # The anchored headline carries the anchored route's own numbers.
+        if (position is not None and anchored_eval is not None
+                and position is not matcher_position
+                and position is not pinned_position):
             position["gt_start_error_m"] = round(anchored_eval.start_error_m, 1)
             position["gt_mean_route_error_m"] = round(
                 anchored_eval.mean_route_error_m, 1)
@@ -3801,6 +4021,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             # the contract's "always present" holds even if the headline
             # report fails to build.
             result["matcher_position"] = matcher_position
+        if pinned_position is not None:
+            result["pinned_position"] = pinned_position
         if position is not None:
             # Calibrated multi-hypothesis output. Collapse the candidate
             # pool (final-ranked top_k + geometric tail) into distinct
@@ -3812,6 +4034,19 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             if hyps:
                 spatial_conf = hypothesis_confidence(ranked_pool, hyps)
                 position["spatial_confidence"] = spatial_conf
+                def _hyp_route(h):
+                    # The representative candidate's aligned route, so an
+                    # evaluator can score the shortlist route-to-route, not
+                    # only by start point.
+                    try:
+                        from .position import xy_to_latlon as _hxy2ll
+                        _xy = np.asarray(ranked_pool[h.candidate_index].aligned_traj_xy,
+                                         dtype=np.float64)
+                        return [[round(float(a), 6), round(float(b), 6)]
+                                for a, b in _hxy2ll(_xy, road.crs)]
+                    except Exception:
+                        return None
+
                 position["hypotheses"] = [
                     {
                         "rank": h.rank,
@@ -3820,6 +4055,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
                         "street_names": h.street_names,
                         "support": h.support,
                         "google_maps_url": google_maps_url(h.lat, h.lon),
+                        "route_latlon": _hyp_route(h),
                     }
                     for h in hyps
                 ]
@@ -3897,20 +4133,52 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
         result["vlm_anchor"] = {"applied_as_prior": False,
                                 "status": "no_geocodable_prior"}
     if vpr_center is not None:
+        from .kartaview_vpr import backbone_info as _vpr_backbone
         result["vpr_prior"] = {
             "lat": float(vpr_center[0]), "lon": float(vpr_center[1]),
             "origin": anchor_origin,
+            # The source actually queried: "mapillary" falls back to
+            # "kartaview" without a token, and results differ by kilometres.
+            "source": vpr_source_used,
+            "backbone": _vpr_backbone() if anchor_origin == "vpr" else None,
             "track_frames": (int(len(vpr_track[0]))
                              if vpr_track is not None else None),
         }
+
+    result["channels"] = _summarize_channels(
+        channel_status, cfg,
+        produced={
+            "vpr": (cfg.use_vpr_prior, vpr_center is not None),
+            "plate": (cfg.use_plate_anchor, plate_center is not None),
+            "vlm": (cfg.use_vlm_anchor, result_vlm_anchor is not None),
+            "sun": (cfg.use_sun_heading, bool((result_sun_heading or {}).get("available"))),
+            "ocr_anchor": (cfg.enable_ocr_anchor, bool(ocr_anchors or street_anchors)),
+            "loop_closure": (cfg.enable_loop_closure, result_loop_closure is not None),
+            "coarse_from_frames": (cfg.coarse_from_frames and cfg.osm_around is None,
+                                   frame_seed_source is not None),
+            "orienternet": (cfg.use_orienternet,
+                            bool((result.get("orienternet") or {}).get("applied"))),
+        },
+        fusion=result.get("fusion"),
+    )
 
     # Provenance: commit, full config, library versions, whether credentials
     # were set (never their values). Without it a result cannot be traced to
     # the code and settings that produced it.
     from .provenance import collect_provenance
+    # The OSM snapshot matters too: OSM is edited continuously and the graph
+    # is cached, so record when (and with what) this run's graph was fetched.
+    _g = road.graph.graph
     result["provenance"] = collect_provenance(
         cfg, extra={"vo_algo_version": VO_ALGO_VERSION,
-                    "vo_cache": str(vo_cache) if vo_cache is not None else None},
+                    "vo_cache": str(vo_cache) if vo_cache is not None else None,
+                    "osm_graph": {
+                        "cache": str(cache_path),
+                        "created_date": _g.get("created_date"),
+                        "created_with": _g.get("created_with"),
+                        "nodes": road.graph.number_of_nodes(),
+                        "edges": road.graph.number_of_edges(),
+                    }},
     )
 
     out_json = cfg.output_dir / "result.json"

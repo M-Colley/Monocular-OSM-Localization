@@ -505,3 +505,72 @@ def test_anchor_pinned_route_places_anchor_exactly() -> None:
     assert np.allclose(route[2], anchor_world, atol=1e-6)
     # extent preserved (100 units * scale 5 = 500 m)
     assert np.linalg.norm(route[-1] - route[0]) == pytest.approx(500.0, rel=1e-6)
+
+
+def test_overlap_rejects_a_crossing_street() -> None:
+    """A window walk that merely CROSSES the candidate (a perpendicular
+    street) shares one point with it. The old closest-approach test called
+    that support, so in a small disc every window supported every
+    candidate."""
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    g.add_node(0, x=0.0, y=0.0)
+    route = _stub_candidate(g, [], np.array([[0.0, 0.0], [1500.0, 0.0]]))
+    crossing = _stub_candidate(g, [], np.array([[700.0, -200.0], [700.0, 200.0]]))
+    assert not _candidates_overlap(route, crossing, g, support_radius_m=60.0)
+
+
+def test_overlap_rejects_a_parallel_street_one_block_over() -> None:
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = "EPSG:32632"
+    g.add_node(0, x=0.0, y=0.0)
+    route = _stub_candidate(g, [], np.array([[0.0, 0.0], [1500.0, 0.0]]))
+    parallel = _stub_candidate(g, [], np.array([[0.0, 120.0], [400.0, 120.0]]))
+    assert not _candidates_overlap(route, parallel, g, support_radius_m=60.0)
+
+
+def test_walk_observer_sees_every_stage_and_changes_nothing() -> None:
+    road = _l_shape_graph()
+    traj = np.array([[0, -i] for i in range(0, 201, 5)], dtype=float)
+    kw = dict(n_samples=48, walks_per_node=4, walk_depth=6, bearing_top_k=20,
+              final_top_k=3, estimated_length_m=180.0, progress=False)
+    seen: dict[str, int] = {}
+
+    def observer(stage: str, walk_xy: np.ndarray) -> None:
+        assert walk_xy.ndim == 2 and walk_xy.shape[1] == 2
+        seen[stage] = seen.get(stage, 0) + 1
+
+    plain = match_trajectory(traj, road, **kw)
+    observed = match_trajectory(traj, road, walk_observer=observer, **kw)
+    assert [c.walk for c in observed] == [c.walk for c in plain]
+    assert seen["enumerated"] >= seen["prefiltered"] >= seen["final"] == len(observed)
+
+
+def test_pool_recall_observer_finds_the_true_route() -> None:
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "diagnose_pool_recall",
+        Path(__file__).resolve().parents[1] / "scripts" / "diagnose_pool_recall.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    gt = np.array([[0.0, 0.0], [0.0, -200.0]])
+    obs = mod.RecallObserver(gt)
+    obs("enumerated", np.array([[500.0, 0.0], [500.0, -200.0]]))   # 500 m off
+    obs("enumerated", np.array([[0.0, 0.0], [0.0, -200.0]]))       # the route
+    rep = obs.report()["enumerated"]
+    assert rep["n"] == 2 and rep["best_sym_m"] == 0.0
+    assert rep["n_sym_le_50m"] == 1
+
+
+def test_procrustes_similarity_degenerate_input_hits_the_fallback() -> None:
+    """SimilarityTransform.from_estimate reports failure with a FALSY
+    object, not None; the old `is None` test let it through and the
+    degenerate fit raised downstream instead of returning inf."""
+    from monocular_osm.trajectory_matching import procrustes_similarity
+
+    src = np.zeros((5, 2))                       # all points identical
+    dst = np.array([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], dtype=float)
+    _R, _s, residual, _aligned = procrustes_similarity(src, dst)
+    assert residual == float("inf")

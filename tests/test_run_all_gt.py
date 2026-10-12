@@ -39,9 +39,48 @@ def test_strip_osm_around_noop_without_flag() -> None:
     assert M._strip_osm_around(args) == args
 
 
-def test_blind_mode_keeps_mega_city_disc() -> None:
-    # London's point+radius fetch is an infra necessity, not a GT leak.
-    assert "London (Bloomsbury)" in M.MEGA_CITY_CLIPS
+def test_blind_mode_strips_every_disc_including_london() -> None:
+    # A disc centred on the GT is a leak whatever the reason: blind mode must
+    # not keep London's 1.5 km GT disc (it used to, as a "mega-city" exception).
+    assert not M.MEGA_CITY_CLIPS
+    london = next(args for name, _slug, args in M.CLIPS if name.startswith("London"))
+    assert "--osm-around" in london                       # GT-seeded by default
+    assert "--osm-around" not in M._blind_args(london, None)
+
+
+def test_blind_mode_uses_manifest_city_not_gt_informed_city() -> None:
+    manifest = {"clips": [
+        {"id": "boreas", "gt": "ground_truth/boreas_glenshields.json",
+         "video": {"path": "data/boreas-glenshields-vaughan-canada/input.mp4"},
+         "city": "Toronto, Ontario, Canada"},
+        {"id": "ulm4k", "gt": "ground_truth/ulm_ULl8s4qydrk_0-300.json",
+         "video": {"url": "https://www.youtube.com/watch?v=ULl8s4qydrk"},
+         "city": "Ulm, Germany"},
+    ]}
+    boreas = next(args for name, _slug, args in M.CLIPS if name.startswith("Boreas"))
+    out = M._blind_args(boreas, manifest)
+    assert out[out.index("--city") + 1] == "Toronto, Ontario, Canada"
+    assert "--osm-around" not in out
+    # Matched by video URL when the GT file differs (0-420 vs 0-300 labels).
+    ulm = next(args for name, _slug, args in M.CLIPS if name.startswith("Ulm (OCR"))
+    assert M._manifest_city(ulm, manifest) == "Ulm, Germany"
+
+
+def test_blind_mode_against_committed_manifest() -> None:
+    manifest = M._load_manifest()
+    assert manifest is not None
+    for name, _slug, args in M.CLIPS:
+        out = M._blind_args(args, manifest)
+        assert "--osm-around" not in out, name
+    comma = next(args for name, _slug, args in M.CLIPS if name.startswith("comma"))
+    assert M._blind_args(comma, manifest)[comma.index("--city") + 1] == \
+        "San Francisco Peninsula, California, USA"
+
+
+def test_mode_label_marks_gt_seeded() -> None:
+    assert "GT-SEEDED" in M.mode_label(False)
+    assert "NOT GPS-free" in M.mode_label(False)
+    assert "BLIND" in M.mode_label(True)
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +160,26 @@ def test_result_row_falls_back_on_old_schema() -> None:
     assert row["source"] == "matcher"
     assert row["gt_mean"] == 143.0
     assert row["m_gt_mean"] == 143.0
+
+
+def test_result_row_keeps_raw_matcher_and_reports_pinned() -> None:
+    # New schema: matcher_position is the RAW pick; the anchor-pinned route
+    # is its own report. mMean must stay the raw matcher.
+    result = {
+        "position": {"source": "ocr_anchor_pin", "gt_mean_route_error_m": 90.0,
+                     "gt_start_error_m": 40.0},
+        "pinned_position": {"source": "ocr_anchor_pin",
+                            "gt_mean_route_error_m": 90.0},
+        "matcher_position": {"source": "matcher", "gt_mean_route_error_m": 640.0,
+                             "gt_start_error_m": 700.0},
+    }
+    row = M._result_row("Ulm", 0, result)
+    assert row["m_gt_mean"] == 640.0
+    assert row["p_gt_mean"] == 90.0
+    assert row["p_source"] == "ocr_anchor_pin"
+    # Absent pinned report -> None, not a crash.
+    del result["pinned_position"]
+    assert M._result_row("Ulm", 0, result)["p_gt_mean"] is None
 
 
 def test_result_row_none_result_keeps_rc() -> None:

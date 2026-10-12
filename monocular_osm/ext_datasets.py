@@ -29,6 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .geo import LocalFrame
 from .gps_overlay import GpsFix, osm_around_for_track, track_to_ground_truth
 
 __all__ = [
@@ -98,23 +99,21 @@ def enu_to_latlon(
 ) -> np.ndarray:
     """Convert local ENU metres (relative to a WGS84 origin) to ``[lat,lon]``.
 
-    A local-tangent-plane inverse using the LATITUDE-DEPENDENT WGS84 metre-
-    per-degree scales, not the spherical 111320 constant: at Toronto's 43.8°N
-    the meridian scale is 111108 m/deg (0.19% off the constant), which is a
-    2.3-3.6 m systematic error 1.8 km from the origin — the GT would be worse
-    than the Applanix data it comes from (audit round-4 EXT-1; with these
-    scales the in-window error vs the reference lat/lon columns is <0.3 m).
-    Boreas poses are ENU relative to a per-sequence reference lat/lon.
+    Must be ELLIPSOIDAL, not the spherical 111320 m/deg constant: at
+    Toronto's 43.8°N the meridian scale is 111108 m/deg (0.19% off the
+    constant), which is a 2.3-3.6 m systematic error 1.8 km from the origin
+    — the GT would be worse than the Applanix data it comes from (audit
+    round-4 EXT-1). Inverts a WGS84 azimuthal-equidistant frame centred on
+    the origin (:class:`monocular_osm.geo.LocalFrame`, pyproj), which
+    matches PROJ's exact ENU (``+proj=topocentric``) inverse to 0.1 mm at
+    1.8 km. The former linear metre-per-degree inverse put due-east points
+    on the parallel instead of the tangent-plane geodesic: 0.24 m off at
+    1.8 km east, 0.54 m on the 1.8 km diagonal (2.6 mm due north). Boreas
+    poses are ENU relative to a per-sequence reference lat/lon.
     """
     east_m = np.asarray(east_m, float)
     north_m = np.asarray(north_m, float)
-    la = np.radians(lat0)
-    m_per_deg_lat = (111132.954 - 559.822 * np.cos(2 * la)
-                     + 1.175 * np.cos(4 * la))
-    m_per_deg_lon = (np.pi / 180.0) * 6378137.0 * np.cos(la) / np.sqrt(
-        1.0 - 0.00669437999014 * np.sin(la) ** 2)
-    lat = lat0 + (north_m / m_per_deg_lat)
-    lon = lon0 + (east_m / m_per_deg_lon)
+    lat, lon = LocalFrame(lat0, lon0).to_latlon(east_m, north_m)
     return np.column_stack([lat, lon])
 
 
