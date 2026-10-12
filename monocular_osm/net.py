@@ -15,7 +15,10 @@ is announced, so a run's log says what it waited for.
 
 from __future__ import annotations
 
+import contextlib
+import socket
 import sys
+from urllib.parse import urlparse
 
 import requests
 from tenacity import (
@@ -64,3 +67,59 @@ def transient_retry(*, attempts: int = 4, first_wait_s: float = 20.0,
         before_sleep=_announce,
         reraise=True,
     )
+
+
+def reachable_address(hostname: str, port: int = 443, probe_timeout: float = 4.0) -> str | None:
+    """The first IPv4 address of ``hostname`` that accepts a TCP connection.
+
+    overpass-api.de is round-robin DNS over several machines, and from some
+    networks one of them is black-holed (connections hang until the timeout).
+    """
+    try:
+        infos = socket.getaddrinfo(hostname, port, family=socket.AF_INET,
+                                   type=socket.SOCK_STREAM)
+    except OSError:
+        return None
+    for addr in dict.fromkeys(i[4][0] for i in infos):
+        try:
+            with socket.create_connection((addr, port), timeout=probe_timeout):
+                return addr
+        except OSError:
+            continue
+    return None
+
+
+@contextlib.contextmanager
+def prefer_reachable_host(url: str, probe_timeout: float = 4.0):
+    """While active, ``socket.gethostbyname(<host of url>)`` returns a
+    *reachable* address.
+
+    osmnx resolves the Overpass hostname once with ``gethostbyname`` and pins
+    every request of the call to that single address (so its rate-limit check
+    and its query reach the same server). On Windows the OS returns the cached
+    first record, so when that record is the black-holed machine EVERY attempt
+    - and every later run - times out for the full 180 s connect timeout,
+    which retrying cannot fix: in a 15-clip benchmark 12 runs died this way
+    while the other address answered in 60 ms. This probes the candidates
+    briefly and makes osmnx's single resolution land on one that works.
+
+    If no address is reachable (or the host is an IP / unresolvable) nothing is
+    patched and behaviour is unchanged. Not thread-safe (it swaps a stdlib
+    function for the duration of the call).
+    """
+    host = urlparse(url).hostname
+    port = urlparse(url).port or (443 if urlparse(url).scheme == "https" else 80)
+    addr = reachable_address(host, port, probe_timeout) if host else None
+    real = socket.gethostbyname
+    if addr is None:
+        yield None
+        return
+
+    def _gethostbyname(name):
+        return addr if name == host else real(name)
+
+    socket.gethostbyname = _gethostbyname
+    try:
+        yield addr
+    finally:
+        socket.gethostbyname = real

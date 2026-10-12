@@ -16,7 +16,7 @@ import numpy as np
 import osmnx as ox
 from shapely.geometry import LineString
 
-from .net import transient_retry
+from .net import prefer_reachable_host, transient_retry
 
 
 @dataclass
@@ -38,12 +38,15 @@ def _download_graph(place: str, network_type: str,
                     around: tuple[float, float, float] | None):
     """The Overpass download, retried on transient network errors only (a
     geocode failure for a misspelt city is not transient and fails at once)."""
-    if around is not None:
-        lat, lon, radius_m = around
-        return ox.graph_from_point(
-            (lat, lon), dist=float(radius_m), network_type=network_type,
-        )
-    return ox.graph_from_place(place, network_type=network_type)
+    # Pin osmnx's single DNS resolution to a reachable Overpass machine (see
+    # net.prefer_reachable_host); re-probed on every retry attempt.
+    with prefer_reachable_host(ox.settings.overpass_url):
+        if around is not None:
+            lat, lon, radius_m = around
+            return ox.graph_from_point(
+                (lat, lon), dist=float(radius_m), network_type=network_type,
+            )
+        return ox.graph_from_place(place, network_type=network_type)
 
 
 def fetch_city_graph(
