@@ -204,6 +204,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "let the matcher generate routes with more turns at a "
                         "runtime cost; measure recall with "
                         "scripts/diagnose_pool_recall.py.")
+    p.add_argument("--graph-filter", action="store_true",
+                   help="EXPERIMENTAL, off by default: also run the road-graph particle "
+                        "filter (monocular_osm/graph_filter.py) on the visual odometry and "
+                        "store its route in result['filter_position'] (never the headline). "
+                        "It reaches Brubaker-level accuracy with METRIC odometry; with this "
+                        "repo's unit-step monocular VO it mostly fails and its confidence is "
+                        "not calibrated.")
+    p.add_argument("--graph-filter-particles", type=int, default=200_000,
+                   help="Particle count for --graph-filter (memory ~2 GB and ~2-4 min "
+                        "at 200k; the whole-city evaluation used 600k).")
+    p.add_argument("--graph-filter-seed", type=int, default=0,
+                   help="Random seed for --graph-filter.")
+    p.add_argument("--graph-filter-vpr", action="store_true",
+                   help="With --graph-filter: also feed the per-frame retrieval positions "
+                        "to the filter as noisy absolute observations (untested on real "
+                        "data beyond synthetic checks).")
     p.add_argument("--fusion-weights", type=_parse_fusion_weights, default=None,
                    metavar="JSON",
                    help="Override consensus-fusion weights for ablation, e.g. "
@@ -725,6 +741,10 @@ def main() -> None:
             vo_end_sec=end,
             top_k=args.top_k,
             walks_per_node=args.walks_per_node,
+            graph_filter=args.graph_filter,
+            graph_filter_particles=args.graph_filter_particles,
+            graph_filter_seed=args.graph_filter_seed,
+            graph_filter_vpr=args.graph_filter_vpr,
             fusion_weights=args.fusion_weights,
             scale_recovery_thresh_m=args.scale_recovery_thresh_m,
             scale_recovery_min_inliers=args.scale_recovery_min_inliers,

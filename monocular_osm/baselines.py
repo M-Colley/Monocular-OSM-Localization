@@ -199,6 +199,12 @@ def pinned_only(result: dict) -> Prediction | None:
     return _from_report("pinned_only", result, "pinned_position")
 
 
+def graph_filter_only(result: dict) -> Prediction | None:
+    """``result["filter_position"]`` — the opt-in road-graph particle filter's
+    smoothed route (``--graph-filter``); absent unless the channel ran."""
+    return _from_report("graph_filter_only", result, "filter_position")
+
+
 def vpr_prior_only(result: dict) -> Prediction | None:
     """``result["vpr_prior"]`` — the retrieval centre as a single point."""
     vp = (result or {}).get("vpr_prior")

@@ -119,6 +119,8 @@ def finalize_result(ctx: RunContext) -> None:
             "loop_closure": (cfg.enable_loop_closure, result_loop_closure is not None),
             "coarse_from_frames": (cfg.coarse_from_frames and cfg.osm_around is None,
                                    frame_seed_source is not None),
+            "graph_filter": (cfg.graph_filter,
+                             "filter_position" in result),
             "orienternet": (cfg.use_orienternet,
                             bool((result.get("orienternet") or {}).get("applied"))),
         },

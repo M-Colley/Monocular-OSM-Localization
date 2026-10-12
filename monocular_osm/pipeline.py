@@ -41,6 +41,13 @@ class PipelineConfig:
     # intersection cannot be generated from their true start; raising it is
     # a runtime/recall trade-off to measure (scripts/diagnose_pool_recall.py).
     walks_per_node: int = 40
+    # Opt-in road-graph particle filter (monocular_osm/graph_filter.py): runs on
+    # the VO and stores its route in result["filter_position"], never as the
+    # headline. Needs metric odometry to work (see stages/graph_filter.py).
+    graph_filter: bool = False
+    graph_filter_particles: int = 200_000
+    graph_filter_seed: int = 0
+    graph_filter_vpr: bool = False     # also feed VPR positions as observations
     # Where cfg.osm_around came from: "user" (--osm-around), "video_title"
     # (place names in the title/description), or None. Recorded so an
     # evaluator can tell a deployable seed from a ground-truth disc.
@@ -366,6 +373,7 @@ from .stages.channels import (  # noqa: F401
     splat_channel,
     tile3d_channel,
 )
+from .stages.graph_filter import graph_filter_channel  # noqa: F401
 from .stages.consensus import (  # noqa: F401
     _heading_diff_deg,
     _mean_bearing_deg,
@@ -496,6 +504,7 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     embedding_channel(ctx)
     bevsplat_channel(ctx)
     da3_dense_channel(ctx)
+    graph_filter_channel(ctx)
 
     # 10-11. In-run evaluation, anchor-primary placement and the final position.
     evaluate_ground_truth_streets(ctx)

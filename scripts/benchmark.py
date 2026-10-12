@@ -995,6 +995,7 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 "pipeline": B.pipeline_headline(result) if ok else None,
                 "matcher_only": B.matcher_only(result) if ok else None,
                 "pinned_only": B.pinned_only(result) if ok else None,
+                "graph_filter_only": B.graph_filter_only(result) if ok else None,
                 "vpr_prior_only": B.vpr_prior_only(result) if ok else None,
                 f"shortlist_oracle@{k}": (B.shortlist_oracle(result, gt_latlon, k)
                                           if ok else None),
@@ -1151,6 +1152,7 @@ METHOD_LABEL = {
     "pipeline": "Pipeline (headline)",
     "matcher_only": "Matcher only",
     "pinned_only": "Anchor-pinned only",
+    "graph_filter_only": "Graph filter only",
     "vpr_prior_only": "VPR prior only",
     "city_centroid": "City centroid",
 }
@@ -1215,7 +1217,7 @@ def render_markdown(summary: dict) -> str:
         ids = fs["clips"]
         clips = summary["clips"]
         methods = [m for m in ("pipeline", "city_centroid", "vpr_prior_only",
-                               "matcher_only", "pinned_only") if m in fs["methods"]]
+                               "matcher_only", "pinned_only", "graph_filter_only") if m in fs["methods"]]
         oracle = [m for m in fs["methods"] if m.startswith("shortlist_oracle@")]
         L.append(f"## {fleet} fleet\n")
         if fs.get("methods_not_run"):
