@@ -92,6 +92,7 @@ def _resolve_input_video(cfg: PipelineConfig) -> Path:
 def acquire_video(ctx: RunContext) -> None:
     """Resolve the input video (local file / cached download / yt-dlp) -> ``ctx.video_path``."""
     cfg = ctx.cfg
+
     # 1. Acquire the input video (local file / cache / download).
     ctx.video_path = _resolve_input_video(cfg)
 
@@ -100,6 +101,7 @@ def extract_video_frames(ctx: RunContext) -> None:
     """Decode the analysed window of the video -> ``ctx.frames``."""
     cfg = ctx.cfg
     video_path = ctx.video_path
+
     # 2. Frames.
     print(f"[2/5] Extracting frames (stride={cfg.frame_stride}, "
           f"window={cfg.vo_start_sec}-{cfg.vo_end_sec}s)")

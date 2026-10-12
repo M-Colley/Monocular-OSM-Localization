@@ -61,6 +61,7 @@ def estimate_length_prior(ctx: RunContext) -> None:
     """Duration-based route-length prior -> ``ctx.duration_prior_m`` / ``ctx.estimated_length_m``."""
     cfg = ctx.cfg
     frames = ctx.frames
+
     # 2b. Route-length prior for OSM walk enumeration. The
     # duration-based estimate is the *stable sanity reference* that every
     # (noisier) scale source — IPM flow (2c), DA3 (4b), anchors (4c) — is
@@ -92,6 +93,7 @@ def estimate_flow_scale(ctx: RunContext) -> None:
     channel_status = ctx.channel_status
     frames = ctx.frames
     duration_prior_m = ctx.duration_prior_m
+
     # 2c. Idea 3: ground-plane optical-flow metric scale (opt-in). Sets
     # the length prior from road-feature motion, sanity-gated against the
     # duration estimate. Off by default — unreliable without real camera
