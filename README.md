@@ -250,6 +250,24 @@ setx MLY_TOKEN "MLY|xxxxxxxx|xxxxxxxx"   # Windows, persists for your user
 References and their embeddings are cached per clip under `data/<slug>/`, so once
 a clip is warm you can re-run it offline without the token.
 
+**Extras the default configuration relies on.** The default GPS-free run seeds its
+search area from licence plates and OCR'd place names, and reads dashcam clocks;
+each is an optional extra that is *silently skipped when missing* (the log says
+`plate seed unavailable` / `OCR seed unavailable`), so install them to reproduce
+the published configuration:
+
+```bash
+pip install -e ".[ocr,plates]"     # rapidocr (OCR) and fast-alpr (plate districts)
+```
+
+**Keep `yt-dlp` current.** YouTube changes its player often; an out-of-date
+`yt-dlp` fails with `HTTP Error 403: Forbidden` on downloads that worked the day
+before. `pip install -U yt-dlp` fixes it. A JavaScript runtime (Node.js on `PATH`)
+is picked up automatically and avoids the "extraction without a JS runtime"
+warning. Downloads and the Overpass road-graph fetch are retried with backoff
+(`monocular_osm/net.py`), so a single transient 403 or timeout no longer kills a
+run.
+
 Optional comparison extras:
 
 ```bash
