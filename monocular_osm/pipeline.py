@@ -401,6 +401,13 @@ from .stages.prior import (  # noqa: F401
     vlm_district_prior,
     vpr_coarse_prior,
 )
+from .stages.graph import (  # noqa: F401
+    _fetch_road_graph,
+    load_road_graph,
+)
+from .stages.anchors import (  # noqa: F401
+    estimate_sun_heading,
+)
 from .stages.length_prior import _length_sane_here as _length_sane_here_ctx
 
 
@@ -1348,37 +1355,6 @@ def _da3_trajectory_plausible(xy: np.ndarray) -> bool:
     return reversal_ratio <= 0.15
 
 
-def _fetch_road_graph(
-    city: str, cache_path: Path,
-    around: tuple[float, float, float] | None = None,
-) -> RoadGraph:
-    """Fetch the OSM graph with a user-actionable error on geocode failure.
-
-    osmnx raises a grab-bag of exceptions (InsufficientResponseError,
-    ValueError, network errors) whose messages don't tell a CLI user
-    what to fix. Re-raise as a ValueError that names the city and the
-    expected format, keeping the original as __cause__.
-    """
-    from .net import is_transient
-
-    try:
-        return fetch_city_graph(city, cache_path=cache_path, around=around)
-    except Exception as e:
-        if is_transient(e):
-            # Retries are already exhausted inside fetch_city_graph; the city
-            # name is probably fine, so don't send the user to check spelling.
-            raise ValueError(
-                f"Could not reach Overpass to fetch the OSM road graph for "
-                f"{city!r} (network error after retries; try again later). "
-                f"Original error: {e}"
-            ) from e
-        raise ValueError(
-            f"Could not fetch an OSM road graph for {city!r}. Check the "
-            f"spelling and use the form 'City, Country' (e.g. 'Ulm, "
-            f"Germany'). Original error: {e}"
-        ) from e
-
-
 def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
                         fusion: dict | None) -> dict:
     """Fill in a status for every channel that did not record a failure.
@@ -1416,6 +1392,8 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     vpr_coarse_prior(ctx)
     plate_district_prior(ctx)
     vlm_district_prior(ctx)
+    load_road_graph(ctx)
+    estimate_sun_heading(ctx)
 
     # --- not yet extracted: the remaining stages still run inline on locals ---
     fusion_w = ctx.fusion_w
@@ -1428,7 +1406,6 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     traj = ctx.traj
     n_valid = ctx.n_valid
     vo_cache = ctx.vo_cache
-    osm_around = ctx.osm_around
     frame_seed_source = ctx.frame_seed_source
     vpr_center = ctx.vpr_center
     vpr_track = ctx.vpr_track
@@ -1438,53 +1415,12 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     result_plate_anchor = ctx.result_plate_anchor
     plate_center = ctx.plate_center
     result_vlm_anchor = ctx.result_vlm_anchor
+    road = ctx.road
+    cache_path = ctx.cache_path
+    result_sun_heading = ctx.result_sun_heading
 
     def _length_sane_here(candidate_m: float) -> bool:
         return _length_sane_here_ctx(ctx, candidate_m)
-
-    # 4. OSM road graph for the city.
-    if osm_around is not None:
-        la, lo, rad = osm_around
-        print(f"[4/5] Fetching OSM driving graph around ({la:.4f}, {lo:.4f}) "
-              f"r={rad:.0f} m for {cfg.city!r}")
-        cache_path = cfg.data_dir / (
-            f"{cfg.city.replace(',', '').replace(' ', '_')}"
-            f"_around_{la:.4f}_{lo:.4f}_{int(rad)}.graphml")
-    else:
-        print(f"[4/5] Fetching OSM driving graph for {cfg.city!r}")
-        cache_path = cfg.data_dir / f"{cfg.city.replace(',', '').replace(' ', '_')}.graphml"
-    road = _fetch_road_graph(cfg.city, cache_path, around=osm_around)
-    print(f"      -> {road.graph.number_of_nodes()} nodes, "
-          f"{road.graph.number_of_edges()} edges, CRS={road.crs}")
-
-    # 4b. Optional: absolute heading from the sun. Activates only when the clip
-    # carries a usable capture time (container metadata or a burned-in clock);
-    # otherwise a graceful no-op. When available it pins the matcher's free
-    # rotation DOF (monocular_osm/sun_heading.py). Computed + reported here.
-    if cfg.use_sun_heading:
-        try:
-            from .sun_heading import estimate_heading
-            cen = osm_around[:2] if osm_around else None
-            if cen is None:
-                import osmnx as ox
-                cen = ox.geocode(cfg.city)
-            sh_times = list(np.linspace(cfg.vo_start_sec,
-                                        cfg.vo_end_sec or (cfg.vo_start_sec + 420.0), 30))
-            sh = estimate_heading(str(video_path), cen, sh_times,
-                                  ocr_engine=cfg.ocr_engine)
-            result_sun_heading = sh
-            if sh and sh.get("available"):
-                print(f"[4b] Sun heading: {sh['median_heading']:.0f} deg via {sh['source']} "
-                      f"({sh['n_used']} frames, conf {sh['confidence']:.2f})")
-            else:
-                print(f"[4b] Sun heading: not available "
-                      f"({(sh or {}).get('reason', 'module missing')})")
-        except Exception as e:
-            print(f"[4b] Sun heading failed ({e})")
-            _record_channel(channel_status, 'sun', "failed", error=e)
-            result_sun_heading = {"available": False, "reason": str(e)}
-    else:
-        result_sun_heading = None
 
     # 4b. Optional: use Depth Anything 3's globally-consistent camera path
     # as the trajectory the shape matcher consumes. Monocular VO drifts

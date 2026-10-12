@@ -14,6 +14,7 @@ import pytest
 
 import monocular_osm.pipeline as pipeline
 import monocular_osm.stages.acquire as stage_acquire
+import monocular_osm.stages.graph as stage_graph
 import monocular_osm.stages.prior as stage_prior
 from monocular_osm.pipeline import (
     PipelineConfig,
@@ -144,7 +145,7 @@ def test_fetch_road_graph_passes_through(
 ) -> None:
     sentinel = object()
     monkeypatch.setattr(
-        pipeline, "fetch_city_graph",
+        stage_graph, "fetch_city_graph",
         lambda city, cache_path, around=None: sentinel,
     )
     assert _fetch_road_graph("Ulm, Germany", tmp_path / "g.graphml") is sentinel
@@ -155,7 +156,7 @@ def test_fetch_road_graph_passes_around(
 ) -> None:
     seen = {}
     monkeypatch.setattr(
-        pipeline, "fetch_city_graph",
+        stage_graph, "fetch_city_graph",
         lambda city, cache_path, around=None: seen.setdefault("around", around),
     )
     _fetch_road_graph("London, UK", tmp_path / "g.graphml", around=(51.5, -0.13, 2500.0))
@@ -168,7 +169,7 @@ def test_fetch_road_graph_wraps_geocode_failure(
     def boom(city: str, cache_path: Path, around=None) -> None:
         raise RuntimeError("Nominatim could not geocode 'Ulmm'")
 
-    monkeypatch.setattr(pipeline, "fetch_city_graph", boom)
+    monkeypatch.setattr(stage_graph, "fetch_city_graph", boom)
     with pytest.raises(ValueError) as exc_info:
         _fetch_road_graph("Ulmm, Germany", tmp_path / "g.graphml")
 
