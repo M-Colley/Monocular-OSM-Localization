@@ -12,7 +12,7 @@ drives in the benchmark. Regenerate with `python scripts/eval_graph_filter.py`
 
 * **With real odometry it works, even on a whole city.** KITTI 0033 (165 s,
   Karlsruhe) with the OXTS speed and heading localizes all 5 seeds in about 25 s
-  to 7 m on an 18 km² box, and in about 31 s to 7 m on the *entire* Karlsruhe
+  to 7 m on a 35 km² box, and in about 31 s to 7 m on the *entire* Karlsruhe
   road network (1,605 directed km, 600,000 particles). That matches the
   published result for this problem (about 3-4 m after 20-52 s on a comparable
   map).
