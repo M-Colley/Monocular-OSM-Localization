@@ -397,6 +397,51 @@ def run_one(argv: list[str], log_path: Path, env: dict, timeout: float) -> dict:
             "started_utc": started, "finished_utc": _now()}
 
 
+#: POSIX exit codes of a process killed by a signal from outside (SIGKILL /
+#: SIGTERM). On Windows an abnormal NATIVE termination shows up as an NTSTATUS
+#: code (>= 0xC0000000: e.g. 0xC000070A seen on a killed benchmark child) -
+#: never as a Python failure, which always exits 1 with a traceback.
+_EXTERNAL_KILL_RCS = {-9, -15, 137, 143}
+_NTSTATUS_ERROR_FLOOR = 0xC0000000
+#: Log patterns of a failure caused by the machine or the network, not by the
+#: pipeline: allocation failures under memory pressure (OpenCV reports a failed
+#: allocation as "Unknown C++ exception"), and network errors that survived the
+#: pipeline's own retries.
+_INFRA_LOG_PATTERNS = (
+    "Unknown C++ exception from OpenCV", "bad_alloc", "MemoryError",
+    "Unable to allocate", "out of memory", "CUDA error: out of memory",
+    "Could not reach Overpass", "ConnectTimeout", "HTTP Error 403", "HTTP Error 429",
+    "HTTP Error 503", "Read timed out",
+)
+
+
+def infra_failure_reason(outcome: dict, log_path: Path, tail_bytes: int = 60000) -> str | None:
+    """Why a failed run is the environment's fault, or None for a genuine
+    failure (which must stay recorded as one - a bad city, an assertion, a
+    pipeline bug). Successful runs and timeouts are never classified."""
+    rc = outcome.get("rc")
+    if rc in (0, None) or outcome.get("timed_out"):
+        return None
+    if rc in _EXTERNAL_KILL_RCS:
+        return f"process killed by a signal (rc={rc})"
+    if isinstance(rc, int) and rc & 0xFFFFFFFF >= _NTSTATUS_ERROR_FLOOR:
+        return f"abnormal native termination (rc=0x{rc & 0xFFFFFFFF:08X}); killed or crashed outside Python"
+    try:
+        with open(log_path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - tail_bytes))
+            raw = fh.read()
+    except OSError:
+        return None
+    # The log may be UTF-16 (PowerShell redirection) or UTF-8.
+    text = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8",
+                      errors="replace").replace("\x00", "")
+    for pat in _INFRA_LOG_PATTERNS:
+        if pat in text:
+            return f"log shows {pat!r}"
+    return None
+
+
 def _find_result(pipeline_out: Path) -> Path | None:
     hits = sorted(Path(pipeline_out).glob("*/result.json"))
     return hits[0] if len(hits) == 1 else (max(hits, key=lambda p: p.stat().st_mtime)
@@ -487,27 +532,44 @@ def cmd_run(args) -> int:
             print(f"\n=== {entry['id']} rep{k}  city={city!r}  seg={entry['vo_segment']}",
                   flush=True)
 
-            cold: dict = {}
-            slug_dirs = (candidate_slug_dirs(entry, city, ROOT / data_dir)
-                         if args.cold_vpr else [])
-            try:
-                for d in slug_dirs:
-                    moved = set_vpr_caches_aside(d)
-                    if moved:
-                        cold[d.name] = {"set_aside": moved}
-                outcome = run_one(argv, rep_dir / "log.txt", env, args.timeout)
-            finally:
-                if args.cold_vpr:
-                    res = _find_result(pipeline_out)
-                    if res is not None:
-                        d = ROOT / data_dir / res.parent.name
-                        if d not in slug_dirs:
-                            slug_dirs.append(d)
+            infra_retries: list[dict] = []
+            for attempt in range(1, args.infra_retries + 2):
+                cold: dict = {}
+                slug_dirs = (candidate_slug_dirs(entry, city, ROOT / data_dir)
+                             if args.cold_vpr else [])
+                try:
                     for d in slug_dirs:
-                        arch = d / COLD_ARCHIVE_DIR / args.run_name / entry["id"] / f"rep{k}"
-                        moved = restore_vpr_caches(d, arch)
+                        moved = set_vpr_caches_aside(d)
                         if moved:
-                            cold.setdefault(d.name, {})["restored"] = moved
+                            cold[d.name] = {"set_aside": moved}
+                    outcome = run_one(argv, rep_dir / "log.txt", env, args.timeout)
+                finally:
+                    if args.cold_vpr:
+                        res = _find_result(pipeline_out)
+                        if res is not None:
+                            d = ROOT / data_dir / res.parent.name
+                            if d not in slug_dirs:
+                                slug_dirs.append(d)
+                        for d in slug_dirs:
+                            arch = (d / COLD_ARCHIVE_DIR / args.run_name / entry["id"]
+                                    / f"rep{k}")
+                            moved = restore_vpr_caches(d, arch)
+                            if moved:
+                                cold.setdefault(d.name, {})["restored"] = moved
+                why = infra_failure_reason(outcome, rep_dir / "log.txt")
+                if why is None or attempt > args.infra_retries:
+                    break
+                # The machine or network failed, not the pipeline: wait for the
+                # contention to clear and run the SAME rep again (recorded).
+                infra_retries.append({"attempt": attempt, "rc": outcome["rc"],
+                                      "reason": why, "wall_s": outcome["wall_s"]})
+                print(f"  -> infrastructure failure ({why}); retrying in "
+                      f"{args.infra_wait:.0f} s ({attempt}/{args.infra_retries})",
+                      flush=True)
+                time.sleep(args.infra_wait)
+                stamp = int(time.time())
+                if pipeline_out.exists():
+                    pipeline_out.rename(rep_dir / f"pipeline_out.attempt{stamp}")
 
             res = _find_result(pipeline_out)
             if res is not None:
@@ -527,6 +589,7 @@ def cmd_run(args) -> int:
                 "result_source": res.relative_to(ROOT).as_posix() if res else None,
                 "cold_vpr": bool(args.cold_vpr), "cold_vpr_moves": cold,
                 "token_redactions": redactions,
+                "infra_retries": infra_retries,
             }
             status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
             n_done += 1
@@ -1193,6 +1256,13 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--timeout", type=float, default=3600.0, help="seconds per run")
     r.add_argument("--retry-failed", action="store_true",
                    help="re-run reps whose rc != 0 (completed reps are always skipped)")
+    # Operational, NOT part of run_config (they do not change any result):
+    r.add_argument("--infra-retries", type=int, default=2,
+                   help="re-run a rep up to N times when it failed because the machine "
+                        "or network did (killed externally, allocation failure, network "
+                        "timeout); genuine pipeline failures are never retried")
+    r.add_argument("--infra-wait", type=float, default=90.0,
+                   help="seconds to wait before an infrastructure retry")
     r.add_argument("--include-unavailable", action="store_true",
                    help="also try clips marked available_locally=false")
     r.add_argument("--skip-download", action="store_true",

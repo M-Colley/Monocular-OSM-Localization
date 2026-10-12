@@ -535,3 +535,80 @@ def test_aggregate_flags_degraded_runs_and_renders_health(tmp_path: Path) -> Non
     assert any("DEGRADED" in w and "clipA" in w for w in s["warnings"])
     md = M.render_markdown(s)
     assert "### Run health" in md and "**1**" in md and "megaloc" in md
+
+
+# --- infrastructure-failure classification and retry --------------------------------
+
+def _log(tmp_path: Path, text: str, enc: str = "utf-8") -> Path:
+    p = tmp_path / "log.txt"
+    p.write_bytes(text.encode(enc))
+    return p
+
+
+@pytest.mark.parametrize("rc,text,expect_infra", [
+    (3221227274, "", True),                                       # 0xC000070A: native termination
+    (137, "", True),                                              # SIGKILL
+    (1, "cv2.error: Unknown C++ exception from OpenCV code", True),
+    (1, "numpy._core._exceptions._ArrayMemoryError: Unable to allocate 8.3 GiB", True),
+    (1, "ValueError: Could not reach Overpass to fetch the OSM road graph", True),
+    (1, "yt_dlp.utils.DownloadError: ERROR: unable to download video data: HTTP Error 403", True),
+    (1, "ValueError: Could not fetch an OSM road graph for 'Qwertyville'", False),   # bad city
+    (1, "AssertionError: pipeline invariant", False),                                # real bug
+    (1, "TruncatedVideoError: input.mp4 stops decoding at 44 s", False),             # real input problem
+    (0, "Unknown C++ exception", False),                                             # success wins
+])
+def test_infra_failure_reason(tmp_path, rc, text, expect_infra) -> None:
+    why = M.infra_failure_reason({"rc": rc, "timed_out": False}, _log(tmp_path, text))
+    assert (why is not None) is expect_infra
+
+
+def test_timeouts_are_never_infra_failures(tmp_path) -> None:
+    out = {"rc": None, "timed_out": True}
+    assert M.infra_failure_reason(out, _log(tmp_path, "bad_alloc")) is None
+
+
+def test_infra_classifier_reads_utf16_logs(tmp_path) -> None:
+    p = _log(tmp_path, "cv2.error: Unknown C++ exception from OpenCV code", enc="utf-16")
+    assert M.infra_failure_reason({"rc": 1, "timed_out": False}, p) is not None
+
+
+def test_cmd_run_retries_infrastructure_failures_only(tmp_path, monkeypatch, capsys) -> None:
+    """An externally-killed attempt is rerun and recorded; a genuine failure
+    is not retried and stays a failure."""
+    root, manifest = _setup_root(tmp_path)
+    monkeypatch.setattr(M, "ROOT", root)
+    (root / "benchmarks").mkdir()
+    (root / "benchmarks" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    calls: dict[str, int] = {}
+
+    def fake_run_one(argv, log_path, env, timeout):
+        clip = next(a for a in argv if "clip" in str(a).lower() and "rep" in str(a))
+        key = "A" if "clipA" in clip else "B"
+        calls[key] = calls.get(key, 0) + 1
+        if key == "A" and calls[key] == 1:
+            Path(log_path).write_text("killed", encoding="utf-8")
+            return {"rc": 3221227274, "timed_out": False, "wall_s": 1.0,
+                    "started_utc": "t", "finished_utc": "t"}
+        if key == "B":
+            Path(log_path).write_text("AssertionError: pipeline invariant", encoding="utf-8")
+            return {"rc": 1, "timed_out": False, "wall_s": 1.0,
+                    "started_utc": "t", "finished_utc": "t"}
+        Path(log_path).write_text("ok", encoding="utf-8")
+        return {"rc": 0, "timed_out": False, "wall_s": 1.0,
+                "started_utc": "t", "finished_utc": "t"}
+
+    monkeypatch.setattr(M, "run_one", fake_run_one)
+    monkeypatch.setattr(M.time, "sleep", lambda s: None)
+    monkeypatch.setattr(M, "child_env", lambda *a, **k: ({}, {"mly_token_set": False,
+                                                             "mly_token_origin": None}))
+    args = M.build_parser().parse_args([
+        "run", "--run-name", "t", "--manifest", "benchmarks/manifest.json",
+        "--clips", "clipA", "clipB", "--repeats", "1", "--infra-retries", "2",
+        "--infra-wait", "0", "--include-unavailable"])
+    M.cmd_run(args)
+    st_a = json.loads((root / M.RUNS_DIR / "t" / "clipA" / "rep0" / "status.json").read_text())
+    st_b = json.loads((root / M.RUNS_DIR / "t" / "clipB" / "rep0" / "status.json").read_text())
+    assert calls == {"A": 2, "B": 1}
+    assert st_a["rc"] == 0 and len(st_a["infra_retries"]) == 1
+    assert "abnormal native termination" in st_a["infra_retries"][0]["reason"]
+    assert st_b["rc"] == 1 and st_b["infra_retries"] == []
