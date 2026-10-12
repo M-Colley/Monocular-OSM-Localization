@@ -597,6 +597,54 @@ def _provenance_of(result: dict | None) -> dict:
     }
 
 
+def _health_of(result: dict | None) -> dict:
+    """How the run actually executed - from keys result.json already records.
+
+    A run can "succeed" (rc=0, an answer) while a channel the headline depends
+    on silently did nothing: retrieval dropped out (a torch.hub trust prompt),
+    fell back to a different reference source or backbone, or the VO kept only
+    a fraction of its poses. Error numbers alone hide all of that.
+    """
+    if not result:
+        return {}
+    ch = result.get("channels") or {}
+    vpr_prior = result.get("vpr_prior") or {}
+    backbone = (vpr_prior.get("backbone") or {}).get("name")
+    n_frames, n_valid = result.get("n_frames"), result.get("n_valid_poses")
+    return {
+        "vpr_status": (ch.get("vpr") or {}).get("status"),
+        "vpr_reason": (ch.get("vpr") or {}).get("reason") or (ch.get("vpr") or {}).get("error"),
+        "vpr_source": vpr_prior.get("source"),
+        "vpr_origin": vpr_prior.get("origin"),
+        "vpr_backbone": backbone,
+        "coarse_seed": (ch.get("coarse_from_frames") or {}).get("status"),
+        "valid_pose_frac": (round(n_valid / n_frames, 3)
+                            if n_frames and n_valid is not None else None),
+        "failed_channels": sorted(k for k, v in ch.items()
+                                  if (v or {}).get("status") == "failed"),
+    }
+
+
+def degraded_reasons(health: dict, *, token_set: bool) -> list[str]:
+    """Why a run is NOT the published configuration (empty = healthy)."""
+    if not health:
+        return []
+    why = []
+    if health.get("vpr_status") != "ok":
+        why.append(f"retrieval {health.get('vpr_status')}"
+                   + (f" ({health['vpr_reason']})" if health.get("vpr_reason") else ""))
+    elif token_set and health.get("vpr_source") not in (None, "mapillary", "union"):
+        why.append(f"retrieval used {health.get('vpr_source')!r} although a token was set")
+    if health.get("vpr_backbone") not in (None, "megaloc"):
+        why.append(f"retrieval backbone {health.get('vpr_backbone')!r}, not megaloc")
+    if health.get("failed_channels"):
+        why.append("failed channels: " + ", ".join(health["failed_channels"]))
+    frac = health.get("valid_pose_frac")
+    if frac is not None and frac < 0.5:
+        why.append(f"only {frac:.0%} of VO poses valid")
+    return why
+
+
 def leak_audit(prov: dict) -> list[str]:
     """Post-hoc: did the run that wrote this result see ground truth?"""
     problems = []
@@ -757,6 +805,9 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
             if ok:
                 pos = result.get("position") or {}
                 rep["headline_source"] = pos.get("source")
+                rep["health"] = _health_of(result)
+                rep["degraded"] = degraded_reasons(
+                    rep["health"], token_set=bool(rep["provenance"].get("mly_token_set")))
             clip_reps.append(rep)
             reps.append(rep)
 
@@ -783,6 +834,21 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
             "n_reps": len(clip_reps), "n_ok": sum(r["ok"] for r in clip_reps),
             "headline_sources": sorted({str(r.get("headline_source")) for r in clip_reps
                                         if r["ok"]}),
+            "health": {
+                "n_degraded": sum(1 for r in clip_reps if r.get("degraded")),
+                "degraded": sorted({w for r in clip_reps for w in r.get("degraded", [])}),
+                "vpr_sources": sorted({str(r["health"].get("vpr_source")) for r in clip_reps
+                                       if r.get("health")}),
+                "vpr_backbones": sorted({str(r["health"].get("vpr_backbone")) for r in clip_reps
+                                         if r.get("health")}),
+                "coarse_seed_fired": sum(1 for r in clip_reps
+                                         if (r.get("health") or {}).get("coarse_seed") == "ok"),
+                "valid_pose_frac_median": (
+                    float(np.median([r["health"]["valid_pose_frac"] for r in clip_reps
+                                     if (r.get("health") or {}).get("valid_pose_frac") is not None]))
+                    if any((r.get("health") or {}).get("valid_pose_frac") is not None
+                           for r in clip_reps) else None),
+            },
             "wall_s_median": (float(np.median([r["wall_s"] for r in clip_reps
                                                if r.get("wall_s") is not None]))
                               if any(r.get("wall_s") is not None for r in clip_reps)
@@ -791,6 +857,11 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
             "city_centroid": centroid,
             "methods": methods,
         }
+
+    for cid, c in clips_out.items():
+        if c["health"]["n_degraded"]:
+            warnings.append(f"{cid}: {c['health']['n_degraded']}/{c['n_reps']} rep(s) "
+                            f"DEGRADED - {'; '.join(c['health']['degraded'])}")
 
     prov = check_provenance(reps)
     if prov["leaks"]:
@@ -939,6 +1010,26 @@ def render_markdown(summary: dict) -> str:
                                "matcher_only", "pinned_only") if m in fs["methods"]]
         oracle = [m for m in fs["methods"] if m.startswith("shortlist_oracle@")]
         L.append(f"## {fleet} fleet\n")
+        L.append("### Run health\n")
+        L.append("What each clip's runs actually executed. A degraded run (retrieval "
+                 "off, a fallback source/backbone, failed channels) is not the "
+                 "published configuration and should not be read as a result for it.\n")
+        hh = ["Clip", "ok/reps", "degraded", "retrieval source", "backbone",
+              "OCR seed fired", "valid poses (median)"]
+        L.append("| " + " | ".join(hh) + " |")
+        L.append("|" + "---|" * len(hh))
+        for i in ids:
+            c = clips[i]
+            h = c.get("health") or {}
+            vp = h.get("valid_pose_frac_median")
+            L.append("| " + " | ".join([
+                c["name"], f"{c['n_ok']}/{c['n_reps']}",
+                (f"**{h['n_degraded']}**" if h.get("n_degraded") else "0"),
+                ", ".join(h.get("vpr_sources") or []) or "–",
+                ", ".join(h.get("vpr_backbones") or []) or "–",
+                str(h.get("coarse_seed_fired", 0)),
+                f"{vp:.0%}" if vp is not None else "–"]) + " |")
+        L.append("")
         L.append("### Per clip (m)\n")
         L.append("Pipeline columns: median [IQR] over repeats. Baseline columns: "
                  "symmetric mean error, median over repeats; `(k/n)` = answered in k "

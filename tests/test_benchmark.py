@@ -479,3 +479,59 @@ def test_leak_audit_trusts_only_video_derived_discs(source, leaks) -> None:
             "osm_around_source_cfg": source}
     assert bool(M.leak_audit(prov)) is leaks
     assert M.leak_audit({"argv": [], "osm_around_cfg": None}) == []
+
+
+# --- run health -----------------------------------------------------------------
+
+def _healthy_extras() -> dict:
+    return {"n_frames": 400, "n_valid_poses": 380,
+            "channels": {"vpr": {"status": "ok"}, "coarse_from_frames": {"status": "inactive"}},
+            "vpr_prior": {"lat": 1.0, "lon": 1.0, "origin": "vpr", "source": "mapillary",
+                          "backbone": {"name": "megaloc"}}}
+
+
+def test_health_of_reads_recorded_keys_only() -> None:
+    h = M._health_of(_healthy_extras())
+    assert h["vpr_status"] == "ok" and h["vpr_source"] == "mapillary"
+    assert h["vpr_backbone"] == "megaloc" and h["valid_pose_frac"] == 0.95
+    assert M._health_of(None) == {} and M.degraded_reasons({}, token_set=True) == []
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda r: None, []),
+    (lambda r: r["channels"].update(vpr={"status": "inactive", "reason": "only 0 refs"}),
+     ["retrieval inactive (only 0 refs)"]),
+    (lambda r: r["vpr_prior"].update(source="kartaview"),
+     ["retrieval used 'kartaview' although a token was set"]),
+    (lambda r: r["vpr_prior"]["backbone"].update(name="eigenplaces"),
+     ["retrieval backbone 'eigenplaces', not megaloc"]),
+    (lambda r: r["channels"].update(tile3d={"status": "failed"}),
+     ["failed channels: tile3d"]),
+    (lambda r: r.update(n_valid_poses=100), ["only 25% of VO poses valid"]),
+])
+def test_degraded_reasons(mutate, expect) -> None:
+    r = _healthy_extras()
+    mutate(r)
+    assert M.degraded_reasons(M._health_of(r), token_set=True) == expect
+
+
+def test_kartaview_without_a_token_is_not_degraded() -> None:
+    r = _healthy_extras()
+    r["vpr_prior"]["source"] = "kartaview"
+    assert M.degraded_reasons(M._health_of(r), token_set=False) == []
+
+
+def test_aggregate_flags_degraded_runs_and_renders_health(tmp_path: Path) -> None:
+    root, manifest = _setup_root(tmp_path)
+    run_dir = tmp_path / "runs" / "h"
+    good = {**_fake_result(0.0, 20.0), **_healthy_extras()}
+    bad = {**_fake_result(0.0, 30.0), **_healthy_extras()}
+    bad["channels"] = {"vpr": {"status": "inactive", "reason": "only 0 mapillary refs"}}
+    _write_rep(run_dir, "clipA", 0, good)
+    _write_rep(run_dir, "clipA", 1, bad)
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    h = s["clips"]["clipA"]["health"]
+    assert h["n_degraded"] == 1 and "retrieval inactive" in h["degraded"][0]
+    assert any("DEGRADED" in w and "clipA" in w for w in s["warnings"])
+    md = M.render_markdown(s)
+    assert "### Run health" in md and "**1**" in md and "megaloc" in md
