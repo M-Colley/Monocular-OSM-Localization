@@ -442,6 +442,64 @@ def infra_failure_reason(outcome: dict, log_path: Path, tail_bytes: int = 60000)
     return None
 
 
+def available_commit_gb() -> float | None:
+    """System-wide memory that can still be COMMITTED, in GB (Windows: the
+    commit limit minus the commit charge; elsewhere: available RAM).
+
+    This, not free RAM, is what a pipeline child runs out of: with a local LLM
+    server and a dozen worker processes holding ~120 of 123 GB, free RAM was
+    still 11-18 GB while allocations failed (OpenCV 'Unknown C++ exception'
+    in cvtColor) and children exited with a native NTSTATUS code.
+    """
+    if os.name == "nt":
+        import ctypes
+
+        class _MemStatus(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+        st = _MemStatus()
+        st.dwLength = ctypes.sizeof(_MemStatus)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+            return None
+        return st.ullAvailPageFile / 1e9
+    try:
+        import psutil
+
+        return psutil.virtual_memory().available / 1e9
+    except Exception:
+        return None
+
+
+def wait_for_commit(min_gb: float, max_wait_s: float, poll_s: float = 60.0, *,
+                    probe=None, sleep=None, announce=print) -> bool:
+    """Block until at least ``min_gb`` of memory can be committed (or the
+    budget is spent); True when there is enough. Launching a 9-12 GB pipeline
+    into an exhausted commit limit kills it minutes in; waiting at the gate
+    does not."""
+    probe = probe or available_commit_gb
+    sleep = sleep or time.sleep
+    waited = 0.0
+    while True:
+        free = probe()
+        if free is None or free >= min_gb:
+            return True
+        if waited >= max_wait_s:
+            announce(f"  -> only {free:.1f} GB commit free after {waited:.0f} s "
+                     f"(wanted {min_gb:.0f} GB); launching anyway")
+            return False
+        announce(f"  -> only {free:.1f} GB commit free (wanted {min_gb:.0f} GB); "
+                 f"waiting {poll_s:.0f} s ({waited:.0f}/{max_wait_s:.0f} s)")
+        sleep(poll_s)
+        waited += poll_s
+
+
 def wait_for_overpass(max_wait_s: float, poll_s: float = 120.0, *,
                       probe=None, sleep=None, announce=print) -> bool:
     """Block until an Overpass machine accepts a TCP connection (or the budget
@@ -562,6 +620,9 @@ def cmd_run(args) -> int:
 
             infra_retries: list[dict] = []
             for attempt in range(1, args.infra_retries + 2):
+                if getattr(args, "min_free_commit_gb", 0) > 0:
+                    wait_for_commit(args.min_free_commit_gb,
+                                    getattr(args, "resource_wait", 0))
                 if getattr(args, "overpass_wait", 0) > 0:
                     wait_for_overpass(args.overpass_wait)
                 cold: dict = {}
@@ -1293,6 +1354,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "timeout); genuine pipeline failures are never retried")
     r.add_argument("--infra-wait", type=float, default=90.0,
                    help="seconds to wait before an infrastructure retry")
+    r.add_argument("--min-free-commit-gb", type=float, default=16.0,
+                   help="before each attempt, wait until this much memory can still be "
+                        "committed system-wide (0 = don't check); a pipeline child "
+                        "needs ~9-12 GB for a 5-minute 720p window")
+    r.add_argument("--resource-wait", type=float, default=10800.0,
+                   help="max seconds to wait for --min-free-commit-gb per attempt")
     r.add_argument("--overpass-wait", type=float, default=7200.0,
                    help="before each attempt, wait up to this many seconds for "
                         "overpass-api.de to accept connections (0 = don't check)")
