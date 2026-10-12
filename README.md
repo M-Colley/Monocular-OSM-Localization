@@ -871,43 +871,119 @@ absorb. Yield varies with stamp contrast, not with difficulty of the drive: the
 39% clip is thin yellow text on a dark dashboard, and 47 fixes still fill 20
 waypoints comfortably.
 
-### Accuracy — deployable (GPS-free), the honest headline
+### Accuracy — deployable (GPS-free)
 
-**These are the fully GPS-free numbers — no location leak.** The pipeline is
-seeded only from the city name plus whatever it can read off the video itself
-(title/description place names, license-plate district, OCR'd signs), then dense
-Mapillary VPR coarse-to-fine does the rest. This is what you actually get in
-deployment. Measured 2026-07-23 across the 9-clip fleet with `MLY_TOKEN` set,
-running the default configuration; headline = the anchor-primary placement,
-lower is better:
+> **Status: the 0.1.x numbers below were not reproducible and are being
+> re-measured.** The table that stood here (measured 2026-07-23) came from at
+> least two code states, used city strings chosen with knowledge of the route
+> for two clips ("Daly City", "Vaughan"), recorded no commit or configuration,
+> and one of its rows (comma2k19) has no committed source. Repeated runs of the
+> same clip differed by hundreds of metres (Ulm 4K: 48 m in one sweep, 228 m in
+> another). It is kept at the end of this section for the record; **do not cite
+> it.** What replaces it is a benchmark that cannot leak ground truth, records
+> its own provenance, repeats every clip, and always reports a trivial baseline.
 
-| Clip | City / scene | Start err | Mean route err | Outcome |
+**How it is measured.** `python scripts/benchmark.py run` hands the pipeline
+*only* the video, the `--city` string a user would type (named in the video's
+title or the dataset, listed in [`benchmarks/manifest.json`](benchmarks/manifest.json))
+and the analysis window; ground truth is applied offline by
+`python scripts/benchmark.py aggregate`, which also refuses any run whose
+recorded argv or configuration shows a ground-truth input, or whose search disc
+was not derived from the video. Every run records the commit, configuration,
+library versions, OSM snapshot, retrieval backbone and reference source in
+`result.json`. Metrics are two-directional (`monocular_osm/metrics.py`):
+start error, GT→route, route→GT, their mean ("symmetric"), Hausdorff and Fréchet,
+plus the fraction of clips within 25/50/100/250/500/1000 m, with bootstrap
+confidence intervals over clips and a per-clip run-health table that flags runs
+where retrieval silently did nothing.
+
+#### The floor: guess the centre of the named city
+
+Any claim has to beat the answer "it is in the city you told me it is in, at its
+geocoded centre". Computed offline from the committed geocode snapshots, with the
+manifest's user-level city strings (symmetric mean route error in metres):
+
+| Clip | City string | Centre guess |
+|---|---|---|
+| Ulm 4K (0-300 s) | Ulm, Germany | 445 |
+| Ulm #2 | Ulm, Germany | 350 |
+| Berlin (0-420 s) | Berlin, Germany | 909 |
+| London | London, UK | 1,501 |
+| KITTI 0009 | Karlsruhe, Germany | 2,563 |
+| KITTI 0033 | Karlsruhe, Germany | 6,709 |
+| Málaga | Málaga, Spain | 5,307 |
+| comma2k19 | San Francisco Peninsula, USA | 16,458 |
+| Boreas | Toronto, Canada | 17,261 |
+| Chicago ×2 | Chicago, USA | 1,924 / 1,230 |
+| Phoenix | Phoenix, USA | 14,802 |
+| Detroit ×3 | Detroit, USA | 403 / 491 / 8,206 |
+| Atlanta ×2 | Atlanta, USA | 2,958 / 7,280 |
+| Newcastle | Newcastle upon Tyne, UK | 887 |
+
+Median over the 9 core clips 2.6 km, over the 9 overlay clips 1.9 km; no clip is
+within 250 m. Two consequences worth stating:
+
+* With the metro-level names a user would actually type, comma2k19 and Boreas lie
+  16-17 km from the centroid, far outside the pipeline's 8 km coarse disc, so
+  they fail *by construction*. The 0.1.x runs used narrower strings ("Daly City",
+  "Vaughan") that a user would not know to give.
+* Measured against the centre of the city string each 0.1.x run was actually
+  given, five of its eight clips were no better than guessing: London (2,496 m vs
+  1,751 m for the centre), comma2k19 (5,063 vs 2,067, "Daly City"), KITTI 0009
+  (5,568 vs 2,645), KITTI 0033 (7,126 vs 6,843) and Boreas (7,446 vs 3,795,
+  "Vaughan"); only Málaga, Ulm 4K and Ulm #2 clearly beat it.
+
+#### Re-measured results (v2, in progress)
+
+<!-- RESULTS-V2:BEGIN (overwritten by the benchmark summary when the run completes) -->
+The benchmark (15 locally available clips x 3 repetitions, default configuration,
+`MLY_TOKEN` set, cold retrieval caches) is running and has so far produced one
+complete repetition:
+
+| Clip (rep) | Pipeline: start / symmetric | Matcher alone | Retrieval prior alone | Centre guess |
 |---|---|---|---|---|
-| **Málaga**, Spain | W-district residential | 12 m | **30 m** | ✅ localizes |
-| **Ulm 4K**, Germany | central, sign-rich | 56 m | **48 m** | ✅ localizes |
-| **Ulm #2**, Germany | peripheral (held-out) | 160 m | **156 m** | ✅ localizes |
-| **Berlin**, Germany | mega-city centre | 3917 m | 1551 m | ⚠️ right corridor, coarse |
-| **London**, UK | Bloomsbury | 4316 m | 2496 m | ⚠️ right city, coarse |
-| **comma2k19**, Daly City | self-similar suburb | 5260 m | 5063 m | ❌ collapses |
-| **KITTI 0009**, Karlsruhe | 2011 low-res suburb | 5421 m | 5568 m | ❌ collapses |
-| **KITTI 0033**, Karlsruhe | 2011 low-res loop | 7004 m | 7126 m | ❌ collapses |
-| **Boreas**, Vaughan (CA) | self-similar suburb | 8309 m | 7446 m | ❌ collapses |
+| Ulm 4K, 0-300 s (1 of 3) | 56 m / **34 m** | 1,219 m | 101 m | 445 m |
 
-**Read this honestly.** On **3 of 9 clips the GPS-free pipeline localizes to
-30–156 m** — the right street, no GPS, no leak. Two mega-city clips (Berlin,
-London) reach the right corridor but stay ~1.5–2.5 km coarse. **Four clips
-collapse to 5–7 km** — old low-res KITTI footage (2011, unreadable plates, no
-title) and self-similar suburban grids (comma/Daly City, Boreas/Vaughan) where
-the coarse pass has no distinctive signal to lock onto. **This 0.1.0 is a solid,
-honest baseline — not a solved problem.**
+One rep of one clip is an anecdote, not a result; the table above is replaced by
+the full benchmark summary (`output/benchmark_runs/<run>/summary.md`) when it
+finishes. comma2k19, Málaga and Boreas are not downloaded on the benchmark
+machine and are not in this run.
+<!-- RESULTS-V2:END -->
 
-The pattern is consistent: the pipeline is genuinely GPS-free deployable when the
-coarse pass has *something to grab* — a named place in the title, a legible sign,
-dense modern Mapillary coverage, or a distinctive streetscape. Where the footage
-is self-similar, signal-poor, or old-and-low-res, it fails — an **input
-limitation, not an algorithm one** (extensively probed: neither a learned global
-geolocator, a second retrieval source, nor era-matched imagery moves these clips —
-see the per-clip logs under `scratchpad_sweep/`).
+#### What the failures are, and are not
+
+The 0.1.x write-up called the clips that fail an "input limitation, not an
+algorithm one". That was a conclusion drawn from probes whose logs are not in the
+repository (the cited `scratchpad_sweep/` holds two JSON files), and the
+literature points the other way: [Brubaker et al. (CVPR 2013)](https://openaccess.thecvf.com/content_cvpr_2013/html/Brubaker_Lost_Leveraging_the_2013_CVPR_paper.html)
+localize KITTI to about 3 m from odometry and an OSM map alone, on a smaller
+(18 km²) map. The road-graph particle filter in this repo
+([`docs/graph_filter_kitti.md`](docs/graph_filter_kitti.md)) reproduces that
+with real odometry (7 m in ~25 s on KITTI 0033, even on the whole city) and shows
+where the gap actually is: this repo's monocular VO has **no speed** (unit-length
+steps) and its heading drifts 8-14° per minute, so the *odometry*, not the map
+matching, is the bottleneck. Whether the remaining failures are input-limited is
+therefore still open.
+
+<details>
+<summary>Historical 0.1.x table (measured 2026-07-23; not reproduced; do not cite)</summary>
+
+| Clip | City / scene | Start err | Mean route err | 0.1.x label |
+|---|---|---|---|---|
+| Málaga, Spain | W-district residential | 12 m | 30 m | localizes |
+| Ulm 4K, Germany | central, sign-rich | 56 m | 48 m | localizes |
+| Ulm #2, Germany | peripheral | 160 m | 156 m | localizes |
+| Berlin, Germany | mega-city centre | 3917 m | 1551 m | coarse |
+| London, UK | Bloomsbury | 4316 m | 2496 m | coarse |
+| comma2k19, Daly City | self-similar suburb | 5260 m | 5063 m | collapses |
+| KITTI 0009, Karlsruhe | 2011 low-res suburb | 5421 m | 5568 m | collapses |
+| KITTI 0033, Karlsruhe | 2011 low-res loop | 7004 m | 7126 m | collapses |
+| Boreas, Vaughan (CA) | self-similar suburb | 8309 m | 7446 m | collapses |
+
+The outcome labels were chosen after seeing the results. "Held-out" was never
+enforced: every clip here, including Ulm #2, was used to tune defaults.
+
+</details>
 
 #### Why some clips localize and others collapse
 
