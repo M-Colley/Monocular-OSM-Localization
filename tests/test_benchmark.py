@@ -158,7 +158,8 @@ def _write_manifest(root: Path, clips: list[dict]) -> None:
 def _run_args(**over) -> argparse.Namespace:
     # --overpass-wait 0: unit tests must neither probe nor wait on the network.
     ns = M.build_parser().parse_args(["run", "--run-name", "r1", "--overpass-wait", "0",
-                                          "--min-free-commit-gb", "0"])
+                                          "--min-free-commit-gb", "0",
+                                          "--min-free-vram-gb", "0"])
     for k, v in over.items():
         setattr(ns, k, v)
     return ns
@@ -607,7 +608,7 @@ def test_cmd_run_retries_infrastructure_failures_only(tmp_path, monkeypatch, cap
         "run", "--run-name", "t", "--manifest", "benchmarks/manifest.json",
         "--clips", "clipA", "clipB", "--repeats", "1", "--infra-retries", "2",
         "--infra-wait", "0", "--overpass-wait", "0", "--min-free-commit-gb", "0",
-        "--include-unavailable"])
+        "--min-free-vram-gb", "0", "--include-unavailable"])
     M.cmd_run(args)
     st_a = json.loads((root / M.RUNS_DIR / "t" / "clipA" / "rep0" / "status.json").read_text())
     st_b = json.loads((root / M.RUNS_DIR / "t" / "clipB" / "rep0" / "status.json").read_text())
@@ -666,3 +667,63 @@ def test_wait_for_commit_proceeds_when_it_cannot_measure() -> None:
 def test_available_commit_gb_is_a_plausible_number() -> None:
     v = M.available_commit_gb()
     assert v is None or 0.0 < v < 100_000.0
+
+
+def test_a_method_that_never_ran_is_not_scored_as_a_failure(tmp_path: Path) -> None:
+    """The OCR-anchor pin is off by default, so no clip has a pinned_position.
+    Scoring it as +inf printed a 0% 'failure' column for a channel that was
+    never run."""
+    run_dir, manifest, root = _make_run(tmp_path)
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    fs = next(iter(s["fleets"].values()))
+    assert "pinned_only" in fs["methods_not_run"] and "pinned_only" not in fs["methods"]
+    md = M.render_markdown(s)
+    assert "Not run (no clip produced an answer" in md and "Anchor-pinned only" in md
+    assert "| Anchor-pinned only |" not in md          # no row in the success table
+
+
+def test_a_method_answered_in_some_clips_stays_a_per_clip_failure(tmp_path: Path) -> None:
+    run_dir, manifest, root = _make_run(tmp_path)
+    # Give clipA's first rep a pinned route: the method now exists in the fleet.
+    p = run_dir / "clipA" / "rep0" / "result.json"
+    res = json.loads(p.read_text(encoding="utf-8"))
+    res["pinned_position"] = {"source": "ocr_anchor_pin",
+                              "route_latlon": res["position"]["route_latlon"]}
+    p.write_text(json.dumps(res), encoding="utf-8")
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    fs = next(iter(s["fleets"].values()))
+    assert "pinned_only" in fs["methods"] and "pinned_only" not in fs["methods_not_run"]
+    assert s["clips"]["clipB"]["methods"]["pinned_only"]["n_answered"] == 0   # still a miss
+
+
+def test_vram_gate_uses_the_gpu_probe_and_its_own_label() -> None:
+    said = []
+    ok = M.wait_for_commit(8, 0, probe=lambda: 1.3, announce=said.append,
+                           what="GPU memory")
+    assert ok is False and "1.3 GB GPU memory free" in said[-1]
+
+
+def test_available_vram_gb_is_none_or_plausible() -> None:
+    v = M.available_vram_gb()
+    assert v is None or 0.0 <= v < 1000.0
+
+
+def test_provenance_compares_package_trees_not_commit_hashes(monkeypatch) -> None:
+    """Changing scripts/ or tests/ between reps must not make a run
+    'inconsistent': results depend only on monocular_osm/."""
+    trees = {"c1": "tree-A", "c2": "tree-A", "c3": "tree-B"}
+    monkeypatch.setattr(M, "package_tree", lambda c, root=None: trees.get(c))
+
+    def rep(commit):
+        return {"result_found": True, "provenance": {
+            "present": True, "commit": commit, "dirty": False, "mly_token_set": True,
+            "ocr_engine": "rapidocr", "vo_algo_version": 3, "package_version": "x",
+            "argv": [], "gt_waypoints_cfg": None, "gt_streets_cfg": [],
+            "osm_around_cfg": None}, "clip": "c", "rep": 0}
+
+    same_code = M.check_provenance([rep("c1"), rep("c2")])
+    assert same_code["consistent"] and same_code["commits"] == ["c1", "c2"]
+    assert same_code["package_trees"] == ["tree-A"]
+    other_code = M.check_provenance([rep("c1"), rep("c3")])
+    assert not other_code["consistent"]
+    assert any("different pipeline code" in p for p in other_code["problems"])

@@ -477,12 +477,30 @@ def available_commit_gb() -> float | None:
         return None
 
 
+def available_vram_gb() -> float | None:
+    """Free GPU memory in GB of the first GPU (via nvidia-smi), or None.
+
+    The image-retrieval model runs on the GPU. When another process (here a
+    local LLM server that loads and unloads multi-GB models) leaves it nearly
+    full, the retrieval stage dies without a traceback: the driver logs
+    'Graphics FECS Exception' and the child exits with an NTSTATUS code.
+    """
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=15, check=True).stdout
+        return float(out.strip().splitlines()[0]) / 1024.0
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
 def wait_for_commit(min_gb: float, max_wait_s: float, poll_s: float = 60.0, *,
-                    probe=None, sleep=None, announce=print) -> bool:
-    """Block until at least ``min_gb`` of memory can be committed (or the
-    budget is spent); True when there is enough. Launching a 9-12 GB pipeline
-    into an exhausted commit limit kills it minutes in; waiting at the gate
-    does not."""
+                    probe=None, sleep=None, announce=print, what: str = "commit") -> bool:
+    """Block until at least ``min_gb`` of ``what`` (default: committable
+    memory) is free (or the budget is spent); True when there is enough.
+    Launching a 9-12 GB pipeline into an exhausted commit limit, or the
+    retrieval model into a full GPU, kills it minutes in; waiting at the gate
+    does not. ``probe`` returning None (cannot measure) never blocks."""
     probe = probe or available_commit_gb
     sleep = sleep or time.sleep
     waited = 0.0
@@ -491,10 +509,10 @@ def wait_for_commit(min_gb: float, max_wait_s: float, poll_s: float = 60.0, *,
         if free is None or free >= min_gb:
             return True
         if waited >= max_wait_s:
-            announce(f"  -> only {free:.1f} GB commit free after {waited:.0f} s "
+            announce(f"  -> only {free:.1f} GB {what} free after {waited:.0f} s "
                      f"(wanted {min_gb:.0f} GB); launching anyway")
             return False
-        announce(f"  -> only {free:.1f} GB commit free (wanted {min_gb:.0f} GB); "
+        announce(f"  -> only {free:.1f} GB {what} free (wanted {min_gb:.0f} GB); "
                  f"waiting {poll_s:.0f} s ({waited:.0f}/{max_wait_s:.0f} s)")
         sleep(poll_s)
         waited += poll_s
@@ -623,6 +641,10 @@ def cmd_run(args) -> int:
                 if getattr(args, "min_free_commit_gb", 0) > 0:
                     wait_for_commit(args.min_free_commit_gb,
                                     getattr(args, "resource_wait", 0))
+                if getattr(args, "min_free_vram_gb", 0) > 0:
+                    wait_for_commit(args.min_free_vram_gb,
+                                    getattr(args, "resource_wait", 0),
+                                    probe=available_vram_gb, what="GPU memory")
                 if getattr(args, "overpass_wait", 0) > 0:
                     wait_for_overpass(args.overpass_wait)
                 cold: dict = {}
@@ -822,10 +844,29 @@ def leak_audit(prov: dict) -> list[str]:
     return problems
 
 
+def package_tree(commit: str | None, root: Path | None = None) -> str | None:
+    """Git tree hash of ``monocular_osm/`` at ``commit``: identical for two
+    commits iff the pipeline code is byte-identical. Results depend on that
+    code, not on tests/, scripts/ or docs, so changing the runner between reps
+    must not make a run 'inconsistent'."""
+    if not commit or commit == "None":
+        return None
+    try:
+        out = subprocess.run(["git", "rev-parse", f"{commit}:monocular_osm"],
+                             cwd=root or ROOT, capture_output=True, text=True,
+                             timeout=20, check=True).stdout.strip()
+        return out or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def check_provenance(reps: list[dict]) -> dict:
-    """All reps from one clean commit with one token state, and leak-free."""
+    """All reps from one version of the pipeline code with one token state,
+    and leak-free."""
     provs = [r["provenance"] for r in reps if r.get("result_found")]
     commits = sorted({str(p["commit"]) for p in provs})
+    trees = {c: package_tree(c) for c in commits}
+    distinct_trees = sorted({t or f"unknown@{c}" for c, t in trees.items()})
     dirty = sorted({str(p["dirty"]) for p in provs})
     tokens = sorted({str(p["mly_token_set"]) for p in provs})
     missing = sum(1 for p in provs if not p["present"])
@@ -834,8 +875,11 @@ def check_provenance(reps: list[dict]) -> dict:
     problems = []
     if missing:
         problems.append(f"{missing} result(s) carry no provenance block")
-    if len(commits) > 1 or "None" in commits:
-        problems.append(f"mixed/unknown commits: {commits}")
+    if "None" in commits:
+        problems.append(f"unknown commit in at least one rep: {commits}")
+    elif len(distinct_trees) > 1:
+        problems.append(f"reps ran different pipeline code (monocular_osm/ differs "
+                        f"between commits {commits}): {distinct_trees}")
     if dirty != ["False"] and provs:
         problems.append(f"dirty working tree in at least one rep: {dirty}")
     if len(tokens) > 1:
@@ -843,7 +887,8 @@ def check_provenance(reps: list[dict]) -> dict:
     return {
         "consistent": not problems and not leaks,
         "problems": problems, "leaks": leaks,
-        "commits": commits, "dirty": dirty, "mly_token_set": tokens,
+        "commits": commits, "package_trees": distinct_trees,
+        "dirty": dirty, "mly_token_set": tokens,
         "ocr_engines": sorted({str(p["ocr_engine"]) for p in provs}),
         "vo_algo_versions": sorted({str(p["vo_algo_version"]) for p in provs}),
         "package_versions": sorted({str(p["package_version"]) for p in provs}),
@@ -1030,7 +1075,16 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
     for fleet in sorted({c["fleet"] for c in clips_out.values()}):
         ids = [i for i, c in clips_out.items() if c["fleet"] == fleet]
         method_names = sorted({m for i in ids for m in clips_out[i]["methods"]})
-        fs: dict = {"clips": ids, "methods": {}}
+        # A method that produced NO answer in ANY clip of the fleet was not run
+        # (e.g. the OCR-anchor pin when --enable-ocr-anchor is off, the default):
+        # scoring it as +inf would show a 0% "failure" for a channel that never
+        # existed. Drop it and say so; per-clip misses of a method that did run
+        # elsewhere stay failures.
+        not_run = [m for m in method_names
+                   if not any(clips_out[i]["methods"][m]["n_answered"]
+                              for i in ids if m in clips_out[i]["methods"])]
+        method_names = [m for m in method_names if m not in not_run]
+        fs: dict = {"clips": ids, "methods": {}, "methods_not_run": not_run}
         for m in method_names:
             have = [i for i in ids if m in clips_out[i]["methods"]]
             ms: dict = {"n_clips": len(have)}
@@ -1164,6 +1218,9 @@ def render_markdown(summary: dict) -> str:
                                "matcher_only", "pinned_only") if m in fs["methods"]]
         oracle = [m for m in fs["methods"] if m.startswith("shortlist_oracle@")]
         L.append(f"## {fleet} fleet\n")
+        if fs.get("methods_not_run"):
+            L.append("Not run (no clip produced an answer, so no row/column): "
+                     + ", ".join(_label(m) for m in fs["methods_not_run"]) + ".\n")
         L.append("### Run health\n")
         L.append("What each clip's runs actually executed. A degraded run (retrieval "
                  "off, a fallback source/backbone, failed channels) is not the "
@@ -1358,8 +1415,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="before each attempt, wait until this much memory can still be "
                         "committed system-wide (0 = don't check); a pipeline child "
                         "needs ~9-12 GB for a 5-minute 720p window")
+    r.add_argument("--min-free-vram-gb", type=float, default=8.0,
+                   help="before each attempt, wait until the GPU has this much free "
+                        "memory (0 = don't check): the retrieval model dies natively "
+                        "when another process leaves the GPU nearly full")
     r.add_argument("--resource-wait", type=float, default=10800.0,
-                   help="max seconds to wait for --min-free-commit-gb per attempt")
+                   help="max seconds to wait for --min-free-commit-gb / "
+                        "--min-free-vram-gb per attempt")
     r.add_argument("--overpass-wait", type=float, default=7200.0,
                    help="before each attempt, wait up to this many seconds for "
                         "overpass-api.de to accept connections (0 = don't check)")
