@@ -944,11 +944,15 @@ do not change the GPS-free outcomes above, which are bounded by the coarse seed.
 
 ### Calibrated multi-hypothesis output
 
-Trajectory-shape fit is provably *uncorrelated* with geographic correctness in
-dense road networks (`corr(shape-RMS, GT-error) ≈ 0`, measured in
-`scripts/bench_matching.py`) — a walk can match the VO shape perfectly and sit on
-the wrong parallel street. So the pipeline no longer reports a single
-over-confident pick. It collapses the candidate pool into **distinct location
+Trajectory-shape fit was **weakly related** to geographic correctness in the
+candidate pools we measured (`scripts/bench_matching.py --diag`: Pearson
+`corr(shape-RMS, GT-error)` per pool, on three clips — Ulm, KITTI 0033, comma —
+each inside a location-seeded disc). That is an observation about those three
+pools, not a proof: the pool is already filtered to near-tied shape fits, which
+by itself shrinks any correlation, and no confidence interval is reported. What
+it does show is that many walks fit the VO shape about equally well, one of them
+on the wrong parallel street. So the pipeline does not report a single
+confident pick. It collapses the candidate pool into **distinct location
 hypotheses** (`monocular_osm/hypotheses.py`) with a **confidence derived from the spatial
 agreement** of the top candidates, not the winner's RMS. The true neighbourhood is
 reliably *in the top-5 shortlist* even when shape mis-ranks the headline pick.
@@ -998,8 +1002,16 @@ distinctive trajectory shape).
 We ran OrienterNet on our own KITTI 0033 frames (`scripts/test_orienternet*.py`).
 Single-frame is ~30 m median (residential layout is ambiguous), but with the paper's
 **sequential fusion** (`maploc`'s `RigidAligner`, using OXTS odometry over ~13 s
-chunks) it lands **median 1.9 m, recall@3 m 75 %, @5 m 100 %, @10 m 100 %** — a **75×
-improvement** over the 144 m shape-matcher, and far below the 50 m target.
+chunks) it lands **median 1.9 m, recall@3 m 75 %, @5 m 100 %, @10 m 100 %**.
+
+> **This is not comparable to the shape matcher's 144 m.** The OrienterNet test
+> (`scripts/test_orienternet_seq.py`) is given the *ground-truth* OXTS positions
+> and orientation as its odometry, a prior equal to the truth plus a fixed 30 m
+> offset, and a map tile centred on the truth, over 40 frames. The 144 m figure is
+> the shape matcher running on *monocular visual odometry* with no such prior. It
+> measures how well OrienterNet refines a nearly-right pose, not how well it finds
+> one. Both numbers are kept as published; the "75× improvement" that used to
+> stand here compared the two and has been removed.
 
 The natural architecture going forward: keep this pipeline for the **coarse prior +
 OSM region + VO odometry**, and use OrienterNet as the **metric localization head**.
