@@ -783,8 +783,16 @@ class FilterConfig:
     confidence_radius_m: float = 25.0
     mode_sep_m: float = 100.0
     min_mode_mass: float = 0.05
+    # Genealogy for the smoothed route. Ancestors are stored every path_stride
+    # filter steps (ancestry across skipped steps is composed through the
+    # resampling indices, so nothing is lost but temporal resolution; the route
+    # is linearly interpolated between stored points). None = automatic: the
+    # smallest stride that keeps the un-pruned store under path_budget_mb —
+    # without a bound, 1.5e6 particles x 330 steps needed ~10 GB per process.
     path_storage: bool = True
-    prune_every: int = 20
+    path_stride: int | None = None
+    path_budget_mb: float = 1500.0
+    prune_every: int = 20             # in stored generations
     # initialisation
     init_disc: tuple | None = None    # (x, y, r) in the map CRS
     max_transitions: int = 200
@@ -828,13 +836,14 @@ class FilterResult:
 class _PathStore:
     """Particle genealogy with pruning of dead branches (Jacob et al. 2015).
 
-    Nodes are appended per step in order, so a parent id is always smaller
-    than its child's; dead lineages are dropped every ``prune_every`` steps.
-    Old generations coalesce to a single ancestor, keeping memory ~O(T + N).
+    Nodes are appended per stored generation in order, so a parent id is
+    always smaller than its child's; dead lineages are dropped every
+    ``prune_every`` generations. Old generations coalesce to a single
+    ancestor, keeping memory ~O(T + N). 16 bytes per stored node.
     """
 
     def __init__(self, n: int):
-        self.parent = np.empty(0, np.int64)
+        self.parent = np.empty(0, np.int32)
         self.x = np.empty(0, np.float32)
         self.y = np.empty(0, np.float32)
         self.step = np.empty(0, np.int32)
@@ -844,7 +853,7 @@ class _PathStore:
 
     def add(self, step: int, x: np.ndarray, y: np.ndarray) -> None:
         ids = np.arange(self.n, self.n + len(x), dtype=np.int64)
-        self._chunks.append((self.node_of.copy(), x.astype(np.float32),
+        self._chunks.append((self.node_of.astype(np.int32), x.astype(np.float32),
                              y.astype(np.float32), np.full(len(x), step, np.int32)))
         self.node_of = ids
         self.n += len(x)
@@ -860,6 +869,10 @@ class _PathStore:
 
     def reindex(self, idx: np.ndarray) -> None:
         self.node_of = self.node_of[idx]
+
+    def restart(self) -> None:
+        """Every particle was re-drawn from the prior: new lineages, no parents."""
+        self.node_of = np.full_like(self.node_of, -1)
 
     def prune(self) -> None:
         self._flush()
@@ -878,7 +891,7 @@ class _PathStore:
                 alive[par[par >= 0]] = True
         new_id = np.cumsum(alive) - 1
         par = self.parent[alive]
-        self.parent = np.where(par >= 0, new_id[np.maximum(par, 0)], -1)
+        self.parent = np.where(par >= 0, new_id[np.maximum(par, 0)], -1).astype(np.int32)
         self.x = self.x[alive]
         self.y = self.y[alive]
         self.step = self.step[alive]
@@ -1216,6 +1229,8 @@ class GraphParticleFilter:
             self.n_reinit += 1
             self.initialise()
             self.delta_ready = False
+            if self.store is not None:
+                self.store.restart()
             lse = logsumexp(self.logw)
         self.logw = self.logw - lse
         w = np.exp(self.logw)
@@ -1335,6 +1350,11 @@ class GraphParticleFilter:
         gt_mass = np.full(T + 1, np.nan) if diagnostic_xy is not None else None
 
         ahead = lookahead_headings(odom, self.cfg.proposal_lookahead_s)
+        stride = 1
+        if self.store is not None:
+            stride = self.cfg.path_stride or max(1, math.ceil(
+                self.cfg.n_particles * (T + 1) * 16.0 / (self.cfg.path_budget_mb * 1e6)))
+        n_stored = 0
         for t in range(T + 1):
             if t > 0:
                 st, hd, dt = float(odom.step[t - 1]), float(odom.heading[t - 1]), float(odom.dt[t - 1])
@@ -1347,9 +1367,10 @@ class GraphParticleFilter:
             for o in head_by.get(t, ()):
                 self.update_abs_heading(o)
             w, ess = self.normalise()
-            if self.store is not None:
+            if self.store is not None and (t % stride == 0 or t == T):
                 self.store.add(t, self.x, self.y)
-                if t % self.cfg.prune_every == 0:
+                n_stored += 1
+                if n_stored % self.cfg.prune_every == 0:
                     self.store.prune()
             s = self.summary(w)
             mode[t] = s["mode"]
@@ -1373,10 +1394,11 @@ class GraphParticleFilter:
             inside = d2 <= self.cfg.confidence_radius_m ** 2
             cand = np.flatnonzero(inside) if inside.any() else np.arange(len(w))
             best = cand[np.argmax(w[cand])]
-            smoothed = self.store.lineage(int(best), T + 1)
+            smoothed = _fill_gaps(self.store.lineage(int(best), T + 1))
         mode_crs = self.net.local_to_crs(mode)
         sm_crs = None if smoothed is None else self.net.local_to_crs(smoothed)
         cfg = asdict(self.cfg)
+        cfg["path_stride_used"] = stride if self.store is not None else None
         return FilterResult(
             times=odom.times, frame_index=np.concatenate([[0], odom.frame_index]),
             mode_xy=mode_crs, mode_latlon=self.net.local_to_latlon(mode),
@@ -1388,6 +1410,19 @@ class GraphParticleFilter:
             final_w=w, gt_mass=gt_mass, runtime_s=time.perf_counter() - t0,
             n_reinit=self.n_reinit, config=cfg, map_stats=self.net.stats(),
         )
+
+
+def _fill_gaps(path: np.ndarray) -> np.ndarray:
+    """Linearly interpolate the NaN rows of an (n, 2) path between its finite
+    rows (a lineage stored every few steps); leading/trailing NaNs stay."""
+    ok = np.isfinite(path).all(axis=1)
+    if ok.all() or ok.sum() < 2:
+        return path
+    idx = np.arange(len(path))
+    out = path.copy()
+    for k in range(2):
+        out[:, k] = np.interp(idx, idx[ok], path[ok, k], left=np.nan, right=np.nan)
+    return out
 
 
 def lookahead_headings(odom: Odometry, lookahead_s: float) -> np.ndarray:

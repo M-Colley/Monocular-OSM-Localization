@@ -516,6 +516,28 @@ def test_determinism_with_fixed_seed():
     assert not np.array_equal(a.final_w, c.final_w)
 
 
+def test_strided_genealogy_matches_full_and_bounds_memory():
+    G = jittered_grid()
+    net = RoadNetwork.from_graph(G)
+    pos, odom = _drive(G)
+    gt = gt_at(pos, odom)
+    full = run_filter(net, odom, FilterConfig(n_particles=8_000, seed=7, path_stride=1))
+    thin = run_filter(net, odom, FilterConfig(n_particles=8_000, seed=7, path_stride=4))
+    # same filter run (the store never touches the RNG) ...
+    assert np.array_equal(full.mode_xy, thin.mode_xy)
+    assert full.config["path_stride_used"] == 1 and thin.config["path_stride_used"] == 4
+    # ... and the thinned route is the full route, interpolated between stored points
+    assert np.isfinite(thin.smoothed_xy).all() and thin.smoothed_xy.shape == full.smoothed_xy.shape
+    d = np.hypot(*(thin.smoothed_xy - full.smoothed_xy).T)
+    assert np.median(d) < 8.0 and d[-1] < 1e-3 and d[0] < 1e-3   # ends are stored exactly
+    ev = evaluate_against_gt(thin, to_latlon(net, gt))
+    assert ev["smoothed_mean_err_m"] < 25.0
+    # automatic stride: 1.5e6 particles x 330 steps would need ~8 GB at stride 1
+    auto = FilterConfig(n_particles=1_500_000, path_budget_mb=1500.0)
+    import math
+    assert math.ceil(auto.n_particles * 331 * 16.0 / (auto.path_budget_mb * 1e6)) == 6
+
+
 def test_all_particles_dead_triggers_reinitialisation():
     # a single one-way street: every particle reaches its end and dies
     G = grid_graph([0, 50], [0], oneway_rows={0: +1})

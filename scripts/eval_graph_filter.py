@@ -416,7 +416,7 @@ def main(argv=None) -> int:
     ap.add_argument("--tag", default="", help="suffix for the output file names")
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--particles-A", type=int, default=300_000)
-    ap.add_argument("--particles-B", type=int, default=1_500_000)
+    ap.add_argument("--particles-B", type=int, default=1_000_000)
     ap.add_argument("--workers", type=int, default=max(1, min(10, (os.cpu_count() or 2) // 2)))
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
