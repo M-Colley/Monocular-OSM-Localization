@@ -273,7 +273,7 @@ def _overlay_entries(root: Path) -> list[dict]:
         out.append({
             "id": f"overlay_{vid}",
             "name": f"{city.split(',')[0]} ({vid})",
-            "fleet": "overlay", "split": "dev",
+            "fleet": "overlay", "split": clip.split,
             "gt": c["ground_truth"], "gt_source": "overlay_ocr",
             "gt_n_waypoints": len(gt["waypoints"]),
             "gt_waypoints_sha256": gt_waypoints_digest(gt),

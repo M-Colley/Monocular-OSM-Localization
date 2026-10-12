@@ -129,3 +129,24 @@ def test_non_ocr_ground_truth_does_not_claim_ocr() -> None:
         src = gt.get("source", "")
         if src and src != "gps_overlay_ocr":
             assert "OCR" not in gt.get("description", "").replace("Not OCR", ""), path.name
+
+
+def test_overlay_clip_split_is_a_declared_field_defaulting_to_dev() -> None:
+    """A held-out clip must be declared as such in the clip list (one place,
+    before any result exists), never promoted by editing the manifest."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "overlay_clips_under_test",
+        Path(__file__).resolve().parents[1] / "scripts" / "overlay_clips.py")
+    mod = importlib.util.module_from_spec(spec)
+    import sys
+    sys.modules[spec.name] = mod          # @dataclass looks its module up here
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.modules.pop(spec.name, None)
+    assert all(c.split == "dev" for c in mod.CLIPS)
+    held = mod.OverlayClip("abc", "bottom", (0, 600), "stamp", "note", split="test")
+    assert held.split == "test"

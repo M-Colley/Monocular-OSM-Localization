@@ -41,6 +41,10 @@ class OverlayClip:
     note: str
     #: Only when reverse geocoding picks a name the OSM graph fetch dislikes.
     city_override: str | None = None
+    #: Benchmark split. Every clip that existed when the method was tuned is
+    #: "dev". A clip added AFTER the method is frozen is "test": add it with
+    #: split="test" BEFORE running anything on it, and never tune on its result.
+    split: str = "dev"
 
     @property
     def url(self) -> str:
