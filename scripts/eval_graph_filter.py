@@ -57,6 +57,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -266,6 +267,20 @@ def vo_diagnostics(ox: dict, traj, gflow) -> dict:
 # --------------------------------------------------------------------------
 
 _NET_CACHE: dict = {}
+_CRASH_DIR: Path | None = None
+_CRASH_FH = None
+
+
+def _init_worker(crash_dir: str) -> None:
+    """Per-worker faulthandler: a native crash (access violation) otherwise
+    surfaces only as an anonymous BrokenProcessPool in the parent."""
+    import faulthandler
+
+    global _CRASH_FH
+    d = Path(crash_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    _CRASH_FH = open(d / f"crash_{os.getpid()}.log", "w")
+    faulthandler.enable(file=_CRASH_FH, all_threads=True)
 
 
 def _net(graph_path: str) -> gf.RoadNetwork:
@@ -273,6 +288,32 @@ def _net(graph_path: str) -> gf.RoadNetwork:
         import osmnx as ox
         _NET_CACHE[graph_path] = gf.RoadNetwork.from_graph(ox.load_graphml(graph_path))
     return _NET_CACHE[graph_path]
+
+
+def safe_score_route(pred_latlon, wp) -> dict:
+    """monocular_osm.metrics.score_route, guarded against its crash mode.
+
+    score_route densifies the prediction to one vertex per 10 m and hands it to
+    GEOS ``frechet_distance``, whose recursion overflows the C stack (a hard
+    process kill, not an exception) beyond roughly 5-10 thousand vertices
+    (~50-100 km of path). An online mode track that hops between distant
+    hypotheses easily exceeds that, so the densification step is scaled to keep
+    <= 3000 vertices. It only affects the Hausdorff/Frechet discretisation
+    (bounded by the step); ``gt_to_pred_mean_m`` — the benchmark's headline —
+    is exact point-to-curve distance and independent of it.
+    """
+    from monocular_osm.metrics import local_transformer, project, score_route
+
+    pred = np.atleast_2d(np.asarray(pred_latlon, float))
+    length = 0.0
+    if len(pred) > 1:
+        tf = local_transformer(float(wp[:, 0].mean()), float(wp[:, 1].mean()))
+        xy = project(pred, tf)
+        length = float(np.hypot(*np.diff(xy, axis=0).T).sum())
+    step = max(10.0, length / 3000.0)
+    out = score_route(pred, wp, densify_m=step).to_dict()
+    out["densify_m_used"] = step
+    return out
 
 
 def run_one(job: dict) -> dict:
@@ -296,16 +337,14 @@ def run_one(job: dict) -> dict:
     ev["n_steps"] = int(len(odom))
     # README-comparable route error: the smoothed (genealogy) route against the
     # clip's committed GT waypoints, with the benchmark's own scorer.
-    from monocular_osm.metrics import score_route
-
     wp = job["gt_waypoints"]
     if res.smoothed_latlon is not None:
         sm = res.smoothed_latlon[np.isfinite(res.smoothed_latlon).all(axis=1)]
-        sc = score_route(sm, wp).to_dict() if len(sm) else None
+        sc = safe_score_route(sm, wp) if len(sm) else None
     else:
         sc = None
-    pt = score_route(res.mode_latlon[-1], wp).to_dict()   # final mode as a point
-    mode_route = score_route(res.mode_latlon, wp).to_dict()   # online mode track
+    pt = safe_score_route(res.mode_latlon[-1], wp)         # final mode as a point
+    mode_route = safe_score_route(res.mode_latlon, wp)     # online mode track
     ev["route_gt_to_pred_mean_m"] = (sc or pt)["gt_to_pred_mean_m"]
     ev["route_symmetric_mean_m"] = (sc or pt)["symmetric_mean_m"]
     ev["route_frechet_m"] = (sc or pt)["frechet_m"]
@@ -411,12 +450,15 @@ def main(argv=None) -> int:
     ap.add_argument("--maps", nargs="+", default=list(MAPS))
     ap.add_argument("--odometry", nargs="+",
                     default=["oracle", "oracle_unit", "vo_oracle_speed", "vo", "vo_gflow"])
+    ap.add_argument("--odometry-B", nargs="+", default=["oracle", "vo"],
+                    help="odometry variants also run on the (expensive) city map B; "
+                         "the ablations run on map A only")
     ap.add_argument("--heading-sigma-deg", type=float, default=None,
                     help="override FilterConfig.heading_sigma_deg (sensitivity runs)")
     ap.add_argument("--tag", default="", help="suffix for the output file names")
-    ap.add_argument("--seeds", type=int, default=5)
+    ap.add_argument("--seeds", type=int, default=5, help="seeds per cell (>= 5 for the report)")
     ap.add_argument("--particles-A", type=int, default=300_000)
-    ap.add_argument("--particles-B", type=int, default=1_000_000)
+    ap.add_argument("--particles-B", type=int, default=600_000)
     ap.add_argument("--workers", type=int, default=max(1, min(10, (os.cpu_count() or 2) // 2)))
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
@@ -475,6 +517,8 @@ def main(argv=None) -> int:
             dmin = _gt_to_road_m(nets[m], gxy)
             coverage[f"{d}|{m}"] = {"max_m": float(dmin.max()), "median_m": float(np.median(dmin))}
             for o in args.odometry:
+                if m == "B" and o not in args.odometry_B:
+                    continue
                 if o not in variants:
                     print(f"  skip {d}/{m}/{o}: not available", flush=True)
                     continue
@@ -492,7 +536,8 @@ def main(argv=None) -> int:
     # largest first so the pool drains evenly
     jobs.sort(key=lambda j: -j["n"] * len(j["odom"]))
     ckpt = out / f"results_partial{'_' + args.tag if args.tag else ''}.json"
-    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+    with ProcessPoolExecutor(max_workers=args.workers, initializer=_init_worker,
+                             initargs=(str(out / "crash_logs"),)) as pool:
         futures = [pool.submit(run_one, j) for j in jobs]
         for fut in as_completed(futures):
             r = fut.result()
@@ -505,6 +550,7 @@ def main(argv=None) -> int:
             ckpt.write_text(json.dumps(runs), encoding="utf-8")   # survive interruption
     wall = time.perf_counter() - t0
     ckpt.unlink(missing_ok=True)
+    shutil.rmtree(out / "crash_logs", ignore_errors=True)
 
     summary = {}
     for d in args.drives:
