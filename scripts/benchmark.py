@@ -1217,8 +1217,62 @@ def _selective_summary(fleet_reps: list[dict], clips_out: dict, rule: dict,
     return {"tau": float(rule["tau"]), "n_reps": n,
             "coverage": (n_answer / n) if n else None,
             "table": table, "h3_fisher_one_sided_p": p,
+            "hypotheses": _registered_hypotheses(
+                sorted({r["clip"] for r in fleet_reps}), clips_out, table, p),
             # Clips tau was chosen on: there the table is the rule's fit, not a test.
             "in_sample_clips": sorted({r["clip"] for r in fleet_reps} & dev_clips)}
+
+
+def _registered_hypotheses(ids: list[str], clips_out: dict, table: dict,
+                           h3_p: float | None) -> dict:
+    """H1-H3 of ``benchmarks/preregistered_rules.json``, computed literally.
+
+    Per clip, errors are the median over reps of the symmetric error; a clip
+    counts as answered when the rule answered in a majority of its ok reps.
+    Each verdict is ``True``/``False``, or ``None`` when untestable (no clip
+    or rep to decide it) — reported, never dropped."""
+    from scipy.stats import binomtest
+
+    def med(cid, m):
+        q = ((clips_out[cid]["methods"].get(m) or {}).get("symmetric_mean_m") or {})
+        return q.get("median")
+
+    sel_w = sel_l = ties = 0
+    answered: list[str] = []
+    h2_wins = 0
+    for cid in ids:
+        s_, p_, c_ = med(cid, "pipeline_selective"), med(cid, "pipeline"), med(cid, "city_centroid")
+        if s_ is not None and p_ is not None:
+            if s_ < p_:
+                sel_w += 1
+            elif s_ > p_:
+                sel_l += 1
+            else:
+                ties += 1
+        cs = clips_out[cid].get("selective") or {}
+        if cs.get("n_reps_ok") and 2 * cs["n_answered"] > cs["n_reps_ok"]:
+            answered.append(cid)
+            if p_ is not None and c_ is not None and p_ < c_:
+                h2_wins += 1
+    h1_p = (float(binomtest(sel_w, sel_w + sel_l, 0.5, alternative="greater").pvalue)
+            if sel_w + sel_l else None)
+    n_ans = table["answer_win"] + table["answer_loss"]
+    n_abs = table["abstain_win"] + table["abstain_loss"]
+    return {
+        "H1": {"selective_wins": sel_w, "selective_losses": sel_l, "ties": ties,
+               "sign_test_one_sided_p": h1_p,
+               # The registration names no alpha: the direction and p are
+               # reported separately, never collapsed into "significant".
+               "direction_holds": (sel_w > sel_l) if sel_w + sel_l else None},
+        "H2": {"clips_answered": answered, "pipeline_beats_centre": h2_wins,
+               "holds": (2 * h2_wins > len(answered)) if answered else None},
+        "H3": {"answer_win_rate": (table["answer_win"] / n_ans) if n_ans else None,
+               "abstain_win_rate": (table["abstain_win"] / n_abs) if n_abs else None,
+               "fisher_one_sided_p": h3_p,
+               "direction_holds": ((table["answer_win"] / n_ans)
+                                   > (table["abstain_win"] / n_abs))
+                                  if n_ans and n_abs else None},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1425,6 +1479,26 @@ def render_markdown(summary: dict) -> str:
                      f"{t['abstain_win']} win / {t['abstain_loss']} loss. One-sided "
                      f"Fisher exact p (answered reps win more often): {p3_s} (reps of "
                      f"one clip are not independent; read it per clip too).\n")
+            hy = sel.get("hypotheses")
+            if hy:
+                def _v(x):
+                    return "untestable" if x is None else ("yes" if x else "no")
+
+                def _p(x):
+                    return "n/a" if x is None else ("<0.001" if x < 0.001 else f"{x:.3f}")
+                h1, h2, h3 = hy["H1"], hy["H2"], hy["H3"]
+                L.append("Registered hypotheses (text in the rule file; no significance "
+                         "level was registered, so direction and p are given separately):\n")
+                L.append(f"- **H1** selective beats the pipeline on more clips than it loses: "
+                         f"{h1['selective_wins']} vs {h1['selective_losses']} "
+                         f"({h1['ties']} ties); direction {_v(h1['direction_holds'])}, "
+                         f"one-sided sign test p {_p(h1['sign_test_one_sided_p'])}.")
+                L.append(f"- **H2** where it answers, the pipeline beats the centre on a "
+                         f"majority: {h2['pipeline_beats_centre']} of "
+                         f"{len(h2['clips_answered'])} answered clips; {_v(h2['holds'])}.")
+                L.append(f"- **H3** answered reps beat the centre more often than abstained "
+                         f"ones: direction {_v(h3['direction_holds'])}, one-sided Fisher p "
+                         f"{_p(h3['fisher_one_sided_p'])}.\n")
     return "\n".join(L) + "\n"
 
 

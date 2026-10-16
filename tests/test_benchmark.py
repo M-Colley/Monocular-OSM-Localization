@@ -779,7 +779,15 @@ def test_aggregate_scores_the_preregistered_selective_rule(tmp_path: Path) -> No
     assert sel["table"] == {"answer_win": 1, "answer_loss": 0,
                             "abstain_win": 0, "abstain_loss": 2}
     assert sel["in_sample_clips"] == []                     # rule file names no dev clips
+    hy = sel["hypotheses"]
+    # Selective ties the pipeline on clipA and replaces two 3 km misses by the centre.
+    assert (hy["H1"]["selective_wins"], hy["H1"]["selective_losses"], hy["H1"]["ties"]) == (2, 0, 1)
+    assert hy["H1"]["direction_holds"] is True
+    assert hy["H2"] == {"clips_answered": ["clipA"], "pipeline_beats_centre": 1, "holds": True}
+    assert hy["H3"]["direction_holds"] is True
+    assert hy["H3"]["fisher_one_sided_p"] == pytest.approx(1 / 3)
     md = M.render_markdown(s)
+    assert "**H1** selective beats the pipeline" in md
     assert "Selective prediction (pre-registered τ = 0.15)" in md
     assert "Selective (pre-registered τ)" in md
 
