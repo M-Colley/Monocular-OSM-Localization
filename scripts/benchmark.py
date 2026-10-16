@@ -1211,9 +1211,14 @@ def _selective_summary(fleet_reps: list[dict], clips_out: dict, rule: dict,
         p = float(fisher_exact([[table["answer_win"], table["answer_loss"]],
                                 [table["abstain_win"], table["abstain_loss"]]],
                                alternative="greater")[1])
+    deriv = rule.get("derivation") or {}
+    dev_clips = {c for k in ("wins", "losses", "no_signal")
+                 for c in (deriv.get(k) or {})}
     return {"tau": float(rule["tau"]), "n_reps": n,
             "coverage": (n_answer / n) if n else None,
-            "table": table, "h3_fisher_one_sided_p": p}
+            "table": table, "h3_fisher_one_sided_p": p,
+            # Clips tau was chosen on: there the table is the rule's fit, not a test.
+            "in_sample_clips": sorted({r["clip"] for r in fleet_reps} & dev_clips)}
 
 
 # ---------------------------------------------------------------------------
@@ -1399,6 +1404,10 @@ def render_markdown(summary: dict) -> str:
                      "`benchmarks/preregistered_rules.json` before the held-out clips "
                      "were run). Win = the pipeline's symmetric error is below the "
                      "city-centre guess's.\n")
+            if sel.get("in_sample_clips"):
+                L.append(f"**In-sample:** τ was chosen on {len(sel['in_sample_clips'])} of "
+                         f"these clips ({', '.join(sel['in_sample_clips'])}), so for them "
+                         f"this is the rule's fit, not evidence that it works.\n")
             L.append("| Clip | answered / reps | confidence (per rep) |")
             L.append("|---|---|---|")
             for i in ids:
@@ -1410,7 +1419,7 @@ def render_markdown(summary: dict) -> str:
             L.append("")
             p3 = sel["h3_fisher_one_sided_p"]
             cov_s = "n/a" if cov is None else f"{100 * cov:.0f}%"
-            p3_s = "n/a" if p3 is None else f"{p3:.3f}"
+            p3_s = "n/a" if p3 is None else ("<0.001" if p3 < 0.001 else f"{p3:.3f}")
             L.append(f"Coverage {cov_s} of {sel['n_reps']} reps. Answered: "
                      f"{t['answer_win']} win / {t['answer_loss']} loss; abstained: "
                      f"{t['abstain_win']} win / {t['abstain_loss']} loss. One-sided "

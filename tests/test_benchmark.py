@@ -778,6 +778,7 @@ def test_aggregate_scores_the_preregistered_selective_rule(tmp_path: Path) -> No
     assert sel["tau"] == 0.15 and sel["coverage"] == pytest.approx(1 / 3)
     assert sel["table"] == {"answer_win": 1, "answer_loss": 0,
                             "abstain_win": 0, "abstain_loss": 2}
+    assert sel["in_sample_clips"] == []                     # rule file names no dev clips
     md = M.render_markdown(s)
     assert "Selective prediction (pre-registered τ = 0.15)" in md
     assert "Selective (pre-registered τ)" in md
