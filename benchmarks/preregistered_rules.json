@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "registered": "2026-10-16",
+  "purpose": "Decision rules fixed on development data BEFORE the data that tests them exist. The git commit that adds a rule is its registration timestamp; scripts/benchmark.py aggregate reads the rule from this file and never re-fits it.",
+  "rules": {
+    "pipeline_selective": {
+      "description": "Answer with the pipeline's route only when its own retrieval evidence is strong; otherwise abstain to city level, i.e. answer with the geocoded centre of the --city string (the city_centroid baseline). The question it tests: does the pipeline know when it is wrong?",
+      "confidence_signal": [
+        "vpr_coarse_to_fine.pass2_sim",
+        "vpr_prior.track_sim_median"
+      ],
+      "signal_rule": "the first of these present in result.json is the confidence (median top-1 cosine similarity between the query frames and their retrieved street-level images); a run with neither (retrieval absent or skipped) abstains",
+      "tau": 0.162,
+      "answer_if": "confidence >= tau",
+      "fallback": "city_centroid",
+      "derivation": {
+        "data": "run v2, core fleet, 18 reps (6 clips x 3); package code 18e65ae (Ulm 4K rep0: 4747814, same package tree)",
+        "label": "a rep is a WIN when the pipeline's symmetric error is below the city-centroid guess's, a LOSS otherwise",
+        "wins": {
+          "london": [0.2130, 0.1939, 0.2103],
+          "ulm4k_0-300": [0.2589, 0.2328, 0.2845]
+        },
+        "losses": {
+          "berlin_0-420": [0.1275, 0.1298, 0.1284],
+          "kitti_0009": [0.1166, 0.1166, 0.1166],
+          "kitti_0033": [0.1063, 0.1070, 0.1072]
+        },
+        "no_signal": {
+          "ulm2": "coarse-to-fine did not run (a one-word title seed set an 800 m gate), so no confidence was recorded; the rule abstains (LOSS in all 3 reps: 7662 m vs 350 m)"
+        },
+        "procedure": "tau = midpoint between the highest LOSS confidence (0.1298) and the lowest WIN confidence (0.1939) = 0.1619, rounded to 0.162. One free parameter; nothing else was tuned. The dev data separate perfectly, so dev performance says nothing about generalisation; only the held-out test does."
+      },
+      "held_out_test": {
+        "data": "run v2, overlay fleet (9 clips in 5 US/UK cities; ground truth from the GPS stamp burned into the dashcam video); none of these clips was used to choose tau",
+        "code": "package code 4fda123 (pipeline decomposed into monocular_osm/stages/ and an off-by-default --graph-filter added since 18e65ae; behaviour preservation checked by scripts/golden_pipeline.py)",
+        "disclosure": "Before registration one overlay log line had been seen: overlay_vCSEG6KaFng rep2, coarse-to-fine pass-2 similarity 0.131 (below tau). No overlay localisation error had been seen; overlay reps 0 and 1 of that clip had crashed on a full disk without producing a result. An earlier note in the working session gave tau ~0.17 from rep0 values only; this file's 0.162 comes from all 18 reps by the procedure above, and the difference does not change the decision for the one overlay value seen.",
+        "hypotheses": {
+          "H1": "Per clip (median over reps, symmetric error), pipeline_selective beats the pipeline on more overlay clips than it loses to it (sign test over clips, ties excluded).",
+          "H2": "Among overlay clips where pipeline_selective answers (does not abstain), the pipeline beats the city-centroid guess on a majority.",
+          "H3": "Overlay reps with confidence >= tau beat the city-centroid guess more often than reps below tau (one-sided Fisher exact test over reps)."
+        },
+        "power_note": "About 9 held-out clips: only large effects are detectable, and a null result is not evidence of no effect. The result is reported whichever way it comes out."
+      }
+    }
+  }
+}
