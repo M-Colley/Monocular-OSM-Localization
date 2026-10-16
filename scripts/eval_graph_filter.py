@@ -34,6 +34,15 @@ Odometry (all at 10 Hz, merged to 2 Hz filter steps):
                  step_lengths, camera height assumed 1.4 m); global scale left
                  unknown, as that module's own documentation prescribes.
                  Deployable; it abstains when the road-plane model fails.
+    vo_plane     vo, with metric step lengths from the road-plane homography
+                 and an ASSUMED camera height of 1.5 m (monocular_osm.
+                 plane_speed; KITTI's is 1.65 m). Deployable. The filter's
+                 global-scale prior is widened to log-sigma 0.25 for the
+                 unknown height and the estimator's own bias (it read ~0.84x
+                 at the true height on both drives, seen before these runs);
+                 the per-step deviation sigma is the estimator's GT-free spread.
+    vo_plane_rel the same profile normalised to mean 1, global scale left
+                 unknown: exactly the vo_gflow treatment with a better profile.
 
 VO heading noise is self-calibrated without ground truth
 (graph_filter.heading_increment_noise); the VO-vs-OXTS diagnostics in the
@@ -157,6 +166,28 @@ def vo_trajectory(drive_dir: Path, K: np.ndarray, cache: Path):
     return traj, path
 
 
+def plane_lengths(drive_dir: Path, traj, K: np.ndarray, cache: Path) -> dict:
+    """monocular_osm.plane_speed on the VO's own frames (cached npz)."""
+    from monocular_osm.plane_speed import DEFAULT_CAMERA_HEIGHT_M, plane_step_lengths
+
+    if cache.exists():
+        z = np.load(cache)
+        return {"lengths": z["lengths"], "raw": z["raw"], "rel_spread": float(z["rel_spread"]),
+                "coverage": float(z["coverage"]), "camera_height_m": float(z["camera_height_m"])}
+    import cv2
+
+    files = sorted((drive_dir / "image_02" / "data").glob("*.png"))
+    frames = [cv2.imread(str(f), cv2.IMREAD_GRAYSCALE) for f in files]
+    t0 = time.perf_counter()
+    ps = plane_step_lengths(frames, traj, K, camera_height_m=DEFAULT_CAMERA_HEIGHT_M)
+    print(f"    road-plane speed: coverage {ps.coverage:.2f}, spread {ps.rel_spread:.2f} "
+          f"({time.perf_counter() - t0:.0f} s)", flush=True)
+    np.savez_compressed(cache, lengths=ps.lengths_m, raw=ps.raw_m, rel_spread=ps.rel_spread,
+                        coverage=ps.coverage, camera_height_m=ps.camera_height_m)
+    return {"lengths": ps.lengths_m, "raw": ps.raw_m, "rel_spread": ps.rel_spread,
+            "coverage": ps.coverage, "camera_height_m": ps.camera_height_m}
+
+
 def ground_flow_lengths(video: Path, traj, K: np.ndarray, size) -> tuple:
     from monocular_osm.ground_flow_scale import step_lengths, track_road_features
 
@@ -171,7 +202,7 @@ def ground_flow_lengths(video: Path, traj, K: np.ndarray, size) -> tuple:
 # odometry variants
 # --------------------------------------------------------------------------
 
-def odometry_variants(ox: dict, traj, gflow, frame_dt: float) -> dict:
+def odometry_variants(ox: dict, traj, gflow, frame_dt: float, plane=None) -> dict:
     t = ox["t"]
     dt = np.diff(t)
     vf = ox["vf"][1:]
@@ -202,12 +233,29 @@ def odometry_variants(ox: dict, traj, gflow, frame_dt: float) -> dict:
                                             step_lengths_m=rel)
             g.metric, g.unit_seconds, g.dt = False, frame_dt, dt.copy()
             out["vo_gflow"] = g
+        if plane is not None:
+            L = np.asarray(plane["lengths"], float)
+            pm = gf.odometry_from_trajectory(traj, frame_dt, heading_source="rotation",
+                                             step_lengths_m=L)
+            pm.dt = dt.copy()
+            out["vo_plane"] = pm
+            mv = L > 0
+            rel = L / max(float(L[mv].mean()), 1e-9) if mv.any() else L
+            pr = gf.odometry_from_trajectory(traj, frame_dt, heading_source="rotation",
+                                             step_lengths_m=rel)
+            pr.metric, pr.unit_seconds, pr.dt = False, frame_dt, dt.copy()
+            out["vo_plane_rel"] = pr
     factor = max(1, int(round(1.0 / (FILTER_HZ * frame_dt))))
     return {k: gf.aggregate_odometry(v, factor) for k, v in out.items()}
 
 
-def filter_config(odom_kind: str, n: int, seed: int) -> gf.FilterConfig:
+def filter_config(odom_kind: str, n: int, seed: int,
+                  plane_spread: float | None = None) -> gf.FilterConfig:
     """Noise models fixed a priori per sensor (not tuned on these drives)."""
+    if odom_kind == "vo_plane":         # assumed camera height, GT-free step noise
+        dev = 0.15 if plane_spread is None or not np.isfinite(plane_spread) else plane_spread
+        return gf.FilterConfig(n_particles=n, seed=seed, metric_logk_sigma=0.25,
+                               metric_speed_dev_sigma=float(np.clip(dev, 0.05, 0.3)))
     if odom_kind == "oracle":           # INS: speed ~1 %, yaw drift ~0
         return gf.FilterConfig(n_particles=n, seed=seed, metric_logk_sigma=0.05,
                                metric_speed_dev_sigma=0.03, delta_rw_deg=0.3)
@@ -217,7 +265,7 @@ def filter_config(odom_kind: str, n: int, seed: int) -> gf.FilterConfig:
     return gf.FilterConfig(n_particles=n, seed=seed)   # scale-free: defaults
 
 
-def vo_diagnostics(ox: dict, traj, gflow) -> dict:
+def vo_diagnostics(ox: dict, traj, gflow, plane=None) -> dict:
     """How good is the monocular VO as odometry, measured against OXTS."""
     o = gf.odometry_from_trajectory(traj, 0.1, heading_source="rotation")
     ot = gf.odometry_from_trajectory(traj, 0.1, heading_source="translation")
@@ -259,6 +307,20 @@ def vo_diagnostics(ox: dict, traj, gflow) -> dict:
                 "rel_err_after_global_scale_median": float(np.median(np.abs(ratio / np.median(ratio) - 1))),
                 "corr_with_true_step": float(np.corrcoef(lengths[mv], true[mv])[0, 1]),
             })
+    if plane is not None:
+        L = np.asarray(plane["lengths"], float)
+        true = ox["vf"][1:] * np.diff(ox["t"])
+        mv = moving & (L > 0)
+        ratio = L[mv] / true[mv]
+        out["road_plane"] = {
+            "camera_height_assumed_m": plane["camera_height_m"],
+            "coverage": plane["coverage"], "gt_free_rel_spread": plane["rel_spread"],
+            "scale_median": float(np.median(ratio)),
+            "rel_err_after_global_scale_median": float(
+                np.median(np.abs(ratio / np.median(ratio) - 1))),
+            "corr_with_true_step": float(np.corrcoef(L[mv], true[mv])[0, 1]),
+            "distance_ratio": float(L.sum() / max(true.sum(), 1e-9)),
+        }
     return out
 
 
@@ -321,7 +383,7 @@ def run_one(job: dict) -> dict:
     odom: gf.Odometry = job["odom"]
     gt_latlon = job["gt_latlon"]
     gt_xy = net.local_to_crs(net.latlon_to_local(gt_latlon))
-    cfg = filter_config(job["odometry"], job["n"], job["seed"])
+    cfg = filter_config(job["odometry"], job["n"], job["seed"], job.get("plane_spread"))
     if job.get("heading_sigma_deg") is not None:
         cfg.heading_sigma_deg = float(job["heading_sigma_deg"])
     res = gf.run_filter(net, odom, cfg, diagnostic_xy=gt_xy)
@@ -419,7 +481,8 @@ def plot(path: Path, runs: list[dict]) -> None:
     fig, axes = plt.subplots(1, len(drives), figsize=(7 * len(drives), 4.6), squeeze=False)
     styles = {"A": "-", "B": "--"}
     colors = {"oracle": "#1b7837", "oracle_unit": "#5aae61", "vo_oracle_speed": "#e08214",
-              "vo": "#c51b7d", "vo_gflow": "#2166ac"}
+              "vo": "#c51b7d", "vo_gflow": "#2166ac", "vo_plane": "#762a83",
+              "vo_plane_rel": "#9970ab"}
     for ax, d in zip(axes[0], drives):
         combos = sorted({(r["map"], r["odometry"]) for r in runs if r["drive"] == d})
         for m, o in combos:
@@ -492,7 +555,7 @@ def main(argv=None) -> int:
         ox_ = load_oxts(ddir)
         frame_dt = float(np.median(np.diff(ox_["t"])))
         K = kitti_K(root / "data" / "kitti" / "raw" / spec["date"] / "calib_cam_to_cam.txt")
-        traj = gflow = None
+        traj = gflow = plane = None
         if any(o.startswith("vo") for o in args.odometry):
             traj, _ = vo_trajectory(ddir, K, out / f"vo_{d}.npz")
         if "vo_gflow" in args.odometry and traj is not None:
@@ -509,9 +572,11 @@ def main(argv=None) -> int:
                 print(f"    ground flow: confidence {gflow[1]:.2f} "
                       f"({time.perf_counter() - t0:.0f} s)", flush=True)
                 np.savez_compressed(gcache, lengths=gflow[0], confidence=gflow[1])
+        if traj is not None and any(o.startswith("vo_plane") for o in args.odometry):
+            plane = plane_lengths(ddir, traj, K, out / f"plane_{d}.npz")
         if traj is not None:
-            meta_vo[d] = vo_diagnostics(ox_, traj, gflow)
-        variants = odometry_variants(ox_, traj, gflow, frame_dt)
+            meta_vo[d] = vo_diagnostics(ox_, traj, gflow, plane)
+        variants = odometry_variants(ox_, traj, gflow, frame_dt, plane)
         for m in args.maps:
             gxy = nets[m].latlon_to_local(ox_["latlon"])
             dmin = _gt_to_road_m(nets[m], gxy)
@@ -529,6 +594,7 @@ def main(argv=None) -> int:
                                  "n": n_by_map[m], "graph_path": graph_paths[m],
                                  "gt_waypoints": gt_wp[d],
                                  "heading_sigma_deg": args.heading_sigma_deg,
+                                 "plane_spread": (plane or {}).get("rel_spread"),
                                  "odom": odom, "gt_latlon": ox_["latlon"][idx]})
     print(f"{len(jobs)} runs on {args.workers} workers", flush=True)
     t0 = time.perf_counter()
