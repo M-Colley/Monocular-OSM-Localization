@@ -208,9 +208,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="EXPERIMENTAL, off by default: also run the road-graph particle "
                         "filter (monocular_osm/graph_filter.py) on the visual odometry and "
                         "store its route in result['filter_position'] (never the headline). "
-                        "It reaches Brubaker-level accuracy with METRIC odometry; with this "
-                        "repo's unit-step monocular VO it mostly fails and its confidence is "
-                        "not calibrated.")
+                        "It needs speed: with road-plane step lengths (the default, "
+                        "--graph-filter-speed plane) it localized KITTI 0033 on the whole "
+                        "Karlsruhe map in 5 of 5 seeds; with unit steps it mostly fails. "
+                        "See docs/graph_filter_kitti.md; its confidence is not calibrated.")
+    p.add_argument("--graph-filter-speed", choices=("plane", "unit"), default="plane",
+                   help="Step lengths for --graph-filter: 'plane' = metric, from the road "
+                        "plane and --camera-height-m (falls back to 'unit' when the road "
+                        "is not visible); 'unit' = the VO's unit steps.")
+    p.add_argument("--camera-height-m", type=float, default=1.5,
+                   help="Assumed camera height above the road for --graph-filter-speed "
+                        "plane (a typical windscreen dashcam is 1.2-1.7 m). It sets a "
+                        "global scale only, which the filter's scale state absorbs.")
     p.add_argument("--graph-filter-particles", type=int, default=200_000,
                    help="Particle count for --graph-filter (memory ~2 GB and ~2-4 min "
                         "at 200k; the whole-city evaluation used 600k).")
@@ -750,6 +759,8 @@ def main() -> None:
             graph_filter_particles=args.graph_filter_particles,
             graph_filter_seed=args.graph_filter_seed,
             graph_filter_vpr=args.graph_filter_vpr,
+            graph_filter_speed=args.graph_filter_speed,
+            camera_height_m=args.camera_height_m,
             fusion_weights=args.fusion_weights,
             scale_recovery_thresh_m=args.scale_recovery_thresh_m,
             scale_recovery_min_inliers=args.scale_recovery_min_inliers,

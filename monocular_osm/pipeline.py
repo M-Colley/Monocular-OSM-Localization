@@ -48,6 +48,11 @@ class PipelineConfig:
     graph_filter_particles: int = 200_000
     graph_filter_seed: int = 0
     graph_filter_vpr: bool = False     # also feed VPR positions as observations
+    # Step lengths for the filter: "plane" = metric, from the road-plane
+    # homography and an assumed camera height (monocular_osm/plane_speed.py);
+    # "unit" = the VO's unit steps (no speed).
+    graph_filter_speed: str = "plane"
+    camera_height_m: float = 1.5
     # Where cfg.osm_around came from: "user" (--osm-around), "video_title"
     # (place names in the title/description), or None. Recorded so an
     # evaluator can tell a deployable seed from a ground-truth disc.

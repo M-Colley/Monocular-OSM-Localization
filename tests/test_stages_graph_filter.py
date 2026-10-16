@@ -142,3 +142,66 @@ def test_vpr_observations_are_used_only_when_asked_and_available(tmp_path, monke
     ctx2.anchor_origin = "vpr"
     graph_filter_channel(ctx2)
     assert list(seen["obs"]) == []                              # not asked: not used
+
+
+def _with_images(ctx):
+    n = len(ctx.traj.xz)
+    ctx.frames = SimpleNamespace(timestamps=list(np.arange(n) * 0.5),
+                                 frames=[np.zeros((48, 64), np.uint8)] * n)
+    return ctx
+
+
+def _fake_plane(coverage: float):
+    def fake(frames, traj, K, *, camera_height_m, **kw):
+        from monocular_osm.plane_speed import PlaneSpeed
+
+        n = len(traj.xz) - 1
+        return PlaneSpeed(lengths_m=np.full(n, 4.0), raw_m=np.full(n, 4.0),
+                          inliers=np.full(n, 50), coverage=coverage, rel_spread=0.12,
+                          camera_height_m=camera_height_m)
+    return fake
+
+
+def test_road_plane_speed_makes_the_odometry_metric(tmp_path, monkeypatch) -> None:
+    import monocular_osm.graph_filter as gf_mod
+    import monocular_osm.plane_speed as ps_mod
+
+    monkeypatch.setattr(ps_mod, "plane_step_lengths", _fake_plane(0.6))
+    seen = {}
+    real = gf_mod.run_filter
+
+    def spy(net, odom, cfg=None, **kw):
+        seen["odom"], seen["cfg"] = odom, cfg
+        return real(net, odom, cfg, **kw)
+
+    monkeypatch.setattr(gf_mod, "run_filter", spy)
+    ctx = _with_images(_ctx(tmp_path, graph_filter=True, camera_height_m=1.3))
+    graph_filter_channel(ctx)
+    gf = ctx.result["graph_filter"]
+    assert gf["metric_odometry"] is True and gf["speed_source"] == "road_plane"
+    assert gf["road_plane"]["camera_height_m"] == 1.3
+    assert seen["odom"].metric and seen["cfg"].metric_logk_sigma == 0.25
+    assert seen["cfg"].metric_speed_dev_sigma == pytest.approx(0.12)
+    assert "road-plane speed" in ctx.result["filter_position"]["ranking"]
+
+
+def test_too_little_road_falls_back_to_unit_steps(tmp_path, monkeypatch) -> None:
+    import monocular_osm.plane_speed as ps_mod
+
+    monkeypatch.setattr(ps_mod, "plane_step_lengths", _fake_plane(0.05))
+    ctx = _with_images(_ctx(tmp_path, graph_filter=True))
+    graph_filter_channel(ctx)
+    gf = ctx.result["graph_filter"]
+    assert gf["metric_odometry"] is False and gf["speed_source"] == "unit_steps"
+
+
+def test_unit_speed_is_selectable(tmp_path, monkeypatch) -> None:
+    import monocular_osm.plane_speed as ps_mod
+
+    def boom(*a, **k):
+        raise AssertionError("road-plane speed must not run with graph_filter_speed='unit'")
+
+    monkeypatch.setattr(ps_mod, "plane_step_lengths", boom)
+    ctx = _with_images(_ctx(tmp_path, graph_filter=True, graph_filter_speed="unit"))
+    graph_filter_channel(ctx)
+    assert ctx.result["graph_filter"]["metric_odometry"] is False
