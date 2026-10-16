@@ -54,6 +54,47 @@ honestly; the re-measured results are in the README.
 - `scripts/fetch_kitti_raw.py`: fetches only the camera frames, OXTS and
   calibration out of KITTI's multi-GB archives with HTTP range requests.
 
+### Measured: benchmark run `v2`, core fleet
+
+Default configuration, `MLY_TOKEN` set (Mapillary + MegaLoc), three reps per
+clip with cold retrieval caches, package code `18e65ae`, all 18 reps healthy.
+Symmetric mean route error, median over reps:
+
+| Clip | Pipeline | Centre of named city | Retrieval prior alone | Matcher alone |
+|---|---|---|---|---|
+| Ulm 4K, 0-300 s | 27 m | 445 m | 101 m | 1,219 m |
+| London | 83 m | 1,501 m | 191 m | 719 m |
+| Berlin, 0-420 s | 3,356 m | 909 m | 3,495 m | 4,058 m |
+| KITTI 0009 | 5,346 m | 2,563 m | 5,533 m | 5,830 m |
+| KITTI 0033 | 7,094 m | 6,709 m | 7,099 m | 6,921 m |
+| Ulm #2 | 7,662 m | 350 m | 7,986 m | 8,406 m |
+
+The pipeline beats the centre of the named city on 2 of 6 clips (sign test
+p = 0.69), the retrieval prior alone on 6 of 6 (p = 0.03; by as little as 5 m
+where both fail) and the matcher alone on 5 of 6. Repetitions agree to within
+150 m (IQR). On the four failing clips
+even the best candidate in the matcher's pool, chosen with ground truth, is
+2.8–8.2 km off (`scripts/ablate.py`): the failures happen before matching.
+comma2k19, Málaga and Boreas were not run (not on the benchmark machine).
+Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
+--cold-vpr`, then `aggregate --run-name v2 --offline` and
+`scripts/ablate.py --run-name v2`.
+
+### Selective prediction, pre-registered
+
+- **`benchmarks/preregistered_rules.json`** (commit `1841961`) fixes one rule
+  before its test data existed: answer with the pipeline only when its
+  retrieval confidence (coarse-to-fine pass-2 similarity) is ≥ τ = 0.162,
+  otherwise answer the centre of the named city. τ is the midpoint between the
+  best losing (0.130) and worst winning (0.194) core rep; on those clips it
+  separates perfectly, which is a fit, not evidence. The overlay fleet, which
+  played no part in choosing τ, is the test; the hypotheses, the code version
+  and the one test value seen beforehand are recorded in the file.
+- `scripts/benchmark.py aggregate` scores the rule as `pipeline_selective`
+  (read, never fitted), reports coverage and each rep's decision, runs the
+  registered H3 test (one-sided Fisher exact) and labels the clips τ was fitted
+  on as in-sample. `baselines.retrieval_confidence()` / `pipeline_selective()`.
+
 ### Added
 
 - `monocular_osm/fusion.py`: the consensus rule and its weights as one explicit
@@ -75,6 +116,10 @@ honestly; the re-measured results are in the README.
   (tenacity-based bounded retries).
 - `monocular_osm/data/kfz_codes.json`: 698 licence-plate district codes from
   Wikidata (was 311 hand-entered), refreshed by `scripts/update_kfz_codes.py`.
+- `result["vpr_prior"]["track_sim_median"]`: the retrieval confidence of the
+  final track, recorded on every run (Ulm #2 ran with none, because
+  coarse-to-fine was skipped); `vpr_prior.backbone.device` records where the model ran.
+- `scripts/benchmark.py run --cold-archive {metadata,full}`.
 
 ### Changed
 
@@ -88,6 +133,15 @@ honestly; the re-measured results are in the README.
   both retrieval and the road graph; on KITTI 0009 rapidocr read `KA.GC` (a
   plate fragment), the run searched 20 km away and finished 18.3 km off. The
   same clip now finishes 5.3 km off.
+- **Title seeds need two place names too.** On Ulm #2 the single title word
+  "Napoleon" became an 800 m hard gate centred 8–9 km from the route; all three
+  benchmark reps answered 7.7 km off, where the centre of the city is 350 m
+  off. Chosen after seeing that clip, so it is a dev-set fix to be judged on
+  held-out clips. Of the core fleet it changes only Ulm #2 (Berlin, London and
+  Ulm 4K each matched five places).
+- Retrieval runs on the CPU (same model) when the GPU has under 4 GB free:
+  with another process holding the GPU the model died natively, with no Python
+  traceback.
 - `PipelineConfig.top_k` defaults to 10 (the CLI default every published run
   used; the Python API silently ran 5).
 - Evaluator distances are exact (shapely), not a 10 m densified approximation.
@@ -133,6 +187,15 @@ honestly; the re-measured results are in the README.
   on a default install (which ships rapidocr); it uses the shared engine factory.
 - A Nominatim error body was cached forever as "not found" (osmnx raises the
   same exception for both); only a genuine "could not geocode" is cached.
+- **A full disk poisoned later runs.** `ox.save_graphml` interrupted by a full
+  disk left a truncated road-graph cache that every later run of the clip
+  loaded and died on. Graph caches are now written to a temporary file and
+  renamed; an unreadable cache is moved to `*.corrupt` and refetched.
+- Cold benchmark runs archived ~1.2 GB of downloaded reference pixels and
+  embeddings per clip and rep and filled the disk after ~50 reps (which then
+  disabled retrieval and starved the pagefile: MemoryError, access
+  violations). They now keep the reference id/position lists only (~3 %);
+  `--cold-archive full` keeps everything.
 - One transient Overpass `ConnectTimeout` or YouTube 403 killed runs that had
   already spent minutes on VO and retrieval; downloads and the graph fetch now
   retry with exponential backoff (bounded, announced, transient errors only).

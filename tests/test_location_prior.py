@@ -72,8 +72,8 @@ def test_resolve_prior_none_when_city_ungeocodable() -> None:
 
 def test_one_title_place_is_not_enough_when_two_are_required() -> None:
     """The title seed requires corroboration (cli passes min_places=2): on
-    Ulm #2 the single title word "Napoleon" geocoded to a street 7.7 km from
-    the route and became an 800 m hard gate."""
+    Ulm #2 the single title word "Napoleon" became an 800 m hard gate centred
+    8-9 km from the route (all three benchmark reps answered 7.7 km off)."""
     coords = {"ulm, germany": (48.40, 9.99),
               "napoleon, ulm, germany": (48.451, 10.089),
               "ulm minster, ulm, germany": (48.3985, 9.9925)}
