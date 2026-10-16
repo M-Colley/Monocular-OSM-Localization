@@ -120,6 +120,17 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   final track, recorded on every run (Ulm #2 ran with none, because
   coarse-to-fine was skipped); `vpr_prior.backbone.device` records where the model ran.
 - `scripts/benchmark.py run --cold-archive {metadata,full}`.
+- **`monocular_osm/plane_speed.py`: metric speed for monocular VO** from the
+  road-plane homography and an assumed camera height (RANSAC via
+  scikit-image, tracking via OpenCV). Against KITTI OXTS the speed profile
+  correlates 0.81-0.88 with the true step (ground flow: 0.44-0.60). With it
+  the road-graph particle filter localizes KITTI 0033 on the whole Karlsruhe
+  map in 5 of 5 seeds (final ~10 m; unit-step VO 0/5, 8.8 km) with no GPS and
+  no retrieval — late in the drive, only if the assumed height is within
+  ~20 % (1.2 m: 1/5), and not on drive 0009. `--graph-filter` now uses it by
+  default (`--graph-filter-speed {plane,unit}`, `--camera-height-m`);
+  `scripts/eval_graph_filter.py` gains `vo_plane`, `vo_plane_rel` and
+  `--camera-height-m`. Details: `docs/graph_filter_kitti.md`.
 
 ### Changed
 

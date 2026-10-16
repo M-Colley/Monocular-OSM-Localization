@@ -1042,8 +1042,16 @@ localize KITTI to about 3 m from odometry and an OSM map alone, on a smaller
 with real odometry (7 m in ~25 s on KITTI 0033, even on the whole city) and shows
 where the gap actually is: this repo's monocular VO has **no speed** (unit-length
 steps) and its heading drifts 8-14° per minute, so the *odometry*, not the map
-matching, is the bottleneck. Whether the remaining failures are input-limited is
-therefore still open.
+matching, is the bottleneck. Giving the VO steps a metric length from the road
+plane and an assumed camera height ([`monocular_osm/plane_speed.py`](monocular_osm/plane_speed.py))
+closes most of that gap on KITTI 0033: the filter then localizes it on the
+whole Karlsruhe map in 5 of 5 seeds (final ~10 m, smoothed route within 1 m),
+with no GPS and no image retrieval, where the pipeline is 7.1 km off. The
+caveats are as large as the result: it locks on only near the end of the drive,
+it fails if the assumed height is 20 % too low (1 of 5), its confidence is not
+calibrated, the 46 s drive 0009 still fails, and one drive is not a benchmark
+result. It is available as the opt-in `--graph-filter` channel. Whether the
+remaining failures are input-limited is therefore still open.
 
 <details>
 <summary>Historical 0.1.x table (measured 2026-07-23; not reproduced; do not cite)</summary>

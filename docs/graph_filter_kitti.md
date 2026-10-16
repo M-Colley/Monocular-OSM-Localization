@@ -26,6 +26,12 @@ drives in the benchmark. Regenerate with `python scripts/eval_graph_filter.py`
   failures are *deterministic wrong attractors* (the same 4.3, 5.7 and 8.8 km
   errors repeat across seeds). The ground-flow speed profile correlates only
   0.44-0.60 with true step length and did not rescue it (1 of 5).
+* **Road-plane speed closes most of the gap on the loop drive** (added
+  2026-10-16, [below](#road-plane-speed)). Giving each VO step a metric length
+  from the road plane and an assumed camera height localizes 0033 on the
+  whole Karlsruhe map in 5 of 5 seeds (final ~10 m, smoothed route within
+  1 m), with no GPS and no image retrieval — but only near the end of the
+  drive, only when the assumed height is within about 20 %, and not on 0009.
 * **Its confidence is not calibrated for this input.** Only 3 of 14 monocular-VO
   runs reporting confidence above 0.8 were right. Do not present it as a
   probability of correctness.
@@ -154,3 +160,78 @@ Existing pipeline on the same drives (README, GPS-free, mean route error): KITTI
  }
 }
 ```
+
+## Road-plane speed
+
+`monocular_osm/plane_speed.py` gives each VO step a metric length. For road
+points two views are related by the plane homography `R + t m^T` (`m = n/d`);
+with the VO's rotation and unit translation, `m` is linear in the
+correspondences, so RANSAC per frame pair (scikit-image) gives the camera's
+height above the road in step units, and an **assumed** camera height
+(1.5 m; KITTI's camera is at 1.65 m) turns that into metres (Kitt et al. 2010;
+Song & Chandraker 2014). Corners and Lucas-Kanade tracking are OpenCV's. The
+road region and RANSAC settings were fixed before any filter run (two
+alternative road-region settings were tried on 0009's speed profile and
+discarded in favour of the default); the filter's global-scale prior
+(log-sigma 0.25) was widened after the 0.76-0.84 scale bias below had been
+seen. Regenerate with
+
+```bash
+python scripts/eval_graph_filter.py --odometry vo_plane vo_plane_rel --odometry-B vo_plane vo_plane_rel --tag plane
+python scripts/eval_graph_filter.py --drives 0033 --maps B --odometry vo_plane --odometry-B vo_plane --camera-height-m 1.2 --tag plane_B_h1.2
+```
+
+**The speed estimate against OXTS** (in brackets: the ground-flow estimator
+above):
+
+| Drive | Correlation with true step | Median relative error after one global scale | Scale at 1.5 m assumed | Scale at the true 1.65 m | Pairs measured |
+|---|---|---|---|---|---|
+| 0009 | 0.88 (0.60) | 11 % (34 %) | 0.69 | 0.76 | 57 % |
+| 0033 | 0.81 (0.44) | 11 % (29 %) | 0.76 | 0.84 | 55 % |
+
+**The filter with it** (5 seeds, same settings as the table at the top;
+`vo_plane` = metric steps at the assumed height, `vo_plane_rel` = the same
+profile with the global scale left unknown, as `vo_gflow`):
+
+| Drive | Map | Odometry | Localized seeds | Time to localize (s) | Final err (m) | Mean err (m) | Steps < 10 m | Smoothed route err (m) | README-style route err (m) |
+|---|---|---|---|---|---|---|---|---|---|
+| 0033 | A | vo_plane | 5/5 | 155.1 ± 0.0 | 10 ± 0 | 657 ± 130 | 47 % | 7 ± 1 | 1 ± 0 |
+| 0033 | A | vo_plane_rel | 4/5 | 155.3 ± 1.1 | 1138 ± 2264 | 2591 ± 1440 | 28 % | 1196 ± 2373 | 1183 ± 2364 |
+| 0033 | B | vo_plane | **5/5** | 155.1 ± 0.0 | **11 ± 0** | 5706 ± 1168 | 26 % | 8 ± 2 | **1 ± 0** |
+| 0033 | B | vo_plane_rel | 0/5 | — | 8801 ± 1 | 9050 ± 16 | 0 % | 9055 ± 2 | 9016 ± 41 |
+| 0009 | A | vo_plane | 0/5 | — | 2607 ± 22 | 2727 ± 219 | 0 % | 2642 ± 9 | 2616 ± 19 |
+| 0009 | A | vo_plane_rel | 0/5 | — | 2662 ± 133 | 2605 ± 530 | 0 % | 2682 ± 146 | 2644 ± 138 |
+
+For comparison (top table): 0033 on map B with unit-step VO 0/5 (8,801 m),
+with OXTS odometry 5/5 (7 m, localized at 31 s); the full pipeline on this
+drive is 7,094 m off and the centre of "Karlsruhe, Germany" 6,709 m
+(benchmark run v2).
+
+**Camera-height sensitivity** (0033, map B, `vo_plane`, 5 seeds):
+
+| Assumed height | Scale vs OXTS | Localized seeds | Final errors (m) |
+|---|---|---|---|
+| 1.2 m | 0.61 | 1/5 | 11, 8800, 8800, 8802, 11759 |
+| 1.5 m (default) | 0.76 | 5/5 | 10, 10, 11, 11, 11 |
+| 1.8 m | 0.91 | 4/5 | 10, 10, 10, 10, 8803 |
+
+What this shows, and what it does not:
+
+* **Speed was the missing signal.** In the deployable setting — the whole
+  city, no GPS, no image retrieval — metric steps turn a deterministic 8.8 km
+  failure into 5 of 5 localizations of the loop drive.
+* **The absolute scale matters, not only the speed profile.** The same profile
+  with an unknown scale fails on the city map (0/5), and an assumed height
+  20 % too low fails (1/5). The estimator reads about 0.8x short even at the
+  true height, so the default sits near the edge of what works.
+* **It localizes late.** The filter locks on at ~155 s of a 159 s drive (29-31 s
+  with INS speed); for most of the drive its online answer is wrong (mean
+  error 5.7 km on map B). The smoothed route at the end is right. It is an
+  offline answer for a whole clip, not online tracking.
+* **Its confidence still cannot be trusted.** The failed 1.2 m runs ended with
+  confidence 1.00 on answers 8.8-11.8 km off.
+* **One drive.** 0009 (46 s, one turn) fails with any odometry on the city
+  map. Dashcam clips add unknown intrinsics, rolling shutter and 7.5 Hz
+  frames; the estimator has not been checked on them yet (their burned-in
+  GPS stamps would allow it).
+

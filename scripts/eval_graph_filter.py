@@ -166,9 +166,14 @@ def vo_trajectory(drive_dir: Path, K: np.ndarray, cache: Path):
     return traj, path
 
 
-def plane_lengths(drive_dir: Path, traj, K: np.ndarray, cache: Path) -> dict:
+def plane_lengths(drive_dir: Path, traj, K: np.ndarray, cache: Path,
+                  camera_height_m: float | None = None) -> dict:
     """monocular_osm.plane_speed on the VO's own frames (cached npz)."""
     from monocular_osm.plane_speed import DEFAULT_CAMERA_HEIGHT_M, plane_step_lengths
+
+    camera_height_m = camera_height_m or DEFAULT_CAMERA_HEIGHT_M
+    if camera_height_m != DEFAULT_CAMERA_HEIGHT_M:
+        cache = cache.with_name(f"{cache.stem}_h{camera_height_m:g}{cache.suffix}")
 
     if cache.exists():
         z = np.load(cache)
@@ -179,7 +184,7 @@ def plane_lengths(drive_dir: Path, traj, K: np.ndarray, cache: Path) -> dict:
     files = sorted((drive_dir / "image_02" / "data").glob("*.png"))
     frames = [cv2.imread(str(f), cv2.IMREAD_GRAYSCALE) for f in files]
     t0 = time.perf_counter()
-    ps = plane_step_lengths(frames, traj, K, camera_height_m=DEFAULT_CAMERA_HEIGHT_M)
+    ps = plane_step_lengths(frames, traj, K, camera_height_m=camera_height_m)
     print(f"    road-plane speed: coverage {ps.coverage:.2f}, spread {ps.rel_spread:.2f} "
           f"({time.perf_counter() - t0:.0f} s)", flush=True)
     np.savez_compressed(cache, lengths=ps.lengths_m, raw=ps.raw_m, rel_spread=ps.rel_spread,
@@ -518,6 +523,9 @@ def main(argv=None) -> int:
                          "the ablations run on map A only")
     ap.add_argument("--heading-sigma-deg", type=float, default=None,
                     help="override FilterConfig.heading_sigma_deg (sensitivity runs)")
+    ap.add_argument("--camera-height-m", type=float, default=None,
+                    help="assumed camera height for vo_plane (default "
+                         "plane_speed.DEFAULT_CAMERA_HEIGHT_M; sensitivity runs)")
     ap.add_argument("--tag", default="", help="suffix for the output file names")
     ap.add_argument("--seeds", type=int, default=5, help="seeds per cell (>= 5 for the report)")
     ap.add_argument("--particles-A", type=int, default=300_000)
@@ -573,7 +581,8 @@ def main(argv=None) -> int:
                       f"({time.perf_counter() - t0:.0f} s)", flush=True)
                 np.savez_compressed(gcache, lengths=gflow[0], confidence=gflow[1])
         if traj is not None and any(o.startswith("vo_plane") for o in args.odometry):
-            plane = plane_lengths(ddir, traj, K, out / f"plane_{d}.npz")
+            plane = plane_lengths(ddir, traj, K, out / f"plane_{d}.npz",
+                                  args.camera_height_m)
         if traj is not None:
             meta_vo[d] = vo_diagnostics(ox_, traj, gflow, plane)
         variants = odometry_variants(ox_, traj, gflow, frame_dt, plane)
