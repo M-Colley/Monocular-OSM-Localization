@@ -139,8 +139,12 @@ def fetch_drive_graph(
     """
     import osmnx as ox
 
-    if cache_path is not None and Path(cache_path).exists():
-        return ox.load_graphml(Path(cache_path))
+    from .osm_data import load_cached_graphml, save_graphml_atomic
+
+    if cache_path is not None:
+        G = load_cached_graphml(cache_path)
+        if G is not None:
+            return G
     if bbox is not None:
         G = ox.graph_from_bbox(bbox=tuple(bbox), network_type=network_type)
     elif place is not None:
@@ -149,8 +153,7 @@ def fetch_drive_graph(
         raise ValueError("need bbox or place")
     G = ox.project_graph(G)
     if cache_path is not None:
-        Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
-        ox.save_graphml(G, Path(cache_path))
+        save_graphml_atomic(G, cache_path)
     return G
 
 

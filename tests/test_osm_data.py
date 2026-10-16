@@ -266,3 +266,40 @@ def test_walks_single_turn_both_directions_reachable() -> None:
     assert "N" in end_nodes and "S" in end_nodes, (
         f"single-turn enumeration missed a turn direction; walks end at {end_nodes}"
     )
+
+
+# ---------------------------------------------------------------------------
+# GraphML cache: atomic write, recovery from a truncated file
+# ---------------------------------------------------------------------------
+
+
+def test_graphml_cache_roundtrips_and_leaves_no_partial_file(tmp_path) -> None:
+    from monocular_osm.osm_data import load_cached_graphml, save_graphml_atomic
+
+    g = _grid_graph(3)
+    path = tmp_path / "c" / "City.graphml"
+    save_graphml_atomic(g, path)
+    assert [p.name for p in path.parent.iterdir()] == ["City.graphml"]
+    back = load_cached_graphml(path)
+    assert back is not None and back.number_of_edges() == g.number_of_edges()
+    assert load_cached_graphml(tmp_path / "missing.graphml") is None
+
+
+def test_truncated_graphml_cache_is_set_aside_and_refetched(tmp_path, monkeypatch) -> None:
+    """A disk that filled mid-write left a truncated GraphML ("unclosed
+    token") that every later run loaded and died on."""
+    import monocular_osm.osm_data as od
+
+    path = tmp_path / "City.graphml"
+    od.save_graphml_atomic(_grid_graph(3), path)
+    data = path.read_bytes()
+    path.write_bytes(data[: len(data) // 2])
+
+    calls = []
+    monkeypatch.setattr(od, "_download_graph",
+                        lambda *a, **k: calls.append(a) or _grid_graph(3))
+    monkeypatch.setattr(od.ox, "project_graph", lambda g: g)
+    road = od.fetch_city_graph("City", path)
+    assert calls and len(road.polylines) == _grid_graph(3).number_of_edges()
+    assert (tmp_path / "City.graphml.corrupt").exists()          # kept, not deleted
+    assert od.load_cached_graphml(path) is not None              # rewritten whole
