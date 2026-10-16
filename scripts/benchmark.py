@@ -299,22 +299,37 @@ def candidate_slug_dirs(entry: dict, city: str, data_dir: Path) -> list[Path]:
     return uniq
 
 
-def restore_vpr_caches(slug_dir: Path, archive_to: Path | None = None) -> list[str]:
+def restore_vpr_caches(slug_dir: Path, archive_to: Path | None = None, *,
+                       keep_arrays: bool = True) -> list[str]:
     """Undo :func:`set_vpr_caches_aside`. Fresh caches created by the cold
-    run are MOVED to ``archive_to`` (inside the same clip data dir), never
-    deleted; then the warm caches go back where they were."""
+    run are MOVED to ``archive_to`` (inside the same clip data dir); then the
+    warm caches go back where they were.
+
+    ``keep_arrays=False`` archives only the reference metadata (the JSON lists
+    of image ids, positions and capture times, ~3 % of the bytes) and drops the
+    run's own ``.npz`` arrays: the downloaded pixels and their embeddings,
+    ~1.2 GB per clip and rep, which are regenerable from those ids. Keeping
+    them filled the benchmark disk after ~50 reps (a full disk then silently
+    disabled retrieval and truncated a road-graph cache)."""
     slug_dir = Path(slug_dir)
     moved: list[str] = []
     aside = slug_dir / ASIDE_DIR
     for name in VPR_CACHE_DIRS:
         fresh = slug_dir / name
         if fresh.exists() and archive_to is not None:
+            dropped = 0
+            if not keep_arrays:
+                for f in sorted(fresh.rglob("*.npz")):
+                    dropped += f.stat().st_size
+                    f.unlink()
             archive_to.mkdir(parents=True, exist_ok=True)
             dest = archive_to / name
             if dest.exists():
                 dest = archive_to / f"{name}.{int(time.time())}"
             shutil.move(str(fresh), str(dest))
-            moved.append(f"{name} -> {dest}")
+            moved.append(f"{name} -> {dest}"
+                         + (f" (dropped {dropped / 1e9:.2f} GB of .npz arrays)"
+                            if dropped else ""))
     if aside.exists():
         for child in sorted(aside.iterdir()):
             target = slug_dir / child.name
@@ -666,7 +681,9 @@ def cmd_run(args) -> int:
                         for d in slug_dirs:
                             arch = (d / COLD_ARCHIVE_DIR / args.run_name / entry["id"]
                                     / f"rep{k}")
-                            moved = restore_vpr_caches(d, arch)
+                            moved = restore_vpr_caches(
+                                d, arch,
+                                keep_arrays=getattr(args, "cold_archive", "metadata") == "full")
                             if moved:
                                 cold.setdefault(d.name, {})["restored"] = moved
                 why = infra_failure_reason(outcome, rep_dir / "log.txt")
@@ -701,6 +718,7 @@ def cmd_run(args) -> int:
                 "result_found": res is not None,
                 "result_source": res.relative_to(ROOT).as_posix() if res else None,
                 "cold_vpr": bool(args.cold_vpr), "cold_vpr_moves": cold,
+                "cold_archive": getattr(args, "cold_archive", "metadata"),
                 "token_redactions": redactions,
                 "infra_retries": infra_retries,
             }
@@ -950,12 +968,21 @@ def _clip_method_summary(scores: list[dict]) -> dict:
 def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
               allow_network: bool = True, k: int = 5, n_resamples: int = 9999,
               seed: int = 0, root: Path | None = None) -> dict:
-    from scipy.stats import binomtest
+    from scipy.stats import binomtest, fisher_exact
 
     from monocular_osm import baselines as B
     from monocular_osm.metrics import SUCCESS_METRICS, THRESHOLDS_M
 
     root = Path(root) if root is not None else ROOT
+    # Pre-registered, never fitted here (benchmarks/preregistered_rules.json).
+    rule = B.load_preregistered_rule("pipeline_selective", root=root)
+    centroid_cache: dict[str, object] = {}
+
+    def _centroid(city: str):
+        if city not in centroid_cache:
+            centroid_cache[city] = B.city_centroid(city, root=root,
+                                                   allow_network=allow_network)
+        return centroid_cache[city]
     run_dir = Path(run_dir)
     by_id = {c["id"]: c for c in manifest["clips"]}
     reps: list[dict] = []
@@ -1000,6 +1027,11 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 f"shortlist_oracle@{k}": (B.shortlist_oracle(result, gt_latlon, k)
                                           if ok else None),
             }
+            if rule is not None:
+                sel = (B.pipeline_selective(result, _centroid(st.get("city") or entry["city"]),
+                                            rule) if ok else None)
+                preds["pipeline_selective"] = sel
+                rep["selective"] = dict(sel.meta) if sel is not None else None
             for name, pred in preds.items():
                 rep["scores"][name] = _score(pred, gt_latlon)
             if ok:
@@ -1054,6 +1086,13 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                               if any(r.get("wall_s") is not None for r in clip_reps)
                               else None),
             "gt_n_waypoints": int(len(gt_latlon)),
+            "selective": ({
+                "n_answered": sum(1 for r in clip_reps
+                                  if r.get("selective") and not r["selective"]["abstained"]),
+                "n_reps_ok": sum(1 for r in clip_reps if r.get("selective")),
+                "confidence": [r["selective"]["confidence"] for r in clip_reps
+                               if r.get("selective")],
+            } if rule is not None else None),
             "city_centroid": centroid,
             "methods": methods,
         }
@@ -1129,6 +1168,9 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                                "sign_test_p": p}
             paired[m] = row
         fs["paired_vs_pipeline"] = paired
+        if rule is not None:
+            fs["selective"] = _selective_summary(
+                [r for r in reps if r["clip"] in ids], clips_out, rule, fisher_exact)
         fleets[fleet] = fs
 
     return {
@@ -1144,6 +1186,36 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
     }
 
 
+def _selective_summary(fleet_reps: list[dict], clips_out: dict, rule: dict,
+                       fisher_exact) -> dict:
+    """Coverage and the pre-registered H3 test for ``pipeline_selective``.
+
+    Per rep: did the rule answer (confidence >= tau), and did the pipeline
+    beat the city-centroid guess (symmetric error)? H3 asks whether answering
+    reps win more often than abstaining ones (one-sided Fisher exact)."""
+    table = {"answer_win": 0, "answer_loss": 0, "abstain_win": 0, "abstain_loss": 0}
+    for r in fleet_reps:
+        sel = r.get("selective")
+        pipe = (r["scores"].get("pipeline") or {}).get("symmetric_mean_m")
+        cc = (((clips_out[r["clip"]]["methods"].get("city_centroid") or {})
+               .get("symmetric_mean_m") or {}).get("median"))
+        if sel is None or pipe is None or cc is None:
+            continue
+        key = ("abstain" if sel["abstained"] else "answer") + (
+            "_win" if pipe < cc else "_loss")
+        table[key] += 1
+    n = sum(table.values())
+    n_answer = table["answer_win"] + table["answer_loss"]
+    p = None
+    if n_answer and n - n_answer:
+        p = float(fisher_exact([[table["answer_win"], table["answer_loss"]],
+                                [table["abstain_win"], table["abstain_loss"]]],
+                               alternative="greater")[1])
+    return {"tau": float(rule["tau"]), "n_reps": n,
+            "coverage": (n_answer / n) if n else None,
+            "table": table, "h3_fisher_one_sided_p": p}
+
+
 # ---------------------------------------------------------------------------
 # 7. Markdown
 # ---------------------------------------------------------------------------
@@ -1154,6 +1226,7 @@ METHOD_LABEL = {
     "pinned_only": "Anchor-pinned only",
     "graph_filter_only": "Graph filter only",
     "vpr_prior_only": "VPR prior only",
+    "pipeline_selective": "Selective (pre-registered τ)",
     "city_centroid": "City centroid",
 }
 
@@ -1216,8 +1289,9 @@ def render_markdown(summary: dict) -> str:
     for fleet, fs in summary["fleets"].items():
         ids = fs["clips"]
         clips = summary["clips"]
-        methods = [m for m in ("pipeline", "city_centroid", "vpr_prior_only",
-                               "matcher_only", "pinned_only", "graph_filter_only") if m in fs["methods"]]
+        methods = [m for m in ("pipeline", "pipeline_selective", "city_centroid",
+                               "vpr_prior_only", "matcher_only", "pinned_only",
+                               "graph_filter_only") if m in fs["methods"]]
         oracle = [m for m in fs["methods"] if m.startswith("shortlist_oracle@")]
         L.append(f"## {fleet} fleet\n")
         if fs.get("methods_not_run"):
@@ -1315,6 +1389,33 @@ def render_markdown(summary: dict) -> str:
                 _ci(ms["start_error_m"]["median_of_clip_medians"]),
                 wl, p]) + " |")
         L.append("")
+        sel = fs.get("selective")
+        if sel:
+            t = sel["table"]
+            cov = sel["coverage"]
+            L.append(f"### Selective prediction (pre-registered τ = {sel['tau']})\n")
+            L.append("The pipeline answers only when its retrieval confidence ≥ τ and "
+                     "otherwise answers the city centre (rule and τ fixed in "
+                     "`benchmarks/preregistered_rules.json` before the held-out clips "
+                     "were run). Win = the pipeline's symmetric error is below the "
+                     "city-centre guess's.\n")
+            L.append("| Clip | answered / reps | confidence (per rep) |")
+            L.append("|---|---|---|")
+            for i in ids:
+                cs = clips[i].get("selective") or {}
+                confs = ", ".join("none" if v is None else f"{v:.3f}"
+                                  for v in cs.get("confidence", []))
+                L.append(f"| {clips[i]['name']} | {cs.get('n_answered', 0)}/"
+                         f"{cs.get('n_reps_ok', 0)} | {confs or '–'} |")
+            L.append("")
+            p3 = sel["h3_fisher_one_sided_p"]
+            cov_s = "n/a" if cov is None else f"{100 * cov:.0f}%"
+            p3_s = "n/a" if p3 is None else f"{p3:.3f}"
+            L.append(f"Coverage {cov_s} of {sel['n_reps']} reps. Answered: "
+                     f"{t['answer_win']} win / {t['answer_loss']} loss; abstained: "
+                     f"{t['abstain_win']} win / {t['abstain_loss']} loss. One-sided "
+                     f"Fisher exact p (answered reps win more often): {p3_s} (reps of "
+                     f"one clip are not independent; read it per clip too).\n")
     return "\n".join(L) + "\n"
 
 
@@ -1402,7 +1503,11 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--cold-vpr", action="store_true",
                    help="move each clip's warm VPR reference caches aside for every "
                         "rep (restored afterwards; the fresh caches are archived "
-                        "under data/<slug>/_benchmark_cold_vpr/, never deleted)")
+                        "under data/<slug>/_benchmark_cold_vpr/)")
+    r.add_argument("--cold-archive", choices=("metadata", "full"), default="metadata",
+                   help="what to keep of each cold rep's fresh caches: the reference "
+                        "id/position lists only (default, ~40 MB per rep) or also the "
+                        "downloaded pixels and embeddings (~1.2 GB per rep)")
     r.add_argument("--timeout", type=float, default=3600.0, help="seconds per run")
     r.add_argument("--retry-failed", action="store_true",
                    help="re-run reps whose rc != 0 (completed reps are always skipped)")

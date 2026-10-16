@@ -727,3 +727,64 @@ def test_provenance_compares_package_trees_not_commit_hashes(monkeypatch) -> Non
     other_code = M.check_provenance([rep("c1"), rep("c3")])
     assert not other_code["consistent"]
     assert any("different pipeline code" in p for p in other_code["problems"])
+
+
+def test_cold_archive_metadata_only_drops_arrays_keeps_id_lists(tmp_path: Path) -> None:
+    slug = tmp_path / "abc-x"
+    (slug / "mapillary").mkdir(parents=True)
+    M.set_vpr_caches_aside(slug)
+    fresh = slug / "mapillary"
+    fresh.mkdir()
+    (fresh / "ref_img_store.npz").write_bytes(b"x" * 1000)
+    (fresh / "ref_emb_megaloc_abc.npz").write_bytes(b"e")
+    (fresh / "mly_ref_meta_abc.json").write_text("{}")
+    arch = slug / M.COLD_ARCHIVE_DIR / "r1" / "clipA" / "rep0"
+    moved = M.restore_vpr_caches(slug, arch, keep_arrays=False)
+    assert (arch / "mapillary" / "mly_ref_meta_abc.json").exists()
+    assert not list((arch / "mapillary").glob("*.npz"))
+    assert any("dropped" in m for m in moved)
+    assert (slug / "mapillary").exists()                    # warm cache restored
+
+
+def test_aggregate_scores_the_preregistered_selective_rule(tmp_path: Path) -> None:
+    """pipeline_selective answers with the pipeline when its retrieval
+    confidence clears the committed tau, else with the city centre; the rule
+    is read from benchmarks/preregistered_rules.json, never fitted."""
+    root, manifest = _setup_root(tmp_path)
+    (root / "benchmarks").mkdir()
+    (root / "benchmarks" / "preregistered_rules.json").write_text(json.dumps(
+        {"rules": {"pipeline_selective": {
+            "tau": 0.15, "fallback": "city_centroid",
+            "confidence_signal": ["vpr_coarse_to_fine.pass2_sim",
+                                  "vpr_prior.track_sim_median"]}}}), encoding="utf-8")
+    run_dir = tmp_path / "runs" / "r1"
+    # clipA: confident and right; clipB: unconfident and 3 km off; clipC: no signal.
+    for cid, shift, off, sim in (("clipA", 0.0, 20.0, 0.25), ("clipB", 5000.0, 3000.0, 0.10),
+                                 ("clipC", 10000.0, 3000.0, None)):
+        res = _fake_result(shift, off)
+        if sim is not None:
+            res["vpr_coarse_to_fine"] = {"pass1_sim": sim, "pass2_sim": sim}
+        _write_rep(run_dir, cid, 0, res)
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+
+    ms = {c: s["clips"][c]["methods"] for c in ("clipA", "clipB", "clipC")}
+    sym = lambda c, m: ms[c][m]["symmetric_mean_m"]["median"]          # noqa: E731
+    assert sym("clipA", "pipeline_selective") == pytest.approx(sym("clipA", "pipeline"))
+    assert sym("clipB", "pipeline_selective") == pytest.approx(sym("clipB", "city_centroid"))
+    assert sym("clipC", "pipeline_selective") == pytest.approx(sym("clipC", "city_centroid"))
+    assert s["clips"]["clipA"]["selective"]["n_answered"] == 1
+    assert s["clips"]["clipC"]["selective"]["confidence"] == [None]
+    sel = s["fleets"]["core"]["selective"]
+    assert sel["tau"] == 0.15 and sel["coverage"] == pytest.approx(1 / 3)
+    assert sel["table"] == {"answer_win": 1, "answer_loss": 0,
+                            "abstain_win": 0, "abstain_loss": 2}
+    md = M.render_markdown(s)
+    assert "Selective prediction (pre-registered τ = 0.15)" in md
+    assert "Selective (pre-registered τ)" in md
+
+
+def test_aggregate_without_a_rule_file_has_no_selective_method(tmp_path: Path) -> None:
+    run_dir, manifest, root = _make_run(tmp_path)
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    assert "pipeline_selective" not in s["clips"]["clipA"]["methods"]
+    assert "selective" not in s["fleets"]["core"]

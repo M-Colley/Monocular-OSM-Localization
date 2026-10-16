@@ -137,3 +137,37 @@ def test_shortlist_oracle_picks_by_gt_and_is_labelled() -> None:
     r = _result()
     r["position"].pop("hypotheses")
     assert B.shortlist_oracle(r, gt) is None
+
+
+# ---------------------------------------------------------------------------
+# selective prediction with a pre-registered threshold
+# ---------------------------------------------------------------------------
+
+
+def test_retrieval_confidence_prefers_pass2_then_track_median() -> None:
+    assert B.retrieval_confidence(_result()) == (None, None)
+    r = _result(vpr_coarse_to_fine={"pass1_sim": 0.1, "pass2_sim": 0.2})
+    assert B.retrieval_confidence(r) == (0.2, "vpr_coarse_to_fine.pass2_sim")
+    r = _result()
+    r["vpr_prior"]["track_sim_median"] = 0.3
+    assert B.retrieval_confidence(r) == (0.3, "vpr_prior.track_sim_median")
+
+
+def test_pipeline_selective_answers_or_abstains_by_the_rule() -> None:
+    centre = B.Prediction("city_centroid", [[48.0, 9.0]], "point", source="snap")
+    rule = {"tau": 0.16}
+    hi = _result(vpr_coarse_to_fine={"pass2_sim": 0.21})
+    lo = _result(vpr_coarse_to_fine={"pass2_sim": 0.12})
+    a = B.pipeline_selective(hi, centre, rule)
+    assert a.route_latlon == ROUTE_A and a.meta["abstained"] is False
+    b = B.pipeline_selective(lo, centre, rule)
+    assert b.route_latlon == [[48.0, 9.0]] and b.meta["abstained"] is True
+    c = B.pipeline_selective(_result(), centre, rule)       # no signal: abstain
+    assert c.meta["abstained"] is True and c.meta["confidence"] is None
+    assert B.pipeline_selective(lo, None, rule) is None     # no centre: no answer
+
+
+def test_the_committed_rule_is_loadable() -> None:
+    rule = B.load_preregistered_rule()
+    assert rule is not None and 0.0 < rule["tau"] < 1.0
+    assert rule["fallback"] == "city_centroid"

@@ -18,6 +18,10 @@ baseline needs (the aggregator reports that as "n/a", never as a score).
   anchors (``result["pinned_position"]``), when the pipeline built one.
 * :func:`pipeline_headline` — the pipeline's headline answer
   (``result["position"]``), for symmetry.
+* :func:`pipeline_selective` — the pipeline when its own retrieval
+  confidence clears a PRE-REGISTERED threshold
+  (``benchmarks/preregistered_rules.json``), else the city centroid: does the
+  pipeline know when it is wrong? Deployable (uses no ground truth).
 * :func:`shortlist_oracle` — best of the top-k location hypotheses BY
   GROUND TRUTH. An oracle upper bound on what a perfect re-ranker could
   reach; it uses GT to choose, so it is never deployable and is labelled
@@ -38,6 +42,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: Committed geocode snapshots, searched in order (exact-string keys).
 #: data/geocode_cache.json is the project's tracked snapshot; the benchmark
 #: keeps its own for city strings the project snapshot lacks.
+#: Decision rules fixed before their held-out test (see that file's notes).
+PREREGISTERED_RULES = Path("benchmarks") / "preregistered_rules.json"
+
 DEFAULT_SNAPSHOTS: tuple[Path, ...] = (
     Path("data") / "geocode_cache.json",
     Path("benchmarks") / "geocode_snapshot.json",
@@ -217,6 +224,56 @@ def vpr_prior_only(result: dict) -> Prediction | None:
                       source="result.vpr_prior",
                       meta={"origin": vp.get("origin"),
                             "track_frames": vp.get("track_frames")})
+
+
+def load_preregistered_rule(name: str = "pipeline_selective", *,
+                            root: Path = REPO_ROOT) -> dict | None:
+    """One rule from ``benchmarks/preregistered_rules.json`` (``None`` if the
+    file or rule is absent). Read, never fitted: the threshold was fixed on
+    development clips before the held-out ones were run."""
+    blob = _read_snapshot(Path(root) / PREREGISTERED_RULES)
+    rule = (blob.get("rules") or {}).get(name)
+    return rule if isinstance(rule, dict) and "tau" in rule else None
+
+
+def retrieval_confidence(result: dict,
+                         signals: Sequence[str] = ("vpr_coarse_to_fine.pass2_sim",
+                                                   "vpr_prior.track_sim_median"),
+                         ) -> tuple[float | None, str | None]:
+    """The first finite ``section.key`` of ``signals`` present in ``result``
+    and the name of the one used, or ``(None, None)``."""
+    for sig in signals:
+        section, _, key = sig.partition(".")
+        v = ((result or {}).get(section) or {}).get(key)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(v):
+            return v, sig
+    return None, None
+
+
+def pipeline_selective(result: dict, fallback: Prediction | None,
+                       rule: dict) -> Prediction | None:
+    """Selective prediction with a pre-registered rule: the pipeline's answer
+    when ``confidence >= rule["tau"]``, else ``fallback`` (the city centroid).
+
+    A run without any confidence signal abstains. ``meta`` records the
+    decision, so coverage (how often it answers) is reported beside the error.
+    """
+    conf, sig = retrieval_confidence(result, rule.get("confidence_signal")
+                                     or ("vpr_coarse_to_fine.pass2_sim",
+                                         "vpr_prior.track_sim_median"))
+    tau = float(rule["tau"])
+    answer = conf is not None and conf >= tau
+    base = pipeline_headline(result) if answer else fallback
+    if base is None:
+        return None
+    return Prediction("pipeline_selective", base.route_latlon, base.kind,
+                      source=base.source,
+                      meta={"abstained": not answer, "confidence": conf,
+                            "signal": sig, "tau": tau})
 
 
 def shortlist_hypotheses(result: dict) -> list[dict]:
