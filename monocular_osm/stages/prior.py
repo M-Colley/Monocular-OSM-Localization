@@ -146,6 +146,28 @@ def coarse_seed_from_frames(ctx: RunContext) -> None:
                   f"{_fp[0]:.5f},{_fp[1]:.5f} r={_fp[2]:.0f} m ({_fp[3]})")
 
 
+#: Free GPU memory (GB) below which retrieval runs on the CPU instead. MegaLoc
+#: needs about 2 GB for weights plus activations for a batch of references.
+VPR_MIN_FREE_VRAM_GB = 4.0
+
+
+def select_retrieval_device(min_free_gb: float = VPR_MIN_FREE_VRAM_GB) -> str:
+    """"cuda" when a GPU with enough free memory exists, else "cpu"."""
+    try:
+        import torch as _torch
+
+        if not _torch.cuda.is_available():
+            return "cpu"
+        free_gb = _torch.cuda.mem_get_info()[0] / 1e9
+    except Exception:
+        return "cpu"
+    if free_gb >= min_free_gb:
+        return "cuda"
+    print(f"      -> only {free_gb:.1f} GB GPU memory free (< {min_free_gb:.0f} GB); "
+          f"running retrieval on the CPU (same model, slower)")
+    return "cpu"
+
+
 def vpr_coarse_prior(ctx: RunContext) -> None:
     """Blind VPR coarse prior (street-photo retrieval) + optional coarse-to-fine.
 
@@ -187,11 +209,11 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
             # None lets the module fall back to CPU inference (slow but
             # working) instead of dying inside torch.hub and masquerading
             # as "VPR unavailable" on CPU-only machines.
-            try:
-                import torch as _torch
-                _vpr_device = "cuda" if _torch.cuda.is_available() else None
-            except Exception:
-                _vpr_device = None
+            # A GPU that another process has nearly filled is worse than none:
+            # the retrieval model then dies natively (the NVIDIA driver logs a
+            # graphics exception, no Python traceback). Below the floor, run
+            # the same model on the CPU (~0.8 s/image) and say so.
+            _vpr_device = select_retrieval_device()
             _vpr_token = (_os.environ.get("MLY_TOKEN")
                           if _vpr_src in ("mapillary", "union") else None)
             if _vpr_src == "mapillary" and not _vpr_token:

@@ -49,7 +49,7 @@ def test_unrun_channels_are_reported_as_disabled(tmp_path):
 def test_enabled_channels_are_ok_inactive_or_failed(tmp_path):
     ctx = _report_ctx(tmp_path, use_plate_anchor=True, use_vlm_anchor=True)
     ctx.vpr_center, ctx.anchor_origin, ctx.vpr_source_used = (48.4, 9.99), "vpr", "kartaview"
-    ctx.vpr_track = (np.arange(5), np.zeros((5, 2)), np.ones(5))
+    ctx.vpr_track = (np.arange(5), np.zeros((5, 2)), np.array([0.1, 0.2, 0.25, 0.3, 0.4]))
     ctx.channel_status["sun"] = {"status": "failed", "error": "RuntimeError: x"}   # pre-recorded
     ctx.cfg.use_sun_heading = True
     report.finalize_result(ctx)
@@ -59,6 +59,7 @@ def test_enabled_channels_are_ok_inactive_or_failed(tmp_path):
     assert ch["sun"]["status"] == "failed"                    # a recorded failure is never overwritten
     vp = ctx.result["vpr_prior"]
     assert vp["origin"] == "vpr" and vp["source"] == "kartaview" and vp["track_frames"] == 5
+    assert vp["track_sim_median"] == 0.25                     # retrieval confidence, recorded
 
 
 def test_diagnostics_are_attached_even_when_nothing_matched(tmp_path):

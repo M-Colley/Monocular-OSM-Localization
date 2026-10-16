@@ -32,6 +32,7 @@ _MEAN = None
 _STD = None
 _MODEL = None
 _MODEL_NAME = None   # backbone actually resident in _MODEL (survives fallback)
+_MODEL_DEVICE = None  # device the resident model runs on ("cuda" | "cpu")
 
 # torch.hub sources, pinned to commits so an upstream change to a backbone
 # cannot silently change results (recorded via backbone_info()).
@@ -50,7 +51,7 @@ LAST_FAILURE: str | None = None
 def backbone_info() -> dict:
     """Which retrieval backbone is resident and where it came from."""
     hub = {"megaloc": HUB_MEGALOC, "eigenplaces": HUB_EIGENPLACES}
-    return {"name": _MODEL_NAME, "hub": hub.get(_MODEL_NAME or "")}
+    return {"name": _MODEL_NAME, "hub": hub.get(_MODEL_NAME or ""), "device": _MODEL_DEVICE}
 
 
 def _atomic_write_json(path: str, obj) -> None:
@@ -764,7 +765,7 @@ def _resolve_backbone(model_name, device):
     silently dot two different embedding spaces and return a wrong prior with
     no error (bug found 2026-07-05).
     """
-    global _MODEL, _MODEL_NAME
+    global _MODEL, _MODEL_NAME, _MODEL_DEVICE
     import torch
     if _MODEL is not None:
         return _MODEL_NAME or model_name
@@ -786,6 +787,7 @@ def _resolve_backbone(model_name, device):
                                 trust_repo=True,
                                 verbose=False).to(device).eval()
     _MODEL_NAME = resolved
+    _MODEL_DEVICE = str(device)
     return resolved
 
 

@@ -68,3 +68,30 @@ def test_resolve_prior_none_without_places() -> None:
 def test_resolve_prior_none_when_city_ungeocodable() -> None:
     assert resolve_coarse_prior("Nowhere", "Foo Bar Baz", None,
                                 geocode_fn=lambda q: None) is None
+
+
+def test_one_title_place_is_not_enough_when_two_are_required() -> None:
+    """The title seed requires corroboration (cli passes min_places=2): on
+    Ulm #2 the single title word "Napoleon" geocoded to a street 7.7 km from
+    the route and became an 800 m hard gate."""
+    coords = {"ulm, germany": (48.40, 9.99),
+              "napoleon, ulm, germany": (48.451, 10.089),
+              "ulm minster, ulm, germany": (48.3985, 9.9925)}
+    geo = lambda q: coords.get(q.lower())                        # noqa: E731
+    one = "Ulm drive past Napoleon"
+    assert resolve_coarse_prior("Ulm, Germany", one, None, geocode_fn=geo) is not None
+    assert resolve_coarse_prior("Ulm, Germany", one, None, geocode_fn=geo,
+                                min_places=2) is None
+    two = "Ulm drive: Napoleon, Ulm Minster"
+    assert resolve_coarse_prior("Ulm, Germany", two, None, geocode_fn=geo,
+                                min_places=2) is not None
+
+
+def test_cli_title_seed_requires_two_places() -> None:
+    import inspect
+
+    import monocular_osm.cli as cli
+
+    src = inspect.getsource(cli)
+    i = src.index("resolve_coarse_prior(city, metadata.title")
+    assert "min_places=2" in src[i:i + 200]

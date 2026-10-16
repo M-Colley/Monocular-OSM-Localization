@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from ..visual_odometry import VO_ALGO_VERSION
 from .context import _record_channel, RunContext
 
@@ -106,6 +108,12 @@ def finalize_result(ctx: RunContext) -> None:
             "backbone": _vpr_backbone() if anchor_origin == "vpr" else None,
             "track_frames": (int(len(vpr_track[0]))
                              if vpr_track is not None else None),
+            # Retrieval confidence: median top-1 cosine similarity over the
+            # final track (= pass2_sim when coarse-to-fine kept pass 2). On the
+            # core fleet it separated right areas (0.21-0.26) from wrong ones
+            # (0.11-0.13); recorded on every run so that can be tested.
+            "track_sim_median": (round(float(np.median(vpr_track[2])), 4)
+                                 if vpr_track is not None and len(vpr_track[2]) else None),
         }
 
     result["channels"] = _summarize_channels(

@@ -698,8 +698,13 @@ def main() -> None:
         osm_around_source = "user" if osm_around is not None else None
         if sub_osm_around is None and args.coarse_from_video:
             from .location_prior import resolve_coarse_prior
+            # Two corroborating place names, as for OCR seeds: one title word
+            # becomes an 800 m hard gate on retrieval and the road graph, and
+            # on Ulm #2 the single name "Napoleon" put all three benchmark
+            # runs 7.7 km off (the city centre is 350 m off).
             prior = resolve_coarse_prior(city, metadata.title,
-                                         getattr(metadata, "description", None))
+                                         getattr(metadata, "description", None),
+                                         min_places=2)
             if prior is not None:
                 plat, plon, prad, places = prior
                 sub_osm_around = (plat, plon, prad)

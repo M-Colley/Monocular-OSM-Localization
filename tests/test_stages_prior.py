@@ -260,3 +260,26 @@ def test_vlm_prior_without_a_geocodable_place_changes_nothing(tmp_path, monkeypa
     ctx = _ctx(tmp_path, use_vlm_anchor=True)
     prior.vlm_district_prior(ctx)
     assert ctx.vpr_center is None and ctx.result_vlm_anchor is None
+
+
+# ---------------------------------------------------------------------------
+# retrieval device: a nearly-full GPU falls back to the CPU
+# ---------------------------------------------------------------------------
+
+
+def test_retrieval_runs_on_cpu_when_gpu_memory_is_short(monkeypatch) -> None:
+    import torch
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda *a: (2e9, 24e9))
+    assert prior.select_retrieval_device() == "cpu"
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda *a: (12e9, 24e9))
+    assert prior.select_retrieval_device() == "cuda"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert prior.select_retrieval_device() == "cpu"
+
+
+def test_backbone_info_reports_the_device(monkeypatch) -> None:
+    monkeypatch.setattr(kv, "_MODEL_NAME", "megaloc")
+    monkeypatch.setattr(kv, "_MODEL_DEVICE", "cpu")
+    assert kv.backbone_info()["device"] == "cpu"
