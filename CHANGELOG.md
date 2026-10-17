@@ -103,6 +103,28 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   highest confidences, so the signal ranks but its calibration shifted between
   domains. τ is not re-fitted. Overlay reps: package `4fda123`, CPU retrieval.
 
+### Experiments, October 2026 (`docs/experiments_2026-10.md`)
+
+- **Where the failures come from.** On the exact v2 reference sets: three of
+  the four failing core clips searched a disc that did not contain the route
+  (Ulm #2 and Berlin title seeds, KITTI 0033's scene-text seed); on KITTI 0009
+  the 1,200 kept Mapillary images (of 425,171 in the disc) lie within 50 m of
+  3 % of the route, though the full pool covers 92 %. A spatially stratified
+  pick of the same size does not help (the cap is the constraint).
+- **SAGE vs MegaLoc** (`scripts/compare_vpr_backbones.py`): on the two clips
+  whose references cover the route, SAGE retrieves slightly more often per
+  frame but its retrieval centre on Ulm 4K lands 1.85 km off (MegaLoc 60 m);
+  no case for a swap.
+- **SafeVPR, pre-registered** (`scripts/eval_safevpr.py`, rule
+  `safevpr_frame_verification`): with 3-4 % correct frames no threshold can be
+  certified at α = 0.10 (S1 untestable, S2 not supported), and its patch score
+  ranks worse than the MegaLoc cosine (AUROC 0.77 vs 0.92 held-out; S3 not
+  supported). Exploratory: the cosine ranking itself transfers across cities.
+- **LingBot-Map** (`scripts/run_lingbot_map.py`, `eval_graph_filter.py
+  --odometry vo_lingbot_rel vo_lingbot_plane`): not metric (0.05x), heading
+  slightly better than the repo's VO with the same drift, speed profile weaker
+  than the road-plane estimate; drive 0033 pending.
+
 ### Added
 
 - `monocular_osm/fusion.py`: the consensus rule and its weights as one explicit

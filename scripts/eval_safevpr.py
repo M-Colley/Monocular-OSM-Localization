@@ -35,16 +35,17 @@ CORRECT_M = 50.0
 
 def find_rep_dir(slug_dirs, clip_id: str, run: str, roots: list[Path]) -> Path | None:
     """The archived rep0 of ``clip_id`` under any of ``roots`` (E: archive or
-    the clip's own data dir, where the older runner archived in place)."""
+    the clip's own data dir, where the older runner archived in place) that
+    actually holds a readable pass-1 reference store. An attempt that died on
+    the full disk left an archive without pixels; it must not shadow the
+    successful rep's archive."""
+    import compare_vpr_backbones as C
+
     for d in slug_dirs:
-        for root in roots:
-            base = (root / d.name) if root.name != d.name else root
+        for base in [*(root / d.name for root in roots), d]:
             cand = base / "_benchmark_cold_vpr" / run / clip_id / "rep0"
-            if cand.is_dir():
+            if cand.is_dir() and C.archived_refs(cand, "mapillary") is not None:
                 return cand
-        cand = d / "_benchmark_cold_vpr" / run / clip_id / "rep0"
-        if cand.is_dir():
-            return cand
     return None
 
 
@@ -188,11 +189,21 @@ def main(argv=None) -> int:
     megaloc = C.Backbone("megaloc", C.SAGE_SHA_DEFAULT)
     dino = verifier.load_dinov2(device=torch.device("cpu"))
     pairs: list[dict] = []
+    done = {}
+    if (args.out / "pairs.json").exists():        # resume: clips already scored
+        for p_ in json.loads((args.out / "pairs.json").read_text(encoding="utf-8")):
+            done.setdefault(p_["clip"], []).append(p_)
     for e in manifest["clips"]:
+        if e["id"] in done:
+            pairs.extend(done[e["id"]])
+            continue
         got = clip_pairs(e, args, megaloc, dino, verifier)
         if got:
             pairs.extend(got)
             (args.out / "pairs.json").write_text(json.dumps(pairs, indent=0), encoding="utf-8")
+    # Written once more after the loop: inside it, only clips scored in this
+    # run trigger a write, which would drop clips resumed from the cache.
+    (args.out / "pairs.json").write_text(json.dumps(pairs, indent=0), encoding="utf-8")
     res = evaluate(pairs, conformal, metrics)
     res["safevpr_commit"] = "f11d5fd"
     (args.out / "results.json").write_text(json.dumps(res, indent=1), encoding="utf-8")

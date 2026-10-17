@@ -1090,8 +1090,15 @@ with no GPS and no image retrieval, where the pipeline is 7.1 km off. The
 caveats are as large as the result: it locks on only near the end of the drive,
 it fails if the assumed height is 20 % too low (1 of 5), its confidence is not
 calibrated, the 46 s drive 0009 still fails, and one drive is not a benchmark
-result. It is available as the opt-in `--graph-filter` channel. Whether the
-remaining failures are input-limited is therefore still open.
+result. It is available as the opt-in `--graph-filter` channel. A follow-up
+on the exact v2 data ([`docs/experiments_2026-10.md`](docs/experiments_2026-10.md))
+locates the other failures: on three of the four failing core clips the
+retrieval search disc did not contain the route at all (bad seeds from the
+title or scene text, since fixed), and on the fourth (KITTI 0009) the 1,200
+Mapillary images kept from 425,000 in the disc cover 3 % of the route. A newer
+retrieval backbone (SAGE, ICLR 2026) and calibrated abstention (SafeVPR) did not
+change that picture. Whether the remaining failures are input-limited is
+therefore still open.
 
 <details>
 <summary>Historical 0.1.x table (measured 2026-07-23; not reproduced; do not cite)</summary>
