@@ -24,10 +24,10 @@ Reference clip used in the demo:
 > cold runs per clip), it lands on the right street on **2 of the 6 re-measured
 > clips** (Ulm 4K 27 m, London 83 m) and is kilometres off on the other 4 — worse
 > than simply guessing the centre of the named city there. A pre-registered rule
-> that lets it answer "somewhere in this city" when its own retrieval evidence is
-> weak is being tested on held-out clips; see
-> [Accuracy](#accuracy--deployable-gps-free). The older 30–156 m headline was not
-> reproducible and has been retired.
+> that answers "somewhere in this city" when its own retrieval evidence is weak
+> did not transfer to nine held-out clips (its threshold answered on only one);
+> see [Accuracy](#accuracy--deployable-gps-free). The older 30–156 m headline was
+> not reproducible and has been retired.
 > The best configuration (VPR prior + dense Mapillary + coarse-to-fine +
 > video/frame coarse seeds + scale-lock) is now **on by default**, but the
 > Mapillary parts only light up if you give the pipeline a token.
@@ -80,8 +80,9 @@ two KITTI drives, a second Ulm drive) it is kilometres off and **worse than simp
 guessing the centre of the city you named**. Those failures are visible in
 advance: how closely the video's frames match their best street-level photos was
 0.19–0.28 on the two successes and 0.11–0.13 on the failures. A rule that answers
-only "somewhere in this city" below a threshold fixed on those clips is now being
-tested on nine clips that played no part in choosing it. The previous
+only "somewhere in this city" below a threshold fixed on those clips was then
+tested on nine clips that played no part in choosing it, and it did not carry
+over: their confidences ran lower, so it almost always abstained. The previous
 version of this README claimed 30–156 m on 3 of 9 clips; that table could not be
 reproduced (it mixed code versions, used city names picked with knowledge of the
 route, and recorded no configuration), so it has been retired. The new benchmark
@@ -1009,11 +1010,50 @@ centre guess, 12 abstained reps all lost to it — which is a fit, not evidence.
 and labels the clips it was fitted on.
 
 <!-- HELDOUT:BEGIN -->
-**Held-out test: running.** The nine overlay clips (Chicago ×2, Detroit ×3,
-Atlanta ×2, Scottsdale, Newcastle; ground truth from the GPS stamp burned into
-each video) are the test. The hypotheses and the one test-set value seen before
-registration are written down in the rule file; the outcome is reported here
-whichever way it comes out.
+**Held-out test: the rule did not transfer.** The nine overlay clips (Chicago
+×2, Detroit ×3, Atlanta ×2, Scottsdale, Newcastle; ground truth from the GPS
+stamp burned into each video; 1 cold rep each, 3 for Chicago `vCSEG6KaFng`)
+played no part in choosing τ. Scored mechanically by `aggregate` against the
+registered hypotheses (symmetric error, m):
+
+| Clip | Pipeline | Selective | Centre guess | Confidence | Rule |
+|---|---|---|---|---|---|
+| Atlanta (`y66ZkRpUh4k`) | **37** | **37** | 2,958 | 0.181 | answers |
+| Newcastle (`Wrn4_uCxRCQ`) | **362** | 887 | 887 | 0.153 | abstains |
+| Detroit (`ZhGb8q1kliY`) | 4,316 | **403** | 403 | 0.117 | abstains |
+| Detroit (`1nF_7l07i-E`) | 2,417 | **491** | 491 | 0.133 | abstains |
+| Chicago (`LmIHvLMLqFk`) | 8,660 | **1,230** | 1,230 | 0.119 | abstains |
+| Chicago (`vCSEG6KaFng`, 3 reps) | 3,934 | **1,924** | 1,924 | 0.131-0.132 | abstains |
+| Atlanta (`kxEDNj5L_yQ`) | **6,283** | 7,280 | 7,280 | 0.153 | abstains |
+| Detroit (`g5lnpYCk1Ec`) | **7,289** | 8,206 | 8,206 | none | abstains |
+| Scottsdale (`wJsEQTCAg1c`) | **13,289** | 14,802 | 14,802 | 0.127 | abstains |
+
+* **H1 (selective beats the pipeline on more clips than it loses): not
+  supported** — 4 better, 4 worse, 1 tie.
+* **H2 (where it answers, the pipeline beats the centre): holds, trivially** —
+  it answered on one clip (Atlanta, 37 m).
+* **H3 (answered reps beat the centre more often than abstained ones): right
+  direction, not significant** — 1/1 vs 4/10, one-sided Fisher p = 0.45.
+
+Why: the held-out confidences sit lower (0.117-0.181, against 0.106-0.284 on
+the core clips), so the rule answered on 1 of 11 reps; a threshold fitted on
+six European clips did not carry over to US/UK footage. Not registered, and
+reported as exploratory only: the two clips the pipeline got right (Atlanta
+37 m, Newcastle 362 m) are the two with the highest confidence, so the signal
+still *ranks* the clips; it is its calibration that moved. A calibration that
+adapts per domain (conformal methods such as SafeVPR, arXiv 2605.28048) is the
+natural next step; τ is not re-fitted on these clips. On the same clips the
+pipeline beats the centre guess on 5 of 9 (sign test p = 1.0) and the
+retrieval prior alone on 9 of 9 (p = 0.004).
+
+Caveats, all recorded in the run: the overlay reps ran package code `4fda123`
+(core: `18e65ae`; the decomposition in between is behaviour-preserving by
+`scripts/golden_pipeline.py`) with retrieval on the CPU (core: GPU, fp16);
+three overlay clips are flagged DEGRADED (under 50 % valid VO poses); and on
+`g5lnpYCk1Ec` the code under test still let the single title word
+"Michigan" set an 800 m search gate (fixed since, in `989e83f`). Full tables:
+`output/benchmark_runs/v2/summary.md` (regenerate with
+`scripts/benchmark.py aggregate --run-name v2 --offline`).
 <!-- HELDOUT:END -->
 
 **Reproduce** (needs `MLY_TOKEN`; the YouTube clips are downloaded on first use,

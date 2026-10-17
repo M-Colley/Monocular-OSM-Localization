@@ -94,6 +94,14 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   (read, never fitted), reports coverage and each rep's decision, runs the
   registered H3 test (one-sided Fisher exact) and labels the clips τ was fitted
   on as in-sample. `baselines.retrieval_confidence()` / `pipeline_selective()`.
+- **Held-out result: the rule did not transfer.** On the nine overlay clips
+  H1 is not supported (selective vs pipeline 4 better / 4 worse / 1 tie), H2
+  holds only trivially (it answered on one clip, Atlanta 37 m) and H3 points
+  the right way without significance (1/1 vs 4/10 reps beat the centre, Fisher
+  p = 0.45). Held-out confidences ran lower (0.117-0.181), so the rule answered
+  on 1 of 11 reps. Exploratory: the two clips the pipeline got right had the two
+  highest confidences, so the signal ranks but its calibration shifted between
+  domains. τ is not re-fitted. Overlay reps: package `4fda123`, CPU retrieval.
 
 ### Added
 
