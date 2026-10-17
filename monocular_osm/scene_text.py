@@ -23,6 +23,7 @@ anchors. A true-4K source additionally exposes street-name plates.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Protocol
@@ -256,6 +257,32 @@ def _default_reader(languages: tuple[str, ...], use_gpu: bool,
         + "\n".join(f"  tried {e}" for e in errors))
 
 
+# Text a dashcam burns into every frame - its GPS fix and speed - is the
+# ground truth of the overlay benchmark and never location evidence: a
+# geocoder accepts "41.8933, -87.6216" as a query, so a stamp read as a
+# "place name" would hand the answer to the localizer. It is dropped here, at
+# the source, so no consumer (the coarse OCR seed, sign anchors) can see it.
+# Fragments go too: OCR often splits one stamp over several detections.
+_COORD_FRAGMENT = re.compile(r"\d{1,3}[.,]\d{3,}")
+# degrees-minutes with the degree sign kept, or lost to a space by OCR
+_DMS_FRAGMENT = re.compile(r"\d{1,3}\s*(?:[°º*]|\s)\s*\d{1,2}\s*['’′]")
+_HEMI_FRAGMENT = re.compile(r"\b[NSEW]\s*[:=]\s*\d", re.IGNORECASE)
+_SPEED_STAMP = re.compile(r"\d{1,3}\s*(?:MPH|KPH|KM\s*/?\s*H)\b", re.IGNORECASE)
+
+
+def is_position_stamp(text: str) -> bool:
+    """True for burned-in GPS / speed overlay text, whole or in fragments."""
+    from .gps_overlay import normalize_overlay_text, parse_latlon
+
+    t = normalize_overlay_text(str(text or ""))
+    return bool(parse_latlon(t) or _COORD_FRAGMENT.search(t) or _DMS_FRAGMENT.search(t)
+                or _HEMI_FRAGMENT.search(t) or _SPEED_STAMP.search(t))
+
+
+def _without_stamps(detections: list) -> list:
+    return [d for d in detections if not is_position_stamp(d.text)]
+
+
 def extract_scene_text(
     video_path: Path,
     *,
@@ -275,7 +302,8 @@ def extract_scene_text(
     """OCR text off frames of ``video_path`` every ``sample_interval_sec``.
 
     Returns detections with ``confidence >= min_confidence`` and at least
-    ``min_len`` non-space characters, in time order. Results are cached
+    ``min_len`` non-space characters, in time order, never including burned-in
+    GPS or speed stamps (:func:`is_position_stamp`). Results are cached
     to ``cache_path`` keyed by the sampling parameters; a matching cache
     short-circuits the (slow) OCR entirely.
 
@@ -291,7 +319,7 @@ def extract_scene_text(
     if cache_path is not None:
         cached = _load_cache(Path(cache_path), sig)
         if cached is not None:
-            return cached
+            return _without_stamps(cached)
 
     frames = (frame_reader or _sample_frames)(
         video_path, start_sec, end_sec, sample_interval_sec
@@ -315,7 +343,7 @@ def extract_scene_text(
 
     if cache_path is not None:
         _save_cache(Path(cache_path), sig, detections)
-    return detections
+    return _without_stamps(detections)
 
 
 def _sample_frames(
