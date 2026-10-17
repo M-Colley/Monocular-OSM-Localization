@@ -267,6 +267,53 @@ ASIDE_DIR = "_benchmark_vpr_warm_aside"
 COLD_ARCHIVE_DIR = "_benchmark_cold_vpr"
 
 
+def _fold(text: str) -> str:
+    import unicodedata
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text or "")
+                   if not unicodedata.combining(ch)).casefold()
+
+
+def city_fairness_problem(entry: dict, title: str | None,
+                          description: str | None) -> str | None:
+    """Is ``entry['city']`` what a user would type, or route knowledge?
+
+    The 0.1.x table used "Daly City" and "Vaughan", narrower than anything a
+    viewer could know. A YouTube clip's city must be named in its title or
+    description; a dataset clip needs a documented ``city_basis``. Returns
+    None when fair or when the metadata is not cached yet (checked again at
+    the next run)."""
+    city = entry["city"]
+    head = _fold(city.split(",")[0].strip())
+    if "url" in entry.get("video", {}):
+        if title is None and description is None:
+            return None
+        if head not in _fold(" ".join(t for t in (title, description) if t)):
+            return (f"{entry['id']}: city {city!r} is not named in the video's title or "
+                    f"description, so a user could not know it")
+        return None
+    if not str(entry.get("city_basis") or "").strip():
+        return f"{entry['id']}: dataset clip without a documented city_basis"
+    return None
+
+
+def city_fairness_problems(clips: list[dict], data_dir: Path) -> list[str]:
+    from monocular_osm.download import load_cached_metadata
+
+    out = []
+    for entry in clips:
+        meta = None
+        if "url" in entry.get("video", {}):
+            try:
+                meta = load_cached_metadata(Path(data_dir), entry["video"]["url"])
+            except Exception:
+                meta = None
+        why = city_fairness_problem(entry, getattr(meta, "title", None),
+                                    getattr(meta, "description", None))
+        if why:
+            out.append(why)
+    return out
+
+
 def candidate_slug_dirs(entry: dict, city: str, data_dir: Path) -> list[Path]:
     """data/<slug>/ directories the pipeline may use for this clip+city."""
     from monocular_osm.city_inference import slugify_submission
@@ -416,7 +463,10 @@ def run_one(argv: list[str], log_path: Path, env: dict, timeout: float) -> dict:
 #: SIGTERM). On Windows an abnormal NATIVE termination shows up as an NTSTATUS
 #: code (>= 0xC0000000: e.g. 0xC000070A seen on a killed benchmark child) -
 #: never as a Python failure, which always exits 1 with a traceback.
-_EXTERNAL_KILL_RCS = {-9, -15, 137, 143}
+# 0x40010004 = DBG_TERMINATE_PROCESS: Windows' code for a process ended by
+# another (TerminateProcess) or by the user session logging off - it killed a
+# v2 overlay rep mid-retrieval and was scored as a pipeline failure.
+_EXTERNAL_KILL_RCS = {-9, -15, 137, 143, 0x40010004}
 _NTSTATUS_ERROR_FLOOR = 0xC0000000
 #: Log patterns of a failure caused by the machine or the network, not by the
 #: pipeline: allocation failures under memory pressure (OpenCV reports a failed
@@ -490,6 +540,32 @@ def available_commit_gb() -> float | None:
         return psutil.virtual_memory().available / 1e9
     except Exception:
         return None
+
+
+def available_disk_gb(*paths) -> float | None:
+    """Free space (GB) on the fullest of the drives holding ``paths``."""
+    free = []
+    for path in paths:
+        try:
+            free.append(shutil.disk_usage(Path(path)).free / 1e9)
+        except (OSError, ValueError):
+            continue
+    return min(free) if free else None
+
+
+def disk_problem(min_gb: float, *paths) -> str | None:
+    """Why a rep must not start for lack of disk, or None. A full disk does
+    not fail loudly: in v2 it disabled retrieval ("No space left on device"),
+    truncated a road-graph cache that every later run of the clip loaded, and
+    stopped Windows growing its pagefile (MemoryError, access violations)."""
+    if min_gb <= 0:
+        return None
+    free = available_disk_gb(*paths)
+    if free is None or free >= min_gb:
+        return None
+    return (f"only {free:.1f} GB free disk (< {min_gb:.0f} GB): a full disk corrupts "
+            f"caches and silently disables retrieval. Free space and re-run "
+            f"(completed reps are kept).")
 
 
 def available_vram_gb() -> float | None:
@@ -608,6 +684,12 @@ def cmd_run(args) -> int:
             "runner_git": _git_state(),
         }, indent=2), encoding="utf-8")
 
+    unfair = ([] if args.city_variant is not None
+              else city_fairness_problems(clips, ROOT / Path(args.data_dir)))
+    if unfair:
+        raise SystemExit("REFUSING: city strings a user could not know:\n  - "
+                         + "\n  - ".join(unfair))
+
     env, token_rec = child_env()
     secret = env.get(SECRET_ENV)
     print(f"MLY_TOKEN set: {token_rec['mly_token_set']} "
@@ -653,6 +735,10 @@ def cmd_run(args) -> int:
 
             infra_retries: list[dict] = []
             for attempt in range(1, args.infra_retries + 2):
+                why_disk = disk_problem(getattr(args, "min_free_disk_gb", 0),
+                                        ROOT / data_dir, ROOT)
+                if why_disk:
+                    raise SystemExit(f"REFUSING to start {entry['id']} rep{k}: {why_disk}")
                 if getattr(args, "min_free_commit_gb", 0) > 0:
                     wait_for_commit(args.min_free_commit_gb,
                                     getattr(args, "resource_wait", 0))
@@ -719,6 +805,9 @@ def cmd_run(args) -> int:
                 "result_source": res.relative_to(ROOT).as_posix() if res else None,
                 "cold_vpr": bool(args.cold_vpr), "cold_vpr_moves": cold,
                 "cold_archive": getattr(args, "cold_archive", "metadata"),
+                # Which device retrieval could use: a hidden GPU ("-1") means
+                # the CPU (fp32) path, the GPU path runs fp16 autocast.
+                "cuda_visible_devices": env.get("CUDA_VISIBLE_DEVICES"),
                 "token_redactions": redactions,
                 "infra_retries": infra_retries,
             }
@@ -811,6 +900,7 @@ def _health_of(result: dict | None) -> dict:
         "vpr_source": vpr_prior.get("source"),
         "vpr_origin": vpr_prior.get("origin"),
         "vpr_backbone": backbone,
+        "vpr_device": (vpr_prior.get("backbone") or {}).get("device"),
         "coarse_seed": (ch.get("coarse_from_frames") or {}).get("status"),
         "valid_pose_frac": (round(n_valid / n_frames, 3)
                             if n_frames and n_valid is not None else None),
@@ -887,6 +977,8 @@ def check_provenance(reps: list[dict]) -> dict:
     distinct_trees = sorted({t or f"unknown@{c}" for c, t in trees.items()})
     dirty = sorted({str(p["dirty"]) for p in provs})
     tokens = sorted({str(p["mly_token_set"]) for p in provs})
+    devices = sorted({str(r.get("vpr_device")) for r in reps
+                      if r.get("result_found") and r.get("vpr_device")})
     missing = sum(1 for p in provs if not p["present"])
     leaks = {f"{r['clip']}/rep{r['rep']}": leak_audit(r["provenance"])
              for r in reps if r.get("result_found") and leak_audit(r["provenance"])}
@@ -902,11 +994,14 @@ def check_provenance(reps: list[dict]) -> dict:
         problems.append(f"dirty working tree in at least one rep: {dirty}")
     if len(tokens) > 1:
         problems.append(f"mixed MLY_TOKEN states: {tokens}")
+    if len(devices) > 1:
+        # GPU retrieval runs fp16 autocast, CPU fp32: small, but not the same run.
+        problems.append(f"retrieval ran on different devices: {devices}")
     return {
         "consistent": not problems and not leaks,
         "problems": problems, "leaks": leaks,
         "commits": commits, "package_trees": distinct_trees,
-        "dirty": dirty, "mly_token_set": tokens,
+        "dirty": dirty, "mly_token_set": tokens, "retrieval_devices": devices,
         "ocr_engines": sorted({str(p["ocr_engine"]) for p in provs}),
         "vo_algo_versions": sorted({str(p["vo_algo_version"]) for p in provs}),
         "package_versions": sorted({str(p["package_version"]) for p in provs}),
@@ -1038,8 +1133,13 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 pos = result.get("position") or {}
                 rep["headline_source"] = pos.get("source")
                 rep["health"] = _health_of(result)
+                # Device: recorded by the pipeline since 2026-10-16; older reps
+                # fall back to what the runner exposed (a hidden GPU = CPU).
+                rep["vpr_device"] = rep["health"].get("vpr_device") or (
+                    "cpu" if st.get("cuda_visible_devices") in ("-1", "") else None)
                 rep["degraded"] = degraded_reasons(
                     rep["health"], token_set=bool(rep["provenance"].get("mly_token_set")))
+            rep["vo_segment"] = st.get("vo_segment")
             clip_reps.append(rep)
             reps.append(rep)
 
@@ -1073,6 +1173,8 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                                        if r.get("health")}),
                 "vpr_backbones": sorted({str(r["health"].get("vpr_backbone")) for r in clip_reps
                                          if r.get("health")}),
+                "vpr_devices": sorted({str(r.get("vpr_device")) for r in clip_reps
+                                       if r.get("health")}),
                 "coarse_seed_fired": sum(1 for r in clip_reps
                                          if (r.get("health") or {}).get("coarse_seed") == "ok"),
                 "valid_pose_frac_median": (
@@ -1086,6 +1188,8 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                               if any(r.get("wall_s") is not None for r in clip_reps)
                               else None),
             "gt_n_waypoints": int(len(gt_latlon)),
+            "vo_segments": sorted({str(r["vo_segment"]) for r in clip_reps
+                                   if r.get("vo_segment")}),
             "selective": ({
                 "n_answered": sum(1 for r in clip_reps
                                   if r.get("selective") and not r["selective"]["abstained"]),
@@ -1106,6 +1210,23 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
     if prov["leaks"]:
         raise SystemExit("REFUSING: ground truth reached the pipeline in "
                          f"{len(prov['leaks'])} rep(s): {prov['leaks']}")
+    # Fleets are summarised separately, so consistency is required WITHIN a
+    # fleet; a difference BETWEEN fleets is reported, not refused (v2: core on
+    # one package tree, overlay on a later, behaviour-preserving one).
+    fleet_of = {cid: c["fleet"] for cid, c in clips_out.items()}
+    by_fleet = {f: check_provenance([r for r in reps if fleet_of.get(r["clip"]) == f])
+                for f in sorted(set(fleet_of.values()))}
+    prov["by_fleet"] = {f: {k: b[k] for k in ("consistent", "problems", "commits",
+                                             "package_trees", "retrieval_devices")}
+                        for f, b in by_fleet.items()}
+    prov["problems"] = [f"{f}: {q}" for f, b in by_fleet.items() for q in b["problems"]]
+    prov["consistent"] = not prov["problems"]
+    trees = {f: tuple(b["package_trees"]) for f, b in by_fleet.items() if b["package_trees"]}
+    devs = {f: tuple(b["retrieval_devices"]) for f, b in by_fleet.items() if b["retrieval_devices"]}
+    prov["cross_fleet"] = [
+        *([f"fleets ran different pipeline code: {trees}"] if len(set(trees.values())) > 1 else []),
+        *([f"fleets ran retrieval on different devices: {devs}"]
+          if len(set(devs.values())) > 1 else [])]
     if not prov["consistent"] and not allow_mixed:
         raise SystemExit("REFUSING to aggregate inconsistent provenance:\n  - "
                          + "\n  - ".join(prov["problems"])
@@ -1342,6 +1463,9 @@ def render_markdown(summary: dict) -> str:
              "answer (crash/timeout/channel absent) counted as +inf. Symmetric = mean of "
              "GT→pred (legacy 'mean route error') and pred→GT (10 m arc-length "
              "resampling). Single-point baselines are scored as degenerate routes.\n")
+    if prov.get("cross_fleet"):
+        L.append("- Between fleets (each summarised on its own): "
+                 + "; ".join(prov["cross_fleet"]))
     if summary["warnings"]:
         L.append("Warnings: " + "; ".join(summary["warnings"]) + "\n")
 
@@ -1360,7 +1484,7 @@ def render_markdown(summary: dict) -> str:
         L.append("What each clip's runs actually executed. A degraded run (retrieval "
                  "off, a fallback source/backbone, failed channels) is not the "
                  "published configuration and should not be read as a result for it.\n")
-        hh = ["Clip", "ok/reps", "degraded", "retrieval source", "backbone",
+        hh = ["Clip", "ok/reps", "degraded", "retrieval source", "backbone", "device",
               "OCR seed fired", "valid poses (median)"]
         L.append("| " + " | ".join(hh) + " |")
         L.append("|" + "---|" * len(hh))
@@ -1373,6 +1497,7 @@ def render_markdown(summary: dict) -> str:
                 (f"**{h['n_degraded']}**" if h.get("n_degraded") else "0"),
                 ", ".join(h.get("vpr_sources") or []) or "–",
                 ", ".join(h.get("vpr_backbones") or []) or "–",
+                ", ".join(h.get("vpr_devices") or []) or "–",
                 str(h.get("coarse_seed_fired", 0)),
                 f"{vp:.0%}" if vp is not None else "–"]) + " |")
         L.append("")
@@ -1537,6 +1662,136 @@ def cmd_aggregate(args) -> int:
     return 0
 
 
+def compare_runs(base: dict, new: dict, *, metric: str = "symmetric_mean_m",
+                 fleet: str | None = None, method: str = "pipeline") -> dict:
+    """Paired per-clip comparison of two aggregated runs (``aggregate()`` output).
+
+    A clip is compared only when both runs scored it under the same city,
+    analysis window, ground truth and run configuration (cold caches, extra
+    pipeline flags); anything else is listed as excluded with the reason. Per
+    clip the statistic is the median over reps; across clips a two-sided sign
+    test and a Wilcoxon signed-rank test on log(new/base), plus a bootstrap CI
+    of the median log-ratio. Identical package trees are flagged: then any
+    difference is run-to-run noise, not an improvement."""
+    from scipy.stats import binomtest, wilcoxon
+
+    def cfg(summary):
+        c = dict((summary.get("run_config") or {}).get("config") or {})
+        return {k: c.get(k) for k in ("cold_vpr", "pipeline_args", "city_variant",
+                                      "skip_download")}
+
+    excluded, rows = [], []
+    cfg_b, cfg_n = cfg(base), cfg(new)
+    for cid in sorted(set(base["clips"]) | set(new["clips"])):
+        b, n = base["clips"].get(cid), new["clips"].get(cid)
+        if fleet and ((b or n)["fleet"] != fleet):
+            continue
+        why = None
+        if b is None or n is None:
+            why = f"only in the {'new' if b is None else 'base'} run"
+        elif b["city"] != n["city"]:
+            why = f"city differs ({b['city']!r} vs {n['city']!r})"
+        elif b.get("gt_n_waypoints") != n.get("gt_n_waypoints"):
+            why = "ground truth differs"
+        elif (b.get("vo_segments") or None) != (n.get("vo_segments") or None):
+            why = f"analysis window differs ({b.get('vo_segments')} vs {n.get('vo_segments')})"
+        elif cfg_b != cfg_n:
+            why = f"run configuration differs ({cfg_b} vs {cfg_n})"
+        if why is None:
+            qb = ((b["methods"].get(method) or {}).get(metric) or {})
+            qn = ((n["methods"].get(method) or {}).get(metric) or {})
+            mb, mn = qb.get("median"), qn.get("median")
+            if mb is None or mn is None or not (np.isfinite(mb) and np.isfinite(mn)):
+                why = "no finite score in one of the runs"
+        if why:
+            excluded.append({"clip": cid, "reason": why})
+            continue
+        cc = ((b["methods"].get("city_centroid") or {}).get(metric) or {}).get("median")
+        rows.append({"clip": cid, "name": b["name"], "base": mb, "new": mn,
+                     "delta": mn - mb, "log_ratio": float(np.log(max(mn, 1e-3) / max(mb, 1e-3))),
+                     "base_iqr": (qb.get("q25"), qb.get("q75")),
+                     "new_iqr": (qn.get("q25"), qn.get("q75")),
+                     "centre": cc,
+                     "base_beats_centre": None if cc is None else mb < cc,
+                     "new_beats_centre": None if cc is None else mn < cc})
+    better = sum(1 for r in rows if r["new"] < r["base"])
+    worse = sum(1 for r in rows if r["new"] > r["base"])
+    lr = np.array([r["log_ratio"] for r in rows], float)
+    nz = lr[np.abs(lr) > 1e-12]
+    out = {
+        "metric": metric, "method": method, "fleet": fleet, "n_clips": len(rows),
+        "rows": rows, "excluded": excluded, "new_better": better, "new_worse": worse,
+        "sign_test_p": float(binomtest(better, better + worse, 0.5).pvalue)
+        if better + worse else None,
+        "wilcoxon_p": float(wilcoxon(nz).pvalue) if len(nz) >= 6 else None,
+        "median_ratio": (bootstrap_ci(np.exp(lr), "median", n_resamples=9999)
+                         if len(lr) else None),
+        "base_trees": base["provenance"].get("package_trees"),
+        "new_trees": new["provenance"].get("package_trees"),
+        "devices": [base["provenance"].get("retrieval_devices"),
+                    new["provenance"].get("retrieval_devices")],
+    }
+    notes = []
+    if out["base_trees"] and out["base_trees"] == out["new_trees"]:
+        notes.append("both runs ran the SAME pipeline code: differences are run-to-run "
+                     "noise (cold reference downloads, threading), not an improvement")
+    if out["devices"][0] and out["devices"][1] and out["devices"][0] != out["devices"][1]:
+        notes.append(f"retrieval devices differ {out['devices']} (GPU fp16 vs CPU fp32)")
+    if len(rows) < 6:
+        notes.append(f"only {len(rows)} paired clips: no test can detect less than a "
+                     f"near-unanimous change")
+    out["notes"] = notes
+    return out
+
+
+def render_compare(cmp: dict, base_name: str, new_name: str) -> str:
+    L = [f"# `{new_name}` vs `{base_name}` ({cmp['method']}, {cmp['metric']}, "
+         f"fleet {cmp['fleet'] or 'all'})\n",
+         "Per clip: median over repeats [IQR]. Compared only where city, window, "
+         "ground truth and run configuration match.\n",
+         "| Clip | base | new | change | beats centre (base → new) |", "|---|---|---|---|---|"]
+    for r in cmp["rows"]:
+        bi, ni = r["base_iqr"], r["new_iqr"]
+        L.append(f"| {r['name']} | {_f(r['base'])} [{_f(bi[0])}–{_f(bi[1])}] | "
+                 f"{_f(r['new'])} [{_f(ni[0])}–{_f(ni[1])}] | "
+                 f"{100 * (np.exp(r['log_ratio']) - 1):+.0f} % | "
+                 f"{r['base_beats_centre']} → {r['new_beats_centre']} |")
+    mr = cmp["median_ratio"]
+    sp = cmp["sign_test_p"]
+    wp = cmp["wilcoxon_p"]
+    L += ["", f"New better on {cmp['new_better']} clips, worse on {cmp['new_worse']} "
+          f"(sign test p = {'n/a' if sp is None else f'{sp:.3f}'}; Wilcoxon on log-ratios "
+          f"p = {'n/a' if wp is None else f'{wp:.3f}'}). Median new/base ratio "
+          + ("n/a" if not mr else _ci(mr)) + " (95% bootstrap CI over clips)."]
+    if cmp["excluded"]:
+        L.append("\nNot compared: " + "; ".join(f"{e['clip']} ({e['reason']})"
+                                                 for e in cmp["excluded"]) + ".")
+    for note in cmp["notes"]:
+        L.append(f"\n**Note:** {note}.")
+    return "\n".join(L) + "\n"
+
+
+def cmd_compare(args) -> int:
+    manifest_path = Path(args.manifest)
+    manifest = load_manifest(manifest_path if manifest_path.is_absolute()
+                             else ROOT / manifest_path)
+    runs = []
+    for name, d in ((args.base, args.base_runs_dir), (args.new, args.new_runs_dir)):
+        run_dir = (Path(d) if d else ROOT / RUNS_DIR) / name
+        if not run_dir.is_dir():
+            raise SystemExit(f"no run directory {run_dir}")
+        runs.append(aggregate(run_dir, manifest, allow_mixed=args.allow_mixed,
+                              allow_network=not args.offline, n_resamples=999, root=ROOT))
+    cmp = compare_runs(runs[0], runs[1], metric=args.metric, fleet=args.fleet)
+    md = render_compare(cmp, args.base, args.new)
+    print(md)
+    if args.out:
+        Path(args.out).write_text(md, encoding="utf-8")
+        Path(args.out).with_suffix(".json").write_text(
+            json.dumps(_jsonable(cmp), indent=1), encoding="utf-8")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # 8. manifest / geocode-snapshot commands
 # ---------------------------------------------------------------------------
@@ -1609,6 +1864,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="before each attempt, wait until the GPU has this much free "
                         "memory (0 = don't check): the retrieval model dies natively "
                         "when another process leaves the GPU nearly full")
+    r.add_argument("--min-free-disk-gb", type=float, default=10.0,
+                   help="refuse to start a rep with less free disk than this on the data "
+                        "or output drive (0 = don't check); a full disk corrupts caches")
     r.add_argument("--resource-wait", type=float, default=10800.0,
                    help="max seconds to wait for --min-free-commit-gb / "
                         "--min-free-vram-gb per attempt")
@@ -1640,6 +1898,19 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--n-resamples", type=int, default=9999)
     a.add_argument("--seed", type=int, default=0)
     a.set_defaults(fn=cmd_aggregate)
+
+    c = sub.add_parser("compare", help="paired comparison of two runs on matching clips")
+    c.add_argument("--base", required=True, type=_run_name)
+    c.add_argument("--new", required=True, type=_run_name)
+    c.add_argument("--base-runs-dir", default=None)
+    c.add_argument("--new-runs-dir", default=None)
+    c.add_argument("--manifest", default=MANIFEST_PATH.as_posix())
+    c.add_argument("--fleet", default=None, help="core / overlay (default: all)")
+    c.add_argument("--metric", default="symmetric_mean_m")
+    c.add_argument("--allow-mixed", action="store_true")
+    c.add_argument("--offline", action="store_true")
+    c.add_argument("--out", default=None, help="write the markdown (and .json) here")
+    c.set_defaults(fn=cmd_compare)
     return p
 
 

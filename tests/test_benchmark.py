@@ -220,7 +220,8 @@ def test_cmd_run_skips_unavailable_and_missing_local_video(tmp_path, monkeypatch
     monkeypatch.setattr(M, "_git_state", lambda: {})
     _write_manifest(tmp_path, [
         _entry(id="gone", available_locally=False),
-        _entry(id="local", video={"path": "data/missing.mp4"}),
+        _entry(id="local", video={"path": "data/missing.mp4"},
+               city_basis="dataset documentation"),
     ])
     monkeypatch.setattr(M, "run_one", lambda *a, **k: pytest.fail("must not run"))
     assert M.cmd_run(_run_args()) == 0
@@ -797,3 +798,100 @@ def test_aggregate_without_a_rule_file_has_no_selective_method(tmp_path: Path) -
     s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
     assert "pipeline_selective" not in s["clips"]["clipA"]["methods"]
     assert "selective" not in s["fleets"]["core"]
+
+
+# ---------------------------------------------------------------------------
+# hardening after v2: kills, disk, devices, per-fleet provenance, fair cities
+# ---------------------------------------------------------------------------
+
+
+def test_a_process_killed_by_session_logoff_is_infrastructure(tmp_path: Path) -> None:
+    log = tmp_path / "log.txt"
+    log.write_text("[4a] VPR coarse prior\n", encoding="utf-8")
+    assert "killed" in M.infra_failure_reason({"rc": 0x40010004}, log)      # DBG_TERMINATE_PROCESS
+    assert "native" in M.infra_failure_reason({"rc": 0xC000026B}, log)      # DLL init failed, logoff
+    assert M.infra_failure_reason({"rc": 1}, log) is None                   # a real failure stays one
+
+
+def test_a_rep_never_starts_on_a_nearly_full_disk(monkeypatch, tmp_path: Path) -> None:
+    import collections
+
+    du = collections.namedtuple("du", "total used free")
+    monkeypatch.setattr(M.shutil, "disk_usage", lambda p: du(100e9, 95e9, 5e9))
+    assert "5.0 GB free disk" in M.disk_problem(10.0, tmp_path)
+    assert M.disk_problem(0.0, tmp_path) is None
+    monkeypatch.setattr(M.shutil, "disk_usage", lambda p: du(100e9, 50e9, 50e9))
+    assert M.disk_problem(10.0, tmp_path) is None
+
+
+def test_city_strings_must_be_named_in_the_title_or_documented() -> None:
+    yt = _entry(city="Chicago, Illinois, USA")
+    assert M.city_fairness_problem(yt, "Chicago | Night Drive", None) is None
+    assert M.city_fairness_problem(yt, None, None) is None          # metadata not cached yet
+    assert "not named" in M.city_fairness_problem(
+        _entry(city="Daly City, California, USA"), "Driving to work, Bay Area", "")
+    assert M.city_fairness_problem(_entry(city="Málaga, Spain"), "Malaga drive", None) is None
+    local = _entry(video={"path": "x.mp4"}, city="Karlsruhe, Germany")
+    assert "city_basis" in M.city_fairness_problem(local, None, None)
+    assert M.city_fairness_problem({**local, "city_basis": "KITTI docs"}, None, None) is None
+
+
+def test_provenance_is_checked_within_each_fleet_and_reported_between(tmp_path: Path) -> None:
+    run_dir, manifest, root = _make_run(tmp_path)
+    for c in manifest["clips"]:
+        if c["id"] == "clipC":
+            c["fleet"] = "overlay"
+    for k in range(3):                                   # clipC on other code: fine
+        d = run_dir / "clipC" / f"rep{k}"
+        if (d / "result.json").exists():
+            res = json.loads((d / "result.json").read_text(encoding="utf-8"))
+            res["provenance"]["git"]["commit"] = "other"
+            (d / "result.json").write_text(json.dumps(res), encoding="utf-8")
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    assert s["provenance"]["consistent"] is True
+    assert any("different pipeline code" in x for x in s["provenance"]["cross_fleet"])
+    # ...but two code states inside one fleet are still refused.
+    _write_rep(run_dir, "clipA", 3, _fake_result(0.0, 25.0, commit="third"))
+    with pytest.raises(SystemExit, match="core: reps ran different pipeline code"):
+        M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+
+
+def test_retrieval_device_mixing_within_a_fleet_is_a_provenance_problem(tmp_path: Path) -> None:
+    root, manifest = _setup_root(tmp_path)
+    run_dir = tmp_path / "runs" / "r1"
+    for k, dev in enumerate(("cuda", "cpu")):
+        res = _fake_result(0.0, 20.0)
+        res["vpr_prior"]["backbone"] = {"name": "megaloc", "device": dev}
+        _write_rep(run_dir, "clipA", k, res)
+    with pytest.raises(SystemExit, match="different devices"):
+        M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+
+
+def _summary_for(tmp_path: Path, name: str, offsets: dict, city=None) -> dict:
+    root, manifest = _setup_root(tmp_path / name)
+    run_dir = tmp_path / name / "runs" / "r"
+    shifts = {"clipA": 0.0, "clipB": 5000.0, "clipC": 10000.0}
+    for cid, offs in offsets.items():
+        for k, off in enumerate(offs):
+            _write_rep(run_dir, cid, k, _fake_result(shifts[cid], off),
+                       city=(city or {}).get(cid))
+    if city:
+        for c in manifest["clips"]:
+            if c["id"] in city:
+                c["city_alternatives"] = [city[c["id"]]]
+    return M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+
+
+def test_compare_pairs_matching_clips_and_refuses_the_rest(tmp_path: Path) -> None:
+    base = _summary_for(tmp_path, "base", {"clipA": [100, 110], "clipB": [400, 420],
+                                           "clipC": [300, 310]})
+    new = _summary_for(tmp_path, "new", {"clipA": [30, 35], "clipB": [200, 210],
+                                         "clipC": [300, 310]},
+                       city={"clipC": "City clipC alt"})
+    cmp = M.compare_runs(base, new)
+    assert [r["clip"] for r in cmp["rows"]] == ["clipA", "clipB"]
+    assert cmp["new_better"] == 2 and cmp["new_worse"] == 0
+    assert cmp["excluded"][0]["clip"] == "clipC" and "city differs" in cmp["excluded"][0]["reason"]
+    assert any("only 2 paired clips" in n for n in cmp["notes"])
+    md = M.render_compare(cmp, "base", "new")
+    assert "Not compared: clipC" in md and "New better on 2 clips" in md
