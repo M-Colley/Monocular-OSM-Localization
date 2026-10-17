@@ -76,3 +76,10 @@ def test_archived_megaloc_embeddings_are_used_only_with_a_matching_fingerprint(t
 def test_gt_is_interpolated_at_query_times() -> None:
     wps = [{"t_sec": 0.0, "lat": 48.0, "lon": 9.0}, {"t_sec": 10.0, "lat": 48.1, "lon": 9.2}]
     assert C.gt_at(wps, np.array([5.0]))[0] == pytest.approx([48.05, 9.1])
+
+
+def test_oracle_coverage_bounds_what_any_backbone_can_retrieve() -> None:
+    refs = _grid_refs()
+    near = refs[[0, 5]] + 1e-5
+    far = np.array([[48.5, 10.2]])
+    assert C.oracle_coverage(refs, np.vstack([near, far]), 50.0) == pytest.approx(2 / 3)

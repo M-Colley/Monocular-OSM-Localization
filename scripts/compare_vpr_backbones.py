@@ -165,6 +165,46 @@ def auroc(pos: np.ndarray, neg: np.ndarray) -> float | None:
     return float(mannwhitneyu(pos, neg, alternative="two-sided").statistic / (len(pos) * len(neg)))
 
 
+def oracle_coverage(ref_ll: np.ndarray, q_gt: np.ndarray, d_m: float) -> float:
+    """Fraction of queries with ANY reference within ``d_m`` of their true
+    position: the ceiling on recall@d for every backbone on this reference set.
+    A clip whose references miss the route (a bad search disc) scores ~0 here,
+    and its retrieval numbers say nothing about the backbone."""
+    best = np.array([haversine_m(ref_ll, np.repeat(q[None], len(ref_ll), 0)).min()
+                     for q in q_gt])
+    return float(np.mean(best < d_m))
+
+
+def report(results: dict, args) -> str:
+    """Markdown table of results.json, with the oracle coverage of each
+    reference set recomputed from the archive (no embeddings needed)."""
+    import benchmark as B
+
+    manifest = B.load_manifest(ROOT / "benchmarks" / "manifest.json")
+    by_id = {c["id"]: c for c in manifest["clips"]}
+    L = ["| Clip | Pass | Oracle@50 m | Model | R@1 50 m | R@5 50 m | R@1 100 m | "
+         "Retrieval-centre error | Confidence AUROC |", "|---|---|---|---|---|---|---|---|---|"]
+    for cid, passes in results["clips"].items():
+        e = by_id[cid]
+        rep_dir = next((args.archive_root / d.name / "_benchmark_cold_vpr" / args.run_name / cid
+                        / "rep0" for d in B.candidate_slug_dirs(e, e["city"], args.data_dir)), None)
+        wps = json.loads((ROOT / e["gt"]).read_text(encoding="utf-8"))["waypoints"]
+        start, end = (float(x) for x in e["vo_segment"].split(":"))
+        q_gt = gt_at(wps, np.linspace(start, end, results["meta"]["n_query"], endpoint=False))
+        for pname, res in passes.items():
+            refs = archived_refs(rep_dir, PASSES[pname]) if rep_dir else None
+            orc = oracle_coverage(refs[2], q_gt, CORRECT_M) if refs else None
+            for m in results["meta"]["models"]:
+                r = res.get(m)
+                if not r:
+                    continue
+                au = r.get("sim_auroc_correct_vs_wrong")
+                L.append(f"| {cid} | {pname} | {'n/a' if orc is None else f'{orc:.2f}'} | {m} | "
+                         f"{r['r1@50m']:.2f} | {r['r5@50m']:.2f} | {r['r1@100m']:.2f} | "
+                         f"{r['centre_err_m']:.0f} m | {'n/a' if au is None else f'{au:.2f}'} |")
+    return "\n".join(L) + "\n"
+
+
 def score(sims: np.ndarray, ref_ll: np.ndarray, q_gt: np.ndarray, gt_route: np.ndarray) -> dict:
     from monocular_osm.kartaview_vpr import _robust_center
 
@@ -208,7 +248,15 @@ def main(argv=None) -> int:
                     help="recompute MegaLoc's reference embeddings instead of reusing the "
                          "fingerprint-matched ones the v2 run archived")
     ap.add_argument("--out", type=Path, default=ROOT / "output" / "vpr_backbones")
+    ap.add_argument("--report-only", action="store_true",
+                    help="write results.md from results.json (no models)")
     args = ap.parse_args(argv)
+    if args.report_only:
+        res = json.loads((args.out / "results.json").read_text(encoding="utf-8"))
+        md = report(res, args)
+        (args.out / "results.md").write_text(md, encoding="utf-8")
+        print(md)
+        return 0
     torch.set_num_threads(args.threads)
     args.out.mkdir(parents=True, exist_ok=True)
 

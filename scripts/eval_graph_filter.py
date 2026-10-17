@@ -43,6 +43,15 @@ Odometry (all at 10 Hz, merged to 2 Hz filter steps):
                  the per-step deviation sigma is the estimator's GT-free spread.
     vo_plane_rel the same profile normalised to mean 1, global scale left
                  unknown: exactly the vo_gflow treatment with a better profile.
+    vo_lingbot_rel  LingBot-Map (arXiv 2604.14141) camera poses from
+                 scripts/run_lingbot_map.py, heading from its rotations, its
+                 step profile normalised to mean 1 (its scale is normalised
+                 internally, ~0.05x metres on KITTI): the vo_gflow treatment.
+    vo_lingbot_plane  the same poses with ONE global scale from the road-plane
+                 estimate (median plane/LingBot step ratio over moving steps;
+                 no ground truth): LingBot for shape and heading, the road for
+                 metres. Metric filter settings as vo_plane, per-step noise
+                 0.15 fixed before any run.
 
 VO heading noise is self-calibrated without ground truth
 (graph_filter.heading_increment_noise); the VO-vs-OXTS diagnostics in the
@@ -193,6 +202,21 @@ def plane_lengths(drive_dir: Path, traj, K: np.ndarray, cache: Path,
             "coverage": ps.coverage, "camera_height_m": ps.camera_height_m}
 
 
+def lingbot_trajectory(path: Path):
+    """A visual_odometry.Trajectory from LingBot-Map's world-to-camera poses."""
+    from monocular_osm.visual_odometry import Trajectory, _fit_plane_projection
+
+    z = np.load(path)
+    ext = np.asarray(z["extrinsic"], float)
+    R, t = ext[:, :, :3], ext[:, :, 3]
+    centers = -np.einsum("nji,nj->ni", R, t)
+    up = -np.mean(R[:, 1, :], axis=0)                 # camera up (-y) in the world frame
+    xz = _fit_plane_projection(centers, up=up / max(np.linalg.norm(up), 1e-12))
+    n = len(centers)
+    return Trajectory(centers=centers, xz=xz, valid=np.ones(n, bool), n_inliers=[0] * n,
+                      rotations=R, translations=t), np.asarray(z["frame_index"], int)
+
+
 def ground_flow_lengths(video: Path, traj, K: np.ndarray, size) -> tuple:
     from monocular_osm.ground_flow_scale import step_lengths, track_road_features
 
@@ -207,7 +231,8 @@ def ground_flow_lengths(video: Path, traj, K: np.ndarray, size) -> tuple:
 # odometry variants
 # --------------------------------------------------------------------------
 
-def odometry_variants(ox: dict, traj, gflow, frame_dt: float, plane=None) -> dict:
+def odometry_variants(ox: dict, traj, gflow, frame_dt: float, plane=None,
+                      lingbot=None) -> dict:
     t = ox["t"]
     dt = np.diff(t)
     vf = ox["vf"][1:]
@@ -250,6 +275,23 @@ def odometry_variants(ox: dict, traj, gflow, frame_dt: float, plane=None) -> dic
                                              step_lengths_m=rel)
             pr.metric, pr.unit_seconds, pr.dt = False, frame_dt, dt.copy()
             out["vo_plane_rel"] = pr
+    if lingbot is not None and len(lingbot.xz) == len(t):
+        steps = np.linalg.norm(np.diff(lingbot.xz, axis=0), axis=1)
+        mv = steps > 1e-9
+        rel = steps / max(float(steps[mv].mean()), 1e-12) if mv.any() else steps
+        lr = gf.odometry_from_trajectory(lingbot, frame_dt, heading_source="rotation",
+                                         step_lengths_m=rel)
+        lr.metric, lr.unit_seconds, lr.dt = False, frame_dt, dt.copy()
+        out["vo_lingbot_rel"] = lr
+        if plane is not None:
+            L = np.asarray(plane["lengths"], float)
+            both = mv & (L > 0)
+            scale = float(np.median(L[both] / steps[both])) if both.sum() >= 10 else None
+            if scale is not None:
+                lp = gf.odometry_from_trajectory(lingbot, frame_dt, heading_source="rotation",
+                                                 step_lengths_m=steps * scale)
+                lp.dt = dt.copy()
+                out["vo_lingbot_plane"] = lp
     factor = max(1, int(round(1.0 / (FILTER_HZ * frame_dt))))
     return {k: gf.aggregate_odometry(v, factor) for k, v in out.items()}
 
@@ -257,6 +299,9 @@ def odometry_variants(ox: dict, traj, gflow, frame_dt: float, plane=None) -> dic
 def filter_config(odom_kind: str, n: int, seed: int,
                   plane_spread: float | None = None) -> gf.FilterConfig:
     """Noise models fixed a priori per sensor (not tuned on these drives)."""
+    if odom_kind == "vo_lingbot_plane":  # road-plane global scale, LingBot profile
+        return gf.FilterConfig(n_particles=n, seed=seed, metric_logk_sigma=0.25,
+                               metric_speed_dev_sigma=0.15)
     if odom_kind == "vo_plane":         # assumed camera height, GT-free step noise
         dev = 0.15 if plane_spread is None or not np.isfinite(plane_spread) else plane_spread
         return gf.FilterConfig(n_particles=n, seed=seed, metric_logk_sigma=0.25,
@@ -487,7 +532,8 @@ def plot(path: Path, runs: list[dict]) -> None:
     styles = {"A": "-", "B": "--"}
     colors = {"oracle": "#1b7837", "oracle_unit": "#5aae61", "vo_oracle_speed": "#e08214",
               "vo": "#c51b7d", "vo_gflow": "#2166ac", "vo_plane": "#762a83",
-              "vo_plane_rel": "#9970ab"}
+              "vo_plane_rel": "#9970ab", "vo_lingbot_rel": "#35978f",
+              "vo_lingbot_plane": "#01665e"}
     for ax, d in zip(axes[0], drives):
         combos = sorted({(r["map"], r["odometry"]) for r in runs if r["drive"] == d})
         for m, o in combos:
@@ -580,12 +626,33 @@ def main(argv=None) -> int:
                 print(f"    ground flow: confidence {gflow[1]:.2f} "
                       f"({time.perf_counter() - t0:.0f} s)", flush=True)
                 np.savez_compressed(gcache, lengths=gflow[0], confidence=gflow[1])
-        if traj is not None and any(o.startswith("vo_plane") for o in args.odometry):
+        if traj is not None and any(o.startswith("vo_plane") or o == "vo_lingbot_plane"
+                                    for o in args.odometry):
             plane = plane_lengths(ddir, traj, K, out / f"plane_{d}.npz",
                                   args.camera_height_m)
+        lingbot = None
+        if any(o.startswith("vo_lingbot") for o in args.odometry):
+            lpath = out / f"lingbot_{d}.npz"
+            if lpath.exists():
+                lingbot, lfi = lingbot_trajectory(lpath)
+                if len(lingbot.xz) != len(ox_["t"]) or (lfi != np.arange(len(lfi))).any():
+                    print(f"  {d}: LingBot poses are not one per frame; skipped", flush=True)
+                    lingbot = None
+                else:
+                    meta_vo.setdefault(f"{d}_lingbot", vo_diagnostics(ox_, lingbot, None))
+                    st = np.linalg.norm(np.diff(lingbot.xz, axis=0), axis=1)
+                    true = ox_["vf"][1:] * np.diff(ox_["t"])
+                    mvl = (ox_["vf"][1:] > 0.2) & (st > 0)
+                    meta_vo[f"{d}_lingbot"]["step_profile"] = {
+                        "scale_median": float(np.median(st[mvl] / true[mvl])),
+                        "corr_with_true_step": float(np.corrcoef(st[mvl], true[mvl])[0, 1]),
+                        "rel_err_after_global_scale_median": float(np.median(np.abs(
+                            (st[mvl] / true[mvl]) / np.median(st[mvl] / true[mvl]) - 1)))}
+            else:
+                print(f"  {d}: no {lpath.name} (run scripts/run_lingbot_map.py)", flush=True)
         if traj is not None:
             meta_vo[d] = vo_diagnostics(ox_, traj, gflow, plane)
-        variants = odometry_variants(ox_, traj, gflow, frame_dt, plane)
+        variants = odometry_variants(ox_, traj, gflow, frame_dt, plane, lingbot)
         for m in args.maps:
             gxy = nets[m].latlon_to_local(ox_["latlon"])
             dmin = _gt_to_road_m(nets[m], gxy)
