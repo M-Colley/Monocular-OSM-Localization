@@ -96,9 +96,13 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
                 reach_m = _city_extent_reach_m(city, Path(cache_dir) / "geocode_cache.json")
             except Exception as e:
                 print(f"      -> [coarse] city extent unavailable ({e})")
+        from .length_prior import _auto_estimated_length_m
+        seg_s = (vo_end - vo_start) if vo_end is not None else None
         pr = (resolve_coarse_prior(city, ocr_text, None,
                                    max_km_from_city=reach_m / 1000.0,
-                                   min_places=_OCR_SEED_MIN_PLACES)
+                                   min_places=_OCR_SEED_MIN_PLACES,
+                                   route_length_m=(_auto_estimated_length_m(seg_s)
+                                                   if seg_s else None))
               if reach_m is not None else None)
         if pr is not None:
             return (pr[0], pr[1], pr[2],

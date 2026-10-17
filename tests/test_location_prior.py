@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from monocular_osm.location_prior import extract_place_candidates, resolve_coarse_prior
 
 
@@ -95,3 +97,67 @@ def test_cli_title_seed_requires_two_places() -> None:
     src = inspect.getsource(cli)
     i = src.index("resolve_coarse_prior(city, metadata.title")
     assert "min_places=2" in src[i:i + 200]
+
+
+def _hit(lat, lon, name, cls, typ, rank=30):
+    return {"lat": lat, "lon": lon, "name": name, "class": cls, "type": typ, "place_rank": rank}
+
+
+# What Nominatim returned (2026-10-17) for title words of the benchmark clips.
+_NOMINATIM = {
+    "chicago, illinois, usa": _hit(41.88, -87.63, "Chicago", "boundary", "administrative", 16),
+    "tours, chicago, illinois, usa": _hit(41.85, -87.63, "China Tours and Travel", "shop", "travel_agency"),
+    "support, chicago, illinois, usa": _hit(41.98, -87.90, "Signature Flight Support Terminal", "aeroway", "terminal"),
+    "pro, chicago, illinois, usa": _hit(41.90, -87.70, "All Pro Cleaners", "shop", "dry_cleaning"),
+    "detroit, michigan, usa": _hit(42.33, -83.05, "Detroit", "boundary", "administrative", 16),
+    "michigan, detroit, michigan, usa": _hit(42.33, -83.05, "Michigan", "railway", "station"),
+    "northwest, detroit, michigan, usa": _hit(42.40, -83.20, "Northwest", "shop", "convenience"),
+    "london, uk": _hit(51.507, -0.128, "London", "boundary", "administrative", 16),
+    "bloomsbury, london, uk": _hit(51.523, -0.125, "Bloomsbury", "place", "suburb", 19),
+    "bloomsbury london, london, uk": _hit(51.523, -0.125, "Bloomsbury", "place", "suburb", 19),
+    "afternoon, london, uk": _hit(51.519, -0.127, "The British Museum Afternoon Tea", "amenity", "cafe"),
+    "west end, london, uk": _hit(51.513, -0.136, "West End", "place", "locality", 25),
+    "ulm, germany": _hit(48.398, 9.993, "Ulm", "boundary", "administrative", 16),
+    "napoleon, ulm, germany": _hit(48.451, 10.089, "Napoleonweg", "highway", "residential", 26),
+    "ulm minster, ulm, germany": _hit(48.3985, 9.9925, "Ulm Minster", "amenity", "place_of_worship"),
+    "neu-ulm, ulm, germany": _hit(48.392, 10.011, "Neu-Ulm", "boundary", "administrative", 16),
+    "bavaria, ulm, germany": _hit(48.9, 11.4, "Bavaria", "boundary", "administrative", 8),
+}
+
+
+def _geo(q):
+    return _NOMINATIM.get(q.lower())
+
+
+def test_title_words_that_only_match_a_business_or_the_city_are_not_places() -> None:
+    # Junk only: no seed at all (the run then searches the named city).
+    assert resolve_coarse_prior("Chicago, Illinois, USA",
+                                "Chicago | Viofo A229 Pro Front Unit Day Time Testing | Support, Tours",
+                                None, geocode_fn=_geo) is None
+    assert resolve_coarse_prior("Detroit, Michigan, USA",
+                                "Driving from Detroit, Michigan to Northwest", None,
+                                geocode_fn=_geo) is None
+    assert resolve_coarse_prior("Ulm, Germany", "Ulm drive past Napoleon", None,
+                                geocode_fn=_geo) is None
+
+
+def test_real_districts_and_landmarks_still_seed() -> None:
+    pr = resolve_coarse_prior("London, UK",
+                              "Bloomsbury London | Afternoon drive | West End", None,
+                              geocode_fn=_geo, min_places=2)
+    assert pr is not None and set(pr[3]) == {"Bloomsbury London", "West End"}   # not "Afternoon"
+    pr = resolve_coarse_prior("Ulm, Germany", "Ulm Minster, Neu-Ulm, Bavaria", None,
+                              geocode_fn=_geo, min_places=2)
+    assert pr is not None and set(pr[3]) == {"Ulm Minster", "Neu-Ulm"}            # a state is coarser
+
+
+def test_route_length_widens_a_tight_landmark_pair_to_hold_the_drive() -> None:
+    """Two landmarks ~1.5 km apart gave Ulm 4K an 845 m gate holding 38 % of
+    its route; the disc must allow the route's own length around them."""
+    t = "Ulm Minster, Neu-Ulm"
+    tight = resolve_coarse_prior("Ulm, Germany", t, None, geocode_fn=_geo, min_places=2)
+    wide = resolve_coarse_prior("Ulm, Germany", t, None, geocode_fn=_geo, min_places=2,
+                                route_length_m=1650.0)
+    assert tight[2] < 1500 and wide[2] == pytest.approx(tight[2] - 500 + 1650, abs=1)
+    assert resolve_coarse_prior("Ulm, Germany", t, None, geocode_fn=_geo, min_places=2,
+                                route_length_m=50_000)[2] == 6000      # still capped

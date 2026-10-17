@@ -711,9 +711,13 @@ def main() -> None:
             # becomes an 800 m hard gate on retrieval and the road graph, and
             # on Ulm #2 the single name "Napoleon" put all three benchmark
             # runs 7.7 km off (the city centre is 350 m off).
+            from .stages.length_prior import _auto_estimated_length_m
+            seed_dur = duration or getattr(metadata, "duration", None)
             prior = resolve_coarse_prior(city, metadata.title,
                                          getattr(metadata, "description", None),
-                                         min_places=2)
+                                         min_places=2,
+                                         route_length_m=(_auto_estimated_length_m(seed_dur)
+                                                         if seed_dur else None))
             if prior is not None:
                 plat, plon, prad, places = prior
                 sub_osm_around = (plat, plon, prad)
