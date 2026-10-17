@@ -831,6 +831,10 @@ def test_city_strings_must_be_named_in_the_title_or_documented() -> None:
     assert "not named" in M.city_fairness_problem(
         _entry(city="Daly City, California, USA"), "Driving to work, Bay Area", "")
     assert M.city_fairness_problem(_entry(city="Málaga, Spain"), "Malaga drive", None) is None
+    nc = _entry(city="Newcastle upon Tyne, England, UK")
+    assert M.city_fairness_problem(nc, "Newcastle Driving - Tyne Bridge", None) is None
+    assert "not named" in M.city_fairness_problem(
+        _entry(city="San Francisco, USA"), "San Jose commute", None)     # 'San' is not enough
     local = _entry(video={"path": "x.mp4"}, city="Karlsruhe, Germany")
     assert "city_basis" in M.city_fairness_problem(local, None, None)
     assert M.city_fairness_problem({**local, "city_basis": "KITTI docs"}, None, None) is None

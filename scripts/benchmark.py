@@ -287,7 +287,13 @@ def city_fairness_problem(entry: dict, title: str | None,
     if "url" in entry.get("video", {}):
         if title is None and description is None:
             return None
-        if head not in _fold(" ".join(t for t in (title, description) if t)):
+        text = _fold(" ".join(t for t in (title, description) if t))
+        # The full name, or its distinctive first word: a title saying
+        # "Newcastle" lets a user type "Newcastle upon Tyne".
+        first = head.split()[0] if head.split() else head
+        named = head in text or (len(first) >= 5 and re.search(
+            rf"(?<!\w){re.escape(first)}(?!\w)", text) is not None)
+        if not named:
             return (f"{entry['id']}: city {city!r} is not named in the video's title or "
                     f"description, so a user could not know it")
         return None
