@@ -17,13 +17,33 @@
         "data": "run v2, core fleet, 18 reps (6 clips x 3); package code 18e65ae (Ulm 4K rep0: 4747814, same package tree)",
         "label": "a rep is a WIN when the pipeline's symmetric error is below the city-centroid guess's, a LOSS otherwise",
         "wins": {
-          "london": [0.2130, 0.1939, 0.2103],
-          "ulm4k_0-300": [0.2589, 0.2328, 0.2845]
+          "london": [
+            0.213,
+            0.1939,
+            0.2103
+          ],
+          "ulm4k_0-300": [
+            0.2589,
+            0.2328,
+            0.2845
+          ]
         },
         "losses": {
-          "berlin_0-420": [0.1275, 0.1298, 0.1284],
-          "kitti_0009": [0.1166, 0.1166, 0.1166],
-          "kitti_0033": [0.1063, 0.1070, 0.1072]
+          "berlin_0-420": [
+            0.1275,
+            0.1298,
+            0.1284
+          ],
+          "kitti_0009": [
+            0.1166,
+            0.1166,
+            0.1166
+          ],
+          "kitti_0033": [
+            0.1063,
+            0.107,
+            0.1072
+          ]
         },
         "no_signal": {
           "ulm2": "coarse-to-fine did not run (a one-word title seed set an 800 m gate), so no confidence was recorded; the rule abstains (LOSS in all 3 reps: 7662 m vs 350 m)"
@@ -41,6 +61,25 @@
         },
         "power_note": "About 9 held-out clips: only large effects are detectable, and a null result is not evidence of no effect. The result is reported whichever way it comes out."
       }
+    },
+    "safevpr_frame_verification": {
+      "registered": "2026-10-17",
+      "description": "Does a calibrated accept/abstain decision on retrieval keep its error rate on footage it was not calibrated on? SafeVPR (Sier et al., arXiv 2605.28048, MIT, code f11d5fd) verifies a retrieval with DINOv2 ViT-L/14 patch mutual-nearest-neighbour + Lowe-ratio matching and calibrates a per-score-bin threshold with Mondrian Learn-Then-Test; the tau rule above (a single cosine threshold) did not transfer from the core to the overlay clips.",
+      "unit": "one query frame and the MegaLoc top-1 reference of the first (city-disc) retrieval pass: the 80 query frames the pipeline samples over the analysis window, against the exact reference set benchmark run v2 searched (rep0, archived)",
+      "label": "correct iff the top-1 reference lies within 50 m of the ground truth interpolated at the query's video time",
+      "scores": {
+        "patch_mnn": "safevpr.verifier: extract_patch_features + mnn_lowe_ratio on the (query, top-1 reference) pair, i.e. verify_pair with T=1 (our references are single photos, not sequences); paper constants unchanged (224x224, ratio 0.9)",
+        "cosine": "the MegaLoc top-1 cosine similarity (baseline)"
+      },
+      "calibration": "safevpr.conformal.fit_mondrian_ltt at alpha = 0.10 (paper defaults: 5 bins, delta 0.05), fitted once per score on the core clips (dev), never on the overlay clips",
+      "test": "the nine overlay clips (v2 rep0 each)",
+      "hypotheses": {
+        "S1": "With the patch_mnn score, the empirical false-discovery rate among accepted overlay frames is <= 0.10.",
+        "S2": "With the cosine score calibrated the same way, the overlay FDR is higher than with patch_mnn (or cosine accepts none while patch_mnn accepts some at FDR <= 0.10).",
+        "S3": "On the overlay frames the AUROC of patch_mnn for correct vs wrong exceeds that of cosine."
+      },
+      "disclosure": "The overlay clips were the held-out test of the tau rule and their titles were read when writing the title-seed rule; no overlay per-frame retrieval label, cosine or verifier score had been computed when this was registered. Few frames are correct at 50 m (on Ulm 4K, 7 % of pass-1 top-1 retrievals), so acceptance may be very low; that is reported, not changed.",
+      "power_note": "~480 calibration and ~720 test frames, but frames of one clip are not independent; results are also reported per clip."
     }
   }
 }
