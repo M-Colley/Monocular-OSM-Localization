@@ -1080,9 +1080,41 @@ Better on 5 clips, worse on none (sign test p = 0.06); median of clip medians
 466 m (v2: 4,351 m; centre guess 1,205 m); the pipeline now beats the centre
 guess on 4 of 6. **In-sample:** these are the clips the seed rule's coverage was
 checked on, so this shows the fixes do what they were built to do, not that
-they generalise; the overlay clips are the test (below). The two KITTI drives
+they generalise — and on the overlay clips they do not (below). The two KITTI drives
 still fail: their search covers the city, but the references kept cover too
 little of the route (section 1 of the experiments page).
+
+#### ...and on the overlay clips (run v4): no improvement
+
+The same fixes (plus the plate-seed fix, package `514b420`) on the nine overlay
+clips, one cold rep each, against v2:
+
+| Clip | v2 | v4 | Centre guess |
+|---|---|---|---|
+| Chicago (`vCSEG6KaFng`) | 3,934 | **41** | 1,924 |
+| Chicago (`LmIHvLMLqFk`) | 8,660 | **254** | 1,230 |
+| Newcastle (`Wrn4_uCxRCQ`) | 362 | 362 | 887 |
+| Phoenix (`wJsEQTCAg1c`) | 13,289 | 13,772 | 14,802 |
+| Atlanta (`kxEDNj5L_yQ`) | 6,283 | 6,829 | 7,280 |
+| Detroit (`g5lnpYCk1Ec`) | 7,289 | 8,803 | 8,206 |
+| Detroit (`ZhGb8q1kliY`) | 4,316 | 7,442 | 403 |
+| Detroit (`1nF_7l07i-E`) | 2,417 | 6,471 | 491 |
+| Atlanta (`y66ZkRpUh4k`) | **37** | 6,748 | 2,958 |
+
+Better on 2 clips, worse on 6, unchanged on 1 (sign test p = 0.29); median of
+clip medians 6,748 m against 4,316 m; the pipeline beats the centre guess on 5
+of 9 in both runs. **The core-clip gain does not generalise.** Rejecting junk
+seeds helps where their disc excluded the route (both Chicago clips: "Pro,
+Support, Tours") and hurts where a weak seed happened to contain it, leaving a
+city-wide search that the sparse reference set cannot resolve (Detroit). The
+largest loss, Atlanta `y66ZkRpUh4k` (37 m -> 6.7 km), is the rule's measured
+cost: its v2 seed came from chain-store signs read in the video (Trader Joe's,
+Starbucks), which the business filter now rejects; for a title word a business
+match is a coincidence, for a sign in view it is weak but real evidence. The
+rule is not changed after seeing this (that would tune on the test clips).
+Caveats: the overlay titles were read when writing the seed rule, and all runs
+are one rep. Comparison: `scripts/benchmark.py compare --base v2 --new v4
+--fleet overlay`.
 
 **Reproduce** (needs `MLY_TOKEN`; the YouTube clips are downloaded on first use,
 so keep `yt-dlp` current):

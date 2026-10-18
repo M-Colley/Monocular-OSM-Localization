@@ -138,3 +138,15 @@ familiar 8.8 km wrong attractor. One drive is not a basis for a default:
 speed, not heading, remains the deciding signal, and the road-plane estimate
 supplies it better than LingBot-Map does.
 <!-- LINGBOT:END -->
+
+## 5. The seed fixes, end to end
+
+Runs v3 (core) and v4 (overlay, with the plate fix) re-ran the fleet with the
+fixes from section 1. On the core clips, which the seed rule's route coverage
+was checked on, v3 is better than v2 on 5 of 6 clips (median 466 m vs 4,351 m).
+On the overlay clips v4 is better on 2, worse on 6 (median 6,748 m vs 4,316 m).
+Removing bad seeds fixes the clips where the seed disc excluded the route; it
+does not create the reference coverage a city-wide search needs (section 1),
+so clips that had been rescued by a lucky or weak seed now fail. The binding
+constraint is the same as in section 1: references within ~50 m of the route.
+

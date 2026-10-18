@@ -112,6 +112,13 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   rule. v3's overlay half exposed a licence-plate seed bug (German district
   codes matched on US footage, sending four clips to Germany), fixed in
   `514b420`; the overlay fleet is re-run as v4.
+- **Run v4 (overlay clips, all fixes): no improvement held-out.** Better than
+  v2 on 2 clips (both Chicago: 3,934 -> 41 m, 8,660 -> 254 m), worse on 6,
+  unchanged on 1 (sign test p = 0.29); median of clip medians 6,748 m vs
+  4,316 m; beats the centre guess 5/9 in both. The largest loss (Atlanta
+  `y66ZkRpUh4k`, 37 m -> 6.7 km) is the business filter rejecting chain-store
+  signs read in the video, weak but real evidence for scene text; not re-tuned
+  on the test clips. The plate fix works (all four German districts ignored).
 
 - **Where the failures come from.** On the exact v2 reference sets: three of
   the four failing core clips searched a disc that did not contain the route
