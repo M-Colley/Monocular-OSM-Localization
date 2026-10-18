@@ -1124,8 +1124,9 @@ locates the other failures: on three of the four failing core clips the
 retrieval search disc did not contain the route at all (bad seeds from the
 title or scene text, since fixed), and on the fourth (KITTI 0009) the 1,200
 Mapillary images kept from 425,000 in the disc cover 3 % of the route. A newer
-retrieval backbone (SAGE, ICLR 2026) and calibrated abstention (SafeVPR) did not
-change that picture. Whether the remaining failures are input-limited is
+retrieval backbone (SAGE, ICLR 2026), calibrated abstention (SafeVPR) and a
+feed-forward reconstruction model as odometry (LingBot-Map) did not change that
+picture. Whether the remaining failures are input-limited is
 therefore still open.
 
 <details>

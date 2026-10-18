@@ -100,18 +100,41 @@ the τ rule: confidence ranks across cities, its calibration does not travel.
 ## 4. LingBot-Map (arXiv 2604.14141) as odometry for the particle filter
 
 <!-- LINGBOT:BEGIN -->
-Running. `scripts/run_lingbot_map.py` runs the released model (Apache-2.0,
-4.6 GB, repo `b9dd1b1`) through its own loader and post-processing on the CPU
-(SDPA attention, ~6 s/frame on a shared CPU). Drive 0009 (447 frames, 48 min):
+`scripts/run_lingbot_map.py` runs the released model (Apache-2.0, 4.6 GB,
+repo `b9dd1b1`) through its own loader and post-processing on the CPU (SDPA
+attention; 6.4 s/frame on 0009, 7.4 s/frame on 0033 on a shared CPU, keyframe
+interval chosen by the model's own rule). Its poses are scored against OXTS and
+fed to the road-graph particle filter by `scripts/eval_graph_filter.py`, beside
+the variants already in `docs/graph_filter_kitti.md`.
 
-* **Not metric.** Its steps are 0.049x the OXTS distance (its scale is
-  normalised internally; the paper's ATE is similarity-aligned).
-* **Heading slightly better than this repo's VO, same drift**: median
-  absolute heading error 1.3° (VO 1.9°), 90th percentile 4.2° (VO 5.4°),
-  drift 8.9°/min (VO 8.3°/min).
-* **Speed profile weaker than the road-plane estimate**: correlation with the
-  true step 0.52 (road plane 0.88, ground flow 0.60).
-* The filter with it fails on 0009 (0/5 seeds with its own profile, 0/5 with a
-  road-plane global scale) — as does every monocular odometry on this 46 s,
-  one-turn drive. Drive 0033 is the test.
+**As odometry, against OXTS:**
+
+| | LingBot-Map 0009 | VO 0009 | LingBot-Map 0033 | VO 0033 |
+|---|---|---|---|---|
+| Heading error, median / 90th pct | 1.3° / 4.2° | 1.9° / 5.4° | **3.2° / 9.1°** | 12.2° / 27.3° |
+| Heading drift | 8.9°/min | 8.3°/min | **4.9°/min** | 14.1°/min |
+| Step length vs OXTS | 0.049x, corr 0.52 | unit steps | 0.075x, corr **0.01** | unit steps |
+
+Its heading is much better than this repo's VO on the longer drive; its step
+lengths are not metric (scale normalised internally — the paper's ATE is
+similarity-aligned) and on 0033 carry no speed signal at all. The road-plane
+speed (`monocular_osm/plane_speed.py`) correlates 0.81-0.88 with the true step.
+
+**In the particle filter (drive 0033, 5 seeds; 0009 fails with every
+monocular odometry):**
+
+| Odometry | Map A localized | A: steps < 10 m | Map B (city) localized | B: steps < 10 m |
+|---|---|---|---|---|
+| LingBot-Map, own step profile (scale unknown) | 1/5 | 15 % | 0/5 | 0 % |
+| LingBot-Map steps x one road-plane scale | 0/5 (all end 53-57 m off; smoothed route 12 m) | 41 % | 1/5 | 17 % |
+| Road-plane speed + VO heading (`vo_plane`, earlier) | 5/5 | 47 % | **5/5** | 26 % |
+| Road-plane speed + LingBot heading | 5/5 | **64 %** | 4/5 | **45 %** |
+
+The last variant was defined from the OXTS diagnostics above (take the speed
+from the road plane and the heading from LingBot-Map) before it was run.
+Better heading keeps the filter on the right street for more of the drive, but
+it locks on no sooner (~155 s of 159) and lost one city-wide seed to the
+familiar 8.8 km wrong attractor. One drive is not a basis for a default:
+speed, not heading, remains the deciding signal, and the road-plane estimate
+supplies it better than LingBot-Map does.
 <!-- LINGBOT:END -->

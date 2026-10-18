@@ -52,6 +52,12 @@ Odometry (all at 10 Hz, merged to 2 Hz filter steps):
                  no ground truth): LingBot for shape and heading, the road for
                  metres. Metric filter settings as vo_plane, per-step noise
                  0.15 fixed before any run.
+    vo_plane_lingbot_heading  road-plane metric steps (as vo_plane) with
+                 LingBot-Map's heading instead of the VO's: on 0033 LingBot's
+                 heading error is 3.2 deg median vs 12.2 for the VO while its
+                 step lengths carry no speed (corr 0.01), so the combination
+                 takes each from the better source. Defined from those OXTS
+                 diagnostics before this variant was run; settings as vo_plane.
 
 VO heading noise is self-calibrated without ground truth
 (graph_filter.heading_increment_noise); the VO-vs-OXTS diagnostics in the
@@ -292,6 +298,13 @@ def odometry_variants(ox: dict, traj, gflow, frame_dt: float, plane=None,
                                                  step_lengths_m=steps * scale)
                 lp.dt = dt.copy()
                 out["vo_lingbot_plane"] = lp
+            # plane speed on the VO's own steps (0 where the VO saw no motion)
+            if traj is not None:
+                vo_valid = np.asarray(traj.valid, bool)[1:]
+                ph = gf.odometry_from_trajectory(lingbot, frame_dt, heading_source="rotation",
+                                                 step_lengths_m=np.where(vo_valid, L, 0.0))
+                ph.dt = dt.copy()
+                out["vo_plane_lingbot_heading"] = ph
     factor = max(1, int(round(1.0 / (FILTER_HZ * frame_dt))))
     return {k: gf.aggregate_odometry(v, factor) for k, v in out.items()}
 
@@ -302,7 +315,7 @@ def filter_config(odom_kind: str, n: int, seed: int,
     if odom_kind == "vo_lingbot_plane":  # road-plane global scale, LingBot profile
         return gf.FilterConfig(n_particles=n, seed=seed, metric_logk_sigma=0.25,
                                metric_speed_dev_sigma=0.15)
-    if odom_kind == "vo_plane":         # assumed camera height, GT-free step noise
+    if odom_kind in ("vo_plane", "vo_plane_lingbot_heading"):  # assumed height, GT-free noise
         dev = 0.15 if plane_spread is None or not np.isfinite(plane_spread) else plane_spread
         return gf.FilterConfig(n_particles=n, seed=seed, metric_logk_sigma=0.25,
                                metric_speed_dev_sigma=float(np.clip(dev, 0.05, 0.3)))
@@ -533,7 +546,7 @@ def plot(path: Path, runs: list[dict]) -> None:
     colors = {"oracle": "#1b7837", "oracle_unit": "#5aae61", "vo_oracle_speed": "#e08214",
               "vo": "#c51b7d", "vo_gflow": "#2166ac", "vo_plane": "#762a83",
               "vo_plane_rel": "#9970ab", "vo_lingbot_rel": "#35978f",
-              "vo_lingbot_plane": "#01665e"}
+              "vo_lingbot_plane": "#01665e", "vo_plane_lingbot_heading": "#8c510a"}
     for ax, d in zip(axes[0], drives):
         combos = sorted({(r["map"], r["odometry"]) for r in runs if r["drive"] == d})
         for m, o in combos:
@@ -631,7 +644,7 @@ def main(argv=None) -> int:
             plane = plane_lengths(ddir, traj, K, out / f"plane_{d}.npz",
                                   args.camera_height_m)
         lingbot = None
-        if any(o.startswith("vo_lingbot") for o in args.odometry):
+        if any("lingbot" in o for o in args.odometry):
             lpath = out / f"lingbot_{d}.npz"
             if lpath.exists():
                 lingbot, lfi = lingbot_trajectory(lpath)
@@ -711,7 +724,8 @@ def main(argv=None) -> int:
     (out / f"results{tag}.json").write_text(json.dumps(
         {"meta": meta, "summary": summary, "runs": runs}, indent=1), encoding="utf-8")
     write_markdown(out / f"results{tag}.md", summary, meta)
-    plot(out / f"error_vs_time{tag}.png", runs)
+    if runs:
+        plot(out / f"error_vs_time{tag}.png", runs)
     print(f"wrote {out / f'results{tag}.json'}, .md, .png ({wall:.0f} s wall)", flush=True)
     return 0
 

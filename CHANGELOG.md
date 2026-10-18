@@ -128,10 +128,14 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   certified at α = 0.10 (S1 untestable, S2 not supported), and its patch score
   ranks worse than the MegaLoc cosine (AUROC 0.77 vs 0.92 held-out; S3 not
   supported). Exploratory: the cosine ranking itself transfers across cities.
-- **LingBot-Map** (`scripts/run_lingbot_map.py`, `eval_graph_filter.py
-  --odometry vo_lingbot_rel vo_lingbot_plane`): not metric (0.05x), heading
-  slightly better than the repo's VO with the same drift, speed profile weaker
-  than the road-plane estimate; drive 0033 pending.
+- **LingBot-Map** (`scripts/run_lingbot_map.py`; `eval_graph_filter.py`
+  variants `vo_lingbot_rel`, `vo_lingbot_plane`, `vo_plane_lingbot_heading`):
+  much better heading than the repo's VO on KITTI 0033 (3.2° vs 12.2° median
+  error, 4.9 vs 14.1°/min drift) but no metric scale and no speed signal in its
+  step lengths (corr 0.01). In the particle filter its own steps fail
+  city-wide (0/5); road-plane speed with its heading stays on the right street
+  longer (45 % vs 26 % of steps within 10 m city-wide) but localizes 4/5 seeds
+  against 5/5 with the VO heading. Not adopted.
 
 ### Added
 
