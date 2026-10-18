@@ -62,6 +62,32 @@ def _city_extent_reach_m(city: str, cache_path) -> float | None:
     return geodesic_distance_m(cen[0], cen[1], ext[0], ext[1]) + float(ext[2])
 
 
+def _city_centre(city: str, cache_path):
+    from ..text_anchor import default_geocode_fn
+    return default_geocode_fn(cache_path)(city)
+
+
+def _seed_inside_city(lat: float, lon: float, radius_m: float, city: str, cache_dir) -> bool:
+    """Does a frame-derived seed disc overlap the city the user named?
+
+    Every seed is a hard gate, and the user said which city it is: a seed
+    outside it contradicts the input. Observed in benchmark run v3: on a
+    Detroit clip the licence-plate reader matched the German district code "D"
+    (Duesseldorf) and sent the search 6,500 km away. Unknown city extent:
+    refuse, as for OCR seeds."""
+    if cache_dir is None:
+        return False
+    cache_path = Path(cache_dir) / "geocode_cache.json"
+    try:
+        reach = _city_extent_reach_m(city, cache_path)
+        cen = _city_centre(city, cache_path) if reach is not None else None
+    except Exception:
+        return False
+    if reach is None or cen is None:
+        return False
+    return geodesic_distance_m(cen[0], cen[1], lat, lon) <= float(reach) + float(radius_m)
+
+
 def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
                        vo_start: float = 0.0, vo_end: float | None = None,
                        ocr_engine: str = "rapidocr", cache_dir=None):
@@ -75,8 +101,11 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
         pa = plate_district_anchor(str(video_path))
         if pa is not None:
             rad = max(1500.0, float(getattr(pa, "radius_m", 0.0) or 0.0))
-            return (float(pa.lat), float(pa.lon), rad,
-                    f"plate:{getattr(pa, 'district', '?')}")
+            if _seed_inside_city(float(pa.lat), float(pa.lon), rad, city, cache_dir):
+                return (float(pa.lat), float(pa.lon), rad,
+                        f"plate:{getattr(pa, 'district', '?')}")
+            print(f"      -> [coarse] plate district {getattr(pa, 'district', '?')} lies "
+                  f"outside {city}; ignored")
     except Exception as e:
         print(f"      -> [coarse] plate seed unavailable ({e})")
     try:                                       # 2) OCR place names -> geocode
@@ -115,7 +144,9 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
             va = vlm_district_anchor(frames, city)
             if va is not None:
                 rad = max(1500.0, float(getattr(va, "radius_m", 0.0) or 2500.0))
-                return (float(va.lat), float(va.lon), rad, "vlm")
+                if _seed_inside_city(float(va.lat), float(va.lon), rad, city, cache_dir):
+                    return (float(va.lat), float(va.lon), rad, "vlm")
+                print(f"      -> [coarse] VLM guess lies outside {city}; ignored")
         except Exception as e:
             print(f"      -> [coarse] VLM seed unavailable ({e})")
     return None

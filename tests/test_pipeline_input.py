@@ -1154,3 +1154,31 @@ def test_ocr_coarse_seed_refuses_without_city_extent(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: None)
     assert pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
                                        "Karlsruhe, Germany", cache_dir=tmp_path) is None
+
+
+def test_a_plate_seed_outside_the_named_city_is_ignored(tmp_path, monkeypatch) -> None:
+    """Benchmark run v3: on a Detroit clip the plate reader matched the German
+    code "D" (Duesseldorf) and the search went 6,500 km away."""
+    from types import SimpleNamespace
+
+    import monocular_osm.plate_anchor as pa_mod
+    import monocular_osm.scene_text as stx
+
+    monkeypatch.setattr(stx, "extract_scene_text", lambda *a, **k: [])
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: 15000.0)
+    centres = {"Detroit, Michigan, USA": (42.33, -83.05), "Karlsruhe, Germany": (49.0069, 8.4034)}
+    monkeypatch.setattr(stage_prior, "_city_centre", lambda c, p: centres[c])
+    dus = SimpleNamespace(lat=51.2254, lon=6.7763, radius_m=20000.0, district="Duesseldorf")
+    ka = SimpleNamespace(lat=49.03, lon=8.43, radius_m=12000.0, district="Karlsruhe")
+
+    monkeypatch.setattr(pa_mod, "plate_district_anchor", lambda *a, **k: dus)
+    assert pipeline._frame_coarse_seed(tmp_path / "v.mp4", [], "Detroit, Michigan, USA",
+                                       cache_dir=tmp_path) is None
+    monkeypatch.setattr(pa_mod, "plate_district_anchor", lambda *a, **k: ka)
+    seed = pipeline._frame_coarse_seed(tmp_path / "v.mp4", [], "Karlsruhe, Germany",
+                                       cache_dir=tmp_path)
+    assert seed is not None and seed[3] == "plate:Karlsruhe"
+    # unknown city extent: refuse (a seed is a hard gate)
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: None)
+    assert pipeline._frame_coarse_seed(tmp_path / "v.mp4", [], "Karlsruhe, Germany",
+                                       cache_dir=tmp_path) is None
