@@ -105,6 +105,14 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
 
 ### Experiments, October 2026 (`docs/experiments_2026-10.md`)
 
+- **Run v3 (core clips, after the seed fixes):** better than v2 on 5 of 6
+  clips, worse on none (`benchmark.py compare`; sign test p = 0.06): Ulm #2
+  7,662 -> 142 m, Berlin 3,356 -> 789 m, London 83 -> 18 m; median of clip
+  medians 466 m (v2 4,351 m, centre guess 1,205 m). In-sample for the seed
+  rule. v3's overlay half exposed a licence-plate seed bug (German district
+  codes matched on US footage, sending four clips to Germany), fixed in
+  `514b420`; the overlay fleet is re-run as v4.
+
 - **Where the failures come from.** On the exact v2 reference sets: three of
   the four failing core clips searched a disc that did not contain the route
   (Ulm #2 and Berlin title seeds, KITTI 0033's scene-text seed); on KITTI 0009

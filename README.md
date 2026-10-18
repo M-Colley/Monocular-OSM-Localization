@@ -1056,6 +1056,34 @@ three overlay clips are flagged DEGRADED (under 50 % valid VO poses); and on
 `scripts/benchmark.py aggregate --run-name v2 --offline`).
 <!-- HELDOUT:END -->
 
+#### After the 2026-10-17 fixes (run v3, core clips)
+
+The follow-up analysis ([`docs/experiments_2026-10.md`](docs/experiments_2026-10.md))
+found that three of the four failing core clips had searched a disc that did
+not contain the route, because of bad seeds from the title or from scene text.
+The seed rule was rewritten (a title or OCR word counts only if the geocoder's
+match *is* that place, not a business containing the word; the disc is sized to
+hold the whole drive; frame seeds must lie inside the named city). Run v3 (one
+cold rep per clip, package `6ca36a9`, retrieval on the CPU) on the same core
+clips, compared with `scripts/benchmark.py compare --base v2 --new v3`:
+
+| Clip | v2 (median of 3) | v3 | Centre guess |
+|---|---|---|---|
+| Ulm 4K, 0-300 s | 27 | 24 | 445 |
+| London | 83 | **18** | 1,501 |
+| Ulm #2 | 7,662 | **142** | 350 |
+| Berlin, 0-420 s | 3,356 | **789** | 909 |
+| KITTI 0033 | 7,094 | 6,830 | 6,709 |
+| KITTI 0009 | 5,346 | 5,346 | 2,563 |
+
+Better on 5 clips, worse on none (sign test p = 0.06); median of clip medians
+466 m (v2: 4,351 m; centre guess 1,205 m); the pipeline now beats the centre
+guess on 4 of 6. **In-sample:** these are the clips the seed rule's coverage was
+checked on, so this shows the fixes do what they were built to do, not that
+they generalise; the overlay clips are the test (below). The two KITTI drives
+still fail: their search covers the city, but the references kept cover too
+little of the route (section 1 of the experiments page).
+
 **Reproduce** (needs `MLY_TOKEN`; the YouTube clips are downloaded on first use,
 so keep `yt-dlp` current):
 
