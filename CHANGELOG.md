@@ -118,6 +118,10 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   profile is informative (corr 0.56-0.92 on 8 clips) but reads 2-30x short on
   dashcams (pitched-up cameras, burned-in stamps in the road band), and the VO
   keeps only 41-87 % of its poses. `scripts/eval_graph_filter_dashcam.py`.
+  Post hoc, `plane_speed(horizon="foe", mask_static=True)` (road band below
+  the VO's own horizon, burned-in stamps masked; off by default) fixes the scale
+  on pitched-up cameras (Ulm 4K 0.50 -> 0.92, London 0.20 -> 0.73) but not
+  overall: still no clip localized.
 - **Run v4 (overlay clips, all fixes): no improvement held-out.** Better than
   v2 on 2 clips (both Chicago: 3,934 -> 41 m, 8,660 -> 254 m), worse on 6,
   unchanged on 1 (sign test p = 0.29); median of clip medians 6,748 m vs

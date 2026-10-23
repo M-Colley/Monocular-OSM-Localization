@@ -188,3 +188,21 @@ network of the pipeline's own city-extent search disc (8 km here).
   bottom ~15 % of the frame and the level-camera road band covers buildings,
   parked cars and the burned-in stamp.
 
+**Post hoc (designed after the registered run, so not evidence of
+generalisation):** two GT-free changes to the road band, `plane_speed(...,
+horizon="foe", mask_static=True)` — place the band below the VO's own focus of
+expansion (the horizon of a car moving parallel to the road) instead of below
+the image centre, and drop pixels that never change over the clip (burned-in
+stamps). Re-run with everything else unchanged:
+
+| | Better | Worse |
+|---|---|---|
+| Speed scale vs ground truth | Ulm 4K 0.50 -> 0.92, London 0.20 -> 0.73, Berlin 0.41 -> 0.71, Atlanta `y66ZkRpUh4k` 0.14 -> 0.59 | Chicago `vCSEG6KaFng` 0.62 -> 0.12, Detroit `g5lnpYCk1Ec` 0.30 -> 0.08, Ulm #2 0.26 -> 0.15 |
+| Filter | Detroit `1nF_7l07i-E` route 6.8 -> 1.4 km | no clip localized; 4 better / 9 worse than the pipeline, as registered |
+
+The narrower band also leaves fewer road features (coverage falls on most
+clips) and does nothing for the VO's lost poses. Conclusion: on this footage
+the retrieval-free path fails at the odometry, as it did on KITTI before the
+road-plane speed; making it work on dashcams needs a VO that keeps its poses
+and a scale estimate robust to unknown mounting, not a better map matcher.
+
