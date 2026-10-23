@@ -105,3 +105,27 @@ def test_stationary_and_invalid_steps_stay_zero() -> None:
     ps = plane_step_lengths(frames, traj, K, smooth_steps=3)
     assert ps.lengths_m[3] == 0.0 and np.isnan(ps.raw_m[3])
     assert (ps.lengths_m[[0, 1, 5, 6]] > 0).all()
+
+
+def test_foe_horizon_follows_camera_pitch() -> None:
+    """Driving straight with the camera pitched up by angle a puts the focus of
+    expansion (= the horizon) at cy + fy * tan(a) below the image centre."""
+    from monocular_osm.plane_speed import foe_horizon_row
+
+    frames, traj, K = _render_drive(n_frames=30)
+    assert foe_horizon_row(traj, K) == pytest.approx(K[1, 2], abs=0.5)     # level
+    a = np.deg2rad(8.0)
+    # world-to-camera rotation by -a about x = the camera tilted UP by a
+    Rx = np.array([[1, 0, 0], [0, np.cos(-a), -np.sin(-a)], [0, np.sin(-a), np.cos(-a)]])
+    traj.rotations = np.array([Rx @ r for r in traj.rotations])
+    assert foe_horizon_row(traj, K) == pytest.approx(K[1, 2] + K[1, 1] * np.tan(a), abs=0.5)
+
+
+def test_static_overlay_text_is_masked_but_the_moving_scene_is_not() -> None:
+    from monocular_osm.plane_speed import static_overlay_mask
+
+    frames, _traj, _K = _render_drive(n_frames=20)
+    for f in frames:
+        f[200:220, 20:120] = 255            # a burned-in stamp: identical in every frame
+    m = static_overlay_mask(frames)
+    assert m[210, 70] == 255 and m[150, 160] == 0

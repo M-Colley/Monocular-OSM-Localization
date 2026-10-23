@@ -115,6 +115,45 @@ def road_mask(shape: tuple[int, int], K: np.ndarray, *, below_horizon_frac: floa
     return mask
 
 
+def foe_horizon_row(traj, K: np.ndarray, min_steps: int = 20) -> float | None:
+    """Image row of the horizon, from the VO's own motion: a car moves parallel
+    to the road, so its focus of expansion (the image of each step's direction
+    in that frame's camera) lies on the horizon. Median over moving steps.
+
+    The default road band assumes a level camera (horizon at the principal
+    point). Dashcams are often pitched up: on an Atlanta overlay clip the road
+    fills only the bottom ~15 % of the frame, so the level-camera band covered
+    buildings and parked cars, and the plane fit read speed ~7x short."""
+    C = np.asarray(traj.centers, float)
+    R = np.asarray(traj.rotations, float)
+    valid = np.asarray(traj.valid, bool)
+    rows = []
+    for i in range(len(C) - 1):
+        if not valid[i + 1]:
+            continue
+        d = R[i] @ (C[i + 1] - C[i])
+        if d[2] > 1e-6 * max(np.linalg.norm(d), 1e-12):
+            rows.append(K[1, 1] * d[1] / d[2] + K[1, 2])
+    return float(np.median(rows)) if len(rows) >= min_steps else None
+
+
+def static_overlay_mask(frames_gray, *, n_sample: int = 60, std_max: float = 3.0,
+                        dilate_px: int = 9) -> np.ndarray:
+    """uint8 mask (255 = static) of pixels that barely change over the clip:
+    burned-in timestamps, speed/GPS stamps and logos. Their features do not
+    move with the road, so inside the road band they pull the plane fit
+    towards infinity (speed too short). Frames are sampled across the whole
+    clip, so a stop at a light does not make the scene look static."""
+    import cv2
+
+    idx = np.linspace(0, len(frames_gray) - 1, min(n_sample, len(frames_gray))).astype(int)
+    stack = np.stack([np.asarray(frames_gray[i], np.float32) for i in idx])
+    static = (stack.std(axis=0) < std_max).astype(np.uint8) * 255
+    if dilate_px > 0:
+        static = cv2.dilate(static, np.ones((dilate_px, dilate_px), np.uint8))
+    return static
+
+
 def pair_correspondences(img1: np.ndarray, img2: np.ndarray, mask: np.ndarray,
                          *, max_corners: int = 400, fb_max_px: float = 1.0):
     """Shi-Tomasi corners in ``mask`` tracked img1 -> img2 by pyramidal
@@ -165,6 +204,8 @@ def plane_step_lengths(
     smooth_steps: int = 9,
     max_step_m: float = 6.0,
     below_horizon_frac: float = 0.12,
+    horizon: str = "principal",
+    mask_static: bool = False,
     seed: int = 0,
 ) -> PlaneSpeed:
     """Metric length of every VO step from the road plane (see module doc).
@@ -186,8 +227,22 @@ def plane_step_lengths(
     raw = np.full(n - 1, np.nan)
     inl = np.zeros(n - 1, int)
     cos_tilt = np.cos(np.deg2rad(max_normal_tilt_deg))
-    mask = road_mask(np.asarray(frames_gray[0]).shape[:2], K,
-                     below_horizon_frac=below_horizon_frac)
+    shape = np.asarray(frames_gray[0]).shape[:2]
+    mask = road_mask(shape, K, below_horizon_frac=below_horizon_frac)
+    if horizon == "foe":
+        # Road band from a quarter of the way below the VO's own horizon down
+        # to the bonnet margin (fixed before use; see foe_horizon_row).
+        hz = foe_horizon_row(traj, K)
+        if hz is not None and 0 <= hz < shape[0] - 4:
+            h = shape[0]
+            band = np.zeros(shape, np.uint8)
+            top = int(hz + 0.25 * (h * 0.94 - hz))
+            band[top:int(h * 0.94), int(shape[1] * 0.12):int(shape[1] * 0.88)] = 255
+            mask = band
+    elif horizon != "principal":
+        raise ValueError(f"horizon must be 'principal' or 'foe', not {horizon!r}")
+    if mask_static:
+        mask = np.where(static_overlay_mask(frames_gray) > 0, 0, mask).astype(np.uint8)
     rng = np.random.default_rng(seed)
     for i in range(n - 1):
         if not moving[i]:
