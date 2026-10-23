@@ -112,6 +112,12 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   rule. v3's overlay half exposed a licence-plate seed bug (German district
   codes matched on US footage, sending four clips to Germany), fixed in
   `514b420`; the overlay fleet is re-run as v4.
+- **Particle filter on dashcam footage, pre-registered (`graph_filter_dashcam`):
+  negative.** With road-plane speed on all 13 dashcam clips it localizes none
+  (G1) and beats the pipeline on 4, loses on 9 (G2, p = 0.27). The speed
+  profile is informative (corr 0.56-0.92 on 8 clips) but reads 2-30x short on
+  dashcams (pitched-up cameras, burned-in stamps in the road band), and the VO
+  keeps only 41-87 % of its poses. `scripts/eval_graph_filter_dashcam.py`.
 - **Run v4 (overlay clips, all fixes): no improvement held-out.** Better than
   v2 on 2 clips (both Chicago: 3,934 -> 41 m, 8,660 -> 254 m), worse on 6,
   unchanged on 1 (sign test p = 0.29); median of clip medians 6,748 m vs

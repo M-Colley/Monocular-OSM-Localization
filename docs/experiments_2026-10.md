@@ -150,3 +150,41 @@ does not create the reference coverage a city-wide search needs (section 1),
 so clips that had been rescued by a lucky or weak seed now fail. The binding
 constraint is the same as in section 1: references within ~50 m of the route.
 
+## 6. The retrieval-free particle filter on dashcam footage (registered test negative)
+
+Registered as `graph_filter_dashcam` (commit `d5aa0e0`) before any dashcam
+filter result existed; run by `scripts/eval_graph_filter_dashcam.py`: road-plane
+speed (assumed camera height 1.5 m) on the frames each cached VO used, VO
+heading, the `--graph-filter` defaults, 600,000 particles, 3 seeds, on the drive
+network of the pipeline's own city-extent search disc (8 km here).
+
+| Clip | Route in disc | VO poses valid | Plane speed: scale / corr vs GT | Filter route error | Pipeline (v3/v4) |
+|---|---|---|---|---|---|
+| Ulm 4K | 100 % | 51 % | 0.50 / 0.92 | 2,203 | **24** |
+| Ulm #2 | 100 % | 64 % | 0.26 / 0.84 | 2,332 | **142** |
+| Berlin | 100 % | 80 % | 0.41 / 0.56 | 5,887 | **789** |
+| London | 100 % | 63 % | 0.20 / 0.82 | 7,627 | **18** |
+| Chicago `vCSEG6KaFng` | 100 % | 41 % | 0.62 / 0.74 | 8,525 | **41** |
+| Chicago `LmIHvLMLqFk` | 100 % | 41 % | 0.22 / 0.68 | 6,000 | **254** |
+| Scottsdale `wJsEQTCAg1c` | 0 % | 56 % | 0.22 / 0.42 | 12,112 | 13,772 |
+| Detroit `ZhGb8q1kliY` | 100 % | 53 % | 0.46 / 0.42 | 5,473 | 7,442 |
+| Detroit `1nF_7l07i-E` | 100 % | 58 % | 0.09 / 0.19 | 6,761 | 6,471 |
+| Detroit `g5lnpYCk1Ec` | 20 % | 86 % | 0.30 / 0.43 | 5,423 | 8,803 |
+| Atlanta `y66ZkRpUh4k` | 100 % | 49 % | 0.14 / 0.79 | 5,091 | 6,748 |
+| Atlanta `kxEDNj5L_yQ` | 30 % | 87 % | 0.03 / 0.60 | 13,079 | 6,829 |
+| Newcastle `Wrn4_uCxRCQ` | 100 % | 71 % | 0.19 / 0.85 | 4,085 | **362** |
+
+* **G1 (localizes at least one clip): not supported** — every clip ends
+  2-13 km off.
+* **G2 (beats the pipeline on more clips than it loses): not supported** —
+  better on 4 (all where both are kilometres off), worse on 9 (p = 0.27).
+* **Why: the odometry, as on KITTI, not the map matching.** On dashcam footage
+  the road-plane speed follows the true speed profile (correlation 0.56-0.92
+  on 8 of 13 clips) but reads 2-30x short (scale 0.03-0.62, against 0.76 on
+  KITTI), far outside the filter's scale prior; only 5-49 % of moving steps get
+  an estimate; and the VO keeps only 41-87 % of its poses, each lost pose read
+  by the filter as a stop. A frame from Atlanta `y66ZkRpUh4k` shows one cause
+  of the short scale: the dashcam is pitched up, so the road fills only the
+  bottom ~15 % of the frame and the level-camera road band covers buildings,
+  parked cars and the burned-in stamp.
+

@@ -220,6 +220,13 @@ def main(argv=None) -> int:
     ap.add_argument("--width", type=int, default=960)
     ap.add_argument("--camera-height-m", type=float, default=1.5)
     ap.add_argument("--out", type=Path, default=ROOT / "output" / "graph_filter_dashcam")
+    ap.add_argument("--graph-dir", type=Path, default=None,
+                    help="where the disc graphs are cached (default: --out)")
+    ap.add_argument("--horizon", choices=("principal", "foe"), default="principal",
+                    help="plane_speed road band (POST HOC: 'foe' was designed after the "
+                         "registered run; the registered setting is 'principal')")
+    ap.add_argument("--mask-static", action="store_true",
+                    help="plane_speed static-overlay mask (POST HOC, see --horizon)")
     args = ap.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     manifest = B.load_manifest(ROOT / "benchmarks" / "manifest.json")
@@ -248,7 +255,8 @@ def main(argv=None) -> int:
                       flush=True)
                 continue
             ps = plane_step_lengths(frames, traj, default_intrinsics(*size),
-                                    camera_height_m=args.camera_height_m)
+                                    camera_height_m=args.camera_height_m,
+                                    horizon=args.horizon, mask_static=args.mask_static)
             lengths, spread, cov = ps.lengths_m, ps.rel_spread, ps.coverage
             np.savez_compressed(cache, lengths=lengths, ts=ts, spread=spread, coverage=cov)
             print(f"{e['id']}: plane speed on {len(frames)} frames in "
@@ -269,7 +277,7 @@ def main(argv=None) -> int:
         tw = np.array([w["t_sec"] for w in wps], float)
         gt_step = np.column_stack([np.interp(step_t, tw, gt_ll[:, 0]),
                                    np.interp(step_t, tw, gt_ll[:, 1])])
-        graph_path = disc_graph(e["id"], e["city"], disc, args.out)
+        graph_path = disc_graph(e["id"], e["city"], disc, args.graph_dir or args.out)
         meta[e["id"]] = {"city": e["city"], "fleet": e["fleet"], "disc": list(disc),
                          "route_inside_disc": inside,
                          "vo_valid_frac": float(np.mean(np.asarray(traj.valid))),
