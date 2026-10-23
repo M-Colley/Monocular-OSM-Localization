@@ -80,6 +80,20 @@
       },
       "disclosure": "The overlay clips were the held-out test of the tau rule and their titles were read when writing the title-seed rule; no overlay per-frame retrieval label, cosine or verifier score had been computed when this was registered. Few frames are correct at 50 m (on Ulm 4K, 7 % of pass-1 top-1 retrievals), so acceptance may be very low; that is reported, not changed.",
       "power_note": "~480 calibration and ~720 test frames, but frames of one clip are not independent; results are also reported per clip."
+    },
+    "graph_filter_dashcam": {
+      "registered": "2026-10-23",
+      "description": "Does the retrieval-free road-graph particle filter with road-plane speed (localized KITTI 0033 city-wide in 5/5 seeds) work on dashcam footage? The pipeline's failures trace to retrieval reference coverage; this channel needs no references.",
+      "method": "the --graph-filter defaults at commit 3ab1b5a: monocular_osm.plane_speed with an assumed 1.5 m camera height on the frames the cached VO used (same stride and window, downscaled to 960 px wide with the intrinsics scaled to match), VO rotation heading, FilterConfig(metric_logk_sigma=0.25, metric_speed_dev_sigma=clip(estimator spread, 0.05, 0.3)), 600,000 particles, 2 Hz, 3 seeds. Nothing tuned on these clips.",
+      "map": "the clip's deployable search disc: the drive network within the pipeline's city-extent radius (text_anchor.city_extent_radius, clipped to 3-8 km) around the geocoded centre of the manifest city string; a route outside it cannot be localized by construction and is reported as such",
+      "clips": "every manifest clip with a cached VO trajectory (core YouTube clips, KITTI excluded as already reported, and the nine overlay clips)",
+      "outcome": "per clip, the symmetric error (metrics.score_route) of the filter's smoothed route, median over seeds, against ground truth; a clip is localized when the median final error is < 50 m",
+      "comparison": "per clip against the pipeline's symmetric error in the latest run with the same code fixes (v3 for core clips, v4 for overlay clips); sign test over clips, ties excluded",
+      "hypotheses": {
+        "G1": "The filter localizes at least one dashcam clip (median final error < 50 m).",
+        "G2": "The filter's smoothed-route error beats the pipeline's on more clips than it loses (sign test)."
+      },
+      "disclosure": "The road-plane estimator and the filter settings were developed on KITTI 0009/0033 only; the dashcam clips' ground truth has been used to score the pipeline before, never for the filter or the speed estimator. Speed accuracy on dashcam footage is unknown and is reported against the ground-truth timing (exploratory)."
     }
   }
 }
