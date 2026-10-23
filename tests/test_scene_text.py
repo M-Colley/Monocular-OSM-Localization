@@ -184,3 +184,24 @@ def test_old_cache_without_schema_is_invalidated(tmp_path: Path) -> None:
     )
     assert [s.text for s in out] == ["New"]
     assert out[0].bbox == (0.0, 0.0, 5.0, 5.0)
+
+
+def test_burned_in_gps_and_speed_stamps_never_leave_the_extractor(tmp_path: Path) -> None:
+    """The overlay fleet's ground truth is the stamp burned into each frame; a
+    geocoder accepts raw coordinates, so stamp text must never reach a seed or
+    an anchor - whole, or split over several detections as OCR often does."""
+    from monocular_osm.scene_text import is_position_stamp
+
+    stamps = ["000MPH  N:41.8933 W:87.6216", "W:87.6216", "N:41.8933", "41.8933",
+              "42 22'59\"N", "N42°22'59\"", "35 MPH", "62km/h", "51.527047, -0.131824"]
+    places = ["Potsdamer Platz", "STARBUCKS", "Ulm Minster", "A8 Stuttgart", "B10"]
+    assert all(is_position_stamp(t) for t in stamps)
+    assert not any(is_position_stamp(t) for t in places)
+    reader = _FakeReader([[([], t, 0.9) for t in stamps + places]])
+    cache = tmp_path / "st.json"
+    out = extract_scene_text(tmp_path / "v.mp4", ocr_reader=reader, cache_path=cache,
+                             frame_reader=_fake_frames([0.0]))
+    assert [s.text for s in out] == places
+    again = extract_scene_text(tmp_path / "v.mp4", ocr_reader=_FakeReader([[]]),
+                               cache_path=cache, frame_reader=_fake_frames([0.0]))
+    assert [s.text for s in again] == places        # the cached path filters too

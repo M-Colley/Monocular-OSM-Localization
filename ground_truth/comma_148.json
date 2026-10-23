@@ -3,7 +3,7 @@
   "video_url": "https://huggingface.co/datasets/commaai/comma2k19",
   "city": "San Francisco Peninsula, California, USA",
   "vo_segment": "0:239",
-  "description": "Auto-extracted from a burned-in GPS overlay via OCR (4800 fixes → 14 waypoints). Verify before trusting.",
+  "description": "comma2k19 route b0c9d2329ad1606b_2018-08-17--14-55-39: ground truth from the dataset's fused INS/GNSS/vision global pose (global_pose/frame_positions, ECEF -> WGS84 via pyproj), 4800 poses (one per video frame, 20 Hz) evenly subsampled to 14 waypoints; consecutive segments laid end-to-end on one clock. Not OCR.",
   "source": "comma2k19_global_pose",
   "waypoints": [
     {

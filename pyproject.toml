@@ -53,9 +53,10 @@ dependencies = [
     "open3d>=0.19.0",
     "plotly>=6.8.0",
     "tqdm>=4.68.2",
-    "pycolmap>=4.1.0",
     "pysolar>=0.11",
     "timezonefinder>=6.0",
+    "rapidfuzz>=3.0",
+    "tenacity>=8.2",
 ]
 
 [project.optional-dependencies]
@@ -63,17 +64,23 @@ dev = ["pytest>=7.4.0"]
 # OCR channel: scene-text anchors (--enable-ocr-anchor) and automatic ground
 # truth from clips with a burned-in GPS stamp (scripts/build_overlay_fleet.py).
 # Installs the DEFAULT engine (--ocr-engine rapidocr): PP-OCRv6 on onnxruntime,
-# which reads the dashcam stamps better than easyocr (yield 92.5 -> 96.6%,
-# gross misreads 4.1 -> 2.6% over 320 overlay-fleet frames) and, unlike easyocr,
-# pulls no torch. Its metadata asks for "opencv_python" while this project
-# installs "opencv-python-headless" — the same cv2 under another distribution
-# name, satisfying its actual >=4.5.1.48 constraint, so pip warns and
-# everything works.
+# which reads the dashcam stamps better than easyocr (yield and gross-misread
+# rates over 320 overlay-fleet frames: see the CHANGELOG table) and, unlike
+# easyocr, pulls no torch. Its "opencv_python" requirement is met by the core
+# opencv-python dependency.
 ocr = ["rapidocr>=3.9", "onnxruntime>=1.20"]
 rapidocr = ["rapidocr>=3.9", "onnxruntime>=1.20"]
 # The alternative backend (--ocr-engine easyocr). Heavier: pulls torch. Every
 # result published before 2026-08-12 was measured with it.
 easyocr = ["easyocr>=1.7.2"]
+# Licence-plate district reader (monocular_osm/plate_anchor.py). The default
+# GPS-free configuration (--coarse-from-frames) seeds its search disc from the
+# plate district when this is installed and silently skips that seed when it
+# is not, so install it to reproduce the published configuration.
+plates = ["fast-alpr>=0.4"]
+# COLMAP/GLOMAP structure-from-motion, used only by the experiment script
+# scripts/test_glomap_traj.py — not by the package.
+sfm = ["pycolmap>=4.1.0"]
 
 [project.scripts]
 osm-localize = "monocular_osm.cli:main"
@@ -87,8 +94,18 @@ Changelog = "https://github.com/M-Colley/Monocular-OSM-Localization/blob/main/CH
 [tool.setuptools.dynamic]
 version = { attr = "monocular_osm.__version__" }
 
+[tool.setuptools.package-data]
+# Committed data snapshots read at runtime (e.g. the Wikidata Kfz table).
+monocular_osm = ["data/*.json"]
+
 [tool.setuptools.packages.find]
 # Ship only the importable library. The root main.py stays a source-checkout
 # convenience shim (`python main.py ...`) and is deliberately not packaged;
 # installed users get the `osm-localize` console script instead.
 include = ["monocular_osm*"]
+
+[tool.pytest.ini_options]
+# scripts/ holds ~46 experiment scripts named test_*.py that need GPUs,
+# datasets or optional packages; they are not unit tests. Without this a bare
+# `pytest` from the repo root fails at collection.
+testpaths = ["tests"]

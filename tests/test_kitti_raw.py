@@ -98,6 +98,17 @@ def test_kitti_ground_truth_schema(tmp_path: Path) -> None:
     json.dumps(gt)  # serialisable
 
 
+def test_kitti_ground_truth_describes_oxts_not_ocr(tmp_path: Path) -> None:
+    # The shared writer's default description claims an OCR'd overlay; KITTI
+    # GT is OXTS GPS/IMU and must say so.
+    latlons = [(49.0 + i * 1e-4, 8.4 + i * 1e-4) for i in range(40)]
+    gt = kitti_ground_truth(_make_drive(tmp_path, latlons), n_waypoints=10)
+    assert "OCR" not in gt["description"].replace("Not OCR", "")
+    assert "OXTS" in gt["description"]
+    assert f"{len(latlons)} fixes" in gt["description"]
+    assert f"{len(gt['waypoints'])} waypoints" in gt["description"]
+
+
 # ---------------------------------------------------------------------------
 # osm_around_for_track — the region prior for the OSM fetch
 # ---------------------------------------------------------------------------

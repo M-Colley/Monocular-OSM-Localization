@@ -7,6 +7,8 @@ visual-odometry trajectory is meaningful.
 
 from __future__ import annotations
 
+import os
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
@@ -15,6 +17,8 @@ import networkx as nx
 import numpy as np
 import osmnx as ox
 from shapely.geometry import LineString
+
+from .net import prefer_reachable_host, transient_retry
 
 
 @dataclass
@@ -29,6 +33,57 @@ class RoadGraph:
     polylines: list[np.ndarray]
     edge_keys: list[tuple]
     crs: str  # the EPSG / wkt string of the projection
+
+
+def save_graphml_atomic(graph: nx.MultiDiGraph, path: Path | str) -> None:
+    """``ox.save_graphml`` via a temporary file and ``os.replace``: a full disk
+    or a killed process leaves the previous cache (or none), never a truncated
+    file that every later run would load."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.part{os.getpid()}")
+    try:
+        ox.save_graphml(graph, tmp)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def load_cached_graphml(path: Path | str) -> nx.MultiDiGraph | None:
+    """Load a GraphML cache, or ``None`` if it is missing or unreadable.
+
+    An unreadable file (e.g. truncated when the disk filled during an earlier
+    write: "unclosed token") is renamed to ``*.corrupt`` rather than deleted,
+    and the caller refetches. Before this, one truncated cache failed every
+    later run of the same clip in the same way.
+    """
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        return ox.load_graphml(path)
+    except (ET.ParseError, ValueError, KeyError, EOFError) as e:
+        bad = path.with_name(f"{path.name}.corrupt")
+        os.replace(path, bad)
+        print(f"      -> cached road graph unreadable ({type(e).__name__}: {e}); "
+              f"moved to {bad.name}, refetching")
+        return None
+
+
+@transient_retry()
+def _download_graph(place: str, network_type: str,
+                    around: tuple[float, float, float] | None):
+    """The Overpass download, retried on transient network errors only (a
+    geocode failure for a misspelt city is not transient and fails at once)."""
+    # Pin osmnx's single DNS resolution to a reachable Overpass machine (see
+    # net.prefer_reachable_host); re-probed on every retry attempt.
+    with prefer_reachable_host(ox.settings.overpass_url):
+        if around is not None:
+            lat, lon, radius_m = around
+            return ox.graph_from_point(
+                (lat, lon), dist=float(radius_m), network_type=network_type,
+            )
+        return ox.graph_from_place(place, network_type=network_type)
 
 
 def fetch_city_graph(
@@ -48,20 +103,12 @@ def fetch_city_graph(
     """
     cache_path = Path(cache_path) if cache_path else None
 
-    if cache_path and cache_path.exists():
-        graph = ox.load_graphml(cache_path)
-    else:
-        if around is not None:
-            lat, lon, radius_m = around
-            graph = ox.graph_from_point(
-                (lat, lon), dist=float(radius_m), network_type=network_type,
-            )
-        else:
-            graph = ox.graph_from_place(place, network_type=network_type)
+    graph = load_cached_graphml(cache_path) if cache_path else None
+    if graph is None:
+        graph = _download_graph(place, network_type, around)
         graph = ox.project_graph(graph)  # UTM in meters
         if cache_path:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            ox.save_graphml(graph, cache_path)
+            save_graphml_atomic(graph, cache_path)
 
     return _build_polyline_view(graph)
 

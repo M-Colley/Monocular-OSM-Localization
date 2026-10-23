@@ -10,6 +10,8 @@ from pathlib import Path
 
 import yt_dlp
 
+from .net import transient_retry
+
 # yt-dlp intermediates: per-format streams ("input.f399.mp4") and the FFmpeg
 # merge temp file ("input.temp.mp4"). Neither is a finished download.
 _INTERMEDIATE = re.compile(r"\.(?:temp|f\d+)\.[^.]+$", re.IGNORECASE)
@@ -226,6 +228,36 @@ def _existing_download(out_dir: Path, filename_stem: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
+@transient_retry(attempts=3, first_wait_s=30.0)
+def _extract_with_retry(ydl, url: str, verify_dir: Path | None = None,
+                        filename_stem: str = "input", verify: bool = True):
+    """yt-dlp extract+download, retried on one-off 403/429/5xx/timeouts.
+
+    A finished download is checked for a decodable tail. A download whose
+    connection dropped or was resumed wrongly can still be a complete-looking
+    ``input.mp4`` that declares its full duration but decodes only the first
+    seconds (seen on a 4K upload: 45 s of a 1,800 s file, the rest garbage),
+    and the pipeline then analysed that fragment as if it were the clip. Such a
+    file is deleted and reported as a dropped connection, so the retry fetches
+    it again instead of caching it.
+    """
+    info = ydl.extract_info(url, download=True)
+    if verify and verify_dir is not None:
+        path = Path(ydl.prepare_filename(info))
+        candidates = [path, path.with_suffix(".mp4")]
+        for p in candidates:
+            if p.exists() and p.suffix.lower() in _VIDEO_SUFFIXES:
+                from .frame_extraction import tail_decodes
+
+                if tail_decodes(p) is False:
+                    p.unlink(missing_ok=True)
+                    raise ConnectionError(
+                        f"downloaded {p.name} is truncated or corrupt (the end of "
+                        f"the container does not decode); connection dropped mid-download")
+                break
+    return info
+
+
 def download_video(
     url: str,
     out_dir: Path,
@@ -277,7 +309,8 @@ def download_video(
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            info = _extract_with_retry(ydl, url, out_dir, filename_stem,
+                                       verify=section is None)
             path = Path(ydl.prepare_filename(info))
             if path.suffix != ".mp4":
                 merged = path.with_suffix(".mp4")

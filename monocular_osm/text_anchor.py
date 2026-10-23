@@ -26,6 +26,7 @@ from typing import Callable
 
 import numpy as np
 
+from .geo import geodesic_distance_m
 from .osm_data import RoadGraph
 from .scene_text import SceneText
 
@@ -91,9 +92,22 @@ def _clean(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# osmnx.geocode's message for an empty Nominatim result list (osmnx 2.x:
+# ``f"Nominatim could not geocode query {query!r}."``).
+_OSMNX_NOT_FOUND_MSG = "could not geocode"
+
+
 def _is_genuine_not_found(exc: Exception) -> bool:
     """True only for osmnx's "no such place" error. Transient failures
-    (timeouts, DNS, HTTP 429) must NOT be treated as a negative result."""
+    (timeouts, DNS, HTTP 429) must NOT be treated as a negative result.
+
+    osmnx raises ``InsufficientResponseError`` both for a genuine empty
+    result ("Nominatim could not geocode query ...") and when Nominatim
+    answers with something other than a result list ("Nominatim API did
+    not return a list of results" -- e.g. an error body from an overloaded
+    server). Only the former is definitive, so the message is checked too;
+    an unrecognised message is treated as transient (retry next run).
+    """
     try:
         from osmnx._errors import InsufficientResponseError
     except Exception:  # pragma: no cover - very old/new osmnx layouts
@@ -101,21 +115,27 @@ def _is_genuine_not_found(exc: Exception) -> bool:
             from osmnx import InsufficientResponseError  # type: ignore
         except Exception:
             return False
-    return isinstance(exc, InsufficientResponseError)
+    return (isinstance(exc, InsufficientResponseError)
+            and _OSMNX_NOT_FOUND_MSG in str(exc))
 
 
 def default_geocode_fn(cache_path: Path | None = None) -> GeocodeFn:
-    """Nominatim-backed geocoder (via osmnx) with on-disk memoization
-    and the 1 req/s courtesy delay Nominatim asks for.
+    """Nominatim-backed geocoder (via osmnx) with on-disk memoization.
 
     Only hits and GENUINE not-found results are persisted. A transient
     network failure (timeout, rate limit) is returned as ``None`` for this
     call but never written to the cache — otherwise one flaky-network run
     permanently converts every queried text into a cached miss and silently
     disables the OCR-anchor channel on all later runs.
-    """
-    import time
 
+    Rate limiting is left to osmnx. Verified in osmnx 2.1.1
+    (``osmnx/_nominatim.py::_nominatim_request``): every request that
+    misses osmnx's own HTTP cache first sleeps ``pause = 1`` s (Nominatim's
+    "absolute maximum of 1 request per second"), and HTTP 429/504 answers
+    are retried after a 55 s pause. The extra ``time.sleep(1.1)`` this
+    function used to add on top doubled the wait per query for no policy
+    benefit and has been removed.
+    """
     import osmnx as ox
 
     cache: dict[str, list | None] = {}
@@ -144,7 +164,6 @@ def default_geocode_fn(cache_path: Path | None = None) -> GeocodeFn:
         if cacheable and cp is not None:
             cp.parent.mkdir(parents=True, exist_ok=True)
             cp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-        time.sleep(1.1)
         return result
 
     return _fn
@@ -187,9 +206,12 @@ def city_extent_radius(
         min_lon, min_lat, max_lon, max_lat = (float(x) for x in gdf.total_bounds)
         clat = (min_lat + max_lat) / 2.0
         clon = (min_lon + max_lon) / 2.0
-        half_diag = float(np.hypot(
-            (max_lat - min_lat) * 111320.0,
-            (max_lon - min_lon) * 111320.0 * np.cos(np.radians(clat))) / 2.0)
+        # Centre-to-farthest-corner WGS84 geodesic: the radius of the disc
+        # around (clat, clon) that covers the whole bbox (the half-diagonal
+        # of a flat rectangle).
+        half_diag = float(geodesic_distance_m(
+            clat, clon, [min_lat, min_lat, max_lat, max_lat],
+            [min_lon, max_lon, min_lon, max_lon]).max())
         result = (clat, clon, half_diag)
         cache[key] = [clat, clon, half_diag]
     except Exception:
@@ -372,20 +394,29 @@ def score_candidates_by_anchors(
 
     Lower = better (the walk passes close to where we read a sign). With
     no anchors, every candidate gets ``inf`` (channel is a no-op).
+
+    Exact point-to-polyline distance (shapely 2, vectorised over anchors):
+    the walk is a ``LineString``, so an anchor beside the middle of a long
+    straight segment scores its true perpendicular distance. (Before
+    2026-10 only the walk's vertices were measured, which overestimated
+    the distance by up to half a segment length; the new value is never
+    larger and equal whenever the closest point is a vertex.)
     """
+    import shapely
+
+    anchor_xy = np.asarray(anchor_xy, dtype=np.float64)
     if len(anchor_xy) == 0:
         return [float("inf")] * len(candidate_polylines)
+    anchor_pts = shapely.points(anchor_xy[:, :2])
     out: list[float] = []
     for poly in candidate_polylines:
         poly = np.asarray(poly, dtype=np.float64)
         if poly.ndim != 2 or len(poly) == 0:
             out.append(float("inf"))
             continue
-        # Min over anchors of min over polyline vertices.
-        d = np.min([
-            np.linalg.norm(poly - a, axis=1).min() for a in anchor_xy
-        ])
-        out.append(float(d))
+        geom = (shapely.linestrings(poly[:, :2]) if len(poly) >= 2
+                else shapely.points(poly[0, :2]))
+        out.append(float(shapely.distance(geom, anchor_pts).min()))
     return out
 
 
@@ -403,17 +434,26 @@ def anchor_seed_nodes(
     Capped at ``max_nodes`` (closest first) so a dense anchor doesn't
     explode enumeration cost.
     """
+    from scipy.spatial import cKDTree
+
+    anchor_xy = np.asarray(anchor_xy, dtype=np.float64)
     if len(anchor_xy) == 0:
         return []
     node_ids = list(road.graph.nodes)
+    if not node_ids:
+        return []
     xy = np.array([[road.graph.nodes[n]["x"], road.graph.nodes[n]["y"]]
                    for n in node_ids], dtype=float)
-    # Distance of each node to its nearest anchor.
-    dmin = np.full(len(node_ids), np.inf)
-    for a in anchor_xy:
-        dmin = np.minimum(dmin, np.linalg.norm(xy - a, axis=1))
-    within = np.where(dmin <= radius_m)[0]
-    within = within[np.argsort(dmin[within])][:max_nodes]
+    # Radius query (inclusive, like the former ``dmin <= radius_m`` scan):
+    # every node within radius_m of ANY anchor.
+    hits = cKDTree(xy).query_ball_point(anchor_xy[:, :2], r=radius_m)
+    within = np.unique(np.fromiter(
+        (i for h in hits for i in h), dtype=np.intp))
+    if len(within) == 0:
+        return []
+    # Closest-to-an-anchor first, then cap.
+    dmin, _ = cKDTree(anchor_xy[:, :2]).query(xy[within])
+    within = within[np.argsort(dmin, kind="stable")][:max_nodes]
     return [node_ids[i] for i in within]
 
 
@@ -568,7 +608,7 @@ def match_text_to_streets(
     legible plates (true-4K); at 720p this returns nothing (confirmed
     empirically).
     """
-    import difflib
+    from rapidfuzz import fuzz, process
 
     from .evaluator import _normalize_street_name
 
@@ -581,11 +621,19 @@ def match_text_to_streets(
         norm = _normalize_street_name(_clean(d.text))
         if len(norm) < min_letters:
             continue
-        hits = difflib.get_close_matches(norm, keys, n=1, cutoff=min_ratio)
-        if not hits:
+        # Normalised Indel similarity (2*LCS / total length). It is >= the
+        # difflib SequenceMatcher ratio used before (LCS >= Ratcliff-
+        # Obershelp matches) and identical on the test strings; on 4452
+        # OCR-corrupted Ulm street names at cutoff 0.85 the match decision
+        # agreed in 99.8 % of queries (the rest were ties between equally
+        # similar names, now resolved by gazetteer order rather than by
+        # difflib's reverse-lexicographic order).
+        hit = process.extractOne(norm, keys, scorer=fuzz.ratio,
+                                 score_cutoff=100.0 * min_ratio)
+        if hit is None:
             continue
-        ratio = difflib.SequenceMatcher(None, norm, hits[0]).ratio()
-        canonical = gaz[hits[0]]
+        ratio = hit[1] / 100.0
+        canonical = gaz[hit[0]]
         prev = best.get(canonical)
         if prev is None or d.confidence > prev[0].confidence:
             comps = _street_components(

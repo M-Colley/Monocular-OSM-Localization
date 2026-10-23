@@ -51,6 +51,25 @@ DEFAULT_URL = "https://www.youtube.com/watch?v=ULl8s4qydrk"
 DEFAULT_CITY = "Ulm, Germany"
 
 
+def _parse_fusion_weights(text: str) -> dict:
+    """argparse type for --fusion-weights: a JSON object of known names."""
+    import json
+
+    from .fusion import FusionWeights
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise argparse.ArgumentTypeError(f"not valid JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise argparse.ArgumentTypeError("expected a JSON object")
+    try:
+        FusionWeights.from_overrides(data)
+    except (ValueError, TypeError) as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+    return {str(k): float(v) for k, v in data.items()}
+
+
 def _parse_segment(s: str) -> tuple[float, float | None]:
     a, _, b = s.partition(":")
     start = float(a) if a else 0.0
@@ -178,7 +197,50 @@ def build_arg_parser() -> argparse.ArgumentParser:
              "~400s is the sweet spot before monocular VO drift degrades shape quality; "
              "a straight-line trajectory has no shape and cannot be localized.",
     )
-    p.add_argument("--top-k", type=int, default=10)
+    p.add_argument("--top-k", type=int, default=10,
+                   help="Matcher candidates passed to the fusion channels.")
+    p.add_argument("--walks-per-node", type=int, default=40,
+                   help="Walk-enumeration budget per start node. Larger values "
+                        "let the matcher generate routes with more turns at a "
+                        "runtime cost; measure recall with "
+                        "scripts/diagnose_pool_recall.py.")
+    p.add_argument("--graph-filter", action="store_true",
+                   help="EXPERIMENTAL, off by default: also run the road-graph particle "
+                        "filter (monocular_osm/graph_filter.py) on the visual odometry and "
+                        "store its route in result['filter_position'] (never the headline). "
+                        "It needs speed: with road-plane step lengths (the default, "
+                        "--graph-filter-speed plane) it localized KITTI 0033 on the whole "
+                        "Karlsruhe map in 5 of 5 seeds; with unit steps it mostly fails. "
+                        "See docs/graph_filter_kitti.md; its confidence is not calibrated.")
+    p.add_argument("--graph-filter-speed", choices=("plane", "unit"), default="plane",
+                   help="Step lengths for --graph-filter: 'plane' = metric, from the road "
+                        "plane and --camera-height-m (falls back to 'unit' when the road "
+                        "is not visible); 'unit' = the VO's unit steps.")
+    p.add_argument("--camera-height-m", type=float, default=1.5,
+                   help="Assumed camera height above the road for --graph-filter-speed "
+                        "plane (a typical windscreen dashcam is 1.2-1.7 m). It sets a "
+                        "global scale only, which the filter's scale state absorbs.")
+    p.add_argument("--graph-filter-particles", type=int, default=200_000,
+                   help="Particle count for --graph-filter (memory ~2 GB and ~2-4 min "
+                        "at 200k; the whole-city evaluation used 600k).")
+    p.add_argument("--graph-filter-seed", type=int, default=0,
+                   help="Random seed for --graph-filter.")
+    p.add_argument("--graph-filter-vpr", action="store_true",
+                   help="With --graph-filter: also feed the per-frame retrieval positions "
+                        "to the filter as noisy absolute observations (untested on real "
+                        "data beyond synthetic checks).")
+    p.add_argument("--fusion-weights", type=_parse_fusion_weights, default=None,
+                   metavar="JSON",
+                   help="Override consensus-fusion weights for ablation, e.g. "
+                        "'{\"sliding\": 0}'. Names: shape, sliding, turn, "
+                        "anchor_gated, anchor_ungated, aerial, tile3d "
+                        "(monocular_osm/fusion.py). Default: the published weights.")
+    p.add_argument("--scale-recovery-thresh-m", type=float, default=150.0,
+                   help="RANSAC inlier threshold (m) for the anchor similarity fit.")
+    p.add_argument("--scale-recovery-min-inliers", type=int, default=3,
+                   help="Minimum anchor inliers for the anchor similarity fit.")
+    p.add_argument("--scale-recovery-min-baseline-m", type=float, default=250.0,
+                   help="Minimum world extent (m) the inlier anchors must span.")
     p.add_argument(
         "--estimated-length-m",
         type=float,
@@ -642,13 +704,24 @@ def main() -> None:
         # gets. Behaves exactly like --osm-around but is sourced from the
         # video, not from ground truth.
         sub_osm_around = osm_around
+        osm_around_source = "user" if osm_around is not None else None
         if sub_osm_around is None and args.coarse_from_video:
             from .location_prior import resolve_coarse_prior
+            # Two corroborating place names, as for OCR seeds: one title word
+            # becomes an 800 m hard gate on retrieval and the road graph, and
+            # on Ulm #2 the single name "Napoleon" put all three benchmark
+            # runs 7.7 km off (the city centre is 350 m off).
+            from .stages.length_prior import _auto_estimated_length_m
+            seed_dur = duration or getattr(metadata, "duration", None)
             prior = resolve_coarse_prior(city, metadata.title,
-                                         getattr(metadata, "description", None))
+                                         getattr(metadata, "description", None),
+                                         min_places=2,
+                                         route_length_m=(_auto_estimated_length_m(seed_dur)
+                                                         if seed_dur else None))
             if prior is not None:
                 plat, plon, prad, places = prior
                 sub_osm_around = (plat, plon, prad)
+                osm_around_source = "video_title"
                 print(f"[coarse] video-named prior {plat:.5f},{plon:.5f} "
                       f"r={prad:.0f} m from: {', '.join(places[:5])}")
             else:
@@ -666,13 +739,10 @@ def main() -> None:
         if frame_stride is None:
             probe = local_path
             if probe is None:
-                # Same ext-ranked pick the pipeline uses to choose the analyzed
-                # file, so the probed fps matches the file actually analyzed
-                # (a bare glob picks input.download.json first).
-                from .pipeline import rank_cached_inputs
-                cached = rank_cached_inputs(
-                    (args.data_dir / submission_slug).glob("input.*"))
-                probe = cached[0] if cached else None
+                # Same pick the pipeline uses to choose the analyzed file, so
+                # the probed fps matches the file actually analyzed.
+                from .pipeline import pick_cached_input
+                probe = pick_cached_input(args.data_dir / submission_slug)
             fps = _probe_video_fps(probe) if probe is not None else None
             if fps is None:
                 fps = getattr(metadata, "fps", None) if local_path is None else None
@@ -688,6 +758,17 @@ def main() -> None:
             vo_start_sec=start,
             vo_end_sec=end,
             top_k=args.top_k,
+            walks_per_node=args.walks_per_node,
+            graph_filter=args.graph_filter,
+            graph_filter_particles=args.graph_filter_particles,
+            graph_filter_seed=args.graph_filter_seed,
+            graph_filter_vpr=args.graph_filter_vpr,
+            graph_filter_speed=args.graph_filter_speed,
+            camera_height_m=args.camera_height_m,
+            fusion_weights=args.fusion_weights,
+            scale_recovery_thresh_m=args.scale_recovery_thresh_m,
+            scale_recovery_min_inliers=args.scale_recovery_min_inliers,
+            scale_recovery_min_baseline_m=args.scale_recovery_min_baseline_m,
             estimated_length_m=args.estimated_length_m,
             skip_download=args.skip_download,
             sample_every=args.sample_every,
@@ -734,6 +815,7 @@ def main() -> None:
             use_ipm_scale=args.use_ipm_scale,
             scale_lock=args.scale_lock,
             osm_around=sub_osm_around,
+            osm_around_source=osm_around_source,
             coarse_from_frames=args.coarse_from_frames or args.coarse_from_vlm,
             coarse_from_vlm=args.coarse_from_vlm,
             use_vpr_prior=args.use_vpr_prior,

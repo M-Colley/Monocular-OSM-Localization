@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "registered": "2026-10-16",
+  "purpose": "Decision rules fixed on development data BEFORE the data that tests them exist. The git commit that adds a rule is its registration timestamp; scripts/benchmark.py aggregate reads the rule from this file and never re-fits it.",
+  "rules": {
+    "pipeline_selective": {
+      "description": "Answer with the pipeline's route only when its own retrieval evidence is strong; otherwise abstain to city level, i.e. answer with the geocoded centre of the --city string (the city_centroid baseline). The question it tests: does the pipeline know when it is wrong?",
+      "confidence_signal": [
+        "vpr_coarse_to_fine.pass2_sim",
+        "vpr_prior.track_sim_median"
+      ],
+      "signal_rule": "the first of these present in result.json is the confidence (median top-1 cosine similarity between the query frames and their retrieved street-level images); a run with neither (retrieval absent or skipped) abstains",
+      "tau": 0.162,
+      "answer_if": "confidence >= tau",
+      "fallback": "city_centroid",
+      "derivation": {
+        "data": "run v2, core fleet, 18 reps (6 clips x 3); package code 18e65ae (Ulm 4K rep0: 4747814, same package tree)",
+        "label": "a rep is a WIN when the pipeline's symmetric error is below the city-centroid guess's, a LOSS otherwise",
+        "wins": {
+          "london": [
+            0.213,
+            0.1939,
+            0.2103
+          ],
+          "ulm4k_0-300": [
+            0.2589,
+            0.2328,
+            0.2845
+          ]
+        },
+        "losses": {
+          "berlin_0-420": [
+            0.1275,
+            0.1298,
+            0.1284
+          ],
+          "kitti_0009": [
+            0.1166,
+            0.1166,
+            0.1166
+          ],
+          "kitti_0033": [
+            0.1063,
+            0.107,
+            0.1072
+          ]
+        },
+        "no_signal": {
+          "ulm2": "coarse-to-fine did not run (a one-word title seed set an 800 m gate), so no confidence was recorded; the rule abstains (LOSS in all 3 reps: 7662 m vs 350 m)"
+        },
+        "procedure": "tau = midpoint between the highest LOSS confidence (0.1298) and the lowest WIN confidence (0.1939) = 0.1619, rounded to 0.162. One free parameter; nothing else was tuned. The dev data separate perfectly, so dev performance says nothing about generalisation; only the held-out test does."
+      },
+      "held_out_test": {
+        "data": "run v2, overlay fleet (9 clips in 5 US/UK cities; ground truth from the GPS stamp burned into the dashcam video); none of these clips was used to choose tau",
+        "code": "package code 4fda123 (pipeline decomposed into monocular_osm/stages/ and an off-by-default --graph-filter added since 18e65ae; behaviour preservation checked by scripts/golden_pipeline.py)",
+        "disclosure": "Before registration one overlay log line had been seen: overlay_vCSEG6KaFng rep2, coarse-to-fine pass-2 similarity 0.131 (below tau). No overlay localisation error had been seen; overlay reps 0 and 1 of that clip had crashed on a full disk without producing a result. An earlier note in the working session gave tau ~0.17 from rep0 values only; this file's 0.162 comes from all 18 reps by the procedure above, and the difference does not change the decision for the one overlay value seen.",
+        "hypotheses": {
+          "H1": "Per clip (median over reps, symmetric error), pipeline_selective beats the pipeline on more overlay clips than it loses to it (sign test over clips, ties excluded).",
+          "H2": "Among overlay clips where pipeline_selective answers (does not abstain), the pipeline beats the city-centroid guess on a majority.",
+          "H3": "Overlay reps with confidence >= tau beat the city-centroid guess more often than reps below tau (one-sided Fisher exact test over reps)."
+        },
+        "power_note": "About 9 held-out clips: only large effects are detectable, and a null result is not evidence of no effect. The result is reported whichever way it comes out."
+      }
+    },
+    "safevpr_frame_verification": {
+      "registered": "2026-10-17",
+      "description": "Does a calibrated accept/abstain decision on retrieval keep its error rate on footage it was not calibrated on? SafeVPR (Sier et al., arXiv 2605.28048, MIT, code f11d5fd) verifies a retrieval with DINOv2 ViT-L/14 patch mutual-nearest-neighbour + Lowe-ratio matching and calibrates a per-score-bin threshold with Mondrian Learn-Then-Test; the tau rule above (a single cosine threshold) did not transfer from the core to the overlay clips.",
+      "unit": "one query frame and the MegaLoc top-1 reference of the first (city-disc) retrieval pass: the 80 query frames the pipeline samples over the analysis window, against the exact reference set benchmark run v2 searched (rep0, archived)",
+      "label": "correct iff the top-1 reference lies within 50 m of the ground truth interpolated at the query's video time",
+      "scores": {
+        "patch_mnn": "safevpr.verifier: extract_patch_features + mnn_lowe_ratio on the (query, top-1 reference) pair, i.e. verify_pair with T=1 (our references are single photos, not sequences); paper constants unchanged (224x224, ratio 0.9)",
+        "cosine": "the MegaLoc top-1 cosine similarity (baseline)"
+      },
+      "calibration": "safevpr.conformal.fit_mondrian_ltt at alpha = 0.10 (paper defaults: 5 bins, delta 0.05), fitted once per score on the core clips (dev), never on the overlay clips",
+      "test": "the nine overlay clips (v2 rep0 each)",
+      "hypotheses": {
+        "S1": "With the patch_mnn score, the empirical false-discovery rate among accepted overlay frames is <= 0.10.",
+        "S2": "With the cosine score calibrated the same way, the overlay FDR is higher than with patch_mnn (or cosine accepts none while patch_mnn accepts some at FDR <= 0.10).",
+        "S3": "On the overlay frames the AUROC of patch_mnn for correct vs wrong exceeds that of cosine."
+      },
+      "disclosure": "The overlay clips were the held-out test of the tau rule and their titles were read when writing the title-seed rule; no overlay per-frame retrieval label, cosine or verifier score had been computed when this was registered. Few frames are correct at 50 m (on Ulm 4K, 7 % of pass-1 top-1 retrievals), so acceptance may be very low; that is reported, not changed.",
+      "power_note": "~480 calibration and ~720 test frames, but frames of one clip are not independent; results are also reported per clip."
+    },
+    "graph_filter_dashcam": {
+      "registered": "2026-10-23",
+      "description": "Does the retrieval-free road-graph particle filter with road-plane speed (localized KITTI 0033 city-wide in 5/5 seeds) work on dashcam footage? The pipeline's failures trace to retrieval reference coverage; this channel needs no references.",
+      "method": "the --graph-filter defaults at commit 3ab1b5a: monocular_osm.plane_speed with an assumed 1.5 m camera height on the frames the cached VO used (same stride and window, downscaled to 960 px wide with the intrinsics scaled to match), VO rotation heading, FilterConfig(metric_logk_sigma=0.25, metric_speed_dev_sigma=clip(estimator spread, 0.05, 0.3)), 600,000 particles, 2 Hz, 3 seeds. Nothing tuned on these clips.",
+      "map": "the clip's deployable search disc: the drive network within the pipeline's city-extent radius (text_anchor.city_extent_radius, clipped to 3-8 km) around the geocoded centre of the manifest city string; a route outside it cannot be localized by construction and is reported as such",
+      "clips": "every manifest clip with a cached VO trajectory (core YouTube clips, KITTI excluded as already reported, and the nine overlay clips)",
+      "outcome": "per clip, the symmetric error (metrics.score_route) of the filter's smoothed route, median over seeds, against ground truth; a clip is localized when the median final error is < 50 m",
+      "comparison": "per clip against the pipeline's symmetric error in the latest run with the same code fixes (v3 for core clips, v4 for overlay clips); sign test over clips, ties excluded",
+      "hypotheses": {
+        "G1": "The filter localizes at least one dashcam clip (median final error < 50 m).",
+        "G2": "The filter's smoothed-route error beats the pipeline's on more clips than it loses (sign test)."
+      },
+      "disclosure": "The road-plane estimator and the filter settings were developed on KITTI 0009/0033 only; the dashcam clips' ground truth has been used to score the pipeline before, never for the filter or the speed estimator. Speed accuracy on dashcam footage is unknown and is reported against the ground-truth timing (exploratory)."
+    }
+  }
+}

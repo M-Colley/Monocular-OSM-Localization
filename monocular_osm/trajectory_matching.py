@@ -74,7 +74,9 @@ def procrustes_similarity(
     # the older `estimate()` if it isn't available yet.
     if hasattr(SimilarityTransform, "from_estimate"):
         tform = SimilarityTransform.from_estimate(src, dst)
-        if tform is None:
+        # from_estimate signals failure with a FALSY result object, not
+        # None: an `is None` test let degenerate input raise downstream.
+        if not tform:
             return np.eye(2), 1.0, float("inf"), src.copy()
     else:  # pragma: no cover - older scikit-image
         tform = SimilarityTransform()
@@ -229,6 +231,7 @@ def match_trajectory(
     extra_start_nodes: list | None = None,
     restrict_to_start_nodes: bool = False,
     locked_scale: float | None = None,
+    walk_observer: Callable[[str, np.ndarray], None] | None = None,
 ) -> list[MatchCandidate]:
     """Localize the trajectory: return up to `final_top_k` best walks.
 
@@ -258,6 +261,13 @@ def match_trajectory(
         shape-match better are excluded from the pool entirely, so shape
         ranks only *within* the anchored area. No-op (falls back to the
         full scan) if no start nodes are supplied.
+    walk_observer:
+        Optional ``f(stage, walk_xy)`` called for every walk that reaches a
+        stage: ``"enumerated"`` (generated and long enough),
+        ``"prefiltered"`` (survived the bearing-correlation cut) and
+        ``"final"`` (returned). Diagnostics only — e.g. measuring whether
+        the true route is in the pool at each stage
+        (scripts/diagnose_pool_recall.py). Never affects the result.
     """
     # Degenerate input — empty, a single point, or a stationary segment
     # (VO emitted identical poses, zero total arc length) — cannot be
@@ -327,9 +337,14 @@ def match_trajectory(
                 continue
             corr = _bearing_corr(traj_sig, sig)
             rough.append((corr, start, walk))
+            if walk_observer is not None:
+                walk_observer("enumerated", poly)
 
     rough.sort(key=lambda r: -r[0])
     rough = rough[:bearing_top_k]
+    if walk_observer is not None:
+        for _corr, _start, _walk in rough:
+            walk_observer("prefiltered", walk_to_polyline(road.graph, _walk))
 
     # ---- Stage 2: Procrustes alignment on the survivors ----
     candidates: list[MatchCandidate] = []
@@ -383,6 +398,9 @@ def match_trajectory(
         return c.score - bearing_corr_weight * c.bearing_corr
 
     candidates.sort(key=_combined)
+    if walk_observer is not None:
+        for c in candidates[:final_top_k]:
+            walk_observer("final", c.walk_xy)
     return candidates[:final_top_k]
 
 
@@ -442,15 +460,30 @@ def _candidate_street_names(cand: MatchCandidate, graph: nx.MultiDiGraph) -> set
     }
 
 
-def _min_polyline_distance(a: np.ndarray, b: np.ndarray) -> float:
-    """Min point-to-segment distance between two polylines (symmetric)."""
-    # Lazy import: evaluator imports MatchCandidate from this module, so
-    # a top-level import would be circular.
-    from .evaluator import _polyline_to_polyline_distance
-    return min(
-        _polyline_to_polyline_distance(a, b),
-        _polyline_to_polyline_distance(b, a),
-    )
+def _window_coverage(window_xy: np.ndarray, ref_xy: np.ndarray,
+                     radius_m: float, spacing_m: float = 10.0) -> float:
+    """Fraction of the window walk lying within ``radius_m`` of ``ref_xy``.
+
+    The window walk is densified to ``spacing_m`` (shapely) and each point's
+    exact distance to the reference polyline measured. Coverage, not the
+    single closest approach: a closest-approach test granted support to any
+    walk that merely crossed or touched the candidate — a perpendicular
+    street, a parallel one a block over — so in a small search disc every
+    window supported every candidate and the channel stopped discriminating.
+    """
+    import shapely
+
+    if len(window_xy) == 0 or len(ref_xy) == 0:
+        return 0.0
+    ref = (shapely.LineString(ref_xy) if len(ref_xy) > 1
+           else shapely.Point(ref_xy[0]))
+    if len(window_xy) > 1:
+        line = shapely.segmentize(shapely.LineString(window_xy), spacing_m)
+        pts = shapely.points(shapely.get_coordinates(line))
+    else:
+        pts = shapely.points(np.asarray(window_xy, dtype=np.float64))
+    d = shapely.distance(pts, ref)
+    return float(np.mean(d <= radius_m))
 
 
 def _candidates_overlap(
@@ -460,26 +493,24 @@ def _candidates_overlap(
     *,
     support_radius_m: float,
     name_radius_m: float = 500.0,
+    min_coverage: float = 0.5,
 ) -> bool:
     """Does the window-match walk `other` support the full-route candidate `ref`?
 
-    Geometric support is the minimum point-to-polyline distance between
-    the two walks — NOT centroid-to-centroid, which structurally denied
-    support to long routes (a window covering the first quarter of a
-    1.5 km route has its centroid ~550 m from the full route's centroid
-    *on the same street*). A street-name match only counts when the
-    named window walk also lies within ``name_radius_m`` of the
-    candidate polyline; bare name equality granted support to any
-    same-named street city-wide.
+    Geometric support: at least ``min_coverage`` of the window walk lies
+    within ``support_radius_m`` of the candidate polyline (both walks run on
+    graph edges, so a window on the candidate's own streets covers ~100% at
+    any small radius). A street-name match only counts when the named window
+    walk is also covered within ``name_radius_m``, so same-named streets
+    across town never support each other.
     """
-    dist = _min_polyline_distance(ref.walk_xy, other.walk_xy)
-    if dist <= support_radius_m:
+    if _window_coverage(other.walk_xy, ref.walk_xy, support_radius_m) >= min_coverage:
         return True
 
     ref_names = _candidate_street_names(ref, graph)
     other_names = _candidate_street_names(other, graph)
     if ref_names and other_names and ref_names.intersection(other_names):
-        return dist <= name_radius_m
+        return _window_coverage(other.walk_xy, ref.walk_xy, name_radius_m) >= min_coverage
     return False
 
 
@@ -493,7 +524,7 @@ def score_candidates_with_sliding_windows(
     resample_points: int | None = None,
     window_top_k: int = 5,
     estimated_length_m: float = 1500.0,
-    support_radius_m: float = 250.0,
+    support_radius_m: float = 60.0,
     match_fn: Callable[..., list[MatchCandidate]] | None = None,
     target_n_windows: int = 12,
 ) -> list[SlidingWindowMatchResult]:

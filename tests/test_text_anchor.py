@@ -197,19 +197,72 @@ def test_geocode_cache_memoizes_genuine_not_found(tmp_path, monkeypatch) -> None
     cp = tmp_path / "geocode_cache.json"
 
     def not_found(query):
-        raise InsufficientResponseError("no results")
+        # osmnx.geocode's exact wording for an empty result list.
+        raise InsufficientResponseError(
+            f"Nominatim could not geocode query {query!r}.")
 
     monkeypatch.setattr(ox, "geocode", not_found)
     fn = default_geocode_fn(cp)
     assert fn("Nowhereplatz, Ulm") is None
 
     # New run: the miss is served from the cache, network never consulted.
-    def boom(query):
-        raise AssertionError("cached not-found must not re-query")
-
-    monkeypatch.setattr(ox, "geocode", boom)
+    calls = []
+    monkeypatch.setattr(ox, "geocode", lambda q: calls.append(q) or (0.0, 0.0))
     fn2 = default_geocode_fn(cp)
     assert fn2("Nowhereplatz, Ulm") is None
+    assert calls == []
+
+
+def test_geocode_cache_skips_non_list_nominatim_answer(tmp_path, monkeypatch) -> None:
+    """osmnx raises the same InsufficientResponseError when Nominatim answers
+    with an error body instead of a result list (overloaded server). That is
+    NOT a definitive "no such place" and must not be memoized."""
+    ox = pytest.importorskip("osmnx")
+    from osmnx._errors import InsufficientResponseError
+
+    from monocular_osm.text_anchor import default_geocode_fn
+
+    _geocode_fn_env(monkeypatch)
+    cp = tmp_path / "geocode_cache.json"
+
+    def bad_body(query):
+        raise InsufficientResponseError(
+            "Nominatim API did not return a list of results.")
+
+    monkeypatch.setattr(ox, "geocode", bad_body)
+    assert default_geocode_fn(cp)("Sedelhöfe, Ulm") is None
+    monkeypatch.setattr(ox, "geocode", lambda q: (48.4, 9.99))
+    assert default_geocode_fn(cp)("Sedelhöfe, Ulm") == (48.4, 9.99)
+
+
+def test_geocode_fn_adds_no_extra_sleep(tmp_path, monkeypatch) -> None:
+    """osmnx (>= 2.0) already pauses 1 s before every uncached Nominatim
+    request and retries 429/504; the wrapper must not add its own delay."""
+    import time
+
+    ox = pytest.importorskip("osmnx")
+    from monocular_osm.text_anchor import default_geocode_fn
+
+    slept = []
+    monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(ox, "geocode", lambda q: (48.4, 9.99))
+    fn = default_geocode_fn(tmp_path / "geocode_cache.json")
+    assert fn("Sedelhöfe, Ulm") == (48.4, 9.99)
+    assert slept == []
+
+
+def test_osmnx_geocode_rate_limits_itself() -> None:
+    """Pin the osmnx behaviour the wrapper relies on (see default_geocode_fn):
+    the Nominatim request helper sleeps before each uncached request and
+    retries on 429/504."""
+    pytest.importorskip("osmnx")
+    import inspect
+
+    from osmnx import _nominatim
+
+    src = inspect.getsource(_nominatim._nominatim_request)
+    assert "time.sleep(pause)" in src
+    assert "429" in src and "504" in src
 
 
 def test_city_extent_radius_bbox_and_cache(tmp_path, monkeypatch) -> None:
@@ -239,8 +292,15 @@ def test_city_extent_radius_bbox_and_cache(tmp_path, monkeypatch) -> None:
     assert r is not None
     clat, clon, half = r
     assert abs(clat - 36.7) < 1e-6 and abs(clon + 4.4) < 1e-6
-    exp = math.hypot(0.2 * 111320, 0.2 * 111320 * math.cos(math.radians(36.7))) / 2
-    assert abs(half - exp) < 1.0
+    # WGS84 geodesic from the centre to the farthest bbox corner (pyproj).
+    from pyproj import Geod
+    g = Geod(ellps="WGS84")
+    exp = max(g.inv(-4.4, 36.7, lo, la)[2]
+              for la in (36.6, 36.8) for lo in (-4.5, -4.3))
+    assert abs(half - exp) < 1e-3
+    # ...within 0.5 % of the former flat 111 320 m/deg half-diagonal.
+    flat = math.hypot(0.2 * 111320, 0.2 * 111320 * math.cos(math.radians(36.7))) / 2
+    assert abs(half - flat) / flat < 0.005
     # cached: a second call does not re-invoke the (rate-limited) lookup
     city_extent_radius("Málaga, Spain", cp)
     assert calls == ["Málaga, Spain"]
@@ -285,6 +345,22 @@ def test_score_candidates_by_anchors_ranks_near_walk_first() -> None:
     assert dists[1] == pytest.approx(0.0, abs=1.0)
 
 
+def test_score_candidates_uses_exact_segment_distance() -> None:
+    # An anchor 30 m beside the MIDDLE of a 1 km straight segment: the walk
+    # passes 30 m from it, although its nearest VERTEX is ~500 m away (the
+    # old vertex-only score).
+    walk = np.array([[0.0, 0.0], [1000.0, 0.0]])
+    anchors = np.array([[500.0, 30.0], [5000.0, 5000.0]])
+    assert score_candidates_by_anchors([walk], anchors)[0] == pytest.approx(30.0)
+    # Never larger than the vertex distance; equal when a vertex is closest.
+    beyond = np.array([[1100.0, 0.0]])
+    assert score_candidates_by_anchors([walk], beyond)[0] == pytest.approx(100.0)
+    # Degenerate inputs.
+    single = np.array([[3.0, 4.0]])
+    assert score_candidates_by_anchors([single], np.zeros((1, 2)))[0] == pytest.approx(5.0)
+    assert score_candidates_by_anchors([np.zeros((0, 2))], anchors) == [float("inf")]
+
+
 def test_score_candidates_no_anchors_is_all_inf() -> None:
     road = _ulm_graph()
     dists = score_candidates_by_anchors([road.polylines[0]], np.zeros((0, 2)))
@@ -306,6 +382,84 @@ def test_anchor_seed_nodes_picks_nearby_only() -> None:
 def test_anchor_seed_nodes_empty_without_anchors() -> None:
     road = _ulm_graph()
     assert anchor_seed_nodes(road, np.zeros((0, 2))) == []
+
+
+def test_anchor_seed_nodes_kdtree_matches_brute_force() -> None:
+    """The cKDTree radius query must return exactly what the former O(N*A)
+    distance scan returned: nodes within radius of any anchor, nearest
+    first, capped."""
+    rng = np.random.default_rng(4)
+    g = nx.MultiDiGraph()
+    g.graph["crs"] = UTM32N
+    xy = rng.uniform(0, 3000, size=(400, 2))
+    for i, (x, y) in enumerate(xy):
+        g.add_node(1000 + i, x=float(x), y=float(y))
+    for i in range(0, 398, 2):
+        g.add_edge(1000 + i, 1001 + i, length=1.0,
+                   geometry=LineString([tuple(xy[i]), tuple(xy[i + 1])]))
+    road = _build_polyline_view(g)
+    anchors = rng.uniform(0, 3000, size=(5, 2))
+    for radius, cap in ((150.0, 40), (300.0, 10), (10.0, 40)):
+        dmin = np.min(np.linalg.norm(xy[:, None, :] - anchors[None], axis=2), axis=1)
+        within = np.where(dmin <= radius)[0]
+        within = within[np.argsort(dmin[within], kind="stable")][:cap]
+        expected = [1000 + int(i) for i in within]
+        assert anchor_seed_nodes(road, anchors, radius_m=radius, max_nodes=cap) == expected
+
+
+# ---------------------------------------------------------------------------
+# Street-name similarity: rapidfuzz replaces difflib (pinned behaviour)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("ocr", "street", "accept"),
+    [
+        ("Neutorstraße", "Neutorstraße", True),   # exact
+        ("Olgastrasse", "Olgastraße", True),      # umlaut folded
+        ("Hauptstraße", "Hauptstraße", True),
+        ("Neutorstr", "Neutorstraße", False),     # 0.818 < 0.85
+        ("Olgastrasse", "Neutorstraße", False),   # 0.667
+        ("Bahnhofplatz", "Olgastraße", False),
+        ("KAAN", "Olgastraße", False),
+        ("PIERCING", "Hauptstraße", False),
+    ],
+)
+def test_street_similarity_rapidfuzz_pins_difflib_decisions(ocr, street, accept) -> None:
+    """rapidfuzz.fuzz.ratio (normalised Indel) is >= difflib's
+    SequenceMatcher.ratio; on the strings this suite uses the two give the
+    same accept/reject decision at the unchanged 0.85 threshold, and the
+    same score on every accepted / near-threshold pair."""
+    import difflib
+
+    from rapidfuzz import fuzz
+
+    from monocular_osm.evaluator import _normalize_street_name as norm
+
+    a, b = norm(ocr), norm(street)
+    r_fuzz = fuzz.ratio(a, b) / 100.0
+    r_difflib = difflib.SequenceMatcher(None, a, b).ratio()
+    assert r_fuzz >= r_difflib - 1e-12
+    assert (r_fuzz >= 0.85) is accept
+    assert (r_difflib >= 0.85) is accept
+    if accept or r_difflib > 0.5:
+        assert r_fuzz == pytest.approx(r_difflib, abs=1e-9)
+
+
+def test_match_text_to_streets_reports_rapidfuzz_ratio() -> None:
+    from monocular_osm.text_anchor import match_text_to_streets
+
+    road = _named_street_graph()
+    anchors = match_text_to_streets(
+        [SceneText("Neutorstrasze", 0.9, 1.0)], road, min_confidence=0.5)
+    assert [a.name for a in anchors] == ["Neutorstraße"]
+    # 'neutorstrasze' vs 'neutorstrasse': 2*12/26
+    assert anchors[0].match_ratio == pytest.approx(24 / 26)
+    # Threshold semantics unchanged: >= min_ratio accepts.
+    assert match_text_to_streets([SceneText("Neutorstr", 0.9, 1.0)], road,
+                                 min_confidence=0.5, min_ratio=0.85) == []
+    assert match_text_to_streets([SceneText("Neutorstr", 0.9, 1.0)], road,
+                                 min_confidence=0.5, min_ratio=0.80) != []
 
 
 # ---------------------------------------------------------------------------

@@ -241,3 +241,11 @@ cache
 
 # Pipeline-run logs (the full-splat run dumps a tee'd log).
 /output/full_splat_run.log
+# Run artefacts and caches. Only the tiny geocode snapshots stay tracked:
+# they make the city-centroid baseline reproducible.
+/output/
+/data/*
+!/data/geocode_cache.json
+!/data/reverse_geocode_cache.json
+# Model weights (ultralytics downloads yolov8s.pt on first use).
+*.pt

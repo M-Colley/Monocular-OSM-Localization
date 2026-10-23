@@ -13,17 +13,24 @@ import numpy as np
 import pytest
 
 import monocular_osm.pipeline as pipeline
+import monocular_osm.stages.acquire as stage_acquire
+import monocular_osm.stages.placement as stage_placement
+import monocular_osm.stages.graph as stage_graph
+import monocular_osm.stages.prior as stage_prior
 from monocular_osm.pipeline import (
     PipelineConfig,
     _auto_estimated_length_m,
     _fetch_road_graph,
     _find_vo_cache,
+    _vo_cache_candidates,
     _heading_diff_deg,
     _length_sane,
     _match_timestamps,
     _mean_bearing_deg,
     _remap_frame_pair_to_poses,
     _resolve_input_video,
+    pick_cached_input,
+    rank_cached_inputs,
     _sun_bearing_penalty,
     _vpr_distance_penalty,
     _vpr_sequence_median_m,
@@ -47,7 +54,7 @@ def _forbid_download(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*args: object, **kwargs: object) -> None:
         raise AssertionError("download_video must not be called")
 
-    monkeypatch.setattr(pipeline, "download_video", _boom)
+    monkeypatch.setattr(stage_acquire, "download_video", _boom)
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +116,7 @@ def test_url_branch_downloads(
         calls.append((url, out_dir))
         return sentinel
 
-    monkeypatch.setattr(pipeline, "download_video", fake_download)
+    monkeypatch.setattr(stage_acquire, "download_video", fake_download)
     cfg = _cfg(tmp_path)
     assert _resolve_input_video(cfg) == sentinel
     assert calls == [(cfg.url, cfg.data_dir)]
@@ -139,7 +146,7 @@ def test_fetch_road_graph_passes_through(
 ) -> None:
     sentinel = object()
     monkeypatch.setattr(
-        pipeline, "fetch_city_graph",
+        stage_graph, "fetch_city_graph",
         lambda city, cache_path, around=None: sentinel,
     )
     assert _fetch_road_graph("Ulm, Germany", tmp_path / "g.graphml") is sentinel
@@ -150,7 +157,7 @@ def test_fetch_road_graph_passes_around(
 ) -> None:
     seen = {}
     monkeypatch.setattr(
-        pipeline, "fetch_city_graph",
+        stage_graph, "fetch_city_graph",
         lambda city, cache_path, around=None: seen.setdefault("around", around),
     )
     _fetch_road_graph("London, UK", tmp_path / "g.graphml", around=(51.5, -0.13, 2500.0))
@@ -163,7 +170,7 @@ def test_fetch_road_graph_wraps_geocode_failure(
     def boom(city: str, cache_path: Path, around=None) -> None:
         raise RuntimeError("Nominatim could not geocode 'Ulmm'")
 
-    monkeypatch.setattr(pipeline, "fetch_city_graph", boom)
+    monkeypatch.setattr(stage_graph, "fetch_city_graph", boom)
     with pytest.raises(ValueError) as exc_info:
         _fetch_road_graph("Ulmm, Germany", tmp_path / "g.graphml")
 
@@ -336,6 +343,80 @@ def test_length_sane_accepts_user_length() -> None:
     assert _length_sane(7900.0, 2310.0, user_length_m=8000.0) is True
     # Still rejects lengths far from BOTH references.
     assert _length_sane(25000.0, 2310.0, user_length_m=8000.0) is False
+
+
+# ---------------------------------------------------------------------------
+# VO cache versioning — a cache is only valid for the code that wrote it
+# ---------------------------------------------------------------------------
+
+
+def test_vo_cache_key_carries_algorithm_version(tmp_path: Path) -> None:
+    from monocular_osm.visual_odometry import VO_ALGO_VERSION
+
+    cfg = _cfg(tmp_path, vo_start_sec=0.0, vo_end_sec=420.0, frame_stride=3)
+    canonical, siblings, stale = _vo_cache_candidates(cfg)
+    assert canonical.parent == cfg.data_dir
+    assert canonical.name == f"trajectory_v2_0-420.0_s3_fauto_vo{VO_ALGO_VERSION}.npz"
+    assert siblings == [] and stale == []
+
+
+def test_pre_version_vo_caches_are_never_loadable(tmp_path: Path) -> None:
+    """Caches written before the mirroring / burned-in-graphics fixes carry
+    no version suffix; they must be reported stale, never offered for load,
+    even when their frame count matches."""
+    from monocular_osm.visual_odometry import VO_ALGO_VERSION
+
+    cfg = _cfg(tmp_path, vo_start_sec=0.0, vo_end_sec=420.0, frame_stride=3)
+    old_canonical = cfg.data_dir / "trajectory_v2_0-420.0_s3_fauto.npz"
+    old_legacy = cfg.data_dir / "trajectory_v2_0-420.0_s3.npz"
+    older_version = cfg.data_dir / (
+        f"trajectory_v2_0-420.0_s3_fauto_vo{VO_ALGO_VERSION - 1}.npz")
+    sibling = cfg.data_dir / f"trajectory_v2_0-420.0_s3_f4200_vo{VO_ALGO_VERSION}.npz"
+    for q in (old_canonical, old_legacy, older_version, sibling):
+        _write_vo_npz(q, 100)
+    canonical, siblings, stale = _vo_cache_candidates(cfg)
+    assert siblings == [sibling]
+    assert set(stale) == {old_canonical, old_legacy, older_version}
+    assert _find_vo_cache([canonical, *siblings], n_frames=100) == sibling
+
+
+def test_vo_cache_never_looks_outside_the_clip_folder(tmp_path: Path) -> None:
+    """The old flat-layout fallback read <data>/../trajectory_*.npz, so any
+    clip whose frame count matched loaded ANOTHER clip's trajectory."""
+    cfg = _cfg(tmp_path, vo_start_sec=0.0, vo_end_sec=300.0, frame_stride=6)
+    _write_vo_npz(cfg.data_dir.parent / "trajectory_v2_0-300.0_s6.npz", 1499)
+    canonical, siblings, stale = _vo_cache_candidates(cfg)
+    assert _find_vo_cache([canonical, *siblings], n_frames=1499) is None
+
+
+# ---------------------------------------------------------------------------
+# Cached-input pick — yt-dlp intermediates are not finished downloads
+# ---------------------------------------------------------------------------
+
+
+def test_rank_cached_inputs_drops_intermediates_and_sidecars(tmp_path: Path) -> None:
+    real = tmp_path / "input.mp4"
+    temp = tmp_path / "input.temp.mp4"
+    fmt = tmp_path / "input.f399.mp4"
+    side = tmp_path / "input.download.json"
+    for q in (real, temp, fmt, side):
+        q.write_bytes(b"\x00")
+    # Intermediates are NEWER than the real file: they used to win on mtime.
+    for i, q in enumerate((temp, fmt, side), start=1):
+        os.utime(q, (real.stat().st_mtime + i, real.stat().st_mtime + i))
+    assert rank_cached_inputs(tmp_path.glob("input.*")) == [real]
+
+
+def test_pick_cached_input_prefers_download_marker(tmp_path: Path) -> None:
+    import json
+
+    webm = tmp_path / "input.webm"
+    mp4 = tmp_path / "input.mp4"
+    webm.write_bytes(b"\x00")
+    mp4.write_bytes(b"\x00")
+    (tmp_path / "input.download.json").write_text(
+        json.dumps({"file": "input.webm", "url": "u"}), encoding="utf-8")
+    assert pick_cached_input(tmp_path) == webm
 
 
 # ---------------------------------------------------------------------------
@@ -806,8 +887,8 @@ def test_place_candidate_rescue_tries_second_pin_after_first_fails_guard(
                                   np.linspace(0.0, 1000.0, len(t))])
         return (placed, 90.0, 500.0, 100.0)
 
-    monkeypatch.setattr(pipeline, "_rotation_refine_about_start", fake_rot)
-    monkeypatch.setattr(pipeline, "_elastic_fuse_track", lambda *a, **k: None)
+    monkeypatch.setattr(stage_placement, "_rotation_refine_about_start", fake_rot)
+    monkeypatch.setattr(stage_placement, "_elastic_fuse_track", lambda *a, **k: None)
     res = pipeline._place_candidate_on_track(
         cand, s_xy, e_xy_bad, vpr_xy, idx, track, sims, n)
     assert res is not None                          # plain-pin rotation rescued
@@ -1014,3 +1095,90 @@ def test_rotation_refine_degenerate_inputs() -> None:
     stub = np.array([[0.0, 0.0], [30.0, 0.0], [60.0, 0.0]])
     idx2, track2, sims2 = _track_for(stub, n_track=12)
     assert pipeline._rotation_refine_about_start(stub, idx2, track2, sims2, 300) is None
+
+
+def test_vlm_prior_gets_district_level_slack() -> None:
+    """A VLM-fallback prior is a geocoded district centroid, not a 150 m
+    retrieval fix: the same 1 km offset must cost nothing under the
+    district free radius but be penalised under the retrieval one."""
+    from monocular_osm.pipeline import _PLATE_FREE_RADIUS_M, _VPR_FREE_RADIUS_M
+
+    assert _vpr_distance_penalty(1000.0) == pytest.approx(
+        15.0 * (1000.0 - _VPR_FREE_RADIUS_M) / 1000.0)
+    assert _vpr_distance_penalty(1000.0, _PLATE_FREE_RADIUS_M) == 0.0
+
+
+class _Txt:
+    def __init__(self, text):
+        self.text = text
+
+
+@pytest.mark.parametrize("ocr,expect_seed", [
+    (["KA.GC"], False),                     # one fragment, outside the city
+    (["Mühlburg"], False),                  # one real name: not enough votes
+    (["Mühlburg", "Weststadt"], True),      # two agreeing names in the city
+    (["Mühlburg", "Bruchsal"], False),      # second name outside the city
+])
+def test_ocr_coarse_seed_needs_two_names_inside_the_city(
+        tmp_path, monkeypatch, ocr, expect_seed) -> None:
+    """A false OCR seed is a hard 800 m gate on VPR and the road graph:
+    "KA.GC" geocoded 15 km outside Karlsruhe put KITTI 0009 18.3 km off."""
+    import monocular_osm.location_prior as lp
+    import monocular_osm.scene_text as stx
+
+    places = {
+        "Karlsruhe, Germany": (49.0069, 8.4034),
+        "KA.GC, Karlsruhe, Germany": (49.1414, 8.5948),       # ~20 km out
+        "Mühlburg, Karlsruhe, Germany": (49.0090, 8.3720),
+        "Weststadt, Karlsruhe, Germany": (49.0080, 8.3850),
+        "Bruchsal, Karlsruhe, Germany": (49.1240, 8.5980),     # ~20 km out
+    }
+    monkeypatch.setattr(lp, "_default_geocode", lambda q: places.get(q))
+    monkeypatch.setattr(stx, "extract_scene_text",
+                        lambda *a, **k: [_Txt(t) for t in ocr])
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: 13887.0)
+    seed = pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
+                                       "Karlsruhe, Germany", cache_dir=tmp_path)
+    assert (seed is not None) is expect_seed
+    if seed is not None:
+        assert seed[3].startswith("ocr:")
+
+
+def test_ocr_coarse_seed_refuses_without_city_extent(tmp_path, monkeypatch) -> None:
+    import monocular_osm.location_prior as lp
+    import monocular_osm.scene_text as stx
+
+    monkeypatch.setattr(lp, "_default_geocode", lambda q: (49.0, 8.4))
+    monkeypatch.setattr(stx, "extract_scene_text",
+                        lambda *a, **k: [_Txt("Mühlburg"), _Txt("Weststadt")])
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: None)
+    assert pipeline._frame_coarse_seed(tmp_path / "missing.mp4", [],
+                                       "Karlsruhe, Germany", cache_dir=tmp_path) is None
+
+
+def test_a_plate_seed_outside_the_named_city_is_ignored(tmp_path, monkeypatch) -> None:
+    """Benchmark run v3: on a Detroit clip the plate reader matched the German
+    code "D" (Duesseldorf) and the search went 6,500 km away."""
+    from types import SimpleNamespace
+
+    import monocular_osm.plate_anchor as pa_mod
+    import monocular_osm.scene_text as stx
+
+    monkeypatch.setattr(stx, "extract_scene_text", lambda *a, **k: [])
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: 15000.0)
+    centres = {"Detroit, Michigan, USA": (42.33, -83.05), "Karlsruhe, Germany": (49.0069, 8.4034)}
+    monkeypatch.setattr(stage_prior, "_city_centre", lambda c, p: centres[c])
+    dus = SimpleNamespace(lat=51.2254, lon=6.7763, radius_m=20000.0, district="Duesseldorf")
+    ka = SimpleNamespace(lat=49.03, lon=8.43, radius_m=12000.0, district="Karlsruhe")
+
+    monkeypatch.setattr(pa_mod, "plate_district_anchor", lambda *a, **k: dus)
+    assert pipeline._frame_coarse_seed(tmp_path / "v.mp4", [], "Detroit, Michigan, USA",
+                                       cache_dir=tmp_path) is None
+    monkeypatch.setattr(pa_mod, "plate_district_anchor", lambda *a, **k: ka)
+    seed = pipeline._frame_coarse_seed(tmp_path / "v.mp4", [], "Karlsruhe, Germany",
+                                       cache_dir=tmp_path)
+    assert seed is not None and seed[3] == "plate:Karlsruhe"
+    # unknown city extent: refuse (a seed is a hard gate)
+    monkeypatch.setattr(stage_prior, "_city_extent_reach_m", lambda c, p: None)
+    assert pipeline._frame_coarse_seed(tmp_path / "v.mp4", [], "Karlsruhe, Germany",
+                                       cache_dir=tmp_path) is None
