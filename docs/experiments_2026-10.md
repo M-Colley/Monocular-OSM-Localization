@@ -206,3 +206,28 @@ the retrieval-free path fails at the odometry, as it did on KITTI before the
 road-plane speed; making it work on dashcams needs a VO that keeps its poses
 and a scale estimate robust to unknown mounting, not a better map matcher.
 
+## 7. Denser first-pass references (pilot): coverage is not enough on KITTI
+
+`scripts/dense_retrieval_pilot.py`: the same 8 km first-pass disc as v2 for
+KITTI 0009, searched with one reference per 75 m (the pipeline's own fetcher
+listed 498,575 images; sha1-ordered thinning kept 8,610; no ground truth),
+embedded exactly as the pipeline does, against v2's 1,200-image set on the
+same 80 query frames:
+
+| | v2 set (1,200) | Dense (8,610) |
+|---|---|---|
+| Queries with a reference within 50 m | 3 % | **76 %** |
+| Top-1 within 50 m / within 100 m | 0 % / 0 % | 0 % / 0 % |
+| Top-5 within 50 m | 0 % | 1.3 % |
+| Retrieval-centre error | 4,457 m | 2,649 m |
+
+Density fixes coverage but not retrieval: for the 59 queries with a correct
+reference nearby, the best correct one ranks at a median of **3,203 of 8,610**
+(10th percentile 333; only 7 % within the top 100). MegaLoc does not recognise
+2011 KITTI frames in present-day Mapillary photos at all, so no re-ranking or
+sequence decoding over this list can find them. On KITTI the binding problem
+is appearance, and only the retrieval-free particle filter has localized it
+(drive 0033, section 4 and docs/graph_filter_kitti.md). A second pilot on a
+daytime dashcam clip (Detroit `1nF_7l07i-E`) tests whether density helps where
+the footage is modern.
+

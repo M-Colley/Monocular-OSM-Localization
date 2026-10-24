@@ -136,14 +136,19 @@ def main(argv=None) -> int:
     manifest = B.load_manifest(ROOT / "benchmarks" / "manifest.json")
     e = next(c for c in manifest["clips"] if c["id"] == args.clip)
     slug_dirs = B.candidate_slug_dirs(e, e["city"], ROOT / "data")
-    rep = next((args.archive_root / d.name / "_benchmark_cold_vpr" / args.run_name / e["id"] / "rep0"
-                for d in slug_dirs
-                if (args.archive_root / d.name / "_benchmark_cold_vpr" / args.run_name
-                    / e["id"] / "rep0").is_dir()), None)
-    sparse = C.archived_refs(rep, "mapillary") if rep else None
-    if sparse is None:
+    # Archives live on the archive drive (older runs) or in place in the clip's
+    # data dir (the lean runner keeps metadata only, no pixels).
+    rep = next((base / "_benchmark_cold_vpr" / args.run_name / e["id"] / "rep0"
+                for d in slug_dirs for base in (args.archive_root / d.name, d)
+                if (base / "_benchmark_cold_vpr" / args.run_name / e["id"] / "rep0"
+                    / "mapillary").is_dir()), None)
+    if rep is None:
         raise SystemExit(f"no archived {args.run_name} pass-1 set for {args.clip}")
-    s_ids, s_raw, s_ll, sig, _ = sparse
+    sparse = C.archived_refs(rep, "mapillary")
+    meta = json.loads(sorted((rep / "mapillary").glob("mly_ref_meta_*.json"))[0]
+                      .read_text(encoding="utf-8"))
+    sig = meta["signature"]
+    s_ids = [str(r["id"]) for r in meta["refs"]]
     centre, radius = sig["center"], float(sig["radius_m"])
     print(f"{args.clip}: pass-1 disc {centre} r={radius:.0f} m; sparse set {len(s_ids)} refs",
           flush=True)
@@ -160,7 +165,15 @@ def main(argv=None) -> int:
     model = C.Backbone("megaloc", C.SAGE_SHA_DEFAULT)
     d_ids, d_emb, d_ll = embed_dense(dense, model, args.batch,
                                      args.out / f"dense_{args.clip}_{int(args.spacing)}m.npz")
-    s_emb = model.embed(s_raw).astype(np.float32)
+    if sparse is not None:                       # archived pixels: embed those
+        _ids, s_raw, s_ll, _sig, _ = sparse
+        s_emb = model.embed(s_raw).astype(np.float32)
+    else:                                        # metadata-only archive: re-download
+        by_id = {str(r["id"]): r for r in pool}
+        s_refs = [by_id[i] for i in s_ids if i in by_id]
+        print(f"  sparse set: {len(s_refs)}/{len(s_ids)} ids re-listed; downloading", flush=True)
+        _i, s_emb, s_ll = embed_dense(s_refs, model, args.batch,
+                                      args.out / f"sparse_{args.clip}.npz")
 
     video = (ROOT / e["video"]["path"]) if "path" in e["video"] else next(
         d / "input.mp4" for d in slug_dirs if (d / "input.mp4").exists())
