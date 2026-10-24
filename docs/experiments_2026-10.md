@@ -231,3 +231,58 @@ is appearance, and only the retrieval-free particle filter has localized it
 daytime dashcam clip (Detroit `1nF_7l07i-E`) tests whether density helps where
 the footage is modern.
 
+
+## 8. The Detroit pilot found a fetcher bug: every 8 km first pass was blind downtown
+
+The Detroit pilot never tested density: the pipeline's fetcher listed 195,428
+images in the 8 km disc, and **none within 250 m of the route**, although direct
+small queries find 45-50 images near every route point. Mapillary's Graph API
+answers HTTP 500 "Please reduce the amount of data you're asking for" for a
+tile holding too many images (probed downtown: 130 m and 270 m tiles answer,
+530 m and 1 km tiles do not). For an 8 km disc the fetcher coarsens its tiles
+to ~540 m and dropped every rejected tile silently; only 356 of the 900 tiles
+returned anything, and the empty ones were the dense centre:
+
+```
+old Detroit listing, 533 m cells over the 16 km box ('#' > 500 images, '+' some, '.' none)
+..#..##+##+##++#+####.##++...#
+......+#########+##.#+#..#+...
+......+#+...###+......+.......
+............+##+......#++.+..+     <- the city centre (disc centre) is empty
+............##+.........##++.#
+```
+
+The fix (commit `0a1c771`) splits a rejected tile into quarters, up to four
+levels (~35 m), retries other failures once, and counts any tile still lost
+(printed, and recorded per pass as `result["vpr_listing"]`). Re-listing the
+same disc:
+
+| Detroit `1nF_7l07i-E`, 8 km disc | Old listing | Fixed listing |
+|---|---|---|
+| Images listed | 195,428 | **2,148,149** (382 splits, 0 tiles lost; 22 min) |
+| Route within 50 m of any listed image | 0 % | **80 %** |
+| Route within 50 m / 250 m of the 1,200 kept for pass 1 | 0 % / 0 % | **25 % / 95 %** |
+| ... of 3,000 kept | 0 % / 0 % | 40 % / 100 % |
+
+Every 8 km first pass in v2-v4 used the broken listing (KITTI 0009, Detroit
+×3, Chicago ×2, Atlanta `y66ZkRpUh4k`, Phoenix), so the earlier conclusions
+about pass-1 retrieval on those clips, including the KITTI dense pilot
+(section 7, whose 498,575-image pool was itself incomplete), were drawn from
+pools missing their densest parts. Benchmark run v5 re-measures every dev clip
+with the fixed fetcher and nothing else changed (the particle filter is
+opt-in; the new speed options default to the old behaviour); results below
+when it completes.
+
+A second, separate failure shows in the archived references
+(`scripts/pass1_coverage.py`): when the title or a plate gives a seed, pass 1
+searches only 3 km around it, although the seed is trusted to 6 km (title) or
+20 km (plate). The route lies inside that 3 km core for 0 % of Atlanta
+`kxEDNj5L_yQ` (100 % inside 8 km), 0 % of KITTI 0033 (plate seed) and 38 % of
+Berlin. Widening the disc would thin the ~1,500 references 4-5 times on the
+seeded clips that work (London 18 m, Ulm #2 142 m). `--vpr-seed-ring` (commit
+`c02334c`, off by default) instead adds a sparse ring out to the seed radius
+at the city-extent mode's caps and keeps the core set unchanged; its adoption
+rule (`seed_ring` in `benchmarks/preregistered_rules.json`) was fixed before
+any ring run: adopt only if no seeded clip that is within 200 m in v5 gets
+worse than 200 m, and at least one gets better than 200 m or more improve than
+worsen.
