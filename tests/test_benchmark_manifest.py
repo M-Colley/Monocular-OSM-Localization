@@ -147,6 +147,11 @@ def test_overlay_clip_split_is_a_declared_field_defaulting_to_dev() -> None:
         spec.loader.exec_module(mod)
     finally:
         sys.modules.pop(spec.name, None)
-    assert all(c.split == "dev" for c in mod.CLIPS)
+    assert {c.split for c in mod.CLIPS} <= {"dev", "test"}
+    # The original fleet (used while the method was tuned) stays dev; held-out
+    # clips added later are test.
+    original = {"vCSEG6KaFng", "LmIHvLMLqFk", "wJsEQTCAg1c", "ZhGb8q1kliY", "1nF_7l07i-E",
+                "g5lnpYCk1Ec", "y66ZkRpUh4k", "kxEDNj5L_yQ", "Wrn4_uCxRCQ"}
+    assert all(c.split == "dev" for c in mod.CLIPS if c.video_id in original)
     held = mod.OverlayClip("abc", "bottom", (0, 600), "stamp", "note", split="test")
     assert held.split == "test"
