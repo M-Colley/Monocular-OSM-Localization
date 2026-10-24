@@ -107,6 +107,27 @@
       },
       "decision": "Make --vpr-seed-ring the default iff S1 and S2 both hold; otherwise leave it off and report the result either way. The held-out test split is scored only after this decision, with whatever default results.",
       "disclosure": "Single cold rep per clip; earlier repeated cold runs differed by tens to hundreds of metres on some clips, so a one-rep result near a threshold is weak evidence and is reported as such."
+    },
+    "test_split_2026_10": {
+      "registered": "2026-10-24",
+      "description": "How the seven split=test clips (overlay fleet, added 2026-10-24) are scored, fixed before any method decision that their result could influence and before any pipeline run on them.",
+      "clips": [
+        "overlay_nsONSyk9wtc",
+        "overlay_bF5IfC2ZHjQ",
+        "overlay_5b-tgjtwb2U",
+        "overlay_zt8rHvHKBUU",
+        "overlay_4LvkBo69jZo",
+        "overlay_iJ2JvNk4Rmk",
+        "overlay_-1xwoetuoOg"
+      ],
+      "method": "the pipeline's defaults at the first commit after the seed_ring decision is recorded (whatever that decision is), run by scripts/benchmark.py run --split test --cold-vpr, one rep per clip, MLY_TOKEN set, the same runner settings as v5; the commit is recorded in the run's run_config.json. No code, constant or default changes between seeing any test result and reporting all of them.",
+      "outcome": "symmetric_mean_m per clip (benchmark aggregate, the same metric as the dev runs), plus final-position error",
+      "hypotheses": {
+        "T1": "The pipeline's symmetric error beats the city-centroid guess on more test clips than it loses (sign test over clips, ties excluded).",
+        "T2": "The share of test clips at or under 200 m is reported with a Wilson 95 % interval next to the same share on the dev clips in the latest dev run; no threshold is claimed in advance."
+      },
+      "excluded": "SjnUeNH-Kno (Dublin): its ground truth build failed (too few readable stamp fixes) before any run; nsy7qRN_oaw (Den Haag): video unavailable. Neither is replaced.",
+      "disclosure": "The clips were found by a web search for dashcam uploads with burned-in coordinates, in cities absent from the dev set; ground truth comes from OCR of those coordinates (scripts/build_overlay_fleet.py, checked by scripts/check_overlay_gt.py). Their ground truth has been opened only to build and check it. Seven clips detect only large effects; the result is reported whichever way it comes out."
     }
   }
 }
