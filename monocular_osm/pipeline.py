@@ -200,6 +200,13 @@ class PipelineConfig:
     # vpr_two_pass_scale below (a SCALE arbitration at matching time).
     vpr_coarse_to_fine: bool = True
     vpr_c2f_radius_m: float = 2000.0
+    # Seed ring: a video-named / plate seed is trusted to 6-20 km, but pass 1
+    # searches only vpr_search_radius_m (3 km) around it, so a drive in the
+    # seed disc's outer part is never searched (Atlanta kxED: 0 % of the route
+    # inside 3 km, 100 % inside 8 km). When on, pass 1 ALSO searches a sparse
+    # ring out to the seed radius (capped like the city-extent disc: 8 km,
+    # 1,200 refs with a token), leaving the dense 3 km core set unchanged.
+    vpr_seed_ring: bool = False
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.

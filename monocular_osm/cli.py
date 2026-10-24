@@ -485,6 +485,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "~1 km. Fires only when pass 1 was wider than 1.2x the "
                         "tight radius (which is itself floored by the route-"
                         "length prior), so GT-seeded tight runs are untouched.")
+    p.add_argument("--vpr-seed-ring", action=argparse.BooleanOptionalAction,
+                   default=False,
+                   help="When a coarse seed (title place names, plate district) "
+                        "is wider than --vpr-search-radius, also search a sparse "
+                        "outer ring of references out to the seed radius (max "
+                        "8 km), keeping the dense core set unchanged.")
     p.add_argument("--vpr-c2f-radius", type=float, default=2000.0,
                    help="Tight second-pass disc radius (m) for "
                         "--vpr-coarse-to-fine (default 2000).")
@@ -829,6 +835,7 @@ def main() -> None:
             vpr_ref_cap=args.vpr_cap,
             vpr_coarse_to_fine=args.vpr_coarse_to_fine,
             vpr_c2f_radius_m=args.vpr_c2f_radius,
+            vpr_seed_ring=args.vpr_seed_ring,
             use_sun_heading=args.use_sun_heading,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,

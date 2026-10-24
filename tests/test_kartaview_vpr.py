@@ -765,3 +765,47 @@ def test_fetch_refs_mapillary_warm_cache_clears_listing_stats(tmp_path: Path, mo
     monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
     kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
     assert kv.LAST_FETCH_STATS == {}
+
+
+def test_outer_ring_adds_only_new_references_and_keeps_the_core(tmp_path, monkeypatch) -> None:
+    """The ring is a second, wider listing in its own cache dir; ids already in
+    the core set are not added twice and the core set is untouched."""
+    import torch
+
+    core = [{"id": f"c{i}", "lat": ULM[0] + i * 1e-4, "lon": ULM[1]} for i in range(40)]
+    wide = core[:5] + [{"id": f"o{i}", "lat": ULM[0] - 0.03 - i * 1e-4, "lon": ULM[1]}
+                       for i in range(12)]
+    fetched, embedded = [], []
+
+    def fake_fetch(source, center, radius_m, cache_dir, cap, token):
+        fetched.append((radius_m, cache_dir, cap))
+        kv.LAST_FETCH_STATS = {"tiles": int(radius_m), "split": 0, "lost": 0}
+        return core if radius_m == 3000.0 else wide
+
+    def fake_embed_refs(refs, device, cache_dir, model_name="model"):
+        embedded.append((cache_dir, [r["id"] for r in refs]))
+        return torch.ones(len(refs), 4), [(r["lat"], r["lon"]) for r in refs]
+
+    monkeypatch.setattr(kv, "_resolve_backbone", lambda m, d: "megaloc")
+    monkeypatch.setattr(kv, "_fetch_refs_for", fake_fetch)
+    monkeypatch.setattr(kv, "_embed_refs", fake_embed_refs)
+    monkeypatch.setattr(kv, "_prep", lambda im: im)
+    monkeypatch.setattr(kv, "_embed", lambda device, ims: torch.ones(len(ims), 4))
+    frames = [np.zeros((8, 8, 3), np.uint8)] * 10
+    d = str(tmp_path / "mapillary")
+    _idx, sims, ref_xy = kv._prepare_refs_and_query(
+        frames, ULM, 3000.0, d, 10, "cpu", "megaloc", "mapillary", "t", 1500,
+        outer_radius_m=8000.0, outer_cap=1200)
+    assert fetched == [(3000.0, d, 1500), (8000.0, d + "_outer", 1200)]
+    assert embedded[0] == (d, [r["id"] for r in core])
+    assert embedded[1] == (d + "_outer", [f"o{i}" for i in range(12)])
+    assert sims.shape == (10, 52) and len(ref_xy) == 52
+    assert kv.LAST_RING["n_core"] == 40 and kv.LAST_RING["n_outer_added"] == 12
+    assert kv.LAST_RING["listing"]["tiles"] == 8000      # the ring's own listing
+    assert kv.LAST_FETCH_STATS["tiles"] == 3000          # the core's record survives
+
+    # without a ring the result is the core set alone, and no ring is recorded
+    fetched.clear()
+    _idx, sims, _xy = kv._prepare_refs_and_query(
+        frames, ULM, 3000.0, d, 10, "cpu", "megaloc", "mapillary", "t", 1500)
+    assert sims.shape == (10, 40) and kv.LAST_RING is None and len(fetched) == 1

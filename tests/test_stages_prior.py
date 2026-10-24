@@ -102,7 +102,8 @@ def _vpr_ctx(tmp_path, monkeypatch, tracks, **kw) -> tuple[RunContext, list]:
 
     def fake_track(frames, center, radius_m=3000.0, **k):
         calls.append({"center": center, "radius_m": radius_m, "cap": k.get("cap"),
-                      "source": k.get("source")})
+                      "source": k.get("source"), "outer": k.get("outer_radius_m"),
+                      "outer_cap": k.get("outer_cap")})
         return next(it)
 
     monkeypatch.setattr(kv, "kartaview_vpr_track", fake_track)
@@ -177,6 +178,33 @@ def test_coarse_to_fine_keeps_pass_one_when_pass_two_matches_worse(tmp_path, mon
     prior.vpr_coarse_prior(ctx)
     assert ctx.c2f_info["kept"].startswith("pass-1")
     assert float(np.median(ctx.vpr_track[2])) == pytest.approx(0.7)
+
+
+@pytest.mark.parametrize("seed_r, outer", [(6000.0, 6000.0), (20000.0, prior._PASS1_COVER_MAX_M)])
+def test_seed_ring_searches_the_seed_disc_beyond_the_dense_core(tmp_path, monkeypatch,
+                                                                seed_r, outer):
+    """A 6-20 km seed is searched out to its radius (capped like the city-extent
+    disc) by a sparse ring; the 3 km core and pass 2 are unchanged."""
+    ctx, calls = _vpr_ctx(
+        tmp_path, monkeypatch, [_track(), _track()],
+        osm_around=(CENTRE[0], CENTRE[1], seed_r), vpr_seed_ring=True,
+        vpr_coarse_to_fine=True)
+    prior.vpr_coarse_prior(ctx)
+    assert calls[0]["radius_m"] == 3000.0 and calls[0]["cap"] == 1500
+    assert calls[0]["outer"] == outer
+    assert calls[0]["outer_cap"] == prior._PASS1_COVER_CAP     # tokenless source
+    assert calls[1]["outer"] is None                          # pass 2: tight disc only
+
+
+@pytest.mark.parametrize("kw", [dict(vpr_seed_ring=False),                     # off by default
+                                dict(vpr_seed_ring=True, seed_r=900.0)])       # seed inside the core
+def test_seed_ring_only_when_asked_and_the_seed_is_wider(tmp_path, monkeypatch, kw):
+    seed_r = kw.pop("seed_r", 6000.0)
+    ctx, calls = _vpr_ctx(tmp_path, monkeypatch, [_track(), _track()],
+                          osm_around=(CENTRE[0], CENTRE[1], seed_r),
+                          vpr_coarse_to_fine=True, **kw)
+    prior.vpr_coarse_prior(ctx)
+    assert all(c["outer"] is None for c in calls)
 
 
 # ---------------------------------------------------------------------------

@@ -56,6 +56,9 @@ LAST_FETCH_STATS: dict = {}
 #: amount of data") is split into quarters. ~540 m tiles (an 8 km disc) are
 #: rejected over a dense downtown; four levels reach ~35 m.
 _MLY_MAX_SPLIT_DEPTH = 4
+#: The outer reference ring of the last retrieval pass that asked for one
+#: (``outer_radius_m``): radius, cap, refs added, its listing record; else None.
+LAST_RING: dict | None = None
 
 
 def backbone_info() -> dict:
@@ -832,15 +835,22 @@ def _resolve_backbone(model_name, device):
 
 
 def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
-                            device, model_name, source, token, cap):
+                            device, model_name, source, token, cap,
+                            outer_radius_m=None, outer_cap=None):
     """Shared front half of both VPR entrypoints: fetch references, load/cache
     the backbone, embed the references + the ``n_query`` sampled query frames.
+
+    ``outer_radius_m`` (> ``radius_m``) adds a sparser ring: a second listing
+    of the wider disc, capped at ``outer_cap``, in its own cache dir
+    (``<cache_dir>_outer``), minus the ids already in the core set. The core
+    set is exactly what it would be without the ring.
 
     Returns ``(idx, sims[n_query, n_ref], ref_xy[n_ref, 2])`` or ``None`` when
     references are unavailable / too sparse. Callers own the tail (single
     robust centre vs. per-frame track).
     """
-    global _MEAN, _STD, LAST_FAILURE
+    global _MEAN, _STD, LAST_FAILURE, LAST_RING, LAST_FETCH_STATS
+    LAST_RING = None
     import torch
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -856,6 +866,29 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
                             f"{radius_m:.0f} m (need 30)")
             return None
         ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved)
+        if (outer_radius_m and outer_radius_m > radius_m and cache_dir
+                and ref_emb is not None):
+            core_stats = dict(LAST_FETCH_STATS)
+            outer_dir = f"{cache_dir}_outer"
+            outer = _fetch_refs_for(source, center, outer_radius_m, outer_dir,
+                                    outer_cap or cap, token)
+            ring_stats = dict(LAST_FETCH_STATS)
+            LAST_FETCH_STATS = core_stats
+            have = {str(r["id"]) for r in refs}
+            outer = [r for r in outer if str(r["id"]) not in have]
+            added = 0
+            if outer:
+                o_emb, o_xy = _embed_refs(outer, device, outer_dir, model_name=resolved)
+                if o_emb is not None and len(o_xy):
+                    ref_emb = torch.cat([ref_emb, o_emb])
+                    ref_xy = np.vstack([np.asarray(ref_xy, dtype=float),
+                                        np.asarray(o_xy, dtype=float)])
+                    added = int(len(o_xy))
+            LAST_RING = {"outer_radius_m": float(outer_radius_m),
+                         "outer_cap": int(outer_cap or cap), "n_core": int(len(refs)),
+                         "n_outer_added": added, "listing": ring_stats}
+            print(f"      -> outer ring to {outer_radius_m:.0f} m: +{added} references "
+                  f"(core {len(refs)} within {radius_m:.0f} m)")
     if ref_emb is None or len(ref_xy) < 30:
         LAST_FAILURE = (f"too few embeddable {source} references "
                         f"({0 if ref_xy is None else len(ref_xy)})")
@@ -944,7 +977,8 @@ def _viterbi_decode(sims: np.ndarray, ref_latlon: np.ndarray,
 def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
                         cache_dir=None, n_query=80, device=None,
                         model_name="megaloc", source="kartaview", token=None,
-                        cap=1500, sequence_decode=True, query_dt_s=4.0):
+                        cap=1500, sequence_decode=True, query_dt_s=4.0,
+                        outer_radius_m=None, outer_cap=None):
     """Per-frame VPR positions: a sparse, noisy 'GPS' track to fit the trajectory
     to (anchor-primary v2). Returns ``(query_indices, latlons[N,2], sims[N])`` for
     ``n_query`` frames sampled uniformly across the clip, or ``None``. Unlike the
@@ -953,6 +987,8 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
     ``"panoramax"``. ``sequence_decode`` (default on) replaces per-frame argmax
     with the continuity-constrained Viterbi decode; ``query_dt_s`` is the real
     seconds between query frames (sets the transition free radius).
+    ``outer_radius_m``/``outer_cap`` add a sparser outer reference ring (see
+    ``_prepare_refs_and_query``).
     """
     try:
         import torch  # noqa: F401 - availability guard; helper re-imports
@@ -963,7 +999,7 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
     try:
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
-                                      token, cap)
+                                      token, cap, outer_radius_m, outer_cap)
         if out is None:
             return None
         idx, sims, ref_xy = out

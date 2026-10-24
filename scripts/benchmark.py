@@ -262,6 +262,7 @@ def redact_file(path: Path, secret: str | None) -> int:
 VPR_CACHE_DIRS: tuple[str, ...] = (
     "mapillary", "kartaview", "panoramax", "union",
     "mapillary_c2f", "kartaview_c2f", "panoramax_c2f", "union_c2f",
+    "mapillary_outer", "kartaview_outer", "panoramax_outer",
 )
 ASIDE_DIR = "_benchmark_vpr_warm_aside"
 COLD_ARCHIVE_DIR = "_benchmark_cold_vpr"

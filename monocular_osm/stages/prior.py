@@ -276,8 +276,19 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
             # (London/comma) are unaffected. Floor 800 m to keep enough refs.
             _vpr_radius = cfg.vpr_search_radius_m
             _vpr_cap_eff = cfg.vpr_ref_cap
+            _vpr_outer = _vpr_outer_cap = None
             if ctx.osm_around is not None:
                 _vpr_radius = min(_vpr_radius, max(800.0, float(ctx.osm_around[2])))
+                _seed_r = float(ctx.osm_around[2])
+                if (cfg.vpr_seed_ring and cfg.vpr_coarse_to_fine
+                        and _seed_r > _vpr_radius + 1.0):
+                    # Cover the seed's own uncertainty disc, at the city-extent
+                    # mode's radius cap and token ref cap (no new constants).
+                    _vpr_outer = min(_seed_r, _PASS1_COVER_MAX_M)
+                    _vpr_outer_cap = _PASS1_TOKEN_CAP if _vpr_token else _PASS1_COVER_CAP
+                    print(f"      -> seed ring: pass 1 also searches out to "
+                          f"{_vpr_outer:.0f} m (cap {_vpr_outer_cap}) around the "
+                          f"{_seed_r:.0f} m seed disc")
             elif cfg.vpr_coarse_to_fine:
                 # City-name-only + coarse-to-fine (the deployable mode): size
                 # the COARSE pass to cover the whole municipality so a drive in
@@ -338,10 +349,15 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                                      source=_vpr_src, token=_vpr_token,
                                      cap=_vpr_cap_eff,
                                      sequence_decode=cfg.vpr_viterbi,
-                                     query_dt_s=_qdt)
+                                     query_dt_s=_qdt,
+                                     outer_radius_m=_vpr_outer,
+                                     outer_cap=_vpr_outer_cap)
             from .. import kartaview_vpr as _kv
             if _vpr_src == "mapillary" and _kv.LAST_FETCH_STATS:
                 ctx.vpr_listing = {"pass1": dict(_kv.LAST_FETCH_STATS)}
+            if _kv.LAST_RING is not None:
+                ctx.vpr_listing = {**(ctx.vpr_listing or {}),
+                                   "pass1_ring": dict(_kv.LAST_RING)}
             if tr is not None:
                 ctx.vpr_track = tr
                 v_idx, v_ll, v_sims = tr
