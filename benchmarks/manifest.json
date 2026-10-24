@@ -464,6 +464,178 @@
       "city_alternatives_notes": {},
       "legacy_city": "Newcastle upon Tyne, England, UK",
       "available_locally": true
+    },
+    {
+      "id": "overlay_nsONSyk9wtc",
+      "name": "NYC (nsONSyk9wtc)",
+      "fleet": "overlay",
+      "split": "test",
+      "gt": "ground_truth/overlay_nsONSyk9wtc.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "4c7e1eedd5328b5afe88a5f4afe3e72b785f2a0432a426cbb3ae90303a7f2987",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=nsONSyk9wtc"
+      },
+      "title": "Driving NYC: Midtown Manhattan, E 34th St, FDR Dr, Manhattan Bridge, Brooklyn Bridge. 紐約曼哈頓，布魯克林大橋",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "NYC, New York, USA",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [
+        "New York, USA"
+      ],
+      "city_alternatives_notes": {
+        "New York, USA": "GT-INFORMED: reverse-geocoded from the OCR'd GT track by scripts/build_overlay_fleet.py; used by run_all_gt.py --overlay"
+      },
+      "legacy_city": "New York, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_bF5IfC2ZHjQ",
+      "name": "Ottawa (bF5IfC2ZHjQ)",
+      "fleet": "overlay",
+      "split": "test",
+      "gt": "ground_truth/overlay_bF5IfC2ZHjQ.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "9dcf1bc9502563109aee12724f28f535ea92688ba23218de93b03485cf098d8c",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=bF5IfC2ZHjQ"
+      },
+      "title": "DRIVING OTTAWA: Draper Av to Queen St | Downtown DashCam",
+      "vo_segment": "19:596",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Ottawa, Canada",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Ottawa, Canada",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_5b-tgjtwb2U",
+      "name": "Manchester (5b-tgjtwb2U)",
+      "fleet": "overlay",
+      "split": "test",
+      "gt": "ground_truth/overlay_5b-tgjtwb2U.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "6dfec74214e6b19ac94115a268c256fa492a926b08d69ae5b0a84d6f9aafeccc",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=5b-tgjtwb2U"
+      },
+      "title": "Approach to Manchester City Center from Old Trafford",
+      "vo_segment": "5:400",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-420 s download window (0 fixes dropped to edit cuts).",
+      "city": "Manchester, UK",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Manchester, UK",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_zt8rHvHKBUU",
+      "name": "Bern (zt8rHvHKBUU)",
+      "fleet": "overlay",
+      "split": "test",
+      "gt": "ground_truth/overlay_zt8rHvHKBUU.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "bf33b878bcb80aa566909d9f0de95856a533856af48ff690e11f7f52815a13e5",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=zt8rHvHKBUU"
+      },
+      "title": "CH: Bern. Schweiz. Rundfahrt durch die Innenstadt. Oktober 2019",
+      "vo_segment": "0:597",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Bern, Switzerland",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Bern, Switzerland",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_4LvkBo69jZo",
+      "name": "Strasbourg (4LvkBo69jZo)",
+      "fleet": "overlay",
+      "split": "test",
+      "gt": "ground_truth/overlay_4LvkBo69jZo.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "611f7d52add46ebadd9ee6018ea902c126882879159531f588bf8bd480b164e4",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=4LvkBo69jZo"
+      },
+      "title": "F: Strasbourg (Straßburg). France. Tour around the City. December 2017",
+      "vo_segment": "0:597",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Strasbourg, France",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Strasbourg, France",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_iJ2JvNk4Rmk",
+      "name": "Frankfurt am Main (iJ2JvNk4Rmk)",
+      "fleet": "overlay",
+      "split": "test",
+      "gt": "ground_truth/overlay_iJ2JvNk4Rmk.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "bc4572729fbd878efa52574523ccbf3b7ff3e46af40653bb9b51d39f95a73253",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=iJ2JvNk4Rmk"
+      },
+      "title": "D: Frankfurt am Main. Rundfahrt durch die Innenstadt. Dezember 2019",
+      "vo_segment": "0:597",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Frankfurt am Main, Germany",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Frankfurt am Main, Germany",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_-1xwoetuoOg",
+      "name": "Sydney (-1xwoetuoOg)",
+      "fleet": "overlay",
+      "split": "test",
+      "gt": "ground_truth/overlay_-1xwoetuoOg.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "bf60869ebc97ec1b570f7607f2dc40ae024ba458073436af15c329eae03b6deb",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=-1xwoetuoOg"
+      },
+      "title": "Driving practice route \"Daylight\" - Sydney NSW Australia",
+      "vo_segment": "4:599",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Sydney, Australia",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Sydney, Australia",
+      "available_locally": true
     }
   ]
 }

@@ -1,0 +1,110 @@
+{
+  "video_id": "zt8rHvHKBUU",
+  "video_url": "https://www.youtube.com/watch?v=zt8rHvHKBUU",
+  "city": "Bern, Switzerland",
+  "vo_segment": "0:596",
+  "description": "Bern city centre round trip, October 2019. First east-longitude DMS stamp from a MiVue camera. Overlay: N 46 57'20.1\" E 7 26'51.3\"   (MiVue 798D, bottom right). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 84 OCR fixes over 0-597 s (4.97 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 46.960278,
+      "lon": 7.507028
+    },
+    {
+      "t_sec": 19.9,
+      "lat": 46.960194,
+      "lon": 7.505111
+    },
+    {
+      "t_sec": 44.7,
+      "lat": 46.959583,
+      "lon": 7.50155
+    },
+    {
+      "t_sec": 64.6,
+      "lat": 46.959472,
+      "lon": 7.499167
+    },
+    {
+      "t_sec": 84.5,
+      "lat": 46.95875,
+      "lon": 7.496694
+    },
+    {
+      "t_sec": 109.4,
+      "lat": 46.957639,
+      "lon": 7.495028
+    },
+    {
+      "t_sec": 129.3,
+      "lat": 46.957833,
+      "lon": 7.493667
+    },
+    {
+      "t_sec": 154.1,
+      "lat": 46.958306,
+      "lon": 7.491389
+    },
+    {
+      "t_sec": 174.0,
+      "lat": 46.958278,
+      "lon": 7.489167
+    },
+    {
+      "t_sec": 198.9,
+      "lat": 46.957833,
+      "lon": 7.487444
+    },
+    {
+      "t_sec": 223.7,
+      "lat": 46.957167,
+      "lon": 7.4855
+    },
+    {
+      "t_sec": 243.6,
+      "lat": 46.956361,
+      "lon": 7.483447
+    },
+    {
+      "t_sec": 263.5,
+      "lat": 46.955917,
+      "lon": 7.48225
+    },
+    {
+      "t_sec": 288.4,
+      "lat": 46.955528,
+      "lon": 7.480806
+    },
+    {
+      "t_sec": 362.9,
+      "lat": 46.953389,
+      "lon": 7.470583
+    },
+    {
+      "t_sec": 407.7,
+      "lat": 46.952572,
+      "lon": 7.466878
+    },
+    {
+      "t_sec": 432.5,
+      "lat": 46.9522,
+      "lon": 7.462972
+    },
+    {
+      "t_sec": 462.4,
+      "lat": 46.952778,
+      "lon": 7.460194
+    },
+    {
+      "t_sec": 536.9,
+      "lat": 46.954528,
+      "lon": 7.451731
+    },
+    {
+      "t_sec": 596.6,
+      "lat": 46.9545,
+      "lon": 7.446389
+    }
+  ]
+}

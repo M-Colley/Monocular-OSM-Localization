@@ -1,0 +1,110 @@
+{
+  "video_id": "5b-tgjtwb2U",
+  "video_url": "https://www.youtube.com/watch?v=5b-tgjtwb2U",
+  "city": "Manchester, UK",
+  "vo_segment": "5:400",
+  "description": "Old Trafford to Manchester city centre (7:01 upload). Overlay: Nextbase DMS. Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 80 OCR fixes over 5-400 s (3.68 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": 53.461681,
+      "lon": -2.286856
+    },
+    {
+      "t_sec": 25.0,
+      "lat": 53.462097,
+      "lon": -2.285833
+    },
+    {
+      "t_sec": 45.0,
+      "lat": 53.462422,
+      "lon": -2.285028
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 53.463083,
+      "lon": -2.283578
+    },
+    {
+      "t_sec": 90.0,
+      "lat": 53.464425,
+      "lon": -2.278422
+    },
+    {
+      "t_sec": 110.0,
+      "lat": 53.466019,
+      "lon": -2.273106
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 53.468328,
+      "lon": -2.269153
+    },
+    {
+      "t_sec": 150.0,
+      "lat": 53.469372,
+      "lon": -2.266797
+    },
+    {
+      "t_sec": 170.0,
+      "lat": 53.470075,
+      "lon": -2.264381
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 53.471186,
+      "lon": -2.260833
+    },
+    {
+      "t_sec": 215.0,
+      "lat": 53.471792,
+      "lon": -2.25895
+    },
+    {
+      "t_sec": 235.0,
+      "lat": 53.472161,
+      "lon": -2.258236
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 53.471992,
+      "lon": -2.256575
+    },
+    {
+      "t_sec": 275.0,
+      "lat": 53.471025,
+      "lon": -2.252544
+    },
+    {
+      "t_sec": 295.0,
+      "lat": 53.470736,
+      "lon": -2.248422
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 53.471389,
+      "lon": -2.24725
+    },
+    {
+      "t_sec": 340.0,
+      "lat": 53.473881,
+      "lon": -2.248381
+    },
+    {
+      "t_sec": 360.0,
+      "lat": 53.473969,
+      "lon": -2.248311
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 53.474047,
+      "lon": -2.247878
+    },
+    {
+      "t_sec": 400.0,
+      "lat": 53.474003,
+      "lon": -2.244658
+    }
+  ]
+}

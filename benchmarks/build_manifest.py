@@ -213,6 +213,15 @@ OVERLAY_TITLE_CITY: dict[str, str] = {
     "y66ZkRpUh4k": "Atlanta, Georgia, USA",
     "kxEDNj5L_yQ": "Atlanta, Georgia, USA",
     "Wrn4_uCxRCQ": "Newcastle upon Tyne, England, UK",
+    # held-out test clips (split="test", added 2026-10-24)
+    "nsONSyk9wtc": "NYC, New York, USA",          # title: "Driving NYC: Midtown Manhattan ..."
+    "bF5IfC2ZHjQ": "Ottawa, Canada",
+    "5b-tgjtwb2U": "Manchester, UK",
+    "zt8rHvHKBUU": "Bern, Switzerland",
+    "4LvkBo69jZo": "Strasbourg, France",
+    "iJ2JvNk4Rmk": "Frankfurt am Main, Germany",
+    "SjnUeNH-Kno": "Dublin, Ireland",
+    "-1xwoetuoOg": "Sydney, Australia",
 }
 
 

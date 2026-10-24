@@ -78,9 +78,14 @@ def test_vocabularies_and_splits() -> None:
     for c in CLIPS:
         assert c["gt_source"] in vocab["gt_source"], c["id"]
         assert c["window_source"] in vocab["window_source"], c["id"]
-        assert c["split"] == "dev"          # every existing clip was used for tuning
-    assert "test" in MANIFEST["splits"]     # documented, reserved, empty
-    assert not [c for c in CLIPS if c["split"] == "test"]
+        assert c["split"] in ("dev", "test")
+    assert "test" in MANIFEST["splits"]
+    # Every clip that existed while the method was tuned is dev; the held-out
+    # clips (added 2026-10-24, before anything ran on them) are the only test ones.
+    held_out = {"overlay_nsONSyk9wtc", "overlay_bF5IfC2ZHjQ", "overlay_5b-tgjtwb2U",
+                "overlay_zt8rHvHKBUU", "overlay_4LvkBo69jZo", "overlay_iJ2JvNk4Rmk",
+                "overlay_-1xwoetuoOg"}
+    assert {c["id"] for c in CLIPS if c["split"] == "test"} == held_out
 
 
 def test_local_and_youtube_videos_are_well_formed() -> None:

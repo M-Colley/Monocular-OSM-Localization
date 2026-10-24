@@ -13,6 +13,13 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:50+00:00"
   },
+  "Bern, Switzerland": {
+    "lat": 46.9484742,
+    "lon": 7.4521749,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:38+00:00"
+  },
   "Chicago, Illinois, USA": {
     "lat": 41.8755616,
     "lon": -87.6244212,
@@ -27,12 +34,47 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:53+00:00"
   },
+  "Frankfurt am Main, Germany": {
+    "lat": 50.1106444,
+    "lon": 8.6820917,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:39+00:00"
+  },
+  "Manchester, UK": {
+    "lat": 53.4794892,
+    "lon": -2.2451148,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:42+00:00"
+  },
+  "NYC, New York, USA": {
+    "lat": 40.7127281,
+    "lon": -74.0060152,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:43+00:00"
+  },
+  "New York, USA": {
+    "lat": 40.7127281,
+    "lon": -74.0060152,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:45+00:00"
+  },
   "Newcastle upon Tyne, England, UK": {
     "lat": 54.9738474,
     "lon": -1.6131572,
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:55+00:00"
+  },
+  "Ottawa, Canada": {
+    "lat": 45.4208777,
+    "lon": -75.6901106,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:46+00:00"
   },
   "Phoenix, Arizona, USA": {
     "lat": 33.4484367,
@@ -61,6 +103,20 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:01:01+00:00"
+  },
+  "Strasbourg, France": {
+    "lat": 48.584614,
+    "lon": 7.7507127,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:48+00:00"
+  },
+  "Sydney, Australia": {
+    "lat": -33.8698439,
+    "lon": 151.2082848,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:49+00:00"
   },
   "Toronto, Ontario, Canada": {
     "lat": 43.6534817,

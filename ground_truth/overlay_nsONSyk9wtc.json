@@ -1,0 +1,110 @@
+{
+  "video_id": "nsONSyk9wtc",
+  "video_url": "https://www.youtube.com/watch?v=nsONSyk9wtc",
+  "city": "New York, USA",
+  "vo_segment": "0:595",
+  "description": "Midtown Manhattan, FDR Drive, Manhattan and Brooklyn Bridges. Dense high-rise canyon; the same uploader as the Scottsdale clip. Overlay: N40.70906 W73.99691   (ROVE R2-4K). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 112 OCR fixes over 0-595 s (4.66 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 40.74942,
+      "lon": -73.9836
+    },
+    {
+      "t_sec": 30.0,
+      "lat": 40.74871,
+      "lon": -73.98436
+    },
+    {
+      "t_sec": 60.0,
+      "lat": 40.74857,
+      "lon": -73.98337
+    },
+    {
+      "t_sec": 90.0,
+      "lat": 40.74826,
+      "lon": -73.98244
+    },
+    {
+      "t_sec": 115.0,
+      "lat": 40.7479,
+      "lon": -73.98171
+    },
+    {
+      "t_sec": 145.0,
+      "lat": 40.74711,
+      "lon": -73.98048
+    },
+    {
+      "t_sec": 175.0,
+      "lat": 40.74687,
+      "lon": -73.97968
+    },
+    {
+      "t_sec": 205.0,
+      "lat": 40.74634,
+      "lon": -73.97846
+    },
+    {
+      "t_sec": 235.0,
+      "lat": 40.74569,
+      "lon": -73.97688
+    },
+    {
+      "t_sec": 265.0,
+      "lat": 40.74545,
+      "lon": -73.9761
+    },
+    {
+      "t_sec": 290.0,
+      "lat": 40.74542,
+      "lon": -73.976
+    },
+    {
+      "t_sec": 320.0,
+      "lat": 40.74485,
+      "lon": -73.97511
+    },
+    {
+      "t_sec": 350.0,
+      "lat": 40.74473,
+      "lon": -73.97524
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 40.74415,
+      "lon": -73.97374
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 40.74272,
+      "lon": -73.97254
+    },
+    {
+      "t_sec": 445.0,
+      "lat": 40.73826,
+      "lon": -73.97383
+    },
+    {
+      "t_sec": 480.0,
+      "lat": 40.73292,
+      "lon": -73.97441
+    },
+    {
+      "t_sec": 515.0,
+      "lat": 40.72791,
+      "lon": -73.97186
+    },
+    {
+      "t_sec": 545.0,
+      "lat": 40.72336,
+      "lon": -73.97389
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 40.71562,
+      "lon": -73.97625
+    }
+  ]
+}

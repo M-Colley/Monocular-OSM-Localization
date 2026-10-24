@@ -123,16 +123,11 @@ CLIPS: tuple[OverlayClip, ...] = (
     # developed on the clips above. Never tune on their results. city_override
     # is the city each TITLE names (the benchmark's fairness rule), not a
     # reverse geocode of the ground truth.
-    OverlayClip(
-        video_id="nsy7qRN_oaw", region="top", window=_W, split="test",
-        city_override="Den Haag, Netherlands",
-        overlay="GPS Speed: 60,7 km/h. Degrees: 52.09131, 4.33122  (top left)",
-        note="Den Haag, the Netherlands ('ritje denhaag'). Signed decimal pair "
-             "without hemisphere letters, plus a street address.",
-    ),
+    # (Den Haag nsy7qRN_oaw was selected too, but YouTube reported it
+    # unavailable when its window was downloaded on 2026-10-24; dropped.)
     OverlayClip(
         video_id="nsONSyk9wtc", region="bottom", window=_W, split="test",
-        city_override="New York, USA",
+        city_override="NYC, New York, USA",
         overlay="N40.70906 W73.99691   (ROVE R2-4K)",
         note="Midtown Manhattan, FDR Drive, Manhattan and Brooklyn Bridges. "
              "Dense high-rise canyon; the same uploader as the Scottsdale clip.",
