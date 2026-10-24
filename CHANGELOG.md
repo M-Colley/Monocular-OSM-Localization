@@ -239,6 +239,15 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
 
 ### Fixed
 
+- **City-wide retrieval never saw downtown.** Mapillary's Graph API answers
+  HTTP 500 "Please reduce the amount of data" for a tile holding too many
+  images; at the ~540 m tiles an 8 km first-pass disc uses, that is every
+  dense area (probed in Detroit: 130 m and 270 m tiles answer, 530 m and
+  1 km do not), and the fetcher dropped those tiles without a word. Rejected
+  tiles are now split into quarters (up to four levels), other failures retry
+  once, and any tile still lost is printed and recorded per pass in
+  `result["vpr_listing"]`. Every 8 km pass 1 before this (v2-v4: KITTI 0009,
+  Detroit, Chicago, Atlanta, Phoenix) searched an incomplete pool.
 - **Image retrieval silently never loaded on a fresh machine.** `torch.hub`
   asks on stdin whether to trust the MegaLoc/EigenPlaces repos; an unattended
   run read EOF as "no", so the retrieval channel — the main accuracy lever —
