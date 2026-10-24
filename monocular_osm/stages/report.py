@@ -75,6 +75,9 @@ def finalize_result(ctx: RunContext) -> None:
     # they used to vanish whenever the position report didn't build.
     if c2f_info is not None:
         result["vpr_coarse_to_fine"] = c2f_info
+    if ctx.vpr_listing is not None:
+        # A reference listing with lost tiles is blind there; record it.
+        result["vpr_listing"] = ctx.vpr_listing
     if result_scale_recovery is not None:
         result["scale_recovery"] = result_scale_recovery
     if result_loop_closure is not None:

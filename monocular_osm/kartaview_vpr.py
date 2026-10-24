@@ -22,6 +22,8 @@ import base64
 import hashlib
 import json
 import os
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -46,6 +48,14 @@ HUB_EIGENPLACES = "gmberton/eigenplaces:a2969f71d5ea31017443af490b15273ca4c50af1
 # Why the last VPR entrypoint returned None (None after a success), so the
 # pipeline can record the reason instead of a bare "unavailable".
 LAST_FAILURE: str | None = None
+#: Tiles of the last Mapillary listing that returned nothing usable after
+#: splitting and retrying (recorded so an incomplete reference set is never
+#: silent). ``{"tiles": n_initial, "split": n_splits, "lost": n_lost}``.
+LAST_FETCH_STATS: dict = {}
+#: How often a tile the Graph API rejects as too large ("Please reduce the
+#: amount of data") is split into quarters. ~540 m tiles (an 8 km disc) are
+#: rejected over a dense downtown; four levels reach ~35 m.
+_MLY_MAX_SPLIT_DEPTH = 4
 
 
 def backbone_info() -> dict:
@@ -188,6 +198,8 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
     # image cache present, we reuse the cached refs and never re-download.
     # Checked BEFORE the token guard: a warm cache needs no API access, so
     # offline regression sweeps run without MLY_TOKEN.
+    global LAST_FETCH_STATS
+    LAST_FETCH_STATS = {}       # stays empty when a warm cache serves
     sig = _fetch_signature(center, radius_m, cap)
     # Signature-TAGGED meta (variants coexist) with the legacy untagged file
     # as a read fallback so pre-existing warm caches keep serving.
@@ -277,6 +289,21 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
         la += step_lat
     sess = requests.Session()
 
+    stats = {"tiles": len(cells), "split": 0, "lost": 0}
+    lock = threading.Lock()
+
+    def count(key):
+        with lock:
+            stats[key] += 1
+
+    def split(cell, depth):
+        w, s, e, n = cell
+        mx, my = (w + e) / 2.0, (s + n) / 2.0
+        out = []
+        for sub in [(w, s, mx, my), (mx, s, e, my), (w, my, mx, n), (mx, my, e, n)]:
+            out.extend(query(sub, _depth=depth + 1))
+        return out
+
     def query(cell, _retried=False, _depth=0):
         w, s, e, n = cell
         try:
@@ -285,23 +312,31 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
                                  "fields": "id,geometry,thumb_1024_url",
                                  "bbox": f"{w:.5f},{s:.5f},{e:.5f},{n:.5f}",
                                  "limit": 2000}, timeout=30)
-            data = r.json().get("data", []) if r.status_code == 200 else []
+            if r.status_code == 200:
+                data = r.json().get("data", [])
+            elif (r.status_code == 500 and "reduce the amount of data" in r.text.lower()
+                  and _depth < _MLY_MAX_SPLIT_DEPTH):
+                # The API rejects a tile holding too many images. Dropping it
+                # (as this code used to) made every city-wide first pass blind
+                # to the densest areas - downtown Detroit had images within
+                # 130 m of every route waypoint, and none were listed.
+                count("split")
+                return split(cell, _depth)
+            else:
+                raise RuntimeError(f"HTTP {r.status_code}")
         except Exception:
-            # One retry: a single 30 s timeout otherwise silently drops this
-            # cell's patch of refs FOR THIS RUN ONLY — a direct source of the
-            # run-to-run variance in the deployable numbers.
+            # One retry after a short pause (rate limits, timeouts); a tile
+            # still failing is counted in LAST_FETCH_STATS, never silent.
             if not _retried:
+                time.sleep(2.0)
                 return query(cell, _retried=True, _depth=_depth)
+            count("lost")
             return []
         # A FULL page means the (possibly coarsened) cell was truncated —
         # subdivide and union, same pattern as the Panoramax fetcher.
-        if len(data) >= 2000 and _depth < 2:
-            mx, my = (w + e) / 2.0, (s + n) / 2.0
-            out = []
-            for sub in [(w, s, mx, my), (mx, s, e, my),
-                        (w, my, mx, n), (mx, my, e, n)]:
-                out.extend(query(sub, _depth=_depth + 1))
-            return out
+        if len(data) >= 2000 and _depth < _MLY_MAX_SPLIT_DEPTH:
+            count("split")
+            return split(cell, _depth)
         return data
 
     refs = {}
@@ -312,6 +347,11 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
                 u = d.get("thumb_1024_url")
                 if g and u:
                     refs[d["id"]] = {"lat": float(g[1]), "lon": float(g[0]), "url": u}
+    LAST_FETCH_STATS = dict(stats)
+    if stats["lost"]:
+        print(f"      -> mapillary listing: {stats['lost']} of {stats['tiles']} tiles "
+              f"(after {stats['split']} splits) returned nothing; the reference set "
+              f"is incomplete there")
     # UNION the fetched ids into a persistent per-signature store so the ref
     # set only ever GROWS across cold queries — the Graph API returns a
     # slightly different id-set each time and cells occasionally fail, so

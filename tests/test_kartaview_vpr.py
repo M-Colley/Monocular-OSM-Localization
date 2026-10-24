@@ -662,3 +662,106 @@ def test_robust_center_matches_metric_geometric_median() -> None:
     d_deg = math.hypot((deg[0] - ref_lat) * dm,
                        (deg[1] - ref_lon) * dm * coslat)
     assert d_deg > 10.0
+
+
+# ---------------------------------------------------------------------------
+# _fetch_refs_mapillary listing: tiles the Graph API rejects as too large
+# ---------------------------------------------------------------------------
+
+
+class _FakeGraphAPI:
+    """Stands in for ``requests`` against graph.mapillary.com/images.
+
+    One image every ~20 m on a lattice; a bbox wider than ``max_deg`` (either
+    side) gets the real API's HTTP 500 "Please reduce the amount of data".
+    ``flaky`` bboxes fail once with HTTP 503; ``dead`` ones always fail.
+    """
+
+    def __init__(self, max_deg=0.003, flaky=(), dead=()):
+        self.max_deg = max_deg
+        self.flaky = set(flaky)
+        self.dead = set(dead)
+        self.calls: list[str] = []
+        self.fails: dict[str, int] = {}
+
+    def Session(self):  # noqa: N802 - mimics requests API
+        outer = self
+
+        class _Resp:
+            def __init__(self, status, payload=None, text=""):
+                self.status_code, self._payload, self.text = status, payload, text
+
+            def json(self):
+                return self._payload
+
+        class _Sess:
+            def get(self, url, params=None, timeout=None):
+                bbox = params["bbox"]
+                outer.calls.append(bbox)
+                w, s, e, n = (float(v) for v in bbox.split(","))
+                if bbox in outer.dead or (bbox in outer.flaky
+                                          and outer.fails.get(bbox, 0) == 0):
+                    outer.fails[bbox] = outer.fails.get(bbox, 0) + 1
+                    return _Resp(503, text="Service Unavailable")
+                if e - w > outer.max_deg or n - s > outer.max_deg:
+                    return _Resp(500, text='{"error":{"message":"Please reduce the '
+                                           'amount of data you\'re asking for, then '
+                                           'retry your request"}}')
+                step = 0.0002
+                data = []
+                for i in range(int(np.ceil(s / step)), int(np.floor(n / step)) + 1):
+                    for j in range(int(np.ceil(w / step)), int(np.floor(e / step)) + 1):
+                        data.append({"id": f"{i}_{j}",
+                                     "geometry": {"coordinates": [j * step, i * step]},
+                                     "thumb_1024_url": f"http://x/{i}_{j}"})
+                return _Resp(200, payload={"data": data[:2000]})
+
+        return _Sess()
+
+
+def test_fetch_refs_mapillary_splits_tiles_the_api_rejects(tmp_path: Path, monkeypatch) -> None:
+    """A tile the API refuses as too large is split into quarters until it
+    answers; dropping it (the old behaviour) left dense downtowns unlisted."""
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    api = _FakeGraphAPI(max_deg=0.003)
+    monkeypatch.setitem(sys.modules, "requests", api)
+    # 8 km disc -> the step is coarsened to ~0.0048 deg, wider than max_deg
+    got = kv._fetch_refs_mapillary(ULM, 8000.0, str(tmp_path), cap=10 ** 7, token="t")
+    st = kv.LAST_FETCH_STATS
+    assert st["lost"] == 0 and st["split"] >= st["tiles"]
+    # every lattice image inside the disc's bbox is listed
+    dlat, dlon = kv.degree_half_extent(ULM[0], ULM[1], 8000.0)
+    n_lat = int(np.floor((ULM[0] + dlat) / 0.0002)) - int(np.ceil((ULM[0] - dlat) / 0.0002)) + 1
+    n_lon = int(np.floor((ULM[1] + dlon) / 0.0002)) - int(np.ceil((ULM[1] - dlon) / 0.0002)) + 1
+    assert abs(len(got) - n_lat * n_lon) <= n_lat + n_lon   # tile-edge rounding only
+
+
+def test_fetch_refs_mapillary_retries_transient_errors_and_counts_losses(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    probe = _FakeGraphAPI(max_deg=1.0)
+    monkeypatch.setitem(sys.modules, "requests", probe)
+    kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "probe"), cap=10 ** 7, token="t")
+    first, second = probe.calls[0], probe.calls[1]
+    full = len(kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "full"),
+                                        cap=10 ** 7, token="t"))
+
+    flaky = _FakeGraphAPI(max_deg=1.0, flaky=[first])
+    monkeypatch.setitem(sys.modules, "requests", flaky)
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "flaky"), cap=10 ** 7, token="t")
+    assert len(got) == full and kv.LAST_FETCH_STATS["lost"] == 0
+    assert flaky.calls.count(first) == 2
+
+    dead = _FakeGraphAPI(max_deg=1.0, dead=[second])
+    monkeypatch.setitem(sys.modules, "requests", dead)
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "dead"), cap=10 ** 7, token="t")
+    assert kv.LAST_FETCH_STATS["lost"] == 1 and 0 < len(got) < full
+
+
+def test_fetch_refs_mapillary_warm_cache_clears_listing_stats(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(kv, "LAST_FETCH_STATS", {"tiles": 9, "split": 0, "lost": 3})
+    _write_mly_cache(tmp_path, ULM, 500.0)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    assert kv.LAST_FETCH_STATS == {}

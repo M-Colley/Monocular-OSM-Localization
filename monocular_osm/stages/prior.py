@@ -224,6 +224,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
     ctx.vpr_center = None
     ctx.vpr_track = None
     ctx.c2f_info = None      # coarse-to-fine record, attached to result later
+    ctx.vpr_listing = None   # Mapillary listing tile counts per pass
     ctx.anchor_origin = None   # which channel produced vpr_center: vpr|vlm
     ctx.vpr_source_used = None  # effective reference source after fallbacks
     # VPR runs whenever enabled — it re-ranks + drives anchor-primary, so it is
@@ -338,6 +339,9 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                                      cap=_vpr_cap_eff,
                                      sequence_decode=cfg.vpr_viterbi,
                                      query_dt_s=_qdt)
+            from .. import kartaview_vpr as _kv
+            if _vpr_src == "mapillary" and _kv.LAST_FETCH_STATS:
+                ctx.vpr_listing = {"pass1": dict(_kv.LAST_FETCH_STATS)}
             if tr is not None:
                 ctx.vpr_track = tr
                 v_idx, v_ll, v_sims = tr
@@ -401,6 +405,9 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                             device=_vpr_device, source=_vpr_src,
                             token=_vpr_token, cap=cfg.vpr_ref_cap,
                             sequence_decode=cfg.vpr_viterbi, query_dt_s=_qdt)
+                        if _vpr_src == "mapillary" and _kv.LAST_FETCH_STATS:
+                            ctx.vpr_listing = {**(ctx.vpr_listing or {}),
+                                               "pass2": dict(_kv.LAST_FETCH_STATS)}
                     except Exception as e:
                         tr2 = None
                         print(f"      -> coarse-to-fine fetch failed ({e})")

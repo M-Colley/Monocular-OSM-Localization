@@ -70,6 +70,7 @@ class RunContext:
     vpr_center: tuple | None = None
     vpr_track: Any = None                # (frame_idx, latlon, sims) or None
     c2f_info: dict | None = None         # coarse-to-fine record
+    vpr_listing: dict | None = None      # per-pass Mapillary tile split/loss counts
     anchor_origin: str | None = None     # which channel produced vpr_center: vpr|vlm
     vpr_source_used: str | None = None   # effective reference source after fallbacks
     result_plate_anchor: dict | None = None
