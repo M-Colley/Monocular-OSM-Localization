@@ -118,6 +118,14 @@ def finalize_result(ctx: RunContext) -> None:
             "track_sim_median": (round(float(np.median(vpr_track[2])), 4)
                                  if vpr_track is not None and len(vpr_track[2]) else None),
         }
+        if vpr_track is not None and len(vpr_track[0]):
+            # The final per-frame track itself, [t_sec, lat, lon, sim]: lets a
+            # run's error be split into retrieval vs the trajectory fit.
+            _ts = (ctx.frames.timestamps if ctx.frames is not None else None)
+            result["vpr_prior"]["track"] = [
+                [round(float(_ts[int(i)]), 2) if _ts is not None and int(i) < len(_ts) else None,
+                 round(float(ll[0]), 6), round(float(ll[1]), 6), round(float(s), 4)]
+                for i, ll, s in zip(vpr_track[0], vpr_track[1], vpr_track[2])]
 
     result["channels"] = _summarize_channels(
         channel_status, cfg,

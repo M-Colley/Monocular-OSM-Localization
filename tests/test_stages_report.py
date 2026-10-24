@@ -60,6 +60,7 @@ def test_enabled_channels_are_ok_inactive_or_failed(tmp_path):
     vp = ctx.result["vpr_prior"]
     assert vp["origin"] == "vpr" and vp["source"] == "kartaview" and vp["track_frames"] == 5
     assert vp["track_sim_median"] == 0.25                     # retrieval confidence, recorded
+    assert len(vp["track"]) == 5 and vp["track"][2][1:] == [0.0, 0.0, 0.25]   # [t, lat, lon, sim]
 
 
 def test_diagnostics_are_attached_even_when_nothing_matched(tmp_path):
