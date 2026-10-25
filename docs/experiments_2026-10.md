@@ -323,3 +323,58 @@ Queen Creek), the analysis window drives in Scottsdale/Tempe 15 km from the
 Phoenix centroid, outside the 8 km city disc, and no single seed disc built
 from the five names contains it (their median lies ~19 km from the route).
 Only searching each named place separately could reach it; not attempted.
+
+## 9. v6: the complete reference pool, end to end
+
+Benchmark run v6 (commit `d87fb20`, all 15 dev clips, one cold rep each, CPU
+retrieval) changes only the listing (section 8). Chicago `vCSEG6KaFng` failed
+three times on an overloaded Overpass server (an infrastructure failure: "all
+query workers are busy") and was rerun once it recovered. Symmetric route
+error in metres; P is the pipeline's route (`result.position`), T the
+retrieval track as a route (`baselines.vpr_track_only`, saved by runs since
+`f4f914b`), C the route checked against the track (`baselines.track_checked`);
+P, T and C are the candidates of the pre-registered `answer_selection` rule,
+registered after the first five v6 clips (disclosed in the rule).
+
+| Clip | v3/v4 | P | T | C | City centre |
+|---|---|---|---|---|---|
+| Ulm 4K | 24 | 36 | **15** | 36 | 445 |
+| Ulm #2 | 142 | 106 | **46** | 106 | 350 |
+| London | 18 | **22** | 62 | 22 | 1,501 |
+| Berlin | 789 | 695 | **135** | 135 | 909 |
+| KITTI 0009 | 5,346 | 3,608 | 3,735 | 3,608 | **2,563** |
+| KITTI 0033 | 6,830 | 7,110 | 7,004 | 7,110 | **6,709** |
+| Chicago `vCSEG6KaFng` | 41 | **49** | 169 | 49 | 1,924 |
+| Chicago `LmIHvLMLqFk` | 254 | 177 | **133** | 177 | 1,230 |
+| Phoenix `wJsEQTCAg1c` | 13,772 | 18,507 | 18,644 | 18,644 | **14,802** |
+| Detroit `ZhGb8q1kliY` | 7,442 | 77 | **55** | 77 | 403 |
+| Detroit `1nF_7l07i-E` | 6,471 | 395 | **77** | 77 | 491 |
+| Detroit `g5lnpYCk1Ec` | 8,803 | 2,045 | **1,573** | 1,573 | 8,206 |
+| Atlanta `y66ZkRpUh4k` | 6,748 | 6,870 | 6,590 | 6,870 | **2,958** |
+| Atlanta `kxEDNj5L_yQ` | 6,829 | **5,485** | 6,024 | 5,485 | 7,280 |
+| Newcastle `Wrn4_uCxRCQ` | 362 | 342 | **35** | 342 | 887 |
+| **Within 200 m** | 4 / 15 | 6 / 15 | **9 / 15** | 8 / 15 | 0 / 15 |
+| **Median** | 5,346 | 395 | **135** | 177 | 1,501 |
+
+* **The complete pool is the largest single change in this project's
+  history on the dev clips:** two Detroit clips go from 7.4 and 6.5 km to
+  77 m and 395 m (77 m as a track), Chicago `LmIHvLMLqFk` from 254 to 177 m.
+  Clips whose earlier pools were complete move within run-to-run noise.
+* **The retrieval track is a better answer than the trajectory fit on most
+  clips that retrieval locates.** Berlin's track has the same per-frame
+  accuracy as London's (median 102 vs 103 m, 76 % vs 91 % of frames within
+  250 m), but the fit turns it into a 695 m route; the track itself scores
+  135 m. Newcastle: 342 m fit, 35 m track. The fit wins where it is precise
+  (London 22 m, Chicago `vCSEG6KaFng` 49 m, a clip with only 42 % of VO
+  poses valid where the track is 169 m).
+* **What remains is three kinds of failure, none of them retrieval
+  ranking among good references:** the route lies outside the searched disc
+  (Phoenix: Scottsdale/Tempe, 15 km from the Phoenix centroid; Detroit
+  `g5lnpYCk1Ec`, "Detroit to Roseville", 80 % of the window outside the
+  8 km disc); a seed's 3 km core misses the route (Atlanta `kxEDNj5L_yQ`,
+  KITTI 0033: the seed-ring test, v7); or footage the street imagery does not
+  resemble (KITTI's 2011 drives; Atlanta `y66ZkRpUh4k` is filmed at night,
+  and its pass-1 sample has a reference within 250 m of the whole route).
+  Every failing clip's track is kilometres off rather than near-misses, and
+  the retrieval similarity separates them only weakly (median top-1 cosine
+  0.105-0.154 on failures against 0.159-0.268 on successes).
