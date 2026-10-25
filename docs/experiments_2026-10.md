@@ -286,9 +286,12 @@ memory.
 The last two rows are a caveat, not a regression: the kept sample (lowest
 sha1 of the id, i.e. uniform over images) follows image density, and the
 complete pool includes the heavily re-photographed spots that the time-outs
-had happened to flatten. Completeness is now right; whether a sample spread
-over space rather than over images helps is a separate question, not changed
-here (at 3 km, section 1 found uniform spreading no better).
+had happened to flatten. Spreading the sample over space instead does not
+help, as section 1 found at 3 km. Over the complete pools of ten dev discs at
+the same cap, one image per grid cell (sha1-lowest in each cell, cells grown
+until at most `cap` are occupied: 107-448 m) covers the route within 250 m
+better on 1 disc, worse on 5, equally on 4, and within 50 m worse on 7: drives
+go where the photos are, so the density-following sample stays.
 
 **v5, the five clips it ran (split-box listing):** Ulm 4K 27 m (v3: 24),
 Ulm #2 79 m (142), Berlin 692 m (789), London 19 m (18), KITTI 0009 5,346 m
