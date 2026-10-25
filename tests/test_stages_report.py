@@ -100,3 +100,32 @@ def test_fusion_channels_are_summarised_by_their_effective_weight(tmp_path):
     report.finalize_result(ctx)
     assert ctx.result["channels"]["fusion_shape"] == {"status": "ok", "weight": 1.0}
     assert ctx.result["channels"]["fusion_turn"] == {"status": "inactive", "weight": 0.0}
+
+
+def _answer_ctx(tmp_path, answer, fit_lon):
+    ctx = _report_ctx(tmp_path, answer=answer)
+    ctx.result["position"] = {"route_latlon": [[48.4000, fit_lon], [48.4040, fit_lon]]}
+    ctx.vpr_center, ctx.anchor_origin, ctx.vpr_source_used = (48.402, 9.98), "vpr", "mapillary"
+    ctx.vpr_track = (np.arange(9), np.c_[48.400 + 0.0005 * np.arange(9), np.full(9, 9.98)],
+                     np.full(9, 0.2))
+    return ctx
+
+
+def test_answer_follows_the_configured_mode(tmp_path):
+    for mode, fit_lon, method in (("fit", 9.99, "pipeline"),
+                                  ("track", 9.9801, "vpr_track_only"),
+                                  ("checked", 9.9801, "pipeline"),      # agrees: the fit
+                                  ("checked", 9.99, "vpr_track_only")):  # 740 m off: the track
+        ctx = _answer_ctx(tmp_path / f"{mode}{fit_lon}", mode, fit_lon)
+        report.finalize_result(ctx)
+        a = ctx.result["answer"]
+        assert a["mode"] == mode and a["method"] == method, (mode, fit_lon, a)
+        assert ctx.result["position"]["route_latlon"][0][1] == fit_lon   # the fit is kept
+    assert json.loads((ctx.cfg.output_dir / "result.json").read_text(encoding="utf-8"))["answer"]
+
+
+def test_track_answer_without_a_track_is_the_fit(tmp_path):
+    ctx = _answer_ctx(tmp_path, "track", 9.99)
+    ctx.vpr_track = None
+    report.finalize_result(ctx)
+    assert ctx.result["answer"]["method"] == "pipeline"

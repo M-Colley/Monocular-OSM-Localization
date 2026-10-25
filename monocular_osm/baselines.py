@@ -248,6 +248,18 @@ def vpr_track_only(result: dict, window: int = 5) -> Prediction | None:
                       source="result.vpr_prior.track", meta={"n": len(sm), "window": window})
 
 
+def answer(result: dict) -> Prediction | None:
+    """``result["answer"]`` — the route the run answered with (its
+    ``--answer`` mode), for runs that recorded one."""
+    a = (result or {}).get("answer")
+    route = a.get("route_latlon") if isinstance(a, dict) else None
+    if not route:
+        return None
+    return Prediction("answer", [list(map(float, p)) for p in route],
+                      "route" if len(route) >= 2 else "point", source="result.answer",
+                      meta={"mode": a.get("mode"), "method": a.get("method")})
+
+
 def track_disagreement_m(route_latlon, track_latlon) -> float:
     """Median over the track points of the distance (m) to the nearest point
     of the route (a point route: the distance to that point)."""

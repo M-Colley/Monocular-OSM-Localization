@@ -1130,6 +1130,7 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 "vpr_prior_only": B.vpr_prior_only(result) if ok else None,
                 "vpr_track_only": B.vpr_track_only(result) if ok else None,
                 "track_checked": B.track_checked(result) if ok else None,
+                "answer": B.answer(result) if ok else None,
                 f"shortlist_oracle@{k}": (B.shortlist_oracle(result, gt_latlon, k)
                                           if ok else None),
             }
@@ -1419,6 +1420,7 @@ METHOD_LABEL = {
     "vpr_prior_only": "VPR prior only",
     "vpr_track_only": "VPR track only",
     "track_checked": "Fit checked against track (250 m)",
+    "answer": "Answer (result.answer, the run's --answer mode)",
     "pipeline_selective": "Selective (pre-registered τ)",
     "city_centroid": "City centroid",
 }
@@ -1485,7 +1487,7 @@ def render_markdown(summary: dict) -> str:
     for fleet, fs in summary["fleets"].items():
         ids = fs["clips"]
         clips = summary["clips"]
-        methods = [m for m in ("pipeline", "pipeline_selective", "city_centroid",
+        methods = [m for m in ("answer", "pipeline", "pipeline_selective", "city_centroid",
                                "track_checked", "vpr_prior_only", "vpr_track_only",
                                "matcher_only", "pinned_only",
                                "graph_filter_only") if m in fs["methods"]]

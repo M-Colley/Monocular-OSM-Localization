@@ -146,6 +146,26 @@ def finalize_result(ctx: RunContext) -> None:
         fusion=result.get("fusion"),
     )
 
+    # The route the method answers with (cfg.answer, chosen by the
+    # pre-registered answer_selection rule); result["position"] stays the
+    # trajectory fit so runs remain comparable across versions.
+    from .. import baselines as _bl
+    _pick = {"fit": _bl.pipeline_headline, "track": _bl.vpr_track_only,
+             "checked": _bl.track_checked}[cfg.answer](result)
+    if _pick is None and cfg.answer == "track":
+        _pick = _bl.pipeline_headline(result)          # no track: the fit
+    if _pick is not None:
+        _r = _pick.route_latlon
+        result["answer"] = {
+            "mode": cfg.answer, "method": _pick.meta.get("chose", _pick.name),
+            "route_latlon": _r,
+            "start": {"latitude": _r[0][0], "longitude": _r[0][1]},
+            "end": {"latitude": _r[-1][0], "longitude": _r[-1][1]},
+            "disagreement_m": _pick.meta.get("disagreement_m"),
+        }
+        print(f"      -> answer ({cfg.answer}): {result['answer']['method']}, "
+              f"start {_r[0][0]:.5f},{_r[0][1]:.5f}")
+
     # Provenance: commit, full config, library versions, whether credentials
     # were set (never their values). Without it a result cannot be traced to
     # the code and settings that produced it.

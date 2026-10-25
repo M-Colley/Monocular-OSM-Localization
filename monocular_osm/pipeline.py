@@ -207,6 +207,13 @@ class PipelineConfig:
     # ring out to the seed radius (capped like the city-extent disc: 8 km,
     # 1,200 refs with a token), leaving the dense 3 km core set unchanged.
     vpr_seed_ring: bool = False
+    # The route the method answers with, written to result["answer"]
+    # (result["position"] always stays the trajectory fit): "fit"; "track",
+    # the retrieval track itself (running median of 5), or the fit when no
+    # track exists; "checked", the fit unless it lies over 250 m (median) from
+    # the track, then the track. Chosen by the pre-registered answer_selection
+    # rule (benchmarks/preregistered_rules.json).
+    answer: str = "fit"
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.

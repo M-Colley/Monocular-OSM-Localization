@@ -200,3 +200,10 @@ def test_the_committed_rule_is_loadable() -> None:
     rule = B.load_preregistered_rule()
     assert rule is not None and 0.0 < rule["tau"] < 1.0
     assert rule["fallback"] == "city_centroid"
+
+
+def test_answer_reads_the_recorded_answer() -> None:
+    r = _result(answer={"mode": "track", "method": "vpr_track_only", "route_latlon": ROUTE_B})
+    a = B.answer(r)
+    assert a.route_latlon == ROUTE_B and a.meta == {"mode": "track", "method": "vpr_track_only"}
+    assert B.answer(_result()) is None                  # runs before --answer existed
