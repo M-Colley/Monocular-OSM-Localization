@@ -239,15 +239,24 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
 
 ### Fixed
 
-- **City-wide retrieval never saw downtown.** Mapillary's Graph API answers
-  HTTP 500 "Please reduce the amount of data" for a tile holding too many
-  images; at the ~540 m tiles an 8 km first-pass disc uses, that is every
-  dense area (probed in Detroit: 130 m and 270 m tiles answer, 530 m and
-  1 km do not), and the fetcher dropped those tiles without a word. Rejected
-  tiles are now split into quarters (up to four levels), other failures retry
-  once, and any tile still lost is printed and recorded per pass in
-  `result["vpr_listing"]`. Every 8 km pass 1 before this (v2-v4: KITTI 0009,
-  Detroit, Chicago, Atlanta, Phoenix) searched an incomplete pool.
+- **The Mapillary reference pool was incomplete everywhere, and empty over
+  dense centres.** The pool was listed with the Graph API's bbox search, which
+  answers HTTP 500 "Please reduce the amount of data" when a box takes too
+  long to scan and silently truncates answers it does give (the same Berlin
+  100 m box returned 339, 34 or 22 images by page size; failures down to
+  16 m boxes). The fetcher dropped failed boxes without a word: Detroit's 8 km
+  disc listed 195,428 images and none within 250 m of the drive, with the
+  whole centre empty; even Karlsruhe, with no error at all, listed 498,876 of
+  its 836,869. The pool is now read from Mapillary's zoom-14 coverage tiles
+  (`mly1_public`, layer `image`; decoded by the new `monocular_osm/mvt.py` on
+  `protobuf`, since GDAL's MVT driver refuses tiles over 10 MiB), which list
+  every image per ~1.5 km tile: Detroit's disc gives 7,126,059 images in 38 s
+  (the Graph search took 22 min for 2.1 M even with box splitting), with an
+  image within 50 m of the whole route. Thumbnail URLs are looked up by id
+  only for the images kept. The Graph search remains as a fallback (rejected
+  boxes now split, other failures retried); lost tiles and URL lookups are
+  printed and recorded per pass in `result["vpr_listing"]`. Warm caches keep
+  their earlier (incomplete) sample until re-listed.
 - **Image retrieval silently never loaded on a fresh machine.** `torch.hub`
   asks on stdin whether to trust the MegaLoc/EigenPlaces repos; an unattended
   run read EOF as "no", so the retrieval channel — the main accuracy lever —

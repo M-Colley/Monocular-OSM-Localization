@@ -180,7 +180,8 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
     return refs
 
 
-def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
+def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
+                          listing="tiles"):
     """Mapillary street-level refs (Graph API v4) as ``[{id,lat,lon,url}]`` —
     a *much* denser source than KartaView on most areas (validated: a MegaLoc
     prior from these lands 3-31 m from the GT route on all clips, incl. the
@@ -262,10 +263,152 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
             # not enough pixels anywhere -> fall through to the token fetch
         except Exception:
             pass
-    import requests
     token = token or os.environ.get("MLY_TOKEN")
     if not token:
         return []
+    import requests
+    sess = requests.Session()
+    stats = {"listing": listing, "tiles": 0, "split": 0, "lost": 0}
+    lock = threading.Lock()
+
+    def count(key, n=1):
+        with lock:
+            stats[key] += n
+
+    refs = {}
+    if listing == "tiles":
+        refs = _mly_tile_listing(center, radius_m, token, sess, count, stats)
+        if stats["tiles"] and stats["lost"] == stats["tiles"]:
+            print("      -> mapillary coverage tiles unavailable; listing with "
+                  "the Graph API bbox search instead")
+            stats.update(listing="graph", tiles=0, split=0, lost=0)
+            listing = "graph"
+    if listing == "graph":
+        refs = _mly_graph_listing(center, radius_m, token, sess, count, stats)
+    if stats["lost"]:
+        print(f"      -> mapillary listing: {stats['lost']} of {stats['tiles']} tiles "
+              f"(after {stats['split']} splits) returned nothing; the reference set "
+              f"is incomplete there")
+    # UNION the fetched ids into a persistent per-signature store so the ref
+    # set only ever GROWS across cold queries — the Graph API returns a
+    # slightly different id-set each time and cells occasionally fail, so
+    # without accumulation the served set (hence the prior) drifts +-100 m
+    # run-to-run (audit round-4 R1). The store holds id/lat/lon only.
+    store = os.path.join(cache_dir, f"mly_ref_store_{_sig_tag(sig)}.json") if cache_dir else None
+    union: dict[str, list] = {}
+    if store and os.path.exists(store):
+        try:
+            union = json.load(open(store))
+        except Exception:
+            union = {}
+    for k, v in refs.items():
+        union[str(k)] = [v["lat"], v["lon"]]
+    if store and union:
+        os.makedirs(cache_dir, exist_ok=True)
+        _atomic_write_json(store, union)
+    # Deterministic, insertion-STABLE subsample: keep the `cap` ids with the
+    # lowest sha1(id). Unlike linspace over a sorted list (one inserted/dropped
+    # id shifts every kept index -> a different served set each run), a sha1
+    # threshold keeps the SAME ids whenever they reappear; only ids near the
+    # cap-th sha1 quantile ever swap in/out. Combined with the union store the
+    # served set converges to a fixed point.
+    ids = list(union.keys())
+    if len(ids) > cap:
+        ids = sorted(ids, key=lambda i: hashlib.sha1(i.encode()).hexdigest())[:cap]
+    ids = sorted(ids)   # id order -> stable fingerprint
+    # Coverage tiles carry no thumbnail URLs: look them up for the kept ids
+    # only (this also gives url-less store ids from earlier listings a URL).
+    need = [i for i in ids if "url" not in refs.get(i, {})]
+    if need:
+        urls = _mly_lookup_urls(need, token, sess)
+        stats["url_lookups"], stats["url_missing"] = len(need), len(need) - len(urls)
+        for i, u in urls.items():
+            refs.setdefault(i, {"lat": union[i][0], "lon": union[i][1]})["url"] = u
+    LAST_FETCH_STATS = dict(stats)
+    out = [{"id": i, "lat": union[i][0], "lon": union[i][1],
+            **({"url": refs[i]["url"]} if "url" in refs.get(i, {}) else {})} for i in ids]
+    if meta and out:
+        os.makedirs(cache_dir, exist_ok=True)
+        # store WITHOUT urls (they expire); the per-id image store holds pixels
+        stable = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"]} for r in out]
+        _atomic_write_json(meta, {"signature": sig, "refs": stable})
+    return out
+
+
+def _mly_tile_listing(center, radius_m, token, sess, count, stats) -> dict:
+    """``{id: {lat, lon}}`` of every image in the disc's bounding box, read from
+    Mapillary's zoom-14 coverage tiles (``mly1_public``, layer ``image``): one
+    response per ~1.5 km tile lists all its images, where the Graph API bbox
+    search times out over dense centres and truncates answers it does give
+    (the same Berlin 100 m box returned 339, 34 or 22 images by page size)."""
+    import mercantile
+
+    from .mvt import decode_points
+    clat, clon = center
+    dlat, dlon = degree_half_extent(clat, clon, radius_m)
+    w, s, e, n = clon - dlon, clat - dlat, clon + dlon, clat + dlat
+    tiles = list(mercantile.tiles(w, s, e, n, 14))
+    stats["tiles"] = len(tiles)
+
+    def one(t):
+        for attempt in range(3):
+            try:
+                r = sess.get("https://tiles.mapillary.com/maps/vtp/mly1_public/2/"
+                             f"{t.z}/{t.x}/{t.y}", params={"access_token": token},
+                             timeout=60)
+                if r.status_code == 200:
+                    return decode_points(r.content, "image", t.z, t.x, t.y)
+                raise RuntimeError(f"HTTP {r.status_code}")
+            except Exception:
+                if attempt < 2:
+                    time.sleep(2.0 * (attempt + 1))
+        count("lost")
+        return [], np.zeros((0, 2))
+
+    refs = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for ids, ll in ex.map(one, tiles):
+            if not len(ll):
+                continue
+            inside = ((ll[:, 0] >= s) & (ll[:, 0] <= n)
+                      & (ll[:, 1] >= w) & (ll[:, 1] <= e))
+            for i, (la, lo), keep in zip(ids, ll, inside):
+                if keep and i is not None:
+                    refs[str(i)] = {"lat": float(la), "lon": float(lo)}
+    return refs
+
+
+def _mly_lookup_urls(ids, token, sess, batch=100) -> dict:
+    """``{id: thumb_1024_url}`` for ``ids`` via the Graph API (at most 300 ids
+    per call; 100 answer in ~3 s). Ids it cannot resolve are left out."""
+    chunks = [ids[k:k + batch] for k in range(0, len(ids), batch)]
+
+    def one(chunk):
+        for attempt in range(3):
+            try:
+                r = sess.get("https://graph.mapillary.com/images",
+                             params={"access_token": token, "image_ids": ",".join(chunk),
+                                     "fields": "id,thumb_1024_url"}, timeout=60)
+                if r.status_code == 200:
+                    return {str(d["id"]): d["thumb_1024_url"]
+                            for d in r.json().get("data", []) if d.get("thumb_1024_url")}
+            except Exception:
+                pass
+            if attempt < 2:
+                time.sleep(2.0 * (attempt + 1))
+        return {}
+
+    out = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for got in ex.map(one, chunks):
+            out.update(got)
+    return out
+
+
+def _mly_graph_listing(center, radius_m, token, sess, count, stats) -> dict:
+    """``{id: {lat, lon, url}}`` from the Graph API bbox search over a grid of
+    cells: the fallback when coverage tiles are unavailable. Incomplete over
+    dense centres even with splitting (see ``_mly_tile_listing``)."""
     clat, clon = center
     dlat, dlon = degree_half_extent(clat, clon, radius_m)
     # Small cells: the Graph API rejects a bbox that covers too many images.
@@ -290,14 +433,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
                           min(la + step_lat, clat + dlat)))
             lo += step_lon
         la += step_lat
-    sess = requests.Session()
-
-    stats = {"tiles": len(cells), "split": 0, "lost": 0}
-    lock = threading.Lock()
-
-    def count(key):
-        with lock:
-            stats[key] += 1
+    stats["tiles"] = len(cells)
 
     def split(cell, depth):
         w, s, e, n = cell
@@ -349,47 +485,8 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None):
                 g = d.get("geometry", {}).get("coordinates")
                 u = d.get("thumb_1024_url")
                 if g and u:
-                    refs[d["id"]] = {"lat": float(g[1]), "lon": float(g[0]), "url": u}
-    LAST_FETCH_STATS = dict(stats)
-    if stats["lost"]:
-        print(f"      -> mapillary listing: {stats['lost']} of {stats['tiles']} tiles "
-              f"(after {stats['split']} splits) returned nothing; the reference set "
-              f"is incomplete there")
-    # UNION the fetched ids into a persistent per-signature store so the ref
-    # set only ever GROWS across cold queries — the Graph API returns a
-    # slightly different id-set each time and cells occasionally fail, so
-    # without accumulation the served set (hence the prior) drifts +-100 m
-    # run-to-run (audit round-4 R1). The store holds id/lat/lon only.
-    store = os.path.join(cache_dir, f"mly_ref_store_{_sig_tag(sig)}.json") if cache_dir else None
-    union: dict[str, list] = {}
-    if store and os.path.exists(store):
-        try:
-            union = json.load(open(store))
-        except Exception:
-            union = {}
-    for k, v in refs.items():
-        union[str(k)] = [v["lat"], v["lon"]]
-    if store and union:
-        os.makedirs(cache_dir, exist_ok=True)
-        _atomic_write_json(store, union)
-    # Deterministic, insertion-STABLE subsample: keep the `cap` ids with the
-    # lowest sha1(id). Unlike linspace over a sorted list (one inserted/dropped
-    # id shifts every kept index -> a different served set each run), a sha1
-    # threshold keeps the SAME ids whenever they reappear; only ids near the
-    # cap-th sha1 quantile ever swap in/out. Combined with the union store the
-    # served set converges to a fixed point.
-    ids = list(union.keys())
-    if len(ids) > cap:
-        ids = sorted(ids, key=lambda i: hashlib.sha1(i.encode()).hexdigest())[:cap]
-    ids = sorted(ids)   # id order -> stable fingerprint
-    out = [{"id": i, "lat": union[i][0], "lon": union[i][1],
-            **({"url": refs[i]["url"]} if i in refs else {})} for i in ids]
-    if meta and out:
-        os.makedirs(cache_dir, exist_ok=True)
-        # store WITHOUT urls (they expire); the per-id image store holds pixels
-        stable = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"]} for r in out]
-        _atomic_write_json(meta, {"signature": sig, "refs": stable})
-    return out
+                    refs[str(d["id"])] = {"lat": float(g[1]), "lon": float(g[0]), "url": u}
+    return refs
 
 
 def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):

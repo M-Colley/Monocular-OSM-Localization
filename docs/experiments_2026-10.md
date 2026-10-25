@@ -264,14 +264,12 @@ same disc:
 | Route within 50 m / 250 m of the 1,200 kept for pass 1 | 0 % / 0 % | **25 % / 95 %** |
 | ... of 3,000 kept | 0 % / 0 % | 40 % / 100 % |
 
-Every 8 km first pass in v2-v4 used the broken listing (KITTI 0009, Detroit
-×3, Chicago ×2, Atlanta `y66ZkRpUh4k`, Phoenix), so the earlier conclusions
-about pass-1 retrieval on those clips, including the KITTI dense pilot
-(section 7, whose 498,575-image pool was itself incomplete), were drawn from
-pools missing their densest parts. Benchmark run v5 re-measures every dev clip
-with the fixed fetcher and nothing else changed (the particle filter is
-opt-in; the new speed options default to the old behaviour); results below
-when it completes.
+Which earlier pools were incomplete depends on how dense the city is: the
+fixed fetcher records its splits, and Karlsruhe (KITTI 0009's 8 km disc) had
+none, so its v5 listing and result are identical to v3's and the KITTI dense
+pilot (section 7) stands. Benchmark run v5 re-measures every dev clip with the
+fixed fetcher and nothing else changed (the particle filter is opt-in; the new
+speed options default to the old behaviour); results below when it completes.
 
 A second, separate failure shows in the archived references
 (`scripts/pass1_coverage.py`): when the title or a plate gives a seed, pass 1

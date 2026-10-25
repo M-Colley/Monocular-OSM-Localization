@@ -6,9 +6,10 @@ images in its disc (lowest sha1 of the id, i.e. uniform-random), which cover
 3 % of KITTI 0009's route within 50 m although the full pool covers 92 %
 (docs/experiments_2026-10.md, section 1). Here the same disc is searched with
 one reference per ``--spacing`` metres instead: the pipeline's own Mapillary
-fetcher (``kartaview_vpr._fetch_refs_mapillary``) lists the disc's images into a
-scratch cache, they are thinned deterministically (sha1 order, at most one per
-``spacing`` disc; no ground truth involved), downloaded and embedded with
+listing (``kartaview_vpr._mly_tile_listing``, coverage tiles) lists the disc's
+images, they are thinned deterministically (sha1 order, at most one per
+``spacing`` disc; no ground truth involved), their thumbnail URLs are looked
+up (``_mly_lookup_urls``), and they are downloaded and embedded with
 MegaLoc exactly as the pipeline does (512x512, ImageNet normalisation) in
 streaming batches without keeping pixels. The control is v2's archived sparse
 set of the same disc, embedded the same way on the same device, against the
@@ -117,7 +118,11 @@ def main(argv=None) -> int:
     import compare_vpr_backbones as C
     import torch
 
-    from monocular_osm.kartaview_vpr import _fetch_refs_mapillary
+    import threading
+
+    import requests
+
+    from monocular_osm.kartaview_vpr import _mly_lookup_urls, _mly_tile_listing
 
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--clip", default="kitti_0009")
@@ -153,14 +158,23 @@ def main(argv=None) -> int:
     print(f"{args.clip}: pass-1 disc {centre} r={radius:.0f} m; sparse set {len(s_ids)} refs",
           flush=True)
 
-    # 1. the disc's images, listed by the pipeline's own fetcher (scratch cache)
+    # 1. the disc's images, listed the way the pipeline lists them; URLs are
+    #    looked up only for the thinned set (and the sparse control below)
     t0 = time.perf_counter()
-    pool = _fetch_refs_mapillary(tuple(centre), radius, str(args.out / f"mly_{args.clip}"),
-                                 cap=10 ** 7)
-    pool = [r for r in pool if r.get("url")]
-    print(f"  listed {len(pool)} images with URLs ({time.perf_counter() - t0:.0f} s)", flush=True)
+    token, sess = os.environ["MLY_TOKEN"], requests.Session()
+    stats, lock = {"tiles": 0, "split": 0, "lost": 0}, threading.Lock()
+
+    def count(key, n=1):
+        with lock:
+            stats[key] += n
+
+    listed = _mly_tile_listing(tuple(centre), radius, token, sess, count, stats)
+    pool = [{"id": i, **v} for i, v in listed.items()]
+    print(f"  listed {len(pool)} images ({time.perf_counter() - t0:.0f} s; {stats})", flush=True)
     dense = thin(pool, centre, args.spacing)
-    print(f"  thinned to {len(dense)} at {args.spacing:.0f} m spacing", flush=True)
+    urls = _mly_lookup_urls([r["id"] for r in dense], token, sess)
+    dense = [{**r, "url": urls[r["id"]]} for r in dense if r["id"] in urls]
+    print(f"  thinned to {len(dense)} at {args.spacing:.0f} m spacing (with URLs)", flush=True)
 
     model = C.Backbone("megaloc", C.SAGE_SHA_DEFAULT)
     d_ids, d_emb, d_ll = embed_dense(dense, model, args.batch,
@@ -170,7 +184,8 @@ def main(argv=None) -> int:
         s_emb = model.embed(s_raw).astype(np.float32)
     else:                                        # metadata-only archive: re-download
         by_id = {str(r["id"]): r for r in pool}
-        s_refs = [by_id[i] for i in s_ids if i in by_id]
+        s_urls = _mly_lookup_urls([i for i in s_ids if i in by_id], token, sess)
+        s_refs = [{**by_id[i], "url": s_urls[i]} for i in s_ids if i in s_urls]
         print(f"  sparse set: {len(s_refs)}/{len(s_ids)} ids re-listed; downloading", flush=True)
         _i, s_emb, s_ll = embed_dense(s_refs, model, args.batch,
                                       args.out / f"sparse_{args.clip}.npz")
@@ -185,7 +200,7 @@ def main(argv=None) -> int:
     q_emb = model.embed(frames).astype(np.float32)
 
     res = {"clip": args.clip, "disc": {"center": centre, "radius_m": radius},
-           "spacing_m": args.spacing, "pool_with_url": len(pool)}
+           "spacing_m": args.spacing, "pool": len(pool), "listing": stats}
     for name, emb, ll in (("sparse_v2", s_emb, s_ll), ("dense", d_emb, d_ll)):
         sc = C.score(q_emb @ emb.T, ll, q_gt, route)
         sc["n_refs"] = int(len(ll))

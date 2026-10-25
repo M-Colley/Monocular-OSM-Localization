@@ -726,7 +726,8 @@ def test_fetch_refs_mapillary_splits_tiles_the_api_rejects(tmp_path: Path, monke
     api = _FakeGraphAPI(max_deg=0.003)
     monkeypatch.setitem(sys.modules, "requests", api)
     # 8 km disc -> the step is coarsened to ~0.0048 deg, wider than max_deg
-    got = kv._fetch_refs_mapillary(ULM, 8000.0, str(tmp_path), cap=10 ** 7, token="t")
+    got = kv._fetch_refs_mapillary(ULM, 8000.0, str(tmp_path), cap=10 ** 7, token="t",
+                                     listing="graph")
     st = kv.LAST_FETCH_STATS
     assert st["lost"] == 0 and st["split"] >= st["tiles"]
     # every lattice image inside the disc's bbox is listed
@@ -742,20 +743,24 @@ def test_fetch_refs_mapillary_retries_transient_errors_and_counts_losses(
     monkeypatch.setattr(kv.time, "sleep", lambda s: None)
     probe = _FakeGraphAPI(max_deg=1.0)
     monkeypatch.setitem(sys.modules, "requests", probe)
-    kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "probe"), cap=10 ** 7, token="t")
+    kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "probe"), cap=10 ** 7, token="t",
+                                     listing="graph")
     first, second = probe.calls[0], probe.calls[1]
     full = len(kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "full"),
-                                        cap=10 ** 7, token="t"))
+                                        cap=10 ** 7, token="t",
+                                     listing="graph"))
 
     flaky = _FakeGraphAPI(max_deg=1.0, flaky=[first])
     monkeypatch.setitem(sys.modules, "requests", flaky)
-    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "flaky"), cap=10 ** 7, token="t")
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "flaky"), cap=10 ** 7, token="t",
+                                     listing="graph")
     assert len(got) == full and kv.LAST_FETCH_STATS["lost"] == 0
     assert flaky.calls.count(first) == 2
 
     dead = _FakeGraphAPI(max_deg=1.0, dead=[second])
     monkeypatch.setitem(sys.modules, "requests", dead)
-    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "dead"), cap=10 ** 7, token="t")
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "dead"), cap=10 ** 7, token="t",
+                                     listing="graph")
     assert kv.LAST_FETCH_STATS["lost"] == 1 and 0 < len(got) < full
 
 
@@ -809,3 +814,104 @@ def test_outer_ring_adds_only_new_references_and_keeps_the_core(tmp_path, monkey
     _idx, sims, _xy = kv._prepare_refs_and_query(
         frames, ULM, 3000.0, d, 10, "cpu", "megaloc", "mapillary", "t", 1500)
     assert sims.shape == (10, 40) and kv.LAST_RING is None and len(fetched) == 1
+
+
+# ---------------------------------------------------------------------------
+# _fetch_refs_mapillary listing from coverage tiles (the default)
+# ---------------------------------------------------------------------------
+
+
+class _FakeTilesAPI:
+    """Coverage tiles (one image at each tile's centre, one near its NW corner)
+    plus the Graph API's ``image_ids`` lookup (no URL for ids in ``no_url``).
+    ``tiles_down`` answers every tile with HTTP 503; the Graph bbox search then
+    returns ``graph_items`` for every cell."""
+
+    def __init__(self, no_url=(), tiles_down=False, graph_items=()):
+        self.no_url, self.tiles_down, self.graph_items = set(no_url), tiles_down, list(graph_items)
+        self.calls: dict[str, int] = {"tile": 0, "ids": 0, "bbox": 0}
+
+    def Session(self):  # noqa: N802 - mimics requests API
+        import mercantile
+
+        from ._mvt_fixtures import encode_point_tile
+        outer = self
+
+        class _Resp:
+            def __init__(self, status, payload=None, content=b""):
+                self.status_code, self._payload, self.content = status, payload, content
+                self.text = ""
+
+            def json(self):
+                return self._payload
+
+        class _Sess:
+            def get(self, url, params=None, timeout=None):
+                if "tiles.mapillary.com" in url:
+                    outer.calls["tile"] += 1
+                    if outer.tiles_down:
+                        return _Resp(503)
+                    z, x, y = (int(v) for v in url.rstrip("/").split("/")[-3:])
+                    b = mercantile.bounds(mercantile.Tile(x, y, z))
+                    pts = [(x * 100_000 + y, (b.south + b.north) / 2, (b.west + b.east) / 2),
+                           (x * 100_000 + y + 50_000, b.north - 1e-5, b.west + 1e-5)]
+                    return _Resp(200, content=encode_point_tile(pts, z, x, y))
+                if "image_ids" in params:
+                    outer.calls["ids"] += 1
+                    ids = params["image_ids"].split(",")
+                    assert len(ids) <= 300                       # the API's own limit
+                    return _Resp(200, {"data": [{"id": i, "thumb_1024_url": f"http://t/{i}"}
+                                                for i in ids if i not in outer.no_url]})
+                outer.calls["bbox"] += 1
+                return _Resp(200, {"data": outer.graph_items})
+
+        return _Sess()
+
+
+def test_tile_listing_lists_the_disc_box_and_looks_up_urls_for_kept_ids(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import mercantile
+
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    api = _FakeTilesAPI(no_url={"0"})
+    monkeypatch.setitem(sys.modules, "requests", api)
+    got = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path), cap=10 ** 7, token="t")
+    dlat, dlon = kv.degree_half_extent(ULM[0], ULM[1], 3000.0)
+    box = (ULM[1] - dlon, ULM[0] - dlat, ULM[1] + dlon, ULM[0] + dlat)
+    tiles = list(mercantile.tiles(*box, 14))
+    st = kv.LAST_FETCH_STATS
+    assert st["listing"] == "tiles" and st["tiles"] == len(tiles) == api.calls["tile"]
+    assert api.calls["bbox"] == 0
+    # only points inside the disc's box are kept (edge tiles reach beyond it)
+    assert all(box[1] <= r["lat"] <= box[3] and box[0] <= r["lon"] <= box[2] for r in got)
+    assert len(tiles) < len(got) < 2 * len(tiles)
+    assert all(r["url"] == f"http://t/{r['id']}" for r in got)
+    assert st["url_lookups"] == len(got) and st["url_missing"] == 0
+    assert api.calls["ids"] == -(-len(got) // 100)
+
+
+def test_tile_listing_keeps_cap_and_reports_ids_without_url(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    probe = _FakeTilesAPI()
+    monkeypatch.setitem(sys.modules, "requests", probe)
+    every = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "a"), cap=10 ** 7, token="t")
+    kept = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "b"), cap=20, token="t")
+    lowest = sorted((r["id"] for r in every),
+                    key=lambda i: __import__("hashlib").sha1(i.encode()).hexdigest())[:20]
+    assert sorted(r["id"] for r in kept) == sorted(lowest)
+    api = _FakeTilesAPI(no_url=set(lowest[:3]))
+    monkeypatch.setitem(sys.modules, "requests", api)
+    kept = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "c"), cap=20, token="t")
+    assert sum("url" not in r for r in kept) == 3 and kv.LAST_FETCH_STATS["url_missing"] == 3
+
+
+def test_tiles_down_falls_back_to_the_graph_bbox_search(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    item = {"id": "g1", "geometry": {"coordinates": [ULM[1], ULM[0]]},
+            "thumb_1024_url": "http://g/1"}
+    api = _FakeTilesAPI(tiles_down=True, graph_items=[item])
+    monkeypatch.setitem(sys.modules, "requests", api)
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), cap=10 ** 7, token="t")
+    assert kv.LAST_FETCH_STATS["listing"] == "graph" and api.calls["bbox"] > 0
+    assert [r["id"] for r in got] == ["g1"] and got[0]["url"] == "http://g/1"

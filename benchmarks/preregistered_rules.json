@@ -99,14 +99,21 @@
       "registered": "2026-10-24",
       "description": "Does searching a sparse reference ring out to the seed's own radius (--vpr-seed-ring) fix seeded clips whose route lies outside the 3 km retrieval core, without breaking seeded clips that already work?",
       "method": "--vpr-seed-ring at the commit that adds it: when a coarse seed (title place names, plate district) is wider than vpr_search_radius_m (3 km), pass 1 also lists the seed disc out to min(seed radius, 8 km) with the city-extent mode's ref cap (1,200 with a token) in its own cache, minus the core ids; the 3 km/1,500 core set, pass 2 and everything downstream are unchanged. Motivated by the v3/v4 archives (route inside the 3 km core: Atlanta kxED 0 %, KITTI 0033 0 %, Berlin 38 %), flagged as an open structural issue in docs/experiments_2026-10.md section 1 before any ring result existed. No constant is new or tuned.",
-      "clips": "dev clips whose run log shows a coarse seed wider than 3 km: berlin_0-420, london, ulm2, kitti_0033, overlay_Wrn4_uCxRCQ, overlay_kxEDNj5L_yQ (other clips never take the ring branch). One cold rep each, run v6 = v5 code + --vpr-seed-ring.",
-      "outcome": "symmetric_mean_m per clip (benchmark aggregate), v6 against v5 on the same clips",
+      "clips": "dev clips whose run log shows a coarse seed wider than 3 km: berlin_0-420, london, ulm2, kitti_0033, overlay_Wrn4_uCxRCQ, overlay_kxEDNj5L_yQ (other clips never take the ring branch). One cold rep each, run v7 = v6 code + --vpr-seed-ring.",
+      "outcome": "symmetric_mean_m per clip (benchmark aggregate), v7 against v6 on the same clips",
       "hypotheses": {
         "S1": "No clip with symmetric error <= 200 m in v5 is above 200 m in v6 (no harm to working clips).",
         "S2": "At least one clip above 200 m in v5 is at or below 200 m in v6, OR the ring improves more clips than it worsens (changes under 10 % of the v5 error count as ties)."
       },
       "decision": "Make --vpr-seed-ring the default iff S1 and S2 both hold; otherwise leave it off and report the result either way. The held-out test split is scored only after this decision, with whatever default results.",
-      "disclosure": "Single cold rep per clip; earlier repeated cold runs differed by tens to hundreds of metres on some clips, so a one-rep result near a threshold is weak evidence and is reported as such."
+      "disclosure": "Single cold rep per clip; earlier repeated cold runs differed by tens to hundreds of metres on some clips, so a one-rep result near a threshold is weak evidence and is reported as such.",
+      "amendments": [
+        {
+          "date": "2026-10-25",
+          "change": "baseline v5 -> v6 and ring run v6 -> v7; nothing else",
+          "reason": "v5 (Graph API listing with tile splitting) was stopped after 5 clips when the Graph bbox search proved to truncate silently even without errors (Karlsruhe: 498,876 listed vs 836,869 in Mapillary's coverage tiles). The listing now reads coverage tiles; v6 measures that on every dev clip, and the ring must be compared against the same listing. No seed-ring run or result existed at the time of this amendment."
+        }
+      ]
     },
     "test_split_2026_10": {
       "registered": "2026-10-24",

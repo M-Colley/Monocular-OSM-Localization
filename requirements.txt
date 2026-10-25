@@ -18,6 +18,8 @@ pysolar>=0.11              # absolute camera heading from the sun (--use-sun-hea
 timezonefinder>=6.0        # timezone lookup for the sun-heading astronomy (--use-sun-heading)
 rapidfuzz>=3.0             # fuzzy street/place-name matching (text_anchor, osm_gazetteer)
 tenacity>=8.2              # bounded retries for Overpass / YouTube (monocular_osm/net.py)
+mercantile>=1.2            # Mapillary coverage-tile indices (kartaview_vpr)
+protobuf>=4.22             # decodes those vector tiles (monocular_osm/mvt.py)
 
 # --- OCR: scene-text anchors AND ground truth from GPS-overlay clips -------
 # Needed by --enable-ocr-anchor (monocular_osm/scene_text.py), the sun-heading

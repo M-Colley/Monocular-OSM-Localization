@@ -57,6 +57,8 @@ dependencies = [
     "timezonefinder>=6.0",
     "rapidfuzz>=3.0",
     "tenacity>=8.2",
+    "mercantile>=1.2",
+    "protobuf>=4.22",
 ]
 
 [project.optional-dependencies]
