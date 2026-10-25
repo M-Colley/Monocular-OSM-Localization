@@ -232,16 +232,17 @@ daytime dashcam clip (Detroit `1nF_7l07i-E`) tests whether density helps where
 the footage is modern.
 
 
-## 8. The Detroit pilot found a fetcher bug: every 8 km first pass was blind downtown
+## 8. The Detroit pilot found that the reference pool was incomplete everywhere
 
 The Detroit pilot never tested density: the pipeline's fetcher listed 195,428
 images in the 8 km disc, and **none within 250 m of the route**, although direct
-small queries find 45-50 images near every route point. Mapillary's Graph API
-answers HTTP 500 "Please reduce the amount of data you're asking for" for a
-tile holding too many images (probed downtown: 130 m and 270 m tiles answer,
-530 m and 1 km tiles do not). For an 8 km disc the fetcher coarsens its tiles
-to ~540 m and dropped every rejected tile silently; only 356 of the 900 tiles
-returned anything, and the empty ones were the dense centre:
+small queries find 45-50 images near every route point. The pool was listed
+with Mapillary's Graph API bbox search, which answers HTTP 500 "Please reduce
+the amount of data you're asking for" for a box it cannot scan in time (probed
+downtown: 130 m and 270 m boxes answer, 530 m and 1 km do not). For an 8 km disc
+the fetcher coarsens its boxes to ~540 m and dropped every rejected box
+silently; only 356 of 900 returned anything, and the empty ones were the dense
+centre:
 
 ```
 old Detroit listing, 533 m cells over the 16 km box ('#' > 500 images, '+' some, '.' none)
@@ -252,24 +253,51 @@ old Detroit listing, 533 m cells over the 16 km box ('#' > 500 images, '+' some,
 ............##+.........##++.#
 ```
 
-The fix (commit `0a1c771`) splits a rejected tile into quarters, up to four
-levels (~35 m), retries other failures once, and counts any tile still lost
-(printed, and recorded per pass as `result["vpr_listing"]`). Re-listing the
-same disc:
+**First fix (commit `0a1c771`): split rejected boxes.** Up to four levels of
+quarters, one retry for other failures, lost boxes counted. Detroit's disc
+then listed 2,148,149 images (22 min). Benchmark run v5 used it and was
+stopped after five clips, because the Graph search turned out to be unreliable
+beyond the rejections:
 
-| Detroit `1nF_7l07i-E`, 8 km disc | Old listing | Fixed listing |
-|---|---|---|
-| Images listed | 195,428 | **2,148,149** (382 splits, 0 tiles lost; 22 min) |
-| Route within 50 m of any listed image | 0 % | **80 %** |
-| Route within 50 m / 250 m of the 1,200 kept for pass 1 | 0 % / 0 % | **25 % / 95 %** |
-| ... of 3,000 kept | 0 % / 0 % | 40 % / 100 % |
+* In Berlin it rejects boxes down to **16 m** (532 rejections in one 2 km
+  listing; 87 boxes still lost after splitting), so splitting cannot finish.
+* Answers it does give are **silently truncated**: the same 100 m Berlin box
+  returned 339, 34 or 22 images depending only on the page size requested.
+* Karlsruhe, with no error at all, listed 498,876 images of the 836,869 its
+  coverage tiles hold.
 
-Which earlier pools were incomplete depends on how dense the city is: the
-fixed fetcher records its splits, and Karlsruhe (KITTI 0009's 8 km disc) had
-none, so its v5 listing and result are identical to v3's and the KITTI dense
-pilot (section 7) stands. Benchmark run v5 re-measures every dev clip with the
-fixed fetcher and nothing else changed (the particle filter is opt-in; the new
-speed options default to the old behaviour); results below when it completes.
+**Second fix (commit `bf2b83c`): list from the coverage tiles.** Mapillary's
+zoom-14 vector tiles (`mly1_public`, layer `image`) list every image of a
+~1.5 km tile, with id and position, in one response. They are decoded by
+`monocular_osm/mvt.py` (on `protobuf`; GDAL's MVT driver via pyogrio decodes
+the same 135,313 points of an 8 MB tile identically but refuses tiles over
+10 MiB, which dense downtown tiles exceed), and thumbnail URLs are looked up by
+id for the kept sample only. Pass 1 on Detroit now takes 69 s at 2.1 GB peak
+memory.
+
+| Detroit `1nF_7l07i-E`, 8 km disc | Original listing | Split boxes (v5) | Coverage tiles (v6) |
+|---|---|---|---|
+| Images listed | 195,428 | 2,148,149 | **7,126,059** |
+| Time | minutes | 22 min | **38 s** |
+| Route within 50 m of any listed image | 0 % | 80 % | **100 %** |
+| Route within 50 m / 250 m of the 1,200 kept | 0 % / 0 % | 25 % / 95 % | 15 % / 85 % |
+| ... of 3,000 kept | 0 % / 0 % | 40 % / 100 % | 15 % / 100 % |
+
+The last two rows are a caveat, not a regression: the kept sample (lowest
+sha1 of the id, i.e. uniform over images) follows image density, and the
+complete pool includes the heavily re-photographed spots that the time-outs
+had happened to flatten. Completeness is now right; whether a sample spread
+over space rather than over images helps is a separate question, not changed
+here (at 3 km, section 1 found uniform spreading no better).
+
+**v5, the five clips it ran (split-box listing):** Ulm 4K 27 m (v3: 24),
+Ulm #2 79 m (142), Berlin 692 m (789), London 19 m (18), KITTI 0009 5,346 m
+(5,346, identical: its listing had no rejected box and the same sample). The
+changes on Ulm #2 and Ulm 4K, whose listings had no rejected box either, come
+from Mapillary's data changing between the runs, not from the fix. v6
+re-measures every dev clip with the coverage-tile listing and nothing else
+changed (the particle filter is opt-in; the new speed options default to the
+old behaviour).
 
 A second, separate failure shows in the archived references
 (`scripts/pass1_coverage.py`): when the title or a plate gives a seed, pass 1
@@ -281,6 +309,14 @@ seeded clips that work (London 18 m, Ulm #2 142 m). `--vpr-seed-ring` (commit
 `c02334c`, off by default) instead adds a sparse ring out to the seed radius
 at the city-extent mode's caps and keeps the core set unchanged; its adoption
 rule (`seed_ring` in `benchmarks/preregistered_rules.json`) was fixed before
-any ring run: adopt only if no seeded clip that is within 200 m in v5 gets
-worse than 200 m, and at least one gets better than 200 m or more improve than
-worsen.
+any ring run: adopt only if no seeded clip within 200 m without the ring gets
+worse than 200 m with it, and at least one gets better than 200 m or more
+improve than worsen. (Amended 2026-10-25, before any ring run, to compare v7
+with v6 rather than v6 with v5, so both share the coverage-tile listing.)
+
+Phoenix (`wJsEQTCAg1c`) is out of reach of both: its title names five
+municipalities of the metro area (Tempe, Scottsdale, Chandler, Gilbert,
+Queen Creek), the analysis window drives in Scottsdale/Tempe 15 km from the
+Phoenix centroid, outside the 8 km city disc, and no single seed disc built
+from the five names contains it (their median lies ~19 km from the route).
+Only searching each named place separately could reach it; not attempted.
