@@ -12,6 +12,9 @@ baseline needs (the aggregator reports that as "n/a", never as a score).
 * :func:`vpr_prior_only` — the street-imagery retrieval centre alone
   (``result["vpr_prior"]``). Answers "does the trajectory add anything
   beyond image retrieval?".
+* :func:`vpr_track_only` — the per-frame retrieval track itself as a route
+  (``result["vpr_prior"]["track"]``, time order, running median of 5), when
+  the run saved it. Splits a run's error into retrieval and trajectory fit.
 * :func:`matcher_only` — the raw trajectory-to-OSM matcher pick
   (``result["matcher_position"]``), no anchor of any kind.
 * :func:`pinned_only` — the matcher's candidate georeferenced by OCR / sign
@@ -224,6 +227,22 @@ def vpr_prior_only(result: dict) -> Prediction | None:
                       source="result.vpr_prior",
                       meta={"origin": vp.get("origin"),
                             "track_frames": vp.get("track_frames")})
+
+
+def vpr_track_only(result: dict, window: int = 5) -> Prediction | None:
+    """The saved retrieval track ``[t, lat, lon, sim]`` as a route: points in
+    time order, each replaced by the running median of ``window`` neighbours
+    (lat and lon separately) so single wrong retrievals do not spike it."""
+    tr = ((result or {}).get("vpr_prior") or {}).get("track")
+    if not isinstance(tr, list) or len(tr) < 2:
+        return None
+    pts = sorted(((p[0] if p[0] is not None else k, p[1], p[2])
+                  for k, p in enumerate(tr)), key=lambda p: p[0])
+    ll = np.array([[p[1], p[2]] for p in pts], dtype=float)
+    h = max(int(window) // 2, 0)
+    sm = np.array([np.median(ll[max(0, i - h):i + h + 1], axis=0) for i in range(len(ll))])
+    return Prediction("vpr_track_only", sm.tolist(), "route",
+                      source="result.vpr_prior.track", meta={"n": len(sm), "window": window})
 
 
 def load_preregistered_rule(name: str = "pipeline_selective", *,

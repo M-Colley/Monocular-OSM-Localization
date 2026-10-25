@@ -135,6 +135,18 @@
       },
       "excluded": "SjnUeNH-Kno (Dublin): its ground truth build failed (too few readable stamp fixes) before any run; nsy7qRN_oaw (Den Haag): video unavailable. Neither is replaced.",
       "disclosure": "The clips were found by a web search for dashcam uploads with burned-in coordinates, in cities absent from the dev set; ground truth comes from OCR of those coordinates (scripts/build_overlay_fleet.py, checked by scripts/check_overlay_gt.py). Their ground truth has been opened only to build and check it. Seven clips detect only large effects; the result is reported whichever way it comes out."
+    },
+    "answer_selection": {
+      "registered": "2026-10-25",
+      "description": "Which route the method answers with: the trajectory fit (the pipeline's result.position), the retrieval track itself, or the fit checked against the track. Prompted by v6, where the smoothed retrieval track scored better than the fit on 3 of the first 5 dev clips.",
+      "candidates": {
+        "P": "the pipeline's headline route (result.position), as before",
+        "T": "the retrieval track as a route: result.vpr_prior.track in time order, each point the running median of 5 (lat and lon separately); monocular_osm.baselines.vpr_track_only",
+        "C": "P, unless its disagreement with the track exceeds D = 250 m, then T. Disagreement = median over the smoothed track points of the distance to the nearest point of P's route. D is the benchmark's existing 250 m success threshold, fixed here before any disagreement value was computed."
+      },
+      "selection": "on the dev clips of v6 (with v7 in place of v6 for the seeded clips if seed_ring is adopted), choose the candidate with the most clips at symmetric error <= 200 m; ties broken by the lower median symmetric error over those clips; a remaining tie keeps P. Candidates that need the track (T, C) fall back to P on a run without one.",
+      "use": "the selected candidate is the method's answer on the test split (rule test_split_2026_10, whose T1/T2 then refer to it); the other two are reported alongside.",
+      "disclosure": "Seen before registration (v6, symmetric error, P / T): Berlin 695 / 135, KITTI 0009 3,608 / 3,735, London 22 / 63, Ulm #2 106 / 46, Ulm 4K 36 / 15. Nothing else of v6, and no value of C, had been computed. The other ten dev clips of v6 were still running."
     }
   }
 }

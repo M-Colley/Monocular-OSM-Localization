@@ -108,6 +108,18 @@ def test_report_derived_baselines() -> None:
     assert v.meta["origin"] == "vpr"
 
 
+def test_vpr_track_only_is_the_time_ordered_track_with_outliers_damped() -> None:
+    track = [[float(t), 48.40 + 0.001 * t, 9.98, 0.2] for t in range(9)]
+    track[4][1] = 49.0                                  # one wrong retrieval
+    track = track[5:] + track[:5]                       # stored out of order
+    v = B.vpr_track_only(_result(vpr_prior={"lat": 48.4, "lon": 9.98, "track": track}))
+    assert v.kind == "route" and len(v.route_latlon) == 9
+    lats = [p[0] for p in v.route_latlon]
+    assert max(lats) < 48.41                            # the spike is gone
+    assert lats[0] < 48.402 and lats[-1] > 48.406       # time order, not storage order
+    assert B.vpr_track_only(_result()) is None          # older runs: no track saved
+
+
 def test_missing_channels_are_none_not_zero() -> None:
     r = _result()
     del r["pinned_position"], r["vpr_prior"]
