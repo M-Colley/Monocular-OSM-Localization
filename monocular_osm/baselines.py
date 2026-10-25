@@ -15,6 +15,9 @@ baseline needs (the aggregator reports that as "n/a", never as a score).
 * :func:`vpr_track_only` — the per-frame retrieval track itself as a route
   (``result["vpr_prior"]["track"]``, time order, running median of 5), when
   the run saved it. Splits a run's error into retrieval and trajectory fit.
+* :func:`track_checked` — the pipeline's route, unless it disagrees with the
+  retrieval track by more than a fixed distance; then the track route
+  (candidate C of the pre-registered ``answer_selection`` rule).
 * :func:`matcher_only` — the raw trajectory-to-OSM matcher pick
   (``result["matcher_position"]``), no anchor of any kind.
 * :func:`pinned_only` — the matcher's candidate georeferenced by OCR / sign
@@ -243,6 +246,37 @@ def vpr_track_only(result: dict, window: int = 5) -> Prediction | None:
     sm = np.array([np.median(ll[max(0, i - h):i + h + 1], axis=0) for i in range(len(ll))])
     return Prediction("vpr_track_only", sm.tolist(), "route",
                       source="result.vpr_prior.track", meta={"n": len(sm), "window": window})
+
+
+def track_disagreement_m(route_latlon, track_latlon) -> float:
+    """Median over the track points of the distance (m) to the nearest point
+    of the route (a point route: the distance to that point)."""
+    import shapely
+
+    from .metrics import _geometry, local_transformer, project
+    route = np.asarray(route_latlon, dtype=float)
+    track = np.asarray(track_latlon, dtype=float)
+    tf = local_transformer(float(track[:, 0].mean()), float(track[:, 1].mean()))
+    geom = _geometry(project(route, tf))
+    return float(np.median(shapely.distance(shapely.points(project(track, tf)), geom)))
+
+
+def track_checked(result: dict, max_disagreement_m: float = 250.0) -> Prediction | None:
+    """The pipeline's route when it agrees with the retrieval track (median
+    disagreement <= ``max_disagreement_m``), else the track route. Without a
+    saved track it is the pipeline's route; without a route, the track."""
+    fit, track = pipeline_headline(result), vpr_track_only(result)
+    if fit is None or track is None:
+        pick, d = (fit or track), None
+    else:
+        d = track_disagreement_m(fit.route_latlon, track.route_latlon)
+        pick = fit if d <= max_disagreement_m else track
+    if pick is None:
+        return None
+    return Prediction("track_checked", pick.route_latlon, pick.kind,
+                      source=pick.source,
+                      meta={"chose": pick.name, "disagreement_m": d,
+                            "max_disagreement_m": max_disagreement_m})
 
 
 def load_preregistered_rule(name: str = "pipeline_selective", *,
