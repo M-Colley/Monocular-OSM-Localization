@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import heapq
 import json
 import os
 import threading
@@ -275,16 +276,22 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
         with lock:
             stats[key] += n
 
-    refs = {}
+    # listed: id -> [lat, lon] (millions over an 8 km disc, so plain lists);
+    # urls: id -> thumbnail URL where known (the Graph search returns them).
+    listed: dict[str, list] = {}
+    urls: dict[str, str] = {}
     if listing == "tiles":
-        refs = _mly_tile_listing(center, radius_m, token, sess, count, stats)
+        listed = _mly_tile_listing(center, radius_m, token, sess, count, stats)
         if stats["tiles"] and stats["lost"] == stats["tiles"]:
             print("      -> mapillary coverage tiles unavailable; listing with "
                   "the Graph API bbox search instead")
             stats.update(listing="graph", tiles=0, split=0, lost=0)
             listing = "graph"
     if listing == "graph":
-        refs = _mly_graph_listing(center, radius_m, token, sess, count, stats)
+        graph = _mly_graph_listing(center, radius_m, token, sess, count, stats)
+        listed = {k: [v["lat"], v["lon"]] for k, v in graph.items()}
+        urls = {k: v["url"] for k, v in graph.items()}
+        del graph
     if stats["lost"]:
         print(f"      -> mapillary listing: {stats['lost']} of {stats['tiles']} tiles "
               f"(after {stats['split']} splits) returned nothing; the reference set "
@@ -301,8 +308,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
             union = json.load(open(store))
         except Exception:
             union = {}
-    for k, v in refs.items():
-        union[str(k)] = [v["lat"], v["lon"]]
+    union.update(listed)
     if store and union:
         os.makedirs(cache_dir, exist_ok=True)
         _atomic_write_json(store, union)
@@ -314,19 +320,18 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
     # served set converges to a fixed point.
     ids = list(union.keys())
     if len(ids) > cap:
-        ids = sorted(ids, key=lambda i: hashlib.sha1(i.encode()).hexdigest())[:cap]
+        ids = heapq.nsmallest(cap, ids, key=lambda i: hashlib.sha1(i.encode()).hexdigest())
     ids = sorted(ids)   # id order -> stable fingerprint
     # Coverage tiles carry no thumbnail URLs: look them up for the kept ids
     # only (this also gives url-less store ids from earlier listings a URL).
-    need = [i for i in ids if "url" not in refs.get(i, {})]
+    need = [i for i in ids if i not in urls]
     if need:
-        urls = _mly_lookup_urls(need, token, sess)
-        stats["url_lookups"], stats["url_missing"] = len(need), len(need) - len(urls)
-        for i, u in urls.items():
-            refs.setdefault(i, {"lat": union[i][0], "lon": union[i][1]})["url"] = u
+        found = _mly_lookup_urls(need, token, sess)
+        stats["url_lookups"], stats["url_missing"] = len(need), len(need) - len(found)
+        urls.update(found)
     LAST_FETCH_STATS = dict(stats)
     out = [{"id": i, "lat": union[i][0], "lon": union[i][1],
-            **({"url": refs[i]["url"]} if "url" in refs.get(i, {}) else {})} for i in ids]
+            **({"url": urls[i]} if i in urls else {})} for i in ids]
     if meta and out:
         os.makedirs(cache_dir, exist_ok=True)
         # store WITHOUT urls (they expire); the per-id image store holds pixels
@@ -336,7 +341,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
 
 
 def _mly_tile_listing(center, radius_m, token, sess, count, stats) -> dict:
-    """``{id: {lat, lon}}`` of every image in the disc's bounding box, read from
+    """``{id: [lat, lon]}`` of every image in the disc's bounding box, read from
     Mapillary's zoom-14 coverage tiles (``mly1_public``, layer ``image``): one
     response per ~1.5 km tile lists all its images, where the Graph API bbox
     search times out over dense centres and truncates answers it does give
@@ -374,7 +379,7 @@ def _mly_tile_listing(center, radius_m, token, sess, count, stats) -> dict:
                       & (ll[:, 1] >= w) & (ll[:, 1] <= e))
             for i, (la, lo), keep in zip(ids, ll, inside):
                 if keep and i is not None:
-                    refs[str(i)] = {"lat": float(la), "lon": float(lo)}
+                    refs[str(i)] = [float(la), float(lo)]
     return refs
 
 

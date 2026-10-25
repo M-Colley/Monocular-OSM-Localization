@@ -169,7 +169,7 @@ def main(argv=None) -> int:
             stats[key] += n
 
     listed = _mly_tile_listing(tuple(centre), radius, token, sess, count, stats)
-    pool = [{"id": i, **v} for i, v in listed.items()]
+    pool = [{"id": i, "lat": v[0], "lon": v[1]} for i, v in listed.items()]
     print(f"  listed {len(pool)} images ({time.perf_counter() - t0:.0f} s; {stats})", flush=True)
     dense = thin(pool, centre, args.spacing)
     urls = _mly_lookup_urls([r["id"] for r in dense], token, sess)
