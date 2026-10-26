@@ -156,6 +156,22 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
 
 ### Added
 
+- **`--answer {track,fit,checked}` and `result["answer"]`**: the route the
+  method answers with. `result["position"]` stays the trajectory fit;
+  `result["vpr_prior"]["track"]` now keeps the retrieval track
+  (`[t, lat, lon, sim]` per query frame). New benchmark rows: `vpr_track_only`
+  (the track as a route, running median of 5), `track_checked` (the fit
+  unless it lies over 250 m from the track) and `answer`.
+- **`--vpr-seed-ring`** (off): pass 1 also searches a sparse ring out to a
+  coarse seed's own radius. Not adopted by its pre-registered rule (v7: one
+  dev clip better, one worse, none crosses to within 200 m).
+- `scripts/pass1_coverage.py`: how much of each route a run's archived
+  retrieval references cover, per pass.
+- `monocular_osm/mvt.py`: point features of a Mapbox Vector Tile, on
+  `protobuf` (see Fixed: Mapillary listing).
+- Pre-registered rules `seed_ring`, `answer_selection` and
+  `test_split_2026_10`, each with its recorded outcome.
+
 - `monocular_osm/fusion.py`: the consensus rule and its weights as one explicit
   module; `--fusion-weights JSON` for ablations; each run writes
   `fusion_features.json` (every candidate's per-channel ranks, penalties and
@@ -192,6 +208,13 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   `--camera-height-m`. Details: `docs/graph_filter_kitti.md`.
 
 ### Changed
+
+- **The answer is the retrieval track by default (`--answer track`).**
+  Chosen by the pre-registered `answer_selection` rule on run v6 (15 dev
+  clips): within 200 m on 9 clips against 6 for the trajectory fit and 8 for
+  the fit checked against the track; median 135 m against 395 m. The fit
+  turns a good track into a bad route on some clips (Berlin: 135 m track,
+  695 m fit) and refines it on others (London: 22 m fit, 62 m track).
 
 - **`result["matcher_position"]` is now the raw matcher pick.** On any run where
   the scale-locked OCR anchor pin succeeded it used to carry the pinned route
