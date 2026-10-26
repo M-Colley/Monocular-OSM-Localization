@@ -378,3 +378,33 @@ registered after the first five v6 clips (disclosed in the rule).
   Every failing clip's track is kilometres off rather than near-misses, and
   the retrieval similarity separates them only weakly (median top-1 cosine
   0.105-0.154 on failures against 0.159-0.268 on successes).
+
+## 10. Two pre-registered decisions, and the frozen method
+
+**Seed ring (rule `seed_ring`, run v7 = v6 + `--vpr-seed-ring`, the six
+seeded dev clips).** Symmetric error of the pipeline's route:
+
+| Clip | v6 | v7 (ring) | Ring |
+|---|---|---|---|
+| Berlin | 695 | 695 | to 6 km, +886 refs |
+| London | 22 | 22 | to 6 km, +403 |
+| Ulm #2 | 106 | 106 | to 8 km, +808 |
+| Newcastle | 342 | 342 | to 5.9 km, +1,070 |
+| Atlanta `kxEDNj5L_yQ` | 5,485 | **1,969** (track 6,024 -> 1,153) | to 6 km, +906 |
+| KITTI 0033 | 7,110 | 13,103 | to 8 km, +1,055 |
+
+S1 (no clip within 200 m breaks) holds; S2 fails (none crosses to within
+200 m; one better, one worse, four unchanged). **Not adopted.** On the four
+clips whose route lies in the core, the ring's extra references never won a
+retrieval, which is the cheap half of the result; on Atlanta it found the
+right part of the city for a quarter of the frames (24 % of the track within
+250 m, from 0 %), not enough for a route.
+
+**Answer (rule `answer_selection`, v6, all 15 dev clips).** Within 200 m:
+the fit 6, the track 9, the checked fit 8 (medians 395 / 135 / 177 m). **The
+retrieval track is selected:** from commit `ccd0bbe` the pipeline writes it
+to `result["answer"]` by default (`--answer track`; the fit when retrieval
+found nothing), and `result["position"]` stays the trajectory fit.
+
+**Frozen method for the held-out clips:** commit `ccd0bbe` defaults, run once
+as `test1` on the seven `split=test` clips under rule `test_split_2026_10`.
