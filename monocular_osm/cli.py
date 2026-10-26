@@ -491,11 +491,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "is wider than --vpr-search-radius, also search a sparse "
                         "outer ring of references out to the seed radius (max "
                         "8 km), keeping the dense core set unchanged.")
-    p.add_argument("--answer", choices=["fit", "track", "checked"], default="fit",
-                   help="Route written to result['answer']: the trajectory fit "
-                        "(result['position']), the retrieval track itself, or the "
-                        "fit checked against the track (replaced by the track when "
-                        "they disagree by over 250 m).")
+    p.add_argument("--answer", choices=["fit", "track", "checked"], default="track",
+                   help="Route written to result['answer']: the retrieval track "
+                        "itself (default; the fit when retrieval found nothing), the "
+                        "trajectory fit (result['position']), or the fit checked "
+                        "against the track (replaced by the track when they disagree "
+                        "by over 250 m). Chosen by the pre-registered "
+                        "answer_selection rule on the dev clips.")
     p.add_argument("--vpr-c2f-radius", type=float, default=2000.0,
                    help="Tight second-pass disc radius (m) for "
                         "--vpr-coarse-to-fine (default 2000).")

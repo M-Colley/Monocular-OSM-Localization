@@ -212,8 +212,9 @@ class PipelineConfig:
     # the retrieval track itself (running median of 5), or the fit when no
     # track exists; "checked", the fit unless it lies over 250 m (median) from
     # the track, then the track. Chosen by the pre-registered answer_selection
-    # rule (benchmarks/preregistered_rules.json).
-    answer: str = "fit"
+    # rule (benchmarks/preregistered_rules.json), which selected "track" on the
+    # dev clips of run v6 (9 of 15 within 200 m; the fit 6, checked 8).
+    answer: str = "track"
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.

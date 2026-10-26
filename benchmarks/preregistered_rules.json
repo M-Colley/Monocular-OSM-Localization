@@ -113,7 +113,40 @@
           "change": "baseline v5 -> v6 and ring run v6 -> v7; nothing else",
           "reason": "v5 (Graph API listing with tile splitting) was stopped after 5 clips when the Graph bbox search proved to truncate silently even without errors (Karlsruhe: 498,876 listed vs 836,869 in Mapillary's coverage tiles). The listing now reads coverage tiles; v6 measures that on every dev clip, and the ring must be compared against the same listing. No seed-ring run or result existed at the time of this amendment."
         }
-      ]
+      ],
+      "outcome_recorded": {
+        "date": "2026-10-26",
+        "runs": "v6 (d87fb20) vs v7 (d87fb20 + --vpr-seed-ring), symmetric_mean_m of result.position",
+        "per_clip_v6_v7": {
+          "berlin_0-420": [
+            695,
+            695
+          ],
+          "london": [
+            22,
+            22
+          ],
+          "ulm2": [
+            106,
+            106
+          ],
+          "overlay_Wrn4_uCxRCQ": [
+            342,
+            342
+          ],
+          "overlay_kxEDNj5L_yQ": [
+            5485,
+            1969
+          ],
+          "kitti_0033": [
+            7110,
+            13103
+          ]
+        },
+        "S1": "holds (London and Ulm #2, the clips within 200 m in v6, unchanged)",
+        "S2": "fails (no clip crosses to within 200 m; 1 improved, 1 worsened, 4 ties)",
+        "decision": "not adopted: --vpr-seed-ring stays off by default"
+      }
     },
     "test_split_2026_10": {
       "registered": "2026-10-24",
@@ -146,7 +179,22 @@
       },
       "selection": "on the dev clips of v6 (with v7 in place of v6 for the seeded clips if seed_ring is adopted), choose the candidate with the most clips at symmetric error <= 200 m; ties broken by the lower median symmetric error over those clips; a remaining tie keeps P. Candidates that need the track (T, C) fall back to P on a run without one.",
       "use": "the selected candidate is the method's answer on the test split (rule test_split_2026_10, whose T1/T2 then refer to it); the other two are reported alongside.",
-      "disclosure": "Seen before registration (v6, symmetric error, P / T): Berlin 695 / 135, KITTI 0009 3,608 / 3,735, London 22 / 63, Ulm #2 106 / 46, Ulm 4K 36 / 15. Nothing else of v6, and no value of C, had been computed. The other ten dev clips of v6 were still running."
+      "disclosure": "Seen before registration (v6, symmetric error, P / T): Berlin 695 / 135, KITTI 0009 3,608 / 3,735, London 22 / 63, Ulm #2 106 / 46, Ulm 4K 36 / 15. Nothing else of v6, and no value of C, had been computed. The other ten dev clips of v6 were still running.",
+      "outcome_recorded": {
+        "date": "2026-10-26",
+        "data": "v6, all 15 dev clips (seed_ring not adopted, so no v7 substitution)",
+        "clips_within_200m": {
+          "P": 6,
+          "T": 9,
+          "C": 8
+        },
+        "median_symmetric_m": {
+          "P": 395,
+          "T": 135,
+          "C": 177
+        },
+        "decision": "T selected: the method answers with the retrieval track (--answer track is the default from the commit recording this)"
+      }
     }
   }
 }
