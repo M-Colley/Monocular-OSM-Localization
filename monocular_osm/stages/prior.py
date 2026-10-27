@@ -294,7 +294,8 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
                     query_dt_s, track_fn, *, query_cache=None):
     """Optional full-city hierarchy; a failed experiment retains ordinary VPR."""
     from .. import kartaview_vpr as kv
-    from ..city_retrieval import CityCoverageLimitError, plan_city_regions, select_city_tracks
+    from ..city_retrieval import (CityBoundaryTypeError, CityCoverageLimitError,
+                                  plan_city_regions, select_city_tracks)
 
     external = getattr(cfg, "vpr_region_cache_dir", None)
     shared_root = Path(external) if external is not None else cfg.data_dir.parent
@@ -318,6 +319,8 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
             diagnostics["cell_limit"] = {"required_cells": exc.required_cells,
                                          "max_cells": exc.max_cells,
                                          "required_cells_is_lower_bound": exc.lower_bound}
+        if isinstance(exc, CityBoundaryTypeError):
+            diagnostics.update(boundary_validation=exc.validation, boundary_source=exc.source)
         print(f"      -> city coverage plan unavailable ({exc}); keeping ordinary retrieval")
         return baseline_track, diagnostics, listing
 

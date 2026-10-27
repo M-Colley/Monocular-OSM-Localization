@@ -10,7 +10,7 @@ import pytest
 from shapely.geometry import Point, Polygon, box
 
 from monocular_osm.city_retrieval import (
-    CityCoverageLimitError, MAX_CITY_CELLS, municipality_regions,
+    CityBoundaryTypeError, CityCoverageLimitError, MAX_CITY_CELLS, municipality_regions,
     plan_city_regions, select_city_tracks,
 )
 from monocular_osm.geo import geodesic_distance_m
@@ -55,7 +55,9 @@ def test_city_polygon_cache_is_reused_and_fingerprinted(tmp_path):
 
     def boundary(city):
         calls.append(city)
-        return box(-.02, -.02, .02, .02), {"query": city, "osm_id": 123, "osm_type": "relation"}
+        return box(-.02, -.02, .02, .02), {"query": city, "osm_id": 123, "osm_type": "relation",
+                                        "class": "boundary", "type": "administrative",
+                                        "addresstype": "city", "place_rank": 16}
 
     first, info = plan_city_regions("Small city", tmp_path, boundary_fn=boundary)
     second, cached = plan_city_regions("Small city", tmp_path, boundary_fn=lambda *_: pytest.fail("cached"))
@@ -63,14 +65,65 @@ def test_city_polygon_cache_is_reused_and_fingerprinted(tmp_path):
     assert not info["boundary_cache_hit"] and cached["boundary_cache_hit"]
     assert info["boundary_sha256"] == cached["boundary_sha256"]
     assert cached["boundary_source"]["osm_id"] == 123
+    assert cached["boundary_validation"]["administrative_boundary_verified"] is True
     blob = json.loads(next(tmp_path.glob("*.geojson")).read_text())
     assert blob["geometry"]["type"] == "Polygon"
 
 
 def test_invalid_city_boundary_is_not_published_as_a_cache(tmp_path):
     with pytest.raises(ValueError, match="municipality polygon"):
-        plan_city_regions("Not a polygon", tmp_path, boundary_fn=lambda _: (Point(0, 0), {}))
+        plan_city_regions("Not a polygon", tmp_path, boundary_fn=lambda _: (
+            Point(0, 0), {"class": "boundary", "type": "administrative"}))
     assert not list(tmp_path.glob("*.geojson"))
+
+
+def test_nominatim_boundary_source_preserves_taxonomy(monkeypatch):
+    import geopandas as gpd
+    import osmnx as ox
+    from monocular_osm.city_retrieval import _city_boundary
+
+    row = gpd.GeoDataFrame({"osm_id": [42], "osm_type": ["relation"],
+                           "class": ["boundary"], "type": ["administrative"],
+                           "addresstype": ["city"], "place_rank": [16]},
+                          geometry=[box(0, 0, .01, .01)], crs=4326)
+    monkeypatch.setattr(ox, "geocode_to_gdf", lambda city, which_result: row)
+    _geometry, source = _city_boundary("Named city")
+    assert {k: source[k] for k in ("class", "type", "addresstype", "place_rank")} == {
+        "class": "boundary", "type": "administrative", "addresstype": "city", "place_rank": 16}
+
+
+@pytest.mark.parametrize("policy", ["refuse", "allow_unverified"])
+def test_cached_nonmunicipal_polygon_is_refused_without_refetch_or_rewrite(tmp_path, policy):
+    import hashlib
+    from shapely.geometry import mapping
+
+    city = "Named peninsula"
+    path = tmp_path / f"city_{hashlib.sha256(city.encode()).hexdigest()[:16]}.geojson"
+    blob = {"schema": 1, "city": city, "geometry": mapping(box(-.02, -.02, .02, .02)),
+            "source": {"osm_id": 3944756, "class": "leisure", "type": "nature_reserve",
+                       "addresstype": "nature_reserve", "place_rank": 24,
+                       "display_name": "Synthetic watershed"}}
+    original = json.dumps(blob).encode()
+    path.write_bytes(original)
+    with pytest.raises(CityBoundaryTypeError, match="not an administrative boundary") as exc:
+        plan_city_regions(city, tmp_path, legacy_unknown_policy=policy,
+                          boundary_fn=lambda _: pytest.fail("cached snapshot must not refetch"))
+    assert exc.value.validation["status"] == "non_administrative"
+    assert exc.value.source["place_rank"] == 24
+    assert path.read_bytes() == original
+
+
+def test_legacy_missing_taxonomy_requires_explicit_unverified_policy(tmp_path):
+    boundary = lambda _: (box(-.02, -.02, .02, .02), {"osm_id": 123})
+    with pytest.raises(CityBoundaryTypeError, match="classification is missing"):
+        plan_city_regions("Legacy city", tmp_path, boundary_fn=boundary)
+    assert not list(tmp_path.glob("*.geojson"))
+    regions, audit = plan_city_regions("Legacy city", tmp_path, boundary_fn=boundary,
+                                       legacy_unknown_policy="allow_unverified")
+    assert regions and audit["boundary_validation"]["status"] == "classification_unknown"
+    assert audit["boundary_validation"]["administrative_boundary_verified"] is False
+    with pytest.raises(CityBoundaryTypeError, match="policy=refuse"):
+        plan_city_regions("Legacy city", tmp_path, boundary_fn=lambda _: pytest.fail("cached"))
 
 
 def test_searches_all_coarse_cells_and_densifies_only_three_supported_cells():
@@ -283,6 +336,30 @@ def test_prior_city_cell_limit_preserves_baseline_with_explicit_diagnostics(tmp_
     assert info["status"] == "failed" and info["cell_limit"]["required_cells"] == 65
     assert ctx.channel_status["city_cover"]["status"] == "failed"
     assert ctx.anchor_origin == "vpr"
+
+
+def test_prior_cached_nonadministrative_boundary_preserves_complete_baseline(tmp_path, monkeypatch):
+    import hashlib
+    from shapely.geometry import mapping
+    from tests.test_stages_prior import _vpr_ctx, _track as stage_track
+    import monocular_osm.stages.prior as prior
+
+    baseline = stage_track()
+    ctx, calls = _vpr_ctx(tmp_path, monkeypatch, [baseline], vpr_city_cover=True,
+                          vpr_coarse_to_fine=False)
+    directory = ctx.cfg.data_dir.parent / "_city_boundaries"
+    directory.mkdir(parents=True)
+    path = directory / f"city_{hashlib.sha256(ctx.cfg.city.encode()).hexdigest()[:16]}.geojson"
+    original = json.dumps({"city": ctx.cfg.city, "geometry": mapping(box(0, 0, .01, .01)),
+                           "source": {"class": "leisure", "type": "nature_reserve", "place_rank": 24}}).encode()
+    path.write_bytes(original)
+    prior.vpr_coarse_prior(ctx)
+    assert len(calls) == 1 and ctx.vpr_track is baseline
+    info = ctx.result["city_cover_retrieval"]
+    assert info["status"] == "failed" and info["reason"] == "city_plan_refused"
+    assert info["boundary_validation"]["status"] == "non_administrative"
+    assert info["boundary_source"]["place_rank"] == 24
+    assert ctx.anchor_origin == "vpr" and path.read_bytes() == original
 
 
 def test_city_cache_paths_and_listing_provenance_are_isolated_per_phase(tmp_path, monkeypatch):

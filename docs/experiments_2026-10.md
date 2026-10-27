@@ -488,6 +488,48 @@ The opt-in `--vpr-city-cover` implementation searches every cell coarsely and
 densifies supported cells. Its geographic opportunity is measured; its image
 retrieval accuracy is not yet established.
 
+### Municipality coverage across registered dev cities
+
+`scripts/probe_municipality_fleet.py` froze plans for every distinct city string
+in all 18 registered dev clips, including the three clips whose videos are
+unavailable. Its separate scoring process used only those frozen plans. The
+radius stayed at 3 km and the management limit at 64 cells. Nine cached public
+geocodes were reused read-only; three bounded requests fetched Málaga, Toronto
+and the San Francisco Peninsula result. No imagery, embeddings or benchmark
+inference ran, and live baseline caches were untouched.
+
+| Peripheral dev clip | Named-region union | Plus corridors | Municipality union | City cells |
+|---|---:|---:|---:|---:|
+| Phoenix | 100% | 100% | refused | at least 65 |
+| Detroit to Roseville | 26.8% | 26.8% | 100% | 27 |
+| Atlanta (`kxEDNj5L_yQ`) | 40.8% | 83.8% | 100% | 29 |
+
+Thirteen of the 15 locally available clips have accepted city plans and 100%
+sampled route coverage. London and Phoenix exceed the limit, so their city
+plans remain explicit refusals with no truncated grid. London requires at
+least 69 cells. Other accepted city grids contain Berlin 59, Chicago 47,
+Karlsruhe 16, Newcastle 12 and Ulm 15 cells. Among the unavailable clips,
+Málaga has 100% geometric coverage and Toronto 94.6%.
+
+The peninsula query exposed a semantic geocoding failure: its first result was
+San Francisco Peninsula Watershed (OSM relation 3944756), a nature reserve
+polygon. The original planner accepted its geometry, but the resulting 14-cell
+plan covers 0% of the registered `comma_148` route. That original plan and score
+are preserved, not replaced after seeing GT. The planner now records Nominatim
+class/category, feature type, address type and place rank, and refuses known
+non-administrative polygons. Legacy snapshots with missing classification are
+refused by default, retaining ordinary VPR with explicit diagnostics. A helper
+research option can allow unknown classification while marking it unverified;
+it cannot override a known non-administrative result.
+
+Artifacts are under `output/municipality_fleet_probe`; the frozen plan hash is
+`5b6548585ab047b82574fa8de3f5e4d307e64147eb653284e19cbe90e3a904c4`.
+These results measure geographic opportunity using geodesic chords between
+registered GT waypoints. They establish neither imagery coverage nor selected
+answer accuracy. A visual pilot must still measure coarse-cell recall, dense
+cell selection, final route errors, failures, runtime and memory before this
+opt-in feature can support an accuracy claim or change a default.
+
 ### Timed shop signs and joint VO alignment (post-hoc development)
 
 Native-resolution OCR on 24 frames per clip found literal retailer clues in

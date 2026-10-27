@@ -34,6 +34,40 @@ class CityCoverageLimitError(ValueError):
                          f"cells, exceeds limit {max_cells}; full-city plan refused")
 
 
+class CityBoundaryTypeError(ValueError):
+    """A geocoded polygon cannot establish an administrative city boundary."""
+
+    def __init__(self, message, validation, source):
+        self.validation = validation
+        self.source = source
+        super().__init__(message)
+
+
+def _boundary_validation(source, legacy_unknown_policy):
+    if legacy_unknown_policy not in {"refuse", "allow_unverified"}:
+        raise ValueError("legacy_unknown_policy must be refuse or allow_unverified")
+    classification = {key: source.get(key) for key in
+                      ("class", "category", "type", "addresstype", "place_rank")}
+    kinds = {str(source[key]).strip().lower() for key in ("class", "category")
+             if source.get(key) is not None}
+    feature_type = str(source.get("type") or "").strip().lower()
+    validation = {"classification": classification, "legacy_unknown_policy": legacy_unknown_policy,
+                  "administrative_boundary_verified": False}
+    if (kinds and kinds != {"boundary"}) or (feature_type and feature_type != "administrative"):
+        validation["status"] = "non_administrative"
+        raise CityBoundaryTypeError(
+            f"geocoded polygon is not an administrative boundary ({classification}); municipality plan refused",
+            validation, source)
+    if feature_type == "administrative":
+        return {**validation, "status": "administrative", "administrative_boundary_verified": True}
+    validation["status"] = "classification_unknown"
+    if legacy_unknown_policy == "refuse":
+        raise CityBoundaryTypeError(
+            "city boundary classification is missing; legacy snapshot cannot establish an administrative "
+            "municipality (policy=refuse)", validation, source)
+    return validation
+
+
 def _positive_integer(value, name):
     try:
         result = operator.index(value)
@@ -108,16 +142,24 @@ def _city_boundary(city):
     import osmnx as ox
 
     row = ox.geocode_to_gdf(city, which_result=1).iloc[0]
-    return row.geometry, {"query": city, "provider": "Nominatim via osmnx",
-                          "osm_id": int(row["osm_id"]), "osm_type": str(row["osm_type"])}
+    source = {"query": city, "provider": "Nominatim via osmnx",
+              "osm_id": int(row["osm_id"]), "osm_type": str(row["osm_type"])}
+    for key in ("class", "category", "type", "addresstype", "place_rank", "display_name"):
+        value = row.get(key)
+        if value is not None and not (isinstance(value, float) and math.isnan(value)):
+            source[key] = int(value) if key == "place_rank" else str(value)
+    return row.geometry, source
 
 
 def plan_city_regions(city, cache_dir, *, radius_m=3000.0, max_cells=MAX_CITY_CELLS,
-                      boundary_fn=None):
+                      boundary_fn=None, legacy_unknown_policy="refuse"):
     """Reuse a shared city polygon, then make a complete bounded cell plan.
 
     First use may read osmnx's HTTP cache or geocode the named city. No roads,
     imagery or GT are fetched. A dedicated boundary snapshot is shared by city.
+    Known non-administrative polygons are refused. Legacy snapshots without
+    taxonomy are refused by default; an explicit research-only allow_unverified
+    policy keeps their missing administrative identity visible in diagnostics.
     """
     from shapely.geometry import mapping, shape
 
@@ -133,20 +175,22 @@ def plan_city_regions(city, cache_dir, *, radius_m=3000.0, max_cells=MAX_CITY_CE
         cached = True
     else:
         geometry, source = (boundary_fn or _city_boundary)(city)
+        validation = _boundary_validation(source, legacy_unknown_policy)
         # Refuse an unusable/oversized polygon before publishing its cache.
         regions, audit = municipality_regions(geometry, city, radius_m=radius_m, max_cells=max_cells)
-        blob = {"schema": 1, "city": city, "geometry": mapping(geometry), "source": source}
+        blob = {"schema": 2, "city": city, "geometry": mapping(geometry), "source": source}
         cache_dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(blob, ensure_ascii=False), encoding="utf-8")
         tmp.replace(path)
     if cached:
+        validation = _boundary_validation(source, legacy_unknown_policy)
         regions, audit = municipality_regions(geometry, city, radius_m=radius_m, max_cells=max_cells)
     geometry_hash = hashlib.sha256(json.dumps(mapping(geometry), sort_keys=True,
                                               separators=(",", ":")).encode()).hexdigest()
     return regions, {**audit, "city": city, "boundary_cache": str(path),
                      "boundary_cache_hit": cached, "boundary_sha256": geometry_hash,
-                     "boundary_source": source}
+                     "boundary_source": source, "boundary_validation": validation}
 
 
 def _validated_track(track, timestamps, expected_indices):
