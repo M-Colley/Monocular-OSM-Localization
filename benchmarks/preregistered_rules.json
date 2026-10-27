@@ -167,7 +167,32 @@
         "T2": "The share of test clips at or under 200 m is reported with a Wilson 95 % interval next to the same share on the dev clips in the latest dev run; no threshold is claimed in advance."
       },
       "excluded": "SjnUeNH-Kno (Dublin): its ground truth build failed (too few readable stamp fixes) before any run; nsy7qRN_oaw (Den Haag): video unavailable. Neither is replaced.",
-      "disclosure": "The clips were found by a web search for dashcam uploads with burned-in coordinates, in cities absent from the dev set; ground truth comes from OCR of those coordinates (scripts/build_overlay_fleet.py, checked by scripts/check_overlay_gt.py). Their ground truth has been opened only to build and check it. Seven clips detect only large effects; the result is reported whichever way it comes out."
+      "disclosure": "The clips were found by a web search for dashcam uploads with burned-in coordinates, in cities absent from the dev set; ground truth comes from OCR of those coordinates (scripts/build_overlay_fleet.py, checked by scripts/check_overlay_gt.py). Their ground truth has been opened only to build and check it. Seven clips detect only large effects; the result is reported whichever way it comes out.",
+      "outcome_recorded": {
+        "date": "2026-10-27",
+        "run": "test1 at ccd0bbe (clean worktree), scored by ccd0bbe's aggregator; Ottawa and Strasbourg rerun with --retry-failed after Overpass infrastructure failures, before any test result was looked at",
+        "answer_symmetric_m": {
+          "overlay_nsONSyk9wtc": 53.1,
+          "overlay_4LvkBo69jZo": 34.4,
+          "overlay_5b-tgjtwb2U": 56.2,
+          "overlay_iJ2JvNk4Rmk": 83.9,
+          "overlay_-1xwoetuoOg": 192.3,
+          "overlay_bF5IfC2ZHjQ": 1379.8,
+          "overlay_zt8rHvHKBUU": 3437.4
+        },
+        "city_centre_symmetric_m": {
+          "overlay_nsONSyk9wtc": 3329.2,
+          "overlay_4LvkBo69jZo": 1757.3,
+          "overlay_5b-tgjtwb2U": 1162.4,
+          "overlay_iJ2JvNk4Rmk": 605.5,
+          "overlay_-1xwoetuoOg": 5485.6,
+          "overlay_bF5IfC2ZHjQ": 6476.3,
+          "overlay_zt8rHvHKBUU": 1608.0
+        },
+        "T1": "6 wins, 1 loss (Bern); one-sided sign test p = 0.0625",
+        "T2": "test 5/7 = 71 % within 200 m, Wilson 95 % [36 %, 92 %]; dev v6 (same answer) 9/15 = 60 % [36 %, 80 %]; the fit alone 0/7 on test",
+        "report": "docs/heldout_test_2026-10.md"
+      }
     },
     "answer_selection": {
       "registered": "2026-10-25",
