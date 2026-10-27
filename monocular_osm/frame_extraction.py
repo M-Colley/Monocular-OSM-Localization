@@ -121,6 +121,36 @@ class FrameSequence(Sequence):
             self._closed = True
 
 
+class GrayscaleFrames(Sequence):
+    """Lazy grayscale view retaining only two frames for pairwise flow."""
+
+    def __init__(self, frames):
+        self._source = frames
+        self._cache = OrderedDict()
+        self._lock = threading.RLock()
+
+    def __len__(self):
+        return len(self._source)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return _FrameView(self, range(*index.indices(len(self))))
+        index = int(index)
+        if index < 0:
+            index += len(self)
+        if not 0 <= index < len(self):
+            raise IndexError(index)
+        with self._lock:
+            if index not in self._cache:
+                frame = self._source[index]
+                self._cache[index] = (cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                                      if np.ndim(frame) == 3 else frame)
+                while len(self._cache) > 2:
+                    self._cache.popitem(last=False)
+            self._cache.move_to_end(index)
+            return self._cache[index]
+
+
 class _FrameView(Sequence):
     def __init__(self, source, indices):
         self._source, self._indices = source, indices

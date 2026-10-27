@@ -264,6 +264,7 @@ VPR_CACHE_DIRS: tuple[str, ...] = (
     "mapillary_c2f", "kartaview_c2f", "panoramax_c2f", "union_c2f",
     "mapillary_outer", "kartaview_outer", "panoramax_outer",
     "mapillary_regions", "kartaview_regions", "panoramax_regions", "union_regions",
+    "mapillary_city", "kartaview_city", "panoramax_city", "union_city",
 )
 ASIDE_DIR = "_benchmark_vpr_warm_aside"
 COLD_ARCHIVE_DIR = "_benchmark_cold_vpr"
@@ -284,7 +285,8 @@ def _regional_slug_root(slug_dir: Path, regional_root: Path) -> Path:
 def _vpr_cache_names(root: Path, *, external_regions: bool = False) -> list[str]:
     if not external_regions:
         return list(VPR_CACHE_DIRS)
-    prefixes = tuple(f"{source}_region_" for source in ("mapillary", "kartaview", "panoramax", "union"))
+    prefixes = tuple(f"{source}_{scope}_" for source in ("mapillary", "kartaview", "panoramax", "union")
+                     for scope in ("region", "city"))
     return sorted(p.name for p in Path(root).glob("*") if p.name.startswith(prefixes))
 
 
@@ -1604,14 +1606,14 @@ def _registered_hypotheses(ids: list[str], clips_out: dict, table: dict,
 # ---------------------------------------------------------------------------
 
 METHOD_LABEL = {
-    "pipeline": "Pipeline (headline)",
+    "pipeline": "Diagnostic trajectory fit (legacy pipeline key)",
     "matcher_only": "Matcher only",
     "pinned_only": "Anchor-pinned only",
     "graph_filter_only": "Graph filter only",
     "vpr_prior_only": "VPR prior only",
     "vpr_track_only": "VPR track only",
     "track_checked": "Fit checked against track (250 m)",
-    "answer": "Answer (result.answer, the run's --answer mode)",
+    "answer": "Answer (selected primary result)",
     "pipeline_selective": "Selective (pre-registered τ)",
     "city_centroid": "City centroid",
 }
@@ -1665,6 +1667,9 @@ def render_markdown(summary: dict) -> str:
              f"{' '.join(cfg.get('pipeline_args') or []) or 'none (default config)'}")
     L.append("- Pipeline input: video + `--city` + `--vo-segment` only. Ground truth is "
              "used offline for scoring; no GT disc, GT file or length prior reached any run.")
+    L.append("- **Answer** is the selected primary route (`result.answer`). The diagnostic "
+             "trajectory fit (`result.position`) retains the historical `pipeline` method key "
+             "and its original scores.\n")
     L.append("- Errors in metres. Per-clip cells: median [IQR] over repeats; `fail` = no "
              "answer (crash/timeout/channel absent) counted as +inf. Symmetric = mean of "
              "GT→pred (legacy 'mean route error') and pred→GT (10 m arc-length "
@@ -1718,18 +1723,20 @@ def render_markdown(summary: dict) -> str:
                 f"{vp:.0%}" if vp is not None else "–"]) + " |")
         L.append("")
         L.append("### Per clip (m)\n")
-        L.append("Pipeline columns: median [IQR] over repeats. Baseline columns: "
+        L.append("Primary result columns: median [IQR] over repeats. Other method columns: "
                  "symmetric mean error, median over repeats; `(k/n)` = answered in k "
                  "of n repeats.\n")
-        baselines = [m for m in methods if m != "pipeline"]
-        head = ["Clip", "ok/reps", "Pipeline: symmetric", "Pipeline: start",
-                "Pipeline: legacy GT→pred"] + [_label(m) for m in baselines]
+        primary = "answer" if "answer" in methods else "pipeline"
+        primary_label = "Answer" if primary == "answer" else "Diagnostic fit (legacy run)"
+        baselines = [m for m in methods if m != primary]
+        head = ["Clip", "ok/reps", f"{primary_label}: symmetric", f"{primary_label}: start",
+                f"{primary_label}: GT→pred"] + [_label(m) for m in baselines]
         L.append("| " + " | ".join(head) + " |")
         L.append("|" + "---|" * len(head))
         for i in ids:
             c = clips[i]
             ms = c["methods"]
-            pipe = ms.get("pipeline", {})
+            pipe = ms.get(primary, {})
             row = [c["name"], f"{c['n_ok']}/{c['n_reps']}",
                    _cell(pipe.get("symmetric_mean_m", {})),
                    _cell(pipe.get("start_error_m", {})),
@@ -1768,7 +1775,7 @@ def render_markdown(summary: dict) -> str:
 
         L.append(f"### Fleet summary ({len(ids)} clips; 95% percentile-bootstrap CI over clips)\n")
         head = ["Method", "Median of clip medians: symmetric", "Mean of clip medians: symmetric",
-                "Median of clip medians: start", "Pipeline wins/losses vs this (symmetric)",
+                "Median of clip medians: start", "Diagnostic fit wins/losses vs this (symmetric)",
                 "sign-test p"]
         L.append("| " + " | ".join(head) + " |")
         L.append("|" + "---|" * len(head))
@@ -1794,7 +1801,8 @@ def render_markdown(summary: dict) -> str:
             t = sel["table"]
             cov = sel["coverage"]
             L.append(f"### Selective prediction (pre-registered τ = {sel['tau']})\n")
-            L.append("The pipeline answers only when its retrieval confidence ≥ τ and "
+            L.append("The historical rule selects the diagnostic trajectory fit only when "
+                     "its retrieval confidence ≥ τ and "
                      "otherwise answers the city centre (rule and τ fixed in "
                      "`benchmarks/preregistered_rules.json` before the held-out clips "
                      "were run). Win = the pipeline's symmetric error is below the "

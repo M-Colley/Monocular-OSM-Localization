@@ -388,6 +388,34 @@ def test_viterbi_free_radius_allows_normal_motion() -> None:
     assert list(path) == [0, 1, 2, 3]
 
 
+def test_large_reference_argmax_fallback_is_reported_without_quadratic_decode(monkeypatch):
+    pytest.importorskip("torch")
+    idx = np.arange(3)
+    sims = np.zeros((3, 6001), np.float32)
+    sims[:, 6000] = .5
+    refs = np.tile(ULM, (6001, 1))
+    monkeypatch.setattr(kv, "_prepare_refs_and_query", lambda *a, **k: (idx, sims, refs))
+    assert kv.kartaview_vpr_track([], ULM, sequence_decode=True) is not None
+    assert kv.LAST_TRACK_STATS["sequence_decode_requested"] is True
+    assert kv.LAST_TRACK_STATS["decoder"] == "argmax"
+    assert kv.LAST_TRACK_STATS["n_references"] == 6001
+    assert "6000" in kv.LAST_TRACK_STATS["fallback_reason"]
+
+
+def test_requested_and_actual_track_decoder_are_distinguished(monkeypatch):
+    pytest.importorskip("torch")
+    idx = np.arange(3)
+    refs = np.tile(ULM, (40, 1))
+    sims = np.ones((3, 40), np.float32)
+    monkeypatch.setattr(kv, "_prepare_refs_and_query", lambda *a, **k: (idx, sims, refs))
+    kv.kartaview_vpr_track([], ULM, sequence_decode=True)
+    assert kv.LAST_TRACK_STATS["decoder"] == "viterbi"
+    kv.kartaview_vpr_track([], ULM, sequence_decode=False)
+    assert kv.LAST_TRACK_STATS["decoder"] == "argmax"
+    assert kv.LAST_TRACK_STATS["sequence_decode_requested"] is False
+    assert "fallback_reason" not in kv.LAST_TRACK_STATS
+
+
 # ---------------------------------------------------------------------------
 # _fetch_refs_panoramax — STAC search, signed cache, stable ordering
 # ---------------------------------------------------------------------------
@@ -689,6 +717,24 @@ def test_reference_batch_size_reaches_core_outer_and_union_pools(tmp_path, monke
     directory = tmp_path / "union_region_test"
     kv._union_refs(ULM, 3000, str(directory), 1500, None, "cpu", "megaloc", batch_size=2)
     assert len(seen) == 3 and all(batch == 2 and path.parent == directory for path, batch in seen)
+
+
+@pytest.mark.parametrize("relative", ["union_city/coarse_a", "union_city/fine_b",
+                                      "union_city_coarse_external", "union_city_fine_external"])
+def test_union_city_cells_keep_each_source_inside_the_cell_cache(tmp_path, monkeypatch, relative):
+    torch = pytest.importorskip("torch")
+    refs = _refs([ULM] * 40)
+    seen = []
+    monkeypatch.setattr(kv, "_fetch_refs_for", lambda *a: refs)
+
+    def embed(refs, device, directory, **kwargs):
+        seen.append(Path(directory))
+        return torch.zeros((len(refs), 4)), np.array([ULM] * len(refs))
+
+    monkeypatch.setattr(kv, "_embed_refs", embed)
+    directory = tmp_path / relative
+    kv._union_refs(ULM, 3000, str(directory), 250, None, "cpu", "megaloc")
+    assert seen == [directory / source for source in ("mapillary", "kartaview", "panoramax")]
 
 
 def test_robust_center_matches_metric_geometric_median() -> None:

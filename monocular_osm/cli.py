@@ -195,6 +195,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--vpr-multi-region", action="store_true",
                    help="Experimental: search places named in video metadata "
                         "as separate regions with independent reference budgets.")
+    p.add_argument("--vpr-city-cover", action="store_true",
+                   help="Experimental: cover the named municipality with local "
+                        "search cells, then densify visually supported cells. "
+                        "Use --vpr-region-cache-dir for larger reference pools.")
+    p.add_argument("--vpr-city-coarse-cap", type=int, default=250,
+                   help="Reference budget per coarse municipality cell (default 250).")
+    p.add_argument("--vpr-city-fine-regions", type=int, default=3,
+                   help="Maximum coarse cells to densify (default 3).")
     p.add_argument("--vpr-region-cap", type=int, default=6,
                    help="Maximum retrieval regions including the original search "
                         "region (default 6).")
@@ -884,6 +892,9 @@ def main() -> None:
             vpr_multi_region=args.vpr_multi_region,
             vpr_region_cap=args.vpr_region_cap,
             vpr_region_cache_dir=args.vpr_region_cache_dir,
+            vpr_city_cover=args.vpr_city_cover,
+            vpr_city_coarse_cap=args.vpr_city_coarse_cap,
+            vpr_city_fine_regions=args.vpr_city_fine_regions,
             video_title=effective_title,
             video_description=effective_description,
             answer=args.answer,

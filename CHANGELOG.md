@@ -29,6 +29,12 @@ All notable changes to this project are documented here. This project adheres to
   `scripts/check_dev_goal.py` audit requires all 15 registered available dev
   clips to meet the 200 m symmetric route-error target; it does not declare
   success from missing, failed, leaked or stale results.
+- Added an opt-in municipal retrieval hierarchy (`--vpr-city-cover`): all
+  cells get a coarse search, supported cells get a denser search, and the
+  baseline remains a candidate. Plans record their boundary fingerprint and
+  refuse coverage beyond the 64-cell limit. Accuracy is not yet benchmarked.
+- Regional searches share query descriptors within the stage. Road-plane
+  grayscale conversion and static-overlay estimation now use bounded storage.
 
 ### Reproducible, leak-free evaluation
 

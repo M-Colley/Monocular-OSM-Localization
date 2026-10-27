@@ -104,7 +104,8 @@ def _vpr_ctx(tmp_path, monkeypatch, tracks, **kw) -> tuple[RunContext, list]:
         calls.append({"center": center, "radius_m": radius_m, "cap": k.get("cap"),
                       "source": k.get("source"), "outer": k.get("outer_radius_m"),
                       "outer_cap": k.get("outer_cap"), "query_mode": k.get("query_mode"),
-                      "query_batch_size": k.get("query_batch_size")})
+                      "query_batch_size": k.get("query_batch_size"),
+                      "query_cache": k.get("query_cache")})
         return next(it)
 
     monkeypatch.setattr(kv, "kartaview_vpr_track", fake_track)
@@ -153,6 +154,15 @@ def test_vpr_can_be_disabled(tmp_path, monkeypatch):
     assert calls == [] and ctx.vpr_center is None and ctx.channel_status == {}
 
 
+def test_query_cache_is_owned_by_one_video_stage_not_a_process_global(tmp_path, monkeypatch):
+    first, first_calls = _vpr_ctx(tmp_path, monkeypatch, [_track()])
+    prior.vpr_coarse_prior(first)
+    second, second_calls = _vpr_ctx(tmp_path, monkeypatch, [_track()])
+    prior.vpr_coarse_prior(second)
+    assert isinstance(first_calls[0]["query_cache"], dict)
+    assert first_calls[0]["query_cache"] is not second_calls[0]["query_cache"]
+
+
 def test_multi_region_uses_dense_budgets_and_preserves_the_selected_regional_track(
         tmp_path, monkeypatch):
     from monocular_osm import location_prior
@@ -173,6 +183,7 @@ def test_multi_region_uses_dense_budgets_and_preserves_the_selected_regional_tra
     assert all(c["cap"] == ctx.cfg.vpr_ref_cap and c["outer"] is None for c in calls)
     assert all(c["query_mode"] == "crops" for c in calls)
     assert all(c["query_batch_size"] == 2 for c in calls)
+    assert calls[0]["query_cache"] is calls[1]["query_cache"]
     np.testing.assert_array_equal(ctx.vpr_track[1], strong[1])
     assert ctx.result["multi_region_retrieval"]["region_frame_counts"] == [0, 20]
     assert ctx.vpr_center == pytest.approx(other, abs=0.003)
@@ -221,6 +232,7 @@ def test_coarse_to_fine_recentres_the_graph_on_the_refined_prior(tmp_path, monke
     prior.vpr_coarse_prior(ctx)
     assert len(calls) == 2 and calls[1]["radius_m"] == 1500.0
     assert all(c["query_batch_size"] == 3 for c in calls)
+    assert calls[0]["query_cache"] is calls[1]["query_cache"]
     assert ctx.c2f_info["kept"] == "pass-2"
     assert ctx.vpr_center == pytest.approx(pass2_centre, abs=0.003)
     la, lo, rad = ctx.osm_around

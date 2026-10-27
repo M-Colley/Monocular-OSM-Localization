@@ -7,18 +7,25 @@ odometry and stores its route beside, never instead of, the matcher's answer:
 ``result["filter_position"]`` a position report the benchmark can score as a
 separate method.
 
-**Read this before relying on it.** The filter reaches Brubaker-level accuracy
-given metric odometry (KITTI 0033 with OXTS speed + heading: localized in
-~25 s, 7 m final error, on a box or the whole city). This repo's monocular VO
-provides no speed — every step is normalised to unit length — and with those
-unit steps the filter localizes on 2 of 5 seeds on a box-sized map and 0 of 5
-on a whole city. So by default (``graph_filter_speed="plane"``) the steps are
-given metric lengths from the road plane and an assumed camera height
-(:mod:`monocular_osm.plane_speed`); with them KITTI 0033 localized on 5 of 5
-seeds on the whole Karlsruhe map (final ~10 m), though only late in the drive,
-and the short drive 0009 still fails. Evidence is one 165 s drive: the channel
-stays off by default, never feeds the headline answer, and its confidence is
-not calibrated (``confidence_calibrated: false`` in its output).
+**Evidence has two input regimes.** The historical KITTI evaluation used raw
+camera PNGs, calibrated rectified intrinsics and OXTS sensor timestamps. Its
+road-plane-speed variant localized drive 0033 on the whole Karlsruhe map in
+5 of 5 seeds, with final error around 10 m. Those results establish behavior
+under that research setup; default pipeline settings require separate tests.
+
+A fresh MP4-plus-city-only probe used generic 70-degree intrinsics, video
+presentation times, assumed camera height 1.5 m, stride 1 and 600,000 particles.
+Seed 0 localized at 78.5 video seconds: mean mode error thereafter 5.48 m,
+final mode error 13.30 m, smoothed-route symmetric error 4.83 m against the
+committed waypoints. Prediction and input/source hashes were frozen before
+separate GPS scoring. This is one seed on one drive, with explicit experimental
+settings; see ``docs/graph_filter_kitti.md`` for provenance and limitations.
+
+By default (``graph_filter_speed="plane"``), metric lengths come from the road
+plane and an assumed camera height (:mod:`monocular_osm.plane_speed`). Unit-step
+VO alone failed all five historical city-map runs. The channel stays off by
+default, never feeds the headline answer, and its confidence is uncalibrated
+(``confidence_calibrated: false`` in its output).
 """
 
 from __future__ import annotations
@@ -46,9 +53,9 @@ def _plane_speed(ctx: RunContext):
     if imgs is None or len(imgs) != len(ctx.traj.xz):
         print("      -> no frames for road-plane speed; unit steps")
         return None
-    import cv2
+    from ..frame_extraction import GrayscaleFrames
 
-    gray = [cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) if np.ndim(f) == 3 else f for f in imgs]
+    gray = GrayscaleFrames(imgs)
     h, w = gray[0].shape[:2]
     ps = plane_step_lengths(gray, ctx.traj, default_intrinsics(w, h),
                             camera_height_m=float(ctx.cfg.camera_height_m))

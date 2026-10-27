@@ -349,6 +349,35 @@ def test_cold_cache_paths_cannot_escape_the_checked_root(tmp_path):
     assert marker.read_bytes() == b"keep"
 
 
+@pytest.mark.parametrize("source", ["mapillary", "kartaview", "panoramax", "union"])
+def test_cold_city_cells_are_invalidated_locally_and_in_external_storage(tmp_path, source):
+    slug = tmp_path / "data" / "submission"
+    external = tmp_path / "external"
+    local = slug / f"{source}_city" / "coarse_cell"
+    remote = external / slug.name / f"{source}_city_fine_cell"
+    for cache in (local, remote):
+        cache.mkdir(parents=True)
+        (cache / "pixels.npz").write_bytes(b"warm")
+    boundary = external / "_city_boundaries" / "city.geojson"
+    boundary.parent.mkdir(parents=True)
+    boundary.write_text("map snapshot", encoding="utf-8")
+    moved = M.set_vpr_caches_aside(slug, region_cache_root=external)
+    assert f"{source}_city" in moved and f"external: {source}_city_fine_cell" in moved
+    assert not local.exists() and not remote.exists()
+    for cache in (local, remote):
+        cache.mkdir(parents=True)
+        (cache / "pixels.npz").write_bytes(b"fresh")
+        (cache / "metadata.json").write_text("{}")
+    archive = slug / M.COLD_ARCHIVE_DIR / "run" / "clip" / "rep0"
+    M.restore_vpr_caches(slug, archive, keep_arrays=False, region_cache_root=external)
+    assert (local / "pixels.npz").read_bytes() == (remote / "pixels.npz").read_bytes() == b"warm"
+    assert (archive / f"{source}_city" / "coarse_cell" / "metadata.json").exists()
+    remote_archive = external / slug.name / archive.relative_to(slug)
+    assert (remote_archive / remote.name / "metadata.json").exists()
+    assert not list(archive.rglob("*.npz"))
+    assert boundary.read_text(encoding="utf-8") == "map snapshot"
+
+
 def test_cold_runner_passes_external_regional_root_to_every_repetition(tmp_path, monkeypatch):
     monkeypatch.setattr(M, "ROOT", tmp_path)
     monkeypatch.setattr(M, "_git_state", lambda: {})
@@ -524,6 +553,28 @@ def test_aggregate_fleet_bootstrap_ci_shape(tmp_path: Path) -> None:
     assert "| Clip |" in md and "City centroid" in md and "Shortlist oracle@5" in md
     blob = json.dumps(M._jsonable(s))
     assert "Infinity" not in blob and "NaN" not in blob
+
+
+@pytest.mark.parametrize("has_fit", [False, True])
+def test_markdown_leads_with_selected_answer_without_redefining_legacy_fit(tmp_path, has_fit):
+    root, manifest = _setup_root(tmp_path)
+    run_dir = tmp_path / "runs" / "answer_primary"
+    result = _fake_result(0.0, 900.0)
+    if not has_fit:
+        result.pop("position")
+    result["provenance"]["config"]["answer"] = "track"
+    result["answer"] = {"mode": "track", "method": "vpr_track_only",
+                        "route_latlon": _ll(GT_XY + [0, 20])}
+    _write_rep(run_dir, "clipA", 0, result)
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    methods = s["clips"]["clipA"]["methods"]
+    assert methods["answer"]["symmetric_mean_m"]["median"] == pytest.approx(20, abs=.5)
+    fit = methods["pipeline"]["symmetric_mean_m"]["median"]
+    assert fit == pytest.approx(900, abs=.5) if has_fit else math.isinf(fit)
+    md = M.render_markdown(s)
+    assert "| Clip | ok/reps | Answer: symmetric | Answer: start |" in md
+    assert "Diagnostic trajectory fit (legacy pipeline key)" in md
+    assert "Pipeline (headline)" not in md and "Pipeline: symmetric" not in md
 
 
 def test_aggregate_refuses_mixed_provenance(tmp_path: Path) -> None:

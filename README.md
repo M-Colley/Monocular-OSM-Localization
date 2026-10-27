@@ -467,10 +467,19 @@ Long clips spill losslessly to temporary storage, which is released on exit.
 ratio. Experimental `--vpr-multi-region` searches distinct named places with
 independent budgets; `--vpr-query-mode crops` or `aspect` tests alternative
 query preprocessing. Their defaults stay off/`warp` until measured.
+`--vpr-city-cover` is an additional opt-in search over a complete municipal
+grid. It retrieves up to `--vpr-city-coarse-cap 250` references per cell and
+densifies up to `--vpr-city-fine-regions 3` visually supported cells, retaining
+the ordinary retrieval candidate. It refuses a municipality requiring more
+than 64 cells instead of silently dropping part of it. This can be expensive;
+geographic coverage does not establish retrieval accuracy.
 Use `--vpr-region-cache-dir` to put additional regional references on a larger
 drive while retaining the original warm caches in `--data-dir`.
 `--vpr-batch-size` bounds reference and query inference batches (default 4).
 Cold benchmark repetitions also isolate the additional regional caches.
+Repeated regional passes reuse the same query descriptors within a run.
+Road-plane estimation also reads grayscale frames lazily and computes the
+static-overlay mask with fixed image storage rather than a full frame stack.
 
 After running and aggregating all development clips, audit the complete target:
 

@@ -82,3 +82,119 @@ def test_explicit_warp_batch_is_honored_without_materializing_query_tensors(monk
 def test_query_batch_must_be_positive():
     with pytest.raises(ValueError, match="batch size must be positive"):
         kv._query_similarities([], [], None, "cpu", batch_size=0)
+
+
+@pytest.mark.parametrize("mode", ["warp", "crops", "aspect"])
+def test_query_descriptors_are_reused_across_reference_regions_without_changing_scores(
+        monkeypatch, mode):
+    torch = pytest.importorskip("torch")
+    frames = [np.zeros((4, 8, 3), np.uint8) for _ in range(2)]
+    monkeypatch.setattr(kv, "_MODEL", object())
+    calls = []
+
+    def embed(device, images, **kwargs):
+        calls.append(len(images))
+        values = torch.arange(1, 2 * len(images) + 1, dtype=torch.float32).reshape(-1, 2)
+        return torch.nn.functional.normalize(values, dim=1)
+
+    monkeypatch.setattr(kv, "_embed", embed)
+    cache = {}
+    first_refs = torch.eye(2)
+    other_refs = torch.tensor([[0.6, 0.8], [0.8, 0.6], [-1., 0.]])
+    kv._query_similarities(frames, [0, 1], first_refs, "cpu", mode=mode,
+                           batch_size=2, query_cache=cache)
+    reused = kv._query_similarities(frames, [0, 1], other_refs, "cpu", mode=mode,
+                                    batch_size=2, query_cache=cache)
+    assert calls == [6 if mode == "crops" else 2]
+    assert next(iter(cache.values())).shape == (calls[0], 2)
+    independent = kv._query_similarities(frames, [0, 1], other_refs, "cpu", mode=mode,
+                                         batch_size=2)
+    np.testing.assert_array_equal(reused, independent)
+    assert len(calls) == 2
+
+
+def test_query_cache_invalidates_changed_frame_objects_models_devices_modes_and_indices(monkeypatch):
+    torch = pytest.importorskip("torch")
+    frames = [np.zeros((4, 8, 3), np.uint8) for _ in range(2)]
+    monkeypatch.setattr(kv, "_MODEL", object())
+    calls = []
+
+    def embed(device, images, **kwargs):
+        calls.append(1)
+        return torch.ones((len(images), 2))
+
+    monkeypatch.setattr(kv, "_embed", embed)
+    cache = {}
+
+    def query(source=frames, indices=(0, 1), mode="warp", device="cpu"):
+        kv._query_similarities(source, indices, torch.eye(2), device, mode=mode,
+                               batch_size=2, query_cache=cache)
+
+    query()
+    frames[0] = np.ones((4, 8, 3), np.uint8)
+    query()
+    assert len(cache) == 1
+    query(source=list(frames))
+    query(indices=(1, 0))
+    monkeypatch.setattr(kv, "_MODEL", object())
+    query()
+    monkeypatch.setattr(kv, "_MODEL_NAME", "different actual backbone")
+    query()
+    query(mode="crops")
+    query(device="different-device-token")
+    assert len(calls) == 8
+
+
+def test_cache_hits_do_not_decode_disk_backed_query_frames_again(monkeypatch):
+    torch = pytest.importorskip("torch")
+    reads = []
+
+    class Frames:
+        def __getitem__(self, index):
+            reads.append(index)
+            return np.zeros((4, 8, 3), np.uint8)
+
+    def embed(device, images, **kwargs):
+        for i in range(len(images)):
+            _ = images[i]
+        return torch.ones((len(images), 2))
+
+    monkeypatch.setattr(kv, "_embed", embed)
+    frames, cache = Frames(), {}
+    for _ in range(2):
+        kv._query_similarities(frames, [3, 1], torch.eye(2), "cpu", batch_size=2,
+                               query_cache=cache)
+    assert reads == [3, 1]
+
+
+def test_public_track_calls_share_query_forwards_only_when_cache_is_explicit(monkeypatch):
+    torch = pytest.importorskip("torch")
+    monkeypatch.setattr(kv, "_MODEL", object())
+    monkeypatch.setattr(kv, "_resolve_backbone", lambda *args: "megaloc")
+    frames = [np.zeros((4, 8, 3), np.uint8) for _ in range(3)]
+    references = [{"id": i, "lat": 48.4, "lon": 10.0 + i * 0.0001} for i in range(40)]
+    monkeypatch.setattr(kv, "_fetch_refs_for", lambda *args: references)
+    monkeypatch.setattr(kv, "_embed_refs", lambda refs, *args, **kwargs: (
+        torch.tensor([[0.6, 0.8]] * len(refs)),
+        np.array([[ref["lat"], ref["lon"]] for ref in refs])))
+    calls = []
+
+    def embed(device, images, **kwargs):
+        calls.append(len(images))
+        return torch.nn.functional.normalize(torch.tensor([[1., 0.], [0.5, 0.5], [0., 1.]]), dim=1)
+
+    monkeypatch.setattr(kv, "_embed", embed)
+    cache = {}
+    first = kv.kartaview_vpr_track(frames, (48.4, 10.0), n_query=3, device="cpu",
+                                   sequence_decode=False, query_batch_size=2, query_cache=cache)
+    regional = kv.kartaview_vpr_track(frames, (48.5, 10.1), n_query=3, device="cpu",
+                                      sequence_decode=False, query_batch_size=2, query_cache=cache)
+    assert calls == [3]
+    fresh_video_cache = {}
+    independent = kv.kartaview_vpr_track(frames, (48.5, 10.1), n_query=3, device="cpu",
+                                         sequence_decode=False, query_batch_size=2,
+                                         query_cache=fresh_video_cache)
+    assert calls == [3, 3]
+    for reused, fresh in zip(regional, independent):
+        np.testing.assert_array_equal(reused, fresh)
+    assert first is not None

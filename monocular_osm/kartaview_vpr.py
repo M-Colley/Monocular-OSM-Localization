@@ -50,6 +50,7 @@ HUB_EIGENPLACES = "gmberton/eigenplaces:a2969f71d5ea31017443af490b15273ca4c50af1
 # Why the last VPR entrypoint returned None (None after a success), so the
 # pipeline can record the reason instead of a bare "unavailable".
 LAST_FAILURE: str | None = None
+LAST_TRACK_STATS: dict = {}   # requested versus actual decoder on the last track call
 #: Original listing diagnostics and the exact metadata snapshot for the last
 #: Mapillary query, restored on warm hits too. Legacy metadata marks listing
 #: completeness unknown instead of implying a complete zero-loss listing.
@@ -643,7 +644,8 @@ def _union_refs(center, radius_m, cache_dir, cap, token, device, model_name, *, 
     import numpy as np
     import torch
     cache_path = Path(cache_dir)
-    regional = cache_path.parent.name == "union_regions" or cache_path.name.startswith("union_region_")
+    regional = (cache_path.parent.name in ("union_regions", "union_city")
+                or cache_path.name.startswith(("union_region_", "union_city_")))
     parent = cache_path if regional else cache_path.parent
     embs, xys = [], []
     counts = []
@@ -735,7 +737,28 @@ class _QueryViews:
         return _square_query_crop(frame, index % 3) if self.mode == "crops" else frame
 
 
-def _query_similarities(frames, indices, ref_emb, device, *, mode="warp", batch_size=None):
+def _query_cache_key(frames, indices, device, mode, model_name):
+    """Identity of immutable sampled inputs and the actual resident model.
+
+    Lists can cheaply distinguish replaced frame objects. Disk-backed sequences
+    use their own identity: decoding the same stored frame creates new arrays,
+    and reading every frame again would defeat the bounded lazy acquisition.
+    Callers must clear the stage-local cache if they mutate pixels in place.
+    """
+    indices = tuple(int(i) for i in indices)
+    items = tuple(id(frames[i]) for i in indices) if isinstance(frames, (list, tuple)) else None
+    resident_device = getattr(_MODEL, "device", None)
+    if resident_device is None:
+        try:
+            resident_device = next(_MODEL.parameters()).device
+        except (AttributeError, StopIteration):
+            resident_device = _MODEL_DEVICE
+    model = (id(_MODEL), _MODEL_NAME, model_name, str(device), str(resident_device))
+    return (id(frames), items, indices), model, mode
+
+
+def _query_similarities(frames, indices, ref_emb, device, *, mode="warp", batch_size=None,
+                        query_cache=None, model_name=None):
     """Score the same references with fixed query views; no geographic inputs.
 
     ``warp`` is the unchanged control. ``crops`` takes the maximum cosine per
@@ -747,14 +770,26 @@ def _query_similarities(frames, indices, ref_emb, device, *, mode="warp", batch_
         raise ValueError(f"unknown VPR query mode: {mode}")
     if batch_size is not None and batch_size <= 0:
         raise ValueError("VPR query batch size must be positive")
-    if mode == "warp" and batch_size is None:
-        q_emb = _embed(device, [_prep(frames[int(i)]) for i in indices])
-        return (q_emb @ ref_emb.T).numpy()
-    views = _QueryViews(frames, indices, mode)
-    prep = (lambda im: _prep(im, _aspect_query_size(im))) if mode == "aspect" else _prep
-    q_emb = _embed(device, views, batch_size=batch_size or 4, prepare=prep)
+    key = (_query_cache_key(frames, indices, device, mode, model_name)
+           if query_cache is not None else None)
+    q_emb = query_cache.get(key) if query_cache is not None else None
+    if q_emb is None:
+        if mode == "warp" and batch_size is None:
+            q_emb = _embed(device, [_prep(frames[int(i)]) for i in indices])
+        else:
+            views = _QueryViews(frames, indices, mode)
+            prep = (lambda im: _prep(im, _aspect_query_size(im))) if mode == "aspect" else _prep
+            q_emb = _embed(device, views, batch_size=batch_size or 4, prepare=prep)
+        if query_cache is not None and q_emb.numel() * q_emb.element_size() < 10_000_000:
+            # One input grid per model/mode bounds memory even if a caller
+            # replaces frames or changes sampling during the stage.
+            for previous in list(query_cache):
+                if previous[1:] == key[1:]:
+                    del query_cache[previous]
+            query_cache[key] = q_emb
     scores = (q_emb @ ref_emb.T).numpy()
-    return scores.reshape(len(indices), views.n_views, -1).max(axis=1)
+    n_views = 3 if mode == "crops" else 1
+    return scores if n_views == 1 else scores.reshape(len(indices), n_views, -1).max(axis=1)
 
 
 def _load_ref_images(refs, cache_dir):
@@ -1063,7 +1098,7 @@ def _resolve_backbone(model_name, device):
 def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
                             device, model_name, source, token, cap,
                             outer_radius_m=None, outer_cap=None, query_mode="warp",
-                            query_batch_size=None):
+                            query_batch_size=None, query_cache=None):
     """Shared front half of both VPR entrypoints: fetch references, load/cache
     the backbone, embed the references + the ``n_query`` sampled query frames.
 
@@ -1126,15 +1161,17 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
         return None
     idx = np.linspace(0, len(frames_bgr) - 1,
                       min(n_query, len(frames_bgr))).astype(int)
+    query_options = ({"query_cache": query_cache, "model_name": resolved}
+                     if query_cache is not None else {})
     sims = _query_similarities(frames_bgr, idx, ref_emb, device, mode=query_mode,
-                              batch_size=query_batch_size)
+                              batch_size=query_batch_size, **query_options)
     return idx, sims, np.asarray(ref_xy, dtype=float)
 
 
 def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
                         cache_dir=None, n_query=40, device=None,
                         model_name="megaloc", source="kartaview", token=None,
-                        cap=1500, query_mode="warp", query_batch_size=None):
+                        cap=1500, query_mode="warp", query_batch_size=None, query_cache=None):
     """Return a ``(lat, lon)`` coarse prior from street-level VPR, or ``None``.
 
     ``center`` is a ``(lat, lon)`` seed (e.g. the city centroid); reference photos are
@@ -1152,7 +1189,7 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
                                       token, cap, query_mode=query_mode,
-                                      query_batch_size=query_batch_size)
+                                      query_batch_size=query_batch_size, query_cache=query_cache)
         if out is None:
             return None
         _idx, sims, ref_xy = out
@@ -1211,7 +1248,7 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
                         model_name="megaloc", source="kartaview", token=None,
                         cap=1500, sequence_decode=True, query_dt_s=4.0,
                         outer_radius_m=None, outer_cap=None, query_mode="warp",
-                        query_batch_size=None):
+                        query_batch_size=None, query_cache=None):
     """Per-frame VPR positions: a sparse, noisy 'GPS' track to fit the trajectory
     to (anchor-primary v2). Returns ``(query_indices, latlons[N,2], sims[N])`` for
     ``n_query`` frames sampled uniformly across the clip, or ``None``. Unlike the
@@ -1224,29 +1261,40 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
     ``_prepare_refs_and_query``).
     ``query_mode`` is the unchanged ``warp`` control, or an opt-in ``crops`` /
     ``aspect`` query-only experiment; reference embeddings are reused.
+    ``query_cache`` may be an explicitly owned per-video dictionary, allowing
+    multiple regional searches to reuse normalized query descriptors.
     """
+    global LAST_FAILURE, LAST_TRACK_STATS
+    LAST_FAILURE = None
+    LAST_TRACK_STATS = {"sequence_decode_requested": bool(sequence_decode), "decoder": "unavailable"}
     try:
         import torch  # noqa: F401 - availability guard; helper re-imports
-    except Exception:
+    except Exception as exc:
+        LAST_FAILURE = f"torch unavailable: {exc}"
+        LAST_TRACK_STATS["reason"] = LAST_FAILURE
         return None
-    global LAST_FAILURE
-    LAST_FAILURE = None
     try:
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
                                       token, cap, outer_radius_m, outer_cap, query_mode,
-                                      query_batch_size)
+                                      query_batch_size, query_cache)
         if out is None:
+            LAST_TRACK_STATS["reason"] = LAST_FAILURE or "no reference track"
             return None
         idx, sims, ref_xy = out
+        LAST_TRACK_STATS.update(n_references=int(len(ref_xy)), n_queries=int(len(idx)), decoder="argmax")
         top1 = sims.argmax(1)
         if sequence_decode and len(idx) >= 3:
             try:
                 top1 = _viterbi_decode(sims, ref_xy, float(query_dt_s))
-            except Exception:
-                pass                      # keep the argmax track
+                LAST_TRACK_STATS["decoder"] = "viterbi"
+            except Exception as exc:
+                LAST_TRACK_STATS["fallback_reason"] = f"{type(exc).__name__}: {exc}"
+        elif sequence_decode:
+            LAST_TRACK_STATS["fallback_reason"] = "fewer than three query frames"
         maxsim = sims[np.arange(len(idx)), top1]
         return idx, ref_xy[top1].astype(float), maxsim.astype(float)
     except Exception as e:
         LAST_FAILURE = f"{type(e).__name__}: {e}"
+        LAST_TRACK_STATS["reason"] = LAST_FAILURE
         return None

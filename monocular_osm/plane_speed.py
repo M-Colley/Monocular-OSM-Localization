@@ -147,8 +147,21 @@ def static_overlay_mask(frames_gray, *, n_sample: int = 60, std_max: float = 3.0
     import cv2
 
     idx = np.linspace(0, len(frames_gray) - 1, min(n_sample, len(frames_gray))).astype(int)
-    stack = np.stack([np.asarray(frames_gray[i], np.float32) for i in idx])
-    static = (stack.std(axis=0) < std_max).astype(np.uint8) * 255
+    if not len(idx):
+        raise ValueError("static overlay estimation needs frames and a positive sample count")
+    # Fixed image storage instead of a 60-frame float32 stack (2 GB at 4K).
+    first = np.asarray(frames_gray[int(idx[0])])
+    total = np.zeros(first.shape, np.float64)
+    squares = np.zeros(first.shape, np.float64)
+    for i in idx:
+        image = np.asarray(frames_gray[int(i)], np.float64)
+        if image.shape != first.shape:
+            raise ValueError("overlay frames must have matching shapes")
+        total += image
+        squares += image * image
+    total /= len(idx)
+    variance = np.maximum(squares / len(idx) - total * total, 0.0)
+    static = (np.sqrt(variance) < std_max).astype(np.uint8) * 255
     if dilate_px > 0:
         static = cv2.dilate(static, np.ones((dilate_px, dilate_px), np.uint8))
     return static

@@ -219,6 +219,9 @@ class PipelineConfig:
     vpr_multi_region: bool = False
     vpr_region_cap: int = 6
     vpr_region_cache_dir: Path | None = None
+    vpr_city_cover: bool = False
+    vpr_city_coarse_cap: int = 250
+    vpr_city_fine_regions: int = 3
     video_title: str | None = None
     video_description: str | None = None
     # The route the method answers with, written to result["answer"]
@@ -350,6 +353,8 @@ class PipelineConfig:
             raise ValueError("vpr_query_batch_size must be positive")
         if self.vpr_region_cap <= 0:
             raise ValueError("vpr_region_cap must be positive")
+        if self.vpr_city_coarse_cap <= 0 or self.vpr_city_fine_regions <= 0:
+            raise ValueError("city retrieval budgets must be positive")
         if self.retrieval_only and self.answer != "track":
             raise ValueError("retrieval_only requires answer='track'")
 

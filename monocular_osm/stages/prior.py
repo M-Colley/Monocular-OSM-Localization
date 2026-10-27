@@ -213,7 +213,7 @@ def _regional_cache_directories(cfg, source):
 
 
 def _multi_region_vpr(cfg, frames, center, radius_m, cap, source, token, device,
-                      query_dt_s, track_fn):
+                      query_dt_s, track_fn, *, query_cache=None):
     """Fetch independent dense regional tracks and select with temporal evidence."""
     from .. import kartaview_vpr as kv
     from ..location_prior import resolve_retrieval_regions
@@ -250,12 +250,15 @@ def _multi_region_vpr(cfg, frames, center, radius_m, cap, source, token, device,
         print(f"      -> region {index + 1}/{len(regions)}: {region['name']}, "
               f"r={region['radius_m']:.0f} m, cap={region_cap}")
         try:
+            kv.LAST_TRACK_STATS = {}
             track = track_fn(
                 frames.frames, tuple(region["center"]), radius_m=region["radius_m"],
                 cache_dir=str(directory), device=device, source=source, token=token,
                 cap=region_cap, sequence_decode=cfg.vpr_viterbi, query_dt_s=query_dt_s,
                 query_mode=getattr(cfg, "vpr_query_mode", "warp"),
-                query_batch_size=getattr(cfg, "vpr_query_batch_size", 4))
+                query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                query_cache=query_cache)
+            record["track_decoding"] = dict(kv.LAST_TRACK_STATS)
             if source == "mapillary" and kv.LAST_FETCH_STATS:
                 listing[f"region_{index}"] = dict(kv.LAST_FETCH_STATS)
             if track is None:
@@ -277,6 +280,105 @@ def _multi_region_vpr(cfg, frames, center, radius_m, cap, source, token, device,
     diagnostics = {"experimental": True, "regions": records,
                    "n_usable_regions": len(tracks), **evidence}
     return merged, diagnostics, listing
+
+
+def _city_cache_directories(cfg, source):
+    """Existing city-cell reference caches under the configured storage root."""
+    external = getattr(cfg, "vpr_region_cache_dir", None)
+    if external is not None:
+        return (Path(external) / cfg.data_dir.name).glob(f"{source}_city_*")
+    return (cfg.data_dir / f"{source}_city").glob("*")
+
+
+def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token, device,
+                    query_dt_s, track_fn, *, query_cache=None):
+    """Optional full-city hierarchy; a failed experiment retains ordinary VPR."""
+    from .. import kartaview_vpr as kv
+    from ..city_retrieval import CityCoverageLimitError, plan_city_regions, select_city_tracks
+
+    external = getattr(cfg, "vpr_region_cache_dir", None)
+    shared_root = Path(external) if external is not None else cfg.data_dir.parent
+    listing = {}
+    baseline_backbone = kv.backbone_info()
+    expected_backbone = ((baseline_backbone.get("name"), baseline_backbone.get("hub"))
+                         if baseline_track is not None and baseline_backbone.get("name") else None)
+    diagnostics = {"experimental": True, "confidence_calibrated": False,
+                   "baseline": {**baseline_region, "track_present": baseline_track is not None,
+                                "backbone": baseline_backbone,
+                                "track_decoding": baseline_region.get("track_decoding", dict(kv.LAST_TRACK_STATS))},
+                   "selected_city_frames": 0}
+    try:
+        regions, plan = plan_city_regions(
+            cfg.city, shared_root / "_city_boundaries", radius_m=cfg.vpr_search_radius_m)
+        diagnostics["plan"] = plan
+    except Exception as exc:
+        diagnostics.update(status="failed", reason="city_plan_refused",
+                           error=f"{type(exc).__name__}: {exc}")
+        if isinstance(exc, CityCoverageLimitError):
+            diagnostics["cell_limit"] = {"required_cells": exc.required_cells,
+                                         "max_cells": exc.max_cells,
+                                         "required_cells_is_lower_bound": exc.lower_bound}
+        print(f"      -> city coverage plan unavailable ({exc}); keeping ordinary retrieval")
+        return baseline_track, diagnostics, listing
+
+    def retrieve(region, *, cap, phase, index):
+        nonlocal expected_backbone
+        identity = f"{cfg.city}:{region['center']}:{region['radius_m']}"
+        tag = hashlib.sha256(identity.encode()).hexdigest()[:12]
+        if external is not None:
+            directory = Path(external) / cfg.data_dir.name / f"{source}_city_{phase}_{tag}"
+        else:
+            directory = cfg.data_dir / f"{source}_city" / f"{phase}_{tag}"
+        print(f"      -> city {phase} cell {index + 1}/{len(regions)} "
+              f"r={region['radius_m']:.0f} m, cap={cap}")
+        kv.LAST_FETCH_STATS = {}
+        kv.LAST_FAILURE = None
+        kv.LAST_TRACK_STATS = {}
+        record = {"cache": str(directory), "source": source, "backbone": kv.backbone_info()}
+        try:
+            track = track_fn(
+                frames.frames, tuple(region["center"]), radius_m=region["radius_m"],
+                cache_dir=str(directory), device=device, source=source, token=token,
+                cap=cap, sequence_decode=cfg.vpr_viterbi, query_dt_s=query_dt_s,
+                query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+                query_batch_size=getattr(cfg, "vpr_query_batch_size", 4), query_cache=query_cache)
+        except Exception as exc:
+            record.update(error=f"{type(exc).__name__}: {exc}")
+            return None, record
+        record["backbone"] = kv.backbone_info()
+        record["track_decoding"] = dict(kv.LAST_TRACK_STATS)
+        if source == "mapillary" and kv.LAST_FETCH_STATS:
+            stats = dict(kv.LAST_FETCH_STATS)
+            listing[f"city_{phase}_{index}"] = stats
+            record["listing"] = stats
+        model = record["backbone"]
+        if track is not None and model.get("name"):
+            fingerprint = (model.get("name"), model.get("hub"))
+            if expected_backbone is not None and fingerprint != expected_backbone:
+                record["error"] = "retrieval backbone changed; cosine scores are not comparable"
+                return None, record
+            expected_backbone = fingerprint
+        if track is None:
+            record["reason"] = kv.LAST_FAILURE or "no reference track"
+        return track, record
+
+    try:
+        merged, selection = select_city_tracks(
+            regions, baseline_track, frames.timestamps, retrieve,
+            coarse_cap=getattr(cfg, "vpr_city_coarse_cap", 250),
+            fine_regions=getattr(cfg, "vpr_city_fine_regions", 3), fine_cap=cfg.vpr_ref_cap)
+        diagnostics.update(selection)
+        multiplier = 3 if source == "union" else 1
+        diagnostics["reference_budget"].update(
+            cap_is_per_source=source == "union", source_multiplier_upper_bound=multiplier,
+            coarse_reference_upper_bound=selection["reference_budget"]["coarse_max"] * multiplier,
+            fine_reference_upper_bound=selection["reference_budget"]["fine_max"] * multiplier)
+        return merged, diagnostics, listing
+    except Exception as exc:
+        diagnostics.update(status="failed", reason="city_selection_failed",
+                           error=f"{type(exc).__name__}: {exc}")
+        print(f"      -> city retrieval failed ({exc}); keeping ordinary retrieval")
+        return baseline_track, diagnostics, listing
 
 
 def vpr_coarse_prior(ctx: RunContext) -> None:
@@ -303,6 +405,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
     ctx.vpr_listing = None   # Mapillary listing tile counts per pass
     ctx.anchor_origin = None   # which channel produced vpr_center: vpr|vlm
     ctx.vpr_source_used = None  # effective reference source after fallbacks
+    _query_cache = {}           # descriptors live only for this video/stage
     # VPR runs whenever enabled — it re-ranks + drives anchor-primary, so it is
     # NOT conditioned on osm_around (mega-cities pass --osm-around AND want VPR).
     if cfg.use_vpr_prior:
@@ -313,6 +416,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
 
             import osmnx as ox
             from ..kartaview_vpr import kartaview_vpr_track, _robust_center
+            from .. import kartaview_vpr as _kv
             # Prefer an explicit --osm-around centre (robust to Nominatim
             # geocode failures / ambiguous small-town names); else geocode.
             center = ((ctx.osm_around[0], ctx.osm_around[1]) if ctx.osm_around
@@ -336,7 +440,10 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                 _regional_cache = (getattr(cfg, "vpr_multi_region", False)
                                    and any(has_mapillary_cache(str(p)) for p in
                                            _regional_cache_directories(cfg, _vpr_src)))
-                if has_mapillary_cache(str(cfg.data_dir / _vpr_src)) or _regional_cache:
+                _city_cache = (getattr(cfg, "vpr_city_cover", False)
+                               and any(has_mapillary_cache(str(p)) for p in
+                                       _city_cache_directories(cfg, _vpr_src)))
+                if has_mapillary_cache(str(cfg.data_dir / _vpr_src)) or _regional_cache or _city_cache:
                     # Existence-only check: the fetch itself still verifies
                     # the cache SIGNATURE (centre/radius/cap) — if the query
                     # moved since the cache was written, refs come back empty
@@ -422,10 +529,12 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
             _qn = max(min(80, len(frames.frames)) - 1, 1)
             _qdt = float((_ts[-1] - _ts[0]) / _qn) if len(_ts) >= 2 else 4.0
             _multi_used = False
+            _kv.LAST_TRACK_STATS = {}
             if getattr(cfg, "vpr_multi_region", False):
                 tr, _regional, _listing = _multi_region_vpr(
                     cfg, frames, center, _vpr_radius, _vpr_cap_eff, _vpr_src,
-                    _vpr_token, _vpr_device, _qdt, kartaview_vpr_track)
+                    _vpr_token, _vpr_device, _qdt, kartaview_vpr_track,
+                    query_cache=_query_cache)
                 ctx.result["multi_region_retrieval"] = _regional
                 ctx.vpr_listing = _listing or None
                 _multi_used = _regional["n_usable_regions"] > 1
@@ -437,8 +546,11 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     sequence_decode=cfg.vpr_viterbi,
                     query_mode=getattr(cfg, "vpr_query_mode", "warp"), query_dt_s=_qdt,
                     query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                    query_cache=_query_cache,
                     outer_radius_m=_vpr_outer, outer_cap=_vpr_outer_cap)
             from .. import kartaview_vpr as _kv
+            if not getattr(cfg, "vpr_multi_region", False) and _kv.LAST_TRACK_STATS:
+                ctx.result["vpr_decoding"] = {"pass1": dict(_kv.LAST_TRACK_STATS)}
             if (not getattr(cfg, "vpr_multi_region", False)
                     and _vpr_src == "mapillary" and _kv.LAST_FETCH_STATS):
                 ctx.vpr_listing = {"pass1": dict(_kv.LAST_FETCH_STATS)}
@@ -483,8 +595,9 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     _graph_radius = min(_regional_radius, _PASS1_COVER_MAX_M)
                     ctx.osm_around = (float(ctx.vpr_center[0]), float(ctx.vpr_center[1]),
                                       _graph_radius)
-                    ctx.result["multi_region_retrieval"]["graph_radius_m"] = _graph_radius
-                    ctx.result["multi_region_retrieval"]["graph_radius_capped"] = (
+                    _regional_diagnostics = ctx.result["multi_region_retrieval"]
+                    _regional_diagnostics["graph_radius_m"] = _graph_radius
+                    _regional_diagnostics["graph_radius_capped"] = (
                         _regional_radius > _graph_radius)
                     print("      -> regional track kept; single-centre coarse-to-fine skipped")
                 if (cfg.vpr_coarse_to_fine and not _multi_used
@@ -515,6 +628,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     _p1_center, _p1_track = ctx.vpr_center, tr
                     _p1_sim = float(np.median(v_sims)) if len(v_sims) else 0.0
                     try:
+                        _kv.LAST_TRACK_STATS = {}
                         tr2 = kartaview_vpr_track(
                             frames.frames, (_slat, _slon),
                             radius_m=_tight,
@@ -523,7 +637,10 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                             token=_vpr_token, cap=cfg.vpr_ref_cap,
                             query_mode=getattr(cfg, "vpr_query_mode", "warp"),
                             query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                            query_cache=_query_cache,
                             sequence_decode=cfg.vpr_viterbi, query_dt_s=_qdt)
+                        if _kv.LAST_TRACK_STATS:
+                            ctx.result.setdefault("vpr_decoding", {})["pass2"] = dict(_kv.LAST_TRACK_STATS)
                         if _vpr_src == "mapillary" and _kv.LAST_FETCH_STATS:
                             ctx.vpr_listing = {**(ctx.vpr_listing or {}),
                                                "pass2": dict(_kv.LAST_FETCH_STATS)}
@@ -596,6 +713,42 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                 _why = _kv.LAST_FAILURE or "no reference track"
                 print(f"      -> VPR unavailable ({_why}); keeping full-city graph")
                 _record_channel(channel_status, "vpr", "inactive", reason=_why)
+            # Compare city candidates with the completed ordinary baseline,
+            # including pass 2, rather than suppressing its normal refinement.
+            if getattr(cfg, "vpr_city_cover", False):
+                _baseline_pass = "pass2" if (ctx.c2f_info or {}).get("kept") == "pass-2" else "pass1"
+                _baseline_decoding = (ctx.result.get("vpr_decoding") or {}).get(_baseline_pass, {})
+                if getattr(cfg, "vpr_multi_region", False):
+                    _baseline_decoding = {"kind": "regional", "details": "multi_region_retrieval.regions"}
+                _city_track, _city, _city_listing = _city_cover_vpr(
+                    cfg, frames, ctx.vpr_track,
+                    {"center": list(center), "radius_m": _vpr_radius, "ref_cap": _vpr_cap_eff,
+                     "cache": str(cfg.data_dir / _vpr_src), "source": _vpr_src,
+                     "includes_metadata_regions": getattr(cfg, "vpr_multi_region", False),
+                     "coarse_to_fine": ctx.c2f_info, "track_decoding": _baseline_decoding},
+                    _vpr_src, _vpr_token, _vpr_device, _qdt, kartaview_vpr_track,
+                    query_cache=_query_cache)
+                ctx.result["city_cover_retrieval"] = _city
+                ctx.vpr_listing = {**(ctx.vpr_listing or {}), **_city_listing} or None
+                _record_channel(channel_status, "city_cover",
+                                "failed" if _city.get("status") == "failed" else
+                                "ok" if _city.get("status") == "ok" else "inactive",
+                                reason=_city.get("reason"),
+                                selected_city_frames=_city.get("selected_city_frames", 0))
+                if _city_track is not None and _city.get("selected_city_frames", 0):
+                    ctx.vpr_track = _city_track
+                    _idx, _ll, _similarities = _city_track
+                    ctx.vpr_center = _robust_center(_ll, _similarities)
+                    ctx.anchor_origin, ctx.vpr_source_used = "vpr", _vpr_src
+                    channel_status.pop("vpr", None)       # Recover an empty ordinary region.
+                    distances = geodesic_distance_m(ctx.vpr_center[0], ctx.vpr_center[1],
+                                                    _ll[:, 0], _ll[:, 1])
+                    required = max(float(cfg.vpr_c2f_radius_m), 0.6 * float(estimated_length_m),
+                                   float(np.max(distances))) + _C2F_SNAP_TOL_M
+                    radius = min(required, _PASS1_COVER_MAX_M)
+                    ctx.osm_around = (*map(float, ctx.vpr_center), radius)
+                    _city.update(graph_radius_m=radius, graph_radius_capped=required > radius)
+                    print("      -> city track selected against the completed ordinary baseline")
         except Exception as e:
             print(f"      -> VPR prior failed ({e}); keeping full-city graph")
             _record_channel(channel_status, 'vpr', "failed", error=e)

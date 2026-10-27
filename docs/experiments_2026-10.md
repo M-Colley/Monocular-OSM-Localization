@@ -1,10 +1,10 @@
 # October 2026 experiments: where the failures come from, and three new methods
 
-Four questions, each answered on the exact data benchmark run v2 used (its
+The first experiments answer questions on the exact data benchmark run v2 used (its
 cold-run archives: the Mapillary metadata and pixels each rep downloaded, read
-only), with ground truth used for scoring only. Nothing below was tuned on the
-clips it is reported on, and the one test with a decision rule was registered
-before its test data were scored (`benchmarks/preregistered_rules.json`).
+only), with ground truth used for scoring only. Later sections identify their
+own data pools and distinguish registered tests from post-hoc development
+experiments. Registered decision rules are in `benchmarks/preregistered_rules.json`.
 
 ## 1. Most core failures happen before retrieval: the search disc misses the route
 
@@ -478,3 +478,43 @@ header while inspecting its file format. Detroit remains outside the straight
 named-place corridor, so broad city coverage still needs work. The probe is
 reproducible with `scripts/probe_region_plans.py`; original and corridor plans
 are saved separately and never overwritten.
+
+A subsequent city-only grid (`scripts/probe_city_coverage.py`) covers Detroit's
+entire cached municipal polygon with 27 discs of radius 3 km. Frozen before
+offline scoring, it covers 100% of the registered route, versus 26.8% for the
+named-place plan. The route is inside Detroit but west of the original disc;
+the title's Roseville clue points northeast. No imagery was used in this probe.
+The opt-in `--vpr-city-cover` implementation searches every cell coarsely and
+densifies supported cells. Its geographic opportunity is measured; its image
+retrieval accuracy is not yet established.
+
+### Timed shop signs and joint VO alignment (post-hoc development)
+
+Native-resolution OCR on 24 frames per clip found literal retailer clues in
+KITTI 0009 and the Atlanta night video. A city-bbox OSM retail snapshot and
+generic name/time/separation rules produced five two-shop hypotheses for
+KITTI 0009 and one for Atlanta. No hypothesis was preselected, and GPS-like
+overlays were rejected before matching. KITTI 0033 produced no conjunction.
+The rules and all candidates were fingerprinted before offline diagnostics
+(`scripts/probe_poi_conjunctions.py`, `scripts/score_poi_conjunctions.py`).
+
+Fresh KITTI 0009 VO uses the MP4, generic 70-degree intrinsics and a whole-city
+road graph, without KITTI calibration or sensor files. Appearance plus road
+geometry alone selects incorrect areas (2,624–6,101 m symmetric route error).
+The timed POI extension scores all 1.417 million coarse transforms against
+every branch, gives each branch the same refinement budget, and selects by
+the fixed objective before a separate GPS-scoring process:
+
+| Appearance field | Distance cues | Distance and sign-bearing cues |
+|---|---:|---:|
+| Raw cosine | 43 m | 20 m |
+| Reference mean subtracted | 43 m | 13 m |
+
+Every variant selects the same shop branch without GPS input. Bearings use
+the sign bounding boxes, generic camera intrinsics and VO heading, with wide
+angular uncertainty. These are disclosed post-hoc dev experiments on the
+8,610-reference dense pilot, not the original v6 pool or a 15-clip result.
+All predictions and branch candidates are preserved under
+`output/joint_poi_alignment_pilot`; the two-phase runner is
+`scripts/pilot_joint_poi_alignment.py`. A reusable implementation and broader
+validation are still required before this can change the default answer.

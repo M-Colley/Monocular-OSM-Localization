@@ -46,6 +46,17 @@ def test_parallel_pair_reads_keep_pixel_identity():
         frames.close()
 
 
+def test_parallel_grayscale_reads_keep_identity_under_eviction():
+    from monocular_osm.frame_extraction import GrayscaleFrames
+
+    gray = GrayscaleFrames([np.full((32, 32, 3), i, np.uint8) for i in range(20)])
+    indices = list(range(20)) * 20
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        values = list(pool.map(lambda i: int(gray[i][0, 0]), indices))
+    assert values == indices
+    assert len(gray._cache) == 2
+
+
 def test_extraction_can_resize_without_changing_sampling(tmp_path):
     video = _make_video(tmp_path / "drive.mp4", n_frames=30, w=320, h=240)
     full = extract_frames(video, stride=5)
@@ -64,6 +75,31 @@ def test_extraction_can_resize_without_changing_sampling(tmp_path):
 def test_invalid_memory_budget_is_rejected(budget):
     with pytest.raises(ValueError):
         FrameSequence(budget)
+
+
+def test_grayscale_view_reads_only_requested_frames_and_keeps_two():
+    import cv2
+    from monocular_osm.frame_extraction import GrayscaleFrames
+
+    class Source:
+        reads = []
+        def __len__(self):
+            return 10000
+        def __getitem__(self, index):
+            self.reads.append(index)
+            return np.full((20, 30, 3), (index % 255, 40, 80), np.uint8)
+
+    source = Source()
+    gray = GrayscaleFrames(source)
+    assert not source.reads
+    expected = cv2.cvtColor(source[900], cv2.COLOR_BGR2GRAY)
+    source.reads.clear()
+    np.testing.assert_array_equal(gray[900], expected)
+    np.testing.assert_array_equal(gray[900], expected)
+    assert source.reads == [900]
+    _ = gray[901], gray[902], gray[-1]
+    assert len(gray._cache) == 2
+    assert not isinstance(gray[::100], list)
 
 
 @pytest.mark.parametrize("parameters", [
