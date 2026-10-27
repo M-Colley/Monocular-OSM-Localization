@@ -162,7 +162,7 @@ def test_embed_refs_warm_peek_skips_pixels_and_guards_corrupt(
     """Audit K2/F1: a fully-warm embed hit must return WITHOUT loading raw
     pixels or downloading, and a corrupt embedding npz must be treated as a
     miss (re-embed), not raise."""
-    import torch
+    torch = pytest.importorskip("torch")
     refs = _refs([(48.40, 9.99), (48.41, 9.98)])            # ids 0,1 with urls
     # build the per-id store (downloads once)
     monkeypatch.setitem(sys.modules, "requests",
@@ -633,6 +633,64 @@ def test_embed_refs_embedding_cache_skips_reembed(tmp_path: Path, monkeypatch) -
 # ---------------------------------------------------------------------------
 
 
+def test_reference_embedding_honours_the_configured_batch_size(monkeypatch):
+    torch = pytest.importorskip("torch")
+    refs = _refs([ULM, (ULM[0] + 0.001, ULM[1])])
+    monkeypatch.setattr(kv, "_peek_store", lambda *a: None)
+    monkeypatch.setattr(kv, "_read_emb_cache", lambda *a: None)
+    monkeypatch.setattr(kv, "_load_ref_images", lambda *a: (
+        np.zeros((2, 8, 8, 3), np.uint8), np.array([ULM, ULM]), "fingerprint"))
+    seen = []
+
+    def embed(device, raw, **kwargs):
+        seen.append(kwargs["batch_size"])
+        return torch.ones((len(raw), 4))
+
+    monkeypatch.setattr(kv, "_embed", embed)
+    kv._embed_refs(refs, "cpu", None, batch_size=2)
+    assert seen == [2]
+
+
+def test_cold_image_pool_avoids_stack_copy_and_compacts_failed_rows(tmp_path, monkeypatch):
+    refs = _refs([ULM, (ULM[0] + 0.001, ULM[1]), (ULM[0] + 0.002, ULM[1])])
+    refs[1].pop("url")
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(image_bytes=_jpg_bytes()))
+    monkeypatch.setattr(kv.np, "stack", lambda *a, **k: pytest.fail("duplicate pixel pool"))
+    raw, coords, fingerprint = kv._load_ref_images(refs, str(tmp_path))
+    assert raw.shape == (2, 512, 512, 3)
+    np.testing.assert_allclose(coords, [[r["lat"], r["lon"]] for r in (refs[0], refs[2])])
+    assert fingerprint == kv._refs_fingerprint([refs[0], refs[2]])
+    with np.load(tmp_path / "ref_img_store.npz") as stored:
+        assert stored["ids"].tolist() == ["0", "2"]
+        assert stored["raw"].shape == raw.shape
+
+
+def test_reference_batch_size_reaches_core_outer_and_union_pools(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    refs = _refs([ULM] * 40)
+    seen = []
+    monkeypatch.setattr(kv, "_resolve_backbone", lambda *a: "megaloc")
+    monkeypatch.setattr(kv, "_query_similarities", lambda frames, indices, emb, *a, **k:
+                        np.zeros((len(indices), len(emb))))
+
+    def embed(refs, device, directory, model_name="model", **kwargs):
+        seen.append((Path(directory), kwargs["batch_size"]))
+        return torch.ones((len(refs), 4)), np.array([[r["lat"], r["lon"]] for r in refs])
+
+    monkeypatch.setattr(kv, "_embed_refs", embed)
+    monkeypatch.setattr(kv, "_fetch_refs_for", lambda source, center, radius, *a:
+                        refs if radius == 3000 else [{**r, "id": f"outer{r['id']}"} for r in refs])
+    kv._prepare_refs_and_query([np.zeros((8, 8, 3), np.uint8)] * 5, ULM, 3000,
+                               str(tmp_path / "mapillary"), 5, "cpu", "megaloc",
+                               "mapillary", None, 1500, outer_radius_m=8000,
+                               query_batch_size=3)
+    assert [batch for _, batch in seen] == [3, 3]
+    seen.clear()
+    directory = tmp_path / "union_region_test"
+    kv._union_refs(ULM, 3000, str(directory), 1500, None, "cpu", "megaloc", batch_size=2)
+    assert len(seen) == 3 and all(batch == 2 and path.parent == directory for path, batch in seen)
+
+
 def test_robust_center_matches_metric_geometric_median() -> None:
     import math
 
@@ -764,18 +822,60 @@ def test_fetch_refs_mapillary_retries_transient_errors_and_counts_losses(
     assert kv.LAST_FETCH_STATS["lost"] == 1 and 0 < len(got) < full
 
 
-def test_fetch_refs_mapillary_warm_cache_clears_listing_stats(tmp_path: Path, monkeypatch) -> None:
+def test_fetch_refs_mapillary_legacy_warm_cache_marks_listing_stats_unknown(
+        tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(kv, "LAST_FETCH_STATS", {"tiles": 9, "split": 0, "lost": 3})
-    _write_mly_cache(tmp_path, ULM, 500.0)
+    refs = _write_mly_cache(tmp_path, ULM, 500.0)
     monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
     kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
-    assert kv.LAST_FETCH_STATS == {}
+    stats = kv.LAST_FETCH_STATS
+    assert stats["listing"] == "unknown" and stats["listing_stats_known"] is False
+    assert stats["cache_hit"] is True and "lost" not in stats
+    assert stats["snapshot"] == kv._reference_snapshot(refs)
+
+
+def test_warm_metadata_preserves_incomplete_listing_and_snapshot(tmp_path, monkeypatch):
+    """Offline reruns must not erase losses recorded by the original listing."""
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests())
+
+    def partial_listing(center, radius, token, session, count, stats):
+        count("tiles", 3)
+        count("lost", 1)
+        return {str(i): [ULM[0], ULM[1] + i * 0.001] for i in range(3)}
+
+    monkeypatch.setattr(kv, "_mly_tile_listing", partial_listing)
+    monkeypatch.setattr(kv, "_mly_lookup_urls", lambda ids, *a: {i: f"http://x/{i}" for i in ids})
+    refs = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token="token")
+    cold = dict(kv.LAST_FETCH_STATS)
+    assert cold["lost"] == 1 and cold["listing_stats_known"] is True
+    assert cold["cache_hit"] is False and cold["snapshot"]["created_utc"]
+    metadata = next(tmp_path.glob("mly_ref_meta_*.json"))
+    blob = json.loads(metadata.read_text(encoding="utf-8"))
+    assert blob["listing_stats"]["lost"] == 1
+    assert blob["snapshot"] == cold["snapshot"]
+    np.savez(tmp_path / "ref_img_store.npz", ids=np.array([r["id"] for r in refs]),
+             raw=np.zeros((len(refs), 4, 4, 3), np.uint8))
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    kv.LAST_FETCH_STATS = {"lost": 999}       # a different query's global state
+    warm = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    assert [r["id"] for r in warm] == [r["id"] for r in refs]
+    assert kv.LAST_FETCH_STATS == {**cold, "cache_hit": True}
+
+
+def test_reference_snapshot_changes_with_reference_identity_and_coordinates():
+    refs = _refs([ULM, (ULM[0] + 0.001, ULM[1])])
+    original = kv._reference_snapshot(refs)
+    refs[0]["url"] = "another expiring URL"
+    assert kv._reference_snapshot(refs) == original
+    refs[0]["lon"] += 0.00001
+    assert kv._reference_snapshot(refs)["refs_sha256"] != original["refs_sha256"]
 
 
 def test_outer_ring_adds_only_new_references_and_keeps_the_core(tmp_path, monkeypatch) -> None:
     """The ring is a second, wider listing in its own cache dir; ids already in
     the core set are not added twice and the core set is untouched."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     core = [{"id": f"c{i}", "lat": ULM[0] + i * 1e-4, "lon": ULM[1]} for i in range(40)]
     wide = core[:5] + [{"id": f"o{i}", "lat": ULM[0] - 0.03 - i * 1e-4, "lon": ULM[1]}

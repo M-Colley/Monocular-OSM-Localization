@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
+import tempfile
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -14,6 +17,22 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..pipeline import PipelineConfig
 
 
+def _write_result_json(path: Path, result: dict) -> None:
+    """Never truncate a usable retrieval checkpoint on a later write failure."""
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", suffix=".tmp", delete=False) as f:
+            tmp = Path(f.name)
+            json.dump(result, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(path)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
+
 def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
                         fusion: dict | None) -> dict:
     """Fill in a status for every channel that did not record a failure.
@@ -21,6 +40,10 @@ def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
     ``produced`` maps channel -> (enabled, produced_output). Fusion rank
     channels are "ok" when their effective weight was non-zero.
     """
+    # A retrieval checkpoint may be finalized before geometry executes. Keep
+    # derived statuses out of RunContext so a later report recomputes them;
+    # explicitly recorded failures in the context still take precedence.
+    status = dict(status)
     for name, (enabled, made) in produced.items():
         if name in status:
             continue
@@ -45,6 +68,10 @@ def finalize_result(ctx: RunContext) -> None:
     cfg = ctx.cfg
     channel_status = ctx.channel_status
     result = ctx.result
+    result.setdefault("city", cfg.city)
+    frame_sampling = getattr(ctx.frames, "sampling", None)
+    if frame_sampling is not None:
+        result["frame_sampling"] = frame_sampling
     result_ipm_scale = ctx.result_ipm_scale
     vo_cache = ctx.vo_cache
     frame_seed_source = ctx.frame_seed_source
@@ -155,16 +182,31 @@ def finalize_result(ctx: RunContext) -> None:
     if _pick is None and cfg.answer == "track":
         _pick = _bl.pipeline_headline(result)          # no track: the fit
     if _pick is not None:
-        _r = _pick.route_latlon
-        result["answer"] = {
-            "mode": cfg.answer, "method": _pick.meta.get("chose", _pick.name),
-            "route_latlon": _r,
-            "start": {"latitude": _r[0][0], "longitude": _r[0][1]},
-            "end": {"latitude": _r[-1][0], "longitude": _r[-1][1]},
-            "disagreement_m": _pick.meta.get("disagreement_m"),
-        }
-        print(f"      -> answer ({cfg.answer}): {result['answer']['method']}, "
-              f"start {_r[0][0]:.5f},{_r[0][1]:.5f}")
+        from ..position import build_answer_report, format_answer_summary, plot_answer
+
+        result["answer"] = build_answer_report(
+            _pick.route_latlon, mode=cfg.answer,
+            method=_pick.meta.get("chose", _pick.name), source=_pick.source,
+            disagreement_m=_pick.meta.get("disagreement_m"))
+        _answer_map = cfg.output_dir / "answer.png"
+        try:
+            plot_answer(result["answer"], _answer_map, road=road)
+            result["answer"]["map_artifact"] = _answer_map.name
+        except Exception as e:
+            # An image-writing failure must not discard a successfully selected
+            # route, or leave an older run's map looking like the current answer.
+            _answer_map.unlink(missing_ok=True)
+            result["answer"]["map_error"] = f"{type(e).__name__}: {e}"
+            print(f"      -> selected-answer map unavailable ({e})")
+        if (result.get("execution") or {}).get("stage") == "retrieval":
+            print("      -> retrieval answer checkpointed; geometry diagnostics pending")
+        else:
+            print()
+            print(format_answer_summary(result["answer"]))
+    else:
+        result.pop("answer", None)
+        (cfg.output_dir / "answer.png").unlink(missing_ok=True)
+        print(f"      -> selected answer ({cfg.answer}) unavailable")
 
     # Provenance: commit, full config, library versions, whether credentials
     # were set (never their values). Without it a result cannot be traced to
@@ -172,20 +214,19 @@ def finalize_result(ctx: RunContext) -> None:
     from ..provenance import collect_provenance
     # The OSM snapshot matters too: OSM is edited continuously and the graph
     # is cached, so record when (and with what) this run's graph was fetched.
-    _g = road.graph.graph
+    _g = road.graph.graph if road is not None else {}
     result["provenance"] = collect_provenance(
         cfg, extra={"vo_algo_version": VO_ALGO_VERSION,
                     "vo_cache": str(vo_cache) if vo_cache is not None else None,
                     "osm_graph": {
-                        "cache": str(cache_path),
+                        "cache": str(cache_path) if cache_path is not None else None,
                         "created_date": _g.get("created_date"),
                         "created_with": _g.get("created_with"),
                         "nodes": road.graph.number_of_nodes(),
                         "edges": road.graph.number_of_edges(),
-                    }},
+                    } if road is not None else None},
     )
 
     out_json = cfg.output_dir / "result.json"
-    with out_json.open("w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2)
+    _write_result_json(out_json, result)
     print(f"      -> wrote {out_json}")

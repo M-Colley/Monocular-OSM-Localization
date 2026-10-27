@@ -408,3 +408,73 @@ found nothing), and `result["position"]` stays the trajectory fit.
 
 **Frozen method for the held-out clips:** commit `ccd0bbe` defaults, run once
 as `test1` on the seven `split=test` clips under rule `test_split_2026_10`.
+
+## 11. Reliability fixes and the full development target
+
+The development target is all 15 registered, locally available dev clips within
+200 m symmetric mean route error. Run v6's retrieval track remains the measured
+baseline: 9/15, median 135 m. No new accuracy result is claimed by the code fixes.
+
+Selected-answer console/maps now agree with `result.answer`; atomic retrieval
+checkpoints survive later geometry failures; `--retrieval-only` skips geometry;
+frame memory is bounded; VO caches identify their actual video/extraction;
+reference metadata retains listing completeness on warm use. The evaluator now
+counts failures and interrupted planned repeats, checks effective configuration
+and environment, and reports the 200 m threshold explicitly.
+
+Two opt-in development experiments are available. `--vpr-multi-region` searches
+verified names from uploader metadata as separate dense discs, with independent
+reference budgets and continuity-based evidence selection. `--vpr-query-mode`
+compares the original `warp` preprocessing with `crops` and `aspect`. The query
+pilot in `scripts/pilot_query_preprocessing.py` fixes its modes and reference
+sets before inference; its inference phase never reads ground truth, and offline
+scoring is separate. A cached pilot is not an end-to-end benchmark result.
+
+`scripts/check_dev_goal.py` audits all registered dev IDs, selected-answer scores,
+finite completed repeats, code/environment provenance and the GT-input audit.
+It exits nonzero until the complete target is proved. Frozen test1 predictions
+remain separate: existing retry processes may still be active, so any interim
+reanalysis is a provisional snapshot rather than a final held-out result.
+
+### Query preprocessing pilot (fixed cached pools)
+
+`scripts/pilot_query_preprocessing.py` compared all three fixed query variants,
+then scored saved predictions in a separate process. Symmetric route error:
+
+| Fixed pool | Warp | Three square crops | Native aspect |
+|---|---:|---:|---:|
+| KITTI 0009, dense 75 m pilot (8,610 refs) | 2,151 m | 2,095 m | 1,643 m |
+| Atlanta night, archived v2 local 3 km pool (1,500 refs) | 1,160 m | 178 m | 1,151 m |
+
+The KITTI pool covers 75.6% of query locations within 50 m, but all variants
+have zero R@1 within 50 m. Changing query proportions does not resolve its
+historical appearance mismatch. The Atlanta crop result is promising within
+this local pool, but the pool is not v6's city-wide search. It is not an
+end-to-end repair of that failure. Crops cost about 216 CPU seconds versus 74
+for warp on Atlanta (four threads, batches of two).
+
+A disclosed post-hoc saved-matrix experiment (`scripts/pilot_vpr_hubness.py`)
+subtracts each reference's mean similarity over queries. It improves Atlanta
+warp to 165 m without extra forwards; KITTI remains well outside 200 m. These
+are development diagnostics, not a new default or a full-fleet accuracy claim.
+
+### Regional coverage probe
+
+Metadata-only plans were saved and fingerprinted before offline GT scoring.
+The six-disc budget retains the original pass-1 disc and adds independently
+verified places from uploader metadata. A separate post-hoc plan fills spare
+budget along a minimum spanning tree connecting the same named places.
+
+| Dev clip | Original disc | Named places | Plus connecting corridors |
+|---|---:|---:|---:|
+| Phoenix | 0% | 100% | 100% |
+| Detroit to Roseville | 26.8% | 26.8% | 26.8% |
+| Atlanta (`kxEDNj5L_yQ`) | 0% | 40.8% | 83.8% |
+
+Coverage is the fraction of the registered route inside the search union,
+not retrieval accuracy. No images were downloaded or embedded. The planner
+uses no GT; the exploratory artifact discloses a prior view of the Phoenix GT
+header while inspecting its file format. Detroit remains outside the straight
+named-place corridor, so broad city coverage still needs work. The probe is
+reproducible with `scripts/probe_region_plans.py`; original and corridor plans
+are saved separately and never overwritten.

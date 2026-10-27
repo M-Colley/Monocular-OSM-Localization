@@ -30,6 +30,9 @@ TRACKED_DISTRIBUTIONS = (
     "scikit-image", "shapely", "pyproj", "networkx", "osmnx", "geopandas",
     "torch", "torchvision", "transformers", "timm", "onnxruntime", "rapidocr",
     "easyocr", "yt-dlp", "pysolar", "rapidfuzz",
+    "fast-alpr", "fast-plate-ocr", "open-image-models", "filterpy",
+    "huggingface-hub", "safetensors", "pillow", "protobuf", "mercantile",
+    "timezonefinder",
 )
 
 # Environment variables holding credentials: recorded as set/unset only.

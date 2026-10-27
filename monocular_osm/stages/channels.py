@@ -161,7 +161,7 @@ def ipm_channel(ctx: RunContext) -> None:
             n_frames = len(frames.frames)
             ipm_stride = max(4, n_frames // 200)  # ~200 tiles regardless of length
             ctx.ipm_canvas = render_ipm_canvas(
-                list(frames.frames), traj.xz, K,
+                frames.frames, traj.xz, K,
                 keyframe_stride=ipm_stride,
                 camera_height_m=cfg.ipm_camera_height_m,
                 pitch_deg=cfg.ipm_pitch_deg,

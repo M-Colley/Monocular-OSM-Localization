@@ -30,6 +30,11 @@ class PipelineConfig:
     # frame count. A fixed cap silently truncates longer segments.
     max_frames: int | None = None
     frame_stride: int = 6
+    frame_memory_mb: float = 512.0
+    frame_max_width: int | None = None
+    # Skip geometry when retrieval produced a track; without a track the full
+    # pipeline remains the fallback. The track is checkpointed in either mode.
+    retrieval_only: bool = False
     vo_start_sec: float = 0.0
     vo_end_sec: float | None = 300.0
     # How many matcher candidates the fusion channels see. 10 matches the CLI
@@ -182,6 +187,8 @@ class PipelineConfig:
     # cache kept 2) — raise it to densify retrieval-bound starts. Higher cap =
     # more downloads + a longer embed pass on a cold cache.
     vpr_ref_cap: int = 1500
+    vpr_query_mode: str = "warp"
+    vpr_query_batch_size: int = 4
     # VPR reference source: "kartaview" (open, tokenless) or "mapillary" (much
     # denser — needs a free MLY_TOKEN env var; validated 3-31 m to route on all
     # GT clips, incl. the ones KartaView could not cover). See mapillary VPR.
@@ -207,6 +214,13 @@ class PipelineConfig:
     # ring out to the seed radius (capped like the city-extent disc: 8 km,
     # 1,200 refs with a token), leaving the dense 3 km core set unchanged.
     vpr_seed_ring: bool = False
+    # Experimental independent searches around places named by the uploader.
+    # Off until measured: a wide city's references must not dilute each region.
+    vpr_multi_region: bool = False
+    vpr_region_cap: int = 6
+    vpr_region_cache_dir: Path | None = None
+    video_title: str | None = None
+    video_description: str | None = None
     # The route the method answers with, written to result["answer"]
     # (result["position"] always stays the trajectory fit): "fit"; "track",
     # the retrieval track itself (running median of 5), or the fit when no
@@ -321,6 +335,23 @@ class PipelineConfig:
     # When set, use this local video file directly: no download, `url` is
     # informational only (recorded in the result JSON).
     video_path: Path | None = None
+
+    def __post_init__(self):
+        import math
+        if not math.isfinite(self.frame_memory_mb) or self.frame_memory_mb <= 0:
+            raise ValueError("frame_memory_mb must be positive and finite")
+        if self.frame_max_width is not None and self.frame_max_width <= 0:
+            raise ValueError("frame_max_width must be positive")
+        if self.answer not in {"track", "fit", "checked"}:
+            raise ValueError("answer must be track, fit or checked")
+        if self.vpr_query_mode not in {"warp", "crops", "aspect"}:
+            raise ValueError("vpr_query_mode must be warp, crops or aspect")
+        if self.vpr_query_batch_size <= 0:
+            raise ValueError("vpr_query_batch_size must be positive")
+        if self.vpr_region_cap <= 0:
+            raise ValueError("vpr_region_cap must be positive")
+        if self.retrieval_only and self.answer != "track":
+            raise ValueError("retrieval_only requires answer='track'")
 
 
 # Names that moved into monocular_osm/stages/ stay importable from here.
@@ -474,25 +505,77 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     ctx = RunContext.create(cfg)
+    try:
+        return _run_pipeline_stages(ctx)
+    finally:
+        if ctx.frames is not None:
+            ctx.frames.close()
+
+
+def _run_pipeline_stages(ctx: RunContext) -> dict:
+    cfg = ctx.cfg
 
     # 1-2. The video and its frames.
     acquire_video(ctx)
-    extract_video_frames(ctx)
+    query_only = (cfg.retrieval_only and cfg.answer == "track" and cfg.use_vpr_prior
+                  and not cfg.use_ipm_scale)
+    if query_only:
+        extract_video_frames(ctx, query_only=True)
+    else:
+        extract_video_frames(ctx)
 
     # 2b-2c. Route-length prior for OSM walk enumeration (and the opt-in
     # ground-plane flow measurement of it).
     estimate_length_prior(ctx)
     estimate_flow_scale(ctx)
 
-    # 3. Visual odometry (cached to disk).
-    run_visual_odometry(ctx)
-
     # 4a. Absolute coarse priors that locate the clip independently of shape:
     # frame seed, blind VPR (+ coarse-to-fine), plate district, VLM fallback.
     coarse_seed_from_frames(ctx)
     vpr_coarse_prior(ctx)
+
+    # A usable retrieval track is independent of the geometry stages. Save it
+    # before any expensive/fallible VO, Overpass or matching work so a later
+    # infrastructure failure cannot discard the selected answer.
+    has_track = ctx.vpr_track is not None and len(ctx.vpr_track[0]) > 0
+    if has_track and cfg.answer == "track":
+        ctx.result.setdefault("city", cfg.city)
+        ctx.result["execution"] = {"stage": "retrieval", "geometry": "pending"}
+        finalize_result(ctx)
+
+    if not has_track and (getattr(ctx.frames, "sampling", None) or {}).get("mode") == "linspace":
+        # Sparse query frames have large inter-frame baselines and cannot feed
+        # ordinary VO. Release them before acquiring the original dense grid.
+        ctx.frames.close()
+        ctx.frames = None
+        extract_video_frames(ctx)
+
+    # Save retrieval before optional model work, while retaining explicitly
+    # enabled plate/VLM diagnostics in both the fast and full paths.
     plate_district_prior(ctx)
     vlm_district_prior(ctx)
+    if has_track and cfg.answer == "track" and cfg.retrieval_only:
+        ctx.result["execution"] = {"stage": "complete", "geometry": "skipped"}
+        finalize_result(ctx)
+        return ctx.result
+
+    try:
+        return _run_geometry_stages(ctx)
+    except Exception as exc:
+        if not (has_track and cfg.answer == "track"):
+            raise
+        _record_channel(ctx.channel_status, "geometry", "failed", error=exc)
+        ctx.result["execution"] = {"stage": "complete", "geometry": "failed",
+                                    "error": f"{type(exc).__name__}: {exc}"}
+        print(f"      -> geometry failed ({exc}); preserving retrieval answer")
+        finalize_result(ctx)
+        return ctx.result
+
+
+def _run_geometry_stages(ctx: RunContext) -> dict:
+    cfg = ctx.cfg
+    # 3. Visual odometry (cached to disk), after retrieval is checkpointed.
+    run_visual_odometry(ctx)
 
     # 4. The OSM road graph, then the optional sun heading.
     load_road_graph(ctx)
@@ -533,5 +616,6 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     final_position(ctx)
 
     # Diagnostics, channel summary, provenance, result.json.
+    ctx.result["execution"] = {"stage": "complete", "geometry": "complete"}
     finalize_result(ctx)
     return ctx.result

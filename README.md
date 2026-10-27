@@ -1,33 +1,41 @@
 # Video → Place Mapping
 
-> A proof-of-concept that **localizes a dashcam YouTube video on a real city
-> map** by recovering the driving path from the footage and matching it
-> against the OSM street network. Three independent matching channels are
-> run side-by-side (route shape, OSM aerial feature matching, dense splat
-> reconstruction) and a consensus rank picks the best agreement.
+> A research pipeline that **localizes a dashcam video within a named city**.
+> The default answer is a temporally filtered street-image retrieval track.
+> Visual odometry, OSM route matching and optional appearance channels also
+> produce a trajectory fit for comparison and diagnostics.
 
 [![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
-![Tests](https://img.shields.io/badge/unit%20tests-1%2C100%2B%20passing-brightgreen)
+[![Tests](https://github.com/M-Colley/Monocular-OSM-Localization/actions/workflows/tests.yml/badge.svg)](https://github.com/M-Colley/Monocular-OSM-Localization/actions/workflows/tests.yml)
 ![BevSplat](https://img.shields.io/badge/BevSplat-live%20inference%20%E2%9C%93-blue)
 
 Reference clip used in the demo:
 [Driving in Ulm, Germany](https://www.youtube.com/watch?v=ULl8s4qydrk).
+
+**Current measured baseline:** run `v6`, one cold repetition on each of the
+15 available **development** clips, gives **9/15 within 200 m** and **135 m
+median symmetric route error** when answering with the retrieval track.
+The trajectory fit gives 6/15 and 395 m. These development clips were used to
+choose the method; these are not held-out accuracy estimates. See
+[the experiment record](docs/experiments_2026-10.md#9-v6-the-complete-reference-pool-end-to-end).
+The target of 15/15 within 200 m is not yet achieved. Older tables below are
+historical measurements with their stated code/configuration. The frozen
+seven-clip `test1` evaluation is separate and must finish before its final
+results are reported.
 
 > [!IMPORTANT]
 > ### A free Mapillary key is crucial for good accuracy
 >
 > The single biggest accuracy lever in this whole pipeline is **dense street-level
 > Visual Place Recognition against Mapillary imagery**. It is what turns "roughly
-> the right city" into "the right street." Fully GPS-free (city name only, three
-> cold runs per clip), it lands on the right street on **2 of the 6 re-measured
-> clips** (Ulm 4K 27 m, London 83 m) and is kilometres off on the other 4 — worse
-> than simply guessing the centre of the named city there. A pre-registered rule
-> that answers "somewhere in this city" when its own retrieval evidence is weak
-> did not transfer to nine held-out clips (its threshold answered on only one);
-> see [Accuracy](#accuracy--deployable-gps-free). The older 30–156 m headline was
-> not reproducible and has been retired.
+> the right city" into "the right street." With complete reference listings,
+> the current development baseline reaches 9/15 within 200 m; remaining failures
+> include routes outside the searched region and historical/night footage that
+> does not resemble the reference photos. See the current baseline above and
+> [Accuracy](#accuracy--deployable-gps-free) for historical runs. The older
+> 30–156 m headline was not reproducible and has been retired.
 > The best configuration (VPR prior + dense Mapillary + coarse-to-fine +
 > video/frame coarse seeds + scale-lock) is now **on by default**, but the
 > Mapillary parts only light up if you give the pipeline a token.
@@ -58,45 +66,22 @@ Hand it a **dashcam video and the name of the city** it was filmed in, and it
 figures out **where in that city the drive happened** — drawing the route on a
 map — *without any GPS in the video*.
 
-How? It watches how the car moves — every turn, curve, and straight — and
-reconstructs the **shape** of the path the car drove (think of tracing the route
-on paper, but with no idea of north, scale, or starting point). Then it slides
-that shape around the city's real street map (from OpenStreetMap) until it finds
-where it fits. If the video happens to show readable **street signs or landmarks**,
-it also reads them and uses them to pin the location down further.
+How? It compares sampled video frames with geotagged street-level photos,
+then filters those matches over time to estimate the route. It also recovers
+camera motion and fits the driving path to OpenStreetMap roads. Readable place
+names can help bound the search area.
 
-What you get back is a **best-guess location** (latitude/longitude + the street
-names) and a **short list of other likely spots**. It also prints a "shape fit"
-grade; treat that as a measure of how well the path fits the map, *not* as the
-probability of being right — on dense street grids many routes fit the shape
-equally well, and the spread of the shortlist is the better guide to how much to
-trust the answer.
+The primary output is `result["answer"]`: a best-guess route, start/end
+coordinates and map links. The fitted trajectory and alternative candidates
+remain available as diagnostics. A shape-fit grade measures geometric agreement;
+it is not a probability that the location is correct.
 
-How well does it work? The honest answer is: **it depends on the footage.** Where
-the area has dense street-level photos that look like the video, it can land on
-the right street without any GPS — re-measured with three cold runs each, Ulm 4K
-within 27 m and London within 83 m. On the other four re-measured clips (Berlin,
-two KITTI drives, a second Ulm drive) it is kilometres off and **worse than simply
-guessing the centre of the city you named**. Those failures are visible in
-advance: how closely the video's frames match their best street-level photos was
-0.19–0.28 on the two successes and 0.11–0.13 on the failures. A rule that answers
-only "somewhere in this city" below a threshold fixed on those clips was then
-tested on nine clips that played no part in choosing it, and it did not carry
-over: their confidences ran lower, so it almost always abstained. The previous
-version of this README claimed 30–156 m on 3 of 9 clips; that table could not be
-reproduced (it mixed code versions, used city names picked with knowledge of the
-route, and recorded no configuration), so it has been retired. The new benchmark
-refuses to leak ground truth, repeats every clip, records its own provenance and
-always reports the "centre of the named city" baseline — see
-[Accuracy](#accuracy--deployable-gps-free). (Numbers elsewhere in this README that
-look much tighter, such as ~77–150 m, were measured with a coarse GPS prior
-supplied and are **not** deployable.)
-
-We did not just test this on one video: the benchmark is 18 clips in a dozen
-cities on three continents, scored against GPS from a dataset's own INS, from
-hand-labelled map look-ups, or from the position stamp burned into dashcam
-footage. See
-[Final results](#final-results--multi-clip-ground-truth-benchmark) below.
+Accuracy depends on reference coverage and how well the footage resembles those
+photos. The current measured development baseline is 9/15 within 200 m; six
+clips still fail by kilometres. The project keeps ground truth in offline
+scoring, records configurations and provenance, and compares against the centre
+of the named city. Historical tables, including seeded results that used a
+coarse GPS prior, retain their original labels below.
 
 The rest of this README is the engineering detail behind each of those steps.
 
@@ -247,9 +232,22 @@ osm-localize --video path/to/dashcam.mp4 --city "Ulm, Germany"
 ```
 
 `osm-localize` is equivalent to `python -m monocular_osm.cli`, and to
-`python main.py` from a source checkout. The optional GPU stack (`torch`,
-`depth-anything-3`, `gsplat`, …) is intentionally *not* pulled in — install it
-separately (see below), since it needs a CUDA-matched index URL.
+`python main.py` from a source checkout. Python **3.12 or newer** is required.
+The core install omits retrieval/OCR extras; install the recommended profile for
+the default localization method (CPU retrieval is supported):
+
+```bash
+python -m pip install -e ".[dev,recommended]"
+osm-localize-doctor --require recommended --strict
+```
+
+The doctor checks imports and credential presence without downloading models
+or making API requests. It never prints credential values. Dense reconstruction
+(`depth-anything-3`, `gsplat`) remains a separate optional GPU installation.
+For the tested Windows/Python 3.12 CPU environment, install
+`requirements-research-windows-py312.lock` in a fresh venv, followed by
+`python -m pip install --no-deps -e .`. Keep this lock with benchmark results;
+GPU and other-platform environments need their own resolved snapshots.
 
 **Set your Mapillary key (strongly recommended — see the callout at the top).**
 The default configuration uses dense Mapillary VPR, which needs a free
@@ -270,7 +268,7 @@ each is an optional extra that is *silently skipped when missing* (the log says
 the published configuration:
 
 ```bash
-pip install -e ".[ocr,plates]"     # rapidocr (OCR) and fast-alpr (plate districts)
+pip install -e ".[recommended]"    # VPR, rapidocr and plate districts
 ```
 
 **Keep `yt-dlp` current.** YouTube changes its player often; an out-of-date
@@ -284,7 +282,7 @@ run.
 Optional comparison extras:
 
 ```bash
-pip install torch torchvision      # deep embedding retrieval
+pip install -e ".[vpr]"             # retrieval only (included in recommended)
 pip install geotessera             # GeoTessera-backed candidate patches
 ```
 
@@ -299,16 +297,17 @@ https://ffmpeg.org/.
 The core contract: **video + city in, position out.** Point the CLI at a
 local video file (or a YouTube URL) and name the city it was filmed in;
 the run ends with an estimated WGS84 position — printed to the console
-and written to `result.json` under the `"position"` key:
+and written to `result.json` under the **`"answer"`** key. `position` retains
+the trajectory fit for diagnostics and compatibility. Console coordinates,
+map links and `answer.png` describe the selected answer:
 
 ```
 ================================================================
-ESTIMATED POSITION  (ranking=consensus, 10 candidates considered)
+ESTIMATED POSITION  (answer=track, method=vpr_track_only)
 ================================================================
   Video starts at:  48.401130, 9.987610
   Route center:     48.399870, 9.991020
   Streets:          Neutorstraße, Olgastraße, ...
-  Confidence:       medium (RMS 142.3 m, bearing corr 0.41)
   Google Maps:      https://www.google.com/maps?q=48.401130,9.987610
   OpenStreetMap:    https://www.openstreetmap.org/?mlat=48.401130&...
 ================================================================
@@ -442,16 +441,46 @@ Useful flags:
 
 Outputs land in `output/<submission>/`:
 
+- `answer.png` — the selected route; works without an OSM graph
 - `trajectory.png` — the recovered top-down driving path (VO output)
-- `match.png` — best-match walks overlaid on the Ulm road graph
+- `match.png` — diagnostic candidate walks overlaid on the searched road graph
 - `splat.ply` — sparse splat point cloud (open in MeshLab, CloudCompare, or any PLY viewer)
 - `splat.html` — interactive 3-D viewer (open in any browser, no server needed)
 - `splat_topdown.png` — top-down rasterization of the splat
 - `aerial/osm_candidate_N.png` — OSM patch for each top-K candidate
-- `result.json` — the estimated `position` (lat/lon, route, street names,
-  confidence, map links) plus top-K candidate streets, per-candidate
+- `result.json` — the selected `answer` (coordinates, route and map links),
+  diagnostic `position`, plus top-K candidate streets, per-candidate
   `center_latlon`, shape scores, and ORB-match counts
 - `road_graph.graphml` — cached OSM graph
+
+For a faster retrieval answer, add `--retrieval-only --answer track`. It saves
+the track before VO or Overpass runs; if retrieval has no track it falls back
+to the full pipeline. Full runs also checkpoint a valid track, so a later
+geometry failure is recorded without discarding that answer.
+Retrieval-only acquisition retains the same 80 query frames that the dense
+pipeline would select, then releases them when the run finishes. A missing
+track triggers dense re-extraction before the geometry fallback.
+
+Decoded-frame memory is bounded by `--frame-memory-mb` (default 512 MiB).
+Long clips spill losslessly to temporary storage, which is released on exit.
+`--frame-max-width 1280` optionally reduces resolution while preserving aspect
+ratio. Experimental `--vpr-multi-region` searches distinct named places with
+independent budgets; `--vpr-query-mode crops` or `aspect` tests alternative
+query preprocessing. Their defaults stay off/`warp` until measured.
+Use `--vpr-region-cache-dir` to put additional regional references on a larger
+drive while retaining the original warm caches in `--data-dir`.
+`--vpr-batch-size` bounds reference and query inference batches (default 4).
+Cold benchmark repetitions also isolate the additional regional caches.
+
+After running and aggregating all development clips, audit the complete target:
+
+```bash
+python scripts/check_dev_goal.py output/benchmark_runs/<run>/summary.json
+```
+
+This requires all 15 registered available development clips, finite answers,
+consistent provenance and the selected answer's symmetric route error within
+200 m. Missing/failed clips cannot disappear from the denominator.
 
 ---
 

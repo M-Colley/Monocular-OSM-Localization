@@ -6,6 +6,30 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Retrieval output and benchmark reliability
+
+- The selected `result.answer` now drives the console position, map links and
+  `answer.png`; the fitted `position` stays available as a diagnostic.
+- Retrieval tracks are checkpointed atomically before geometry. The new
+  `--retrieval-only` path skips VO/Overpass when a track exists, and full runs
+  retain it if a later geometry stage fails.
+- Decoded frames use a bounded resident cache and lossless temporary storage;
+  optional resizing preserves aspect ratio. VO cache validation now includes
+  source identity, exact extraction settings, sampled pixels and timestamps.
+- Warm Mapillary metadata retains listing losses and a reference snapshot
+  fingerprint; legacy listing completeness is explicitly unknown.
+- Benchmark comparisons count failed predictions as losses, preserve planned
+  but interrupted/missing repeats, and check configuration/environment/model
+  consistency. Explicit ablation comparisons use `--allow-config-changes`.
+- Added `osm-localize-doctor`, recommended/VPR dependency profiles, a tested
+  Windows/Python 3.12 CPU environment lock and fresh-install CI. Python 3.12 is
+  now the declared minimum, matching the NumPy requirement.
+- Added experimental dense multi-region retrieval and query preprocessing
+  variants (`crops`, `aspect`), both opt-in pending measurement. The strict
+  `scripts/check_dev_goal.py` audit requires all 15 registered available dev
+  clips to meet the 200 m symmetric route-error target; it does not declare
+  success from missing, failed, leaked or stale results.
+
 ### Reproducible, leak-free evaluation
 
 Every published number should be traceable to a commit, a configuration and a

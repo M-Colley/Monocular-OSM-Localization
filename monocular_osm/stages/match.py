@@ -284,7 +284,7 @@ def summarise_matches(ctx: RunContext) -> None:
 
     if not candidates:
         print("      -> no matches!")
-        ctx.result = {"city": cfg.city, "matches": []}
+        ctx.result.update({"city": cfg.city, "matches": []})
     else:
         print(f"      -> top {len(candidates)} matches:")
         for i, c in enumerate(candidates):
@@ -294,7 +294,9 @@ def summarise_matches(ctx: RunContext) -> None:
             print(f"        #{i+1}  RMS={c.score:7.1f} m  corr={c.bearing_corr:+.3f}  {names}")
         _plot_match(road, candidates, cfg.output_dir / "match.png")
 
-        ctx.result = {
+        # Retrieval has already checkpointed its answer and regional evidence.
+        # Geometry extends that record; it must not erase upstream diagnostics.
+        ctx.result.update({
             "city": cfg.city,
             "url": cfg.url,
             "n_frames": len(frames.frames),
@@ -304,7 +306,7 @@ def summarise_matches(ctx: RunContext) -> None:
             "matches": [
                 candidate_geographic_summary(c, road.graph) for c in candidates
             ],
-        }
+        })
         if vpr_scale_applied is not None:
             ctx.result["vpr_scale_correction"] = vpr_scale_applied
         if cfg.enable_ocr_anchor:

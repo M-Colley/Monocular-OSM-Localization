@@ -239,3 +239,19 @@ def test_a_run_without_matches_still_gets_a_minimal_result(tmp_path):
     ctx.candidates, ctx.result = [], {}
     stage_match.summarise_matches(ctx)
     assert ctx.result == {"city": "Ulm, Germany", "matches": []}
+
+
+@pytest.mark.parametrize("has_candidates", [True, False])
+def test_geometry_summary_preserves_retrieval_checkpoint_and_diagnostics(
+        tmp_path, monkeypatch, has_candidates):
+    ctx = make_ctx(tmp_path)
+    checkpoint = {"multi_region_retrieval": {"regions": ["seed", "named place"]},
+                  "answer": {"route_latlon": [[48.4, 10.0]]}}
+    ctx.result = dict(checkpoint)
+    if not has_candidates:
+        ctx.candidates = []
+    monkeypatch.setattr(stage_match, "_plot_match", lambda *args, **kwargs: None)
+    stage_match.summarise_matches(ctx)
+    assert ctx.result["multi_region_retrieval"] == checkpoint["multi_region_retrieval"]
+    assert ctx.result["answer"] == checkpoint["answer"]
+    assert bool(ctx.result["matches"]) == has_candidates

@@ -4,6 +4,7 @@ cold-VPR cache handling and offline aggregation on synthetic run dirs."""
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib.util
 import json
 import math
@@ -203,6 +204,7 @@ def test_cmd_run_end_to_end_with_fake_pipeline(tmp_path, monkeypatch, capsys) ->
     assert SECRET not in capsys.readouterr().out
     cfg = json.loads((run_dir / "run_config.json").read_text(encoding="utf-8"))
     assert cfg["config"]["cold_vpr"] is False and SECRET not in json.dumps(cfg)
+    assert cfg["execution_plan"]["clipA"]["reps"] == [0, 1]
 
     # Resumable: completed reps are skipped.
     assert M.cmd_run(_run_args(repeats=2)) == 0
@@ -210,9 +212,14 @@ def test_cmd_run_end_to_end_with_fake_pipeline(tmp_path, monkeypatch, capsys) ->
     # One more repeat runs only rep2.
     assert M.cmd_run(_run_args(repeats=3)) == 0
     assert len(calls) == 3
+    cfg = json.loads((run_dir / "run_config.json").read_text(encoding="utf-8"))
+    assert cfg["execution_plan"]["clipA"]["reps"] == [0, 1, 2]
     # A run directory cannot silently mix configurations.
     with pytest.raises(SystemExit):
         M.cmd_run(_run_args(cold_vpr=True))
+    _write_manifest(tmp_path, [_entry(name="Changed manifest")])
+    with pytest.raises(SystemExit, match="manifest changed"):
+        M.cmd_run(_run_args(repeats=3))
 
 
 def test_cmd_run_skips_unavailable_and_missing_local_video(tmp_path, monkeypatch) -> None:
@@ -225,6 +232,31 @@ def test_cmd_run_skips_unavailable_and_missing_local_video(tmp_path, monkeypatch
     ])
     monkeypatch.setattr(M, "run_one", lambda *a, **k: pytest.fail("must not run"))
     assert M.cmd_run(_run_args()) == 0
+    saved = json.loads((tmp_path / "output/benchmark_runs/r1/run_config.json")
+                       .read_text(encoding="utf-8"))
+    assert saved["execution_plan"] == {}
+    assert "local" in saved["not_scheduled"]
+
+
+@pytest.mark.parametrize("retrieval_only", [False, True])
+def test_cmd_run_retrieval_only_skips_overpass_preflight(tmp_path, monkeypatch, retrieval_only) -> None:
+    monkeypatch.setattr(M, "ROOT", tmp_path)
+    monkeypatch.setattr(M, "_git_state", lambda: {})
+    _write_manifest(tmp_path, [_entry()])
+    calls = []
+    monkeypatch.setattr(M, "wait_for_overpass", lambda budget: calls.append("overpass"))
+
+    def run_one(argv, log_path, env, timeout):
+        calls.append("pipeline")
+        assert ("--retrieval-only" in argv) == retrieval_only
+        Path(log_path).write_text("synthetic run\n", encoding="utf-8")
+        return {"rc": 0, "timed_out": False, "wall_s": 0.1}
+
+    monkeypatch.setattr(M, "run_one", run_one)
+    args = _run_args(overpass_wait=60,
+                     pipeline_arg=["--retrieval-only"] if retrieval_only else [])
+    assert M.cmd_run(args) == 0
+    assert calls == (["pipeline"] if retrieval_only else ["overpass", "pipeline"])
 
 
 def test_split_test_is_opt_in() -> None:
@@ -272,6 +304,81 @@ def test_cold_vpr_recovers_from_a_crashed_run(tmp_path: Path) -> None:
     assert (slug / M.ASIDE_DIR / "kartaview").exists()
     archived = list((slug / M.COLD_ARCHIVE_DIR).rglob("f"))
     assert archived and archived[0].read_bytes() == b"fresh"
+
+
+@pytest.mark.parametrize("keep_arrays", [True, False])
+def test_cold_regional_repeats_archive_fresh_and_restore_warm_external_caches(tmp_path, keep_arrays):
+    slug = tmp_path / "data" / "submission"
+    external_root = tmp_path / "large_drive"
+    regional = external_root / slug.name / "mapillary_region_abc"
+    regional.mkdir(parents=True)
+    (regional / "pixels.npz").write_bytes(b"original warm cache")
+    local = slug / "mapillary_regions" / "local-region"
+    local.mkdir(parents=True)
+    (local / "pixels.npz").write_bytes(b"local warm cache")
+    for repetition in range(2):
+        moved = M.set_vpr_caches_aside(slug, region_cache_root=external_root)
+        assert "mapillary_regions" in moved
+        assert "external: mapillary_region_abc" in moved
+        assert not regional.exists() and not local.exists()
+        regional.mkdir(parents=True)
+        (regional / "pixels.npz").write_bytes(f"fresh-{repetition}".encode())
+        (regional / "metadata.json").write_text("{}")
+        archive = slug / M.COLD_ARCHIVE_DIR / "run" / "clip" / f"rep{repetition}"
+        M.restore_vpr_caches(slug, archive, keep_arrays=keep_arrays,
+                             region_cache_root=external_root)
+        external_archive = external_root / slug.name / archive.relative_to(slug)
+        assert (external_archive / regional.name / "metadata.json").exists()
+        archived_pixels = external_archive / regional.name / "pixels.npz"
+        assert archived_pixels.exists() == keep_arrays
+        if keep_arrays:
+            assert archived_pixels.read_bytes() == f"fresh-{repetition}".encode()
+        assert (regional / "pixels.npz").read_bytes() == b"original warm cache"
+        assert (local / "pixels.npz").read_bytes() == b"local warm cache"
+
+
+def test_cold_cache_paths_cannot_escape_the_checked_root(tmp_path):
+    slug = tmp_path / "submission"
+    slug.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "keep.npz"
+    marker.write_bytes(b"keep")
+    with pytest.raises(ValueError, match="escapes"):
+        M.restore_vpr_caches(slug, outside, keep_arrays=False)
+    assert marker.read_bytes() == b"keep"
+
+
+def test_cold_runner_passes_external_regional_root_to_every_repetition(tmp_path, monkeypatch):
+    monkeypatch.setattr(M, "ROOT", tmp_path)
+    monkeypatch.setattr(M, "_git_state", lambda: {})
+    _write_manifest(tmp_path, [_entry()])
+    slug = tmp_path / "data" / "submission"
+    slug.mkdir(parents=True)
+    external_root = tmp_path / "large_drive"
+    regional = external_root / slug.name / "mapillary_region_abc"
+    regional.mkdir(parents=True)
+    (regional / "pixels.npz").write_bytes(b"warm")
+    monkeypatch.setattr(M, "candidate_slug_dirs", lambda *a: [slug])
+    calls = []
+
+    def run_one(argv, log_path, env, timeout):
+        assert not regional.exists()
+        regional.mkdir(parents=True)
+        (regional / "pixels.npz").write_bytes(b"fresh")
+        (regional / "metadata.json").write_text("{}")
+        output = tmp_path / argv[argv.index("--output-dir") + 1] / slug.name
+        output.mkdir(parents=True)
+        (output / "result.json").write_text("{}")
+        Path(log_path).write_text("synthetic run\n")
+        calls.append(argv)
+        return {"rc": 0, "timed_out": False, "wall_s": 0.1}
+
+    monkeypatch.setattr(M, "run_one", run_one)
+    args = _run_args(repeats=2, cold_vpr=True, pipeline_arg=[
+        "--vpr-multi-region", f"--vpr-region-cache-dir={external_root}"])
+    assert M.cmd_run(args) == 0 and len(calls) == 2
+    assert (regional / "pixels.npz").read_bytes() == b"warm"
 
 
 def test_candidate_slug_dirs_globs_by_video_id(tmp_path: Path) -> None:
@@ -407,7 +514,7 @@ def test_aggregate_fleet_bootstrap_ci_shape(tmp_path: Path) -> None:
     assert ci["n"] == 3 and ci["confidence"] == 0.95
     assert ci["low"] <= ci["estimate"] <= ci["high"]
     sr = fleet["methods"]["pipeline"]["success_rate"]["start_error_m"]
-    assert list(sr) == ["25", "50", "100", "250", "500", "1000"]
+    assert list(sr) == ["25", "50", "100", "200", "250", "500", "1000"]
     assert 0.0 <= sr["100"]["low"] <= sr["100"]["estimate"] <= sr["100"]["high"] <= 1.0
     paired = fleet["paired_vs_pipeline"]["city_centroid"]["symmetric_mean_m"]
     assert paired["pipeline_wins"] == 3 and paired["pipeline_losses"] == 0
@@ -458,6 +565,51 @@ def test_aggregate_refuses_gt_drift_and_foreign_city(tmp_path: Path) -> None:
         M.aggregate(run_dir2, manifest2, root=root2, allow_network=False, n_resamples=99)
 
 
+def test_aggregate_counts_planned_missing_clips_and_interrupted_repeats(tmp_path: Path) -> None:
+    root, manifest = _setup_root(tmp_path)
+    run_dir = tmp_path / "runs" / "interrupted"
+    _write_rep(run_dir, "clipA", 0, _fake_result(0, 20))
+    interrupted = run_dir / "clipA" / "rep1"
+    interrupted.mkdir()                         # process never wrote status.json
+    (interrupted / "argv.json").write_text("{}", encoding="utf-8")
+    plan = {cid: {"city": f"City {cid}", "vo_segment": "0:300", "reps": reps}
+            for cid, reps in (("clipA", [0, 1]), ("clipB", [0]))}
+    (run_dir / "run_config.json").write_text(
+        json.dumps({"config": {}, "execution_plan": plan}), encoding="utf-8")
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    assert set(s["clips"]) == {"clipA", "clipB"}  # B had no directory at all
+    assert s["clips"]["clipA"]["n_reps"] == 2 and s["clips"]["clipA"]["n_ok"] == 1
+    assert s["clips"]["clipB"]["n_reps"] == 1 and s["clips"]["clipB"]["n_ok"] == 0
+    assert math.isinf(s["clips"]["clipA"]["methods"]["pipeline"]["symmetric_mean_m"]["median"])
+    assert math.isinf(s["clips"]["clipB"]["methods"]["pipeline"]["symmetric_mean_m"]["median"])
+    assert s["execution"]["expected_reps"] == 3 and s["execution"]["n_completed"] == 1
+    assert s["execution"]["incomplete_reps"] == ["clipA/rep1", "clipB/rep0"]
+    assert s["execution"]["complete"] is False
+    assert "answer" in s["fleets"]["core"]["methods"]  # all missing != not requested
+    assert "INCOMPLETE" in M.render_markdown(s)
+
+
+def test_aggregate_total_failure_still_reports_pipeline_failure_rate(tmp_path: Path) -> None:
+    root, manifest = _setup_root(tmp_path)
+    run_dir = tmp_path / "runs" / "failed"
+    _write_rep(run_dir, "clipA", 0, None, rc=1)
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    fleet = s["fleets"]["core"]
+    assert "pipeline" in fleet["methods"] and "pipeline" not in fleet["methods_not_run"]
+    assert fleet["methods"]["pipeline"]["success_rate"]["symmetric_mean_m"]["100"]["estimate"] == 0
+    assert s["execution"]["complete"] is None   # legacy: no expected population recorded
+
+
+def test_aggregate_counts_legacy_interrupted_rep_instead_of_dropping_it(tmp_path: Path) -> None:
+    root, manifest = _setup_root(tmp_path)
+    run_dir = tmp_path / "runs" / "legacy"
+    (run_dir / "clipA" / "rep0").mkdir(parents=True)
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    assert s["clips"]["clipA"]["n_reps"] == 1
+    assert s["clips"]["clipA"]["methods"]["pipeline"]["n_answered"] == 0
+    assert "cannot be verified" in M.render_markdown(s)
+
+
 def test_cmd_aggregate_writes_summary_files(tmp_path: Path, monkeypatch) -> None:
     run_dir, manifest, root = _make_run(tmp_path)
     mpath = tmp_path / "manifest.json"
@@ -498,6 +650,21 @@ def test_health_of_reads_recorded_keys_only() -> None:
     h = M._health_of(_healthy_extras())
     assert h["vpr_status"] == "ok" and h["vpr_source"] == "mapillary"
     assert h["vpr_backbone"] == "megaloc" and h["valid_pose_frac"] == 0.95
+
+
+def test_reference_snapshot_drift_is_reported_without_rejecting_cold_repeats(tmp_path: Path) -> None:
+    root, manifest = _setup_root(tmp_path)
+    run_dir = tmp_path / "runs" / "snapshots"
+    for rep, fingerprint in enumerate(("reference-set-A", "reference-set-B")):
+        result = {**_fake_result(0, 20), **_healthy_extras()}
+        result["vpr_listing"] = {"pass1": {"cache_hit": bool(rep), "snapshot": {
+            "refs_sha256": fingerprint, "created_utc": f"time-{rep}", "n_refs": 100}}}
+        _write_rep(run_dir, "clipA", rep, result)
+    s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+    assert s["provenance"]["consistent"]
+    assert s["clips"]["clipA"]["health"]["reference_snapshots"] == {
+        "pass1": ["reference-set-A", "reference-set-B"]}
+    assert any("reference content changed across repeats" in w for w in s["warnings"])
     assert M._health_of(None) == {} and M.degraded_reasons({}, token_set=True) == []
 
 
@@ -730,6 +897,88 @@ def test_provenance_compares_package_trees_not_commit_hashes(monkeypatch) -> Non
     assert any("different pipeline code" in p for p in other_code["problems"])
 
 
+def _provenance_rep(result: dict, clip: str = "clipA", rep: int = 0) -> dict:
+    return {"result_found": True, "provenance": M._provenance_of(result),
+            "clip": clip, "rep": rep}
+
+
+@pytest.mark.parametrize("change, message", [
+    ("config", "effective method configurations"),
+    ("libraries", "Python/library versions"),
+    ("python", "Python/library versions"),
+    ("model", "VPR model fingerprints"),
+])
+def test_provenance_rejects_effective_method_or_environment_drift(change, message) -> None:
+    first = _fake_result(0, 20)
+    first["provenance"].update(python="3.12.1", libraries={"numpy": "2.1.0"})
+    first["provenance"]["config"]["answer"] = "track"
+    first["vpr_prior"]["backbone"] = {"name": "megaloc", "hub": "repo:commit-A",
+                                         "device": "cpu"}
+    second = copy.deepcopy(first)
+    if change == "config":
+        second["provenance"]["config"]["answer"] = "fit"
+    elif change == "model":
+        second["vpr_prior"]["backbone"]["hub"] = "repo:commit-B"
+    elif change == "libraries":
+        second["provenance"]["libraries"]["numpy"] = "2.2.0"
+    else:
+        second["provenance"]["python"] = "3.13.1"
+    report = M.check_provenance([_provenance_rep(first), _provenance_rep(second, rep=1)])
+    assert not report["consistent"]
+    assert any(message in p for p in report["problems"])
+
+
+def test_provenance_allows_clip_inputs_and_repeat_output_paths_to_differ() -> None:
+    reps = []
+    for clip, stride in (("clipA", 6), ("clipB", 12)):
+        for rep in range(2):
+            result = _fake_result(0, 20)
+            result["provenance"]["config"].update(
+                answer="track", url=f"video:{clip}", city=f"City {clip}",
+                data_dir=f"cache/{clip}/rep{rep}", output_dir=f"output/{clip}/rep{rep}",
+                frame_stride=stride, vo_start_sec=stride, vo_end_sec=300 + stride,
+                osm_around=[48, 9, 3000 + stride], osm_around_source="video_title",
+                openvo_trajectory_path=f"cache/{clip}/trajectory.npz")
+            reps.append(_provenance_rep(result, clip, rep))
+    report = M.check_provenance(reps)
+    assert report["consistent"], report["problems"]
+    # An automatic setting can differ across clips, but not across repeats
+    # of the same input without making that run inconsistent.
+    reps[1]["provenance"]["config"]["frame_stride"] = 9
+    report = M.check_provenance(reps)
+    assert not report["consistent"]
+    assert any("clipA: reps ran different effective clip configurations" in p
+               for p in report["problems"])
+
+
+def test_provenance_optional_model_failure_is_run_health_not_model_drift() -> None:
+    first = _fake_result(0, 20)
+    first["vpr_prior"]["backbone"] = {"name": "megaloc", "hub": "repo:commit-A"}
+    second = _fake_result(0, 20)                 # retrieval did not load a model
+    report = M.check_provenance([_provenance_rep(first), _provenance_rep(second, rep=1)])
+    assert report["consistent"], report["problems"]
+    assert len(report["vpr_model_fingerprints"]) == 1
+
+
+@pytest.mark.parametrize("field", ["video_title", "video_description"])
+def test_provenance_video_metadata_varies_between_clips_but_not_repeats(field) -> None:
+    reps = []
+    for clip in ("clipA", "clipB"):
+        for repeat in range(2):
+            result = _fake_result(0, 20)
+            result["provenance"]["config"][field] = f"{field} for {clip}"
+            reps.append(_provenance_rep(result, clip, repeat))
+    report = M.check_provenance(reps)
+    assert report["consistent"], report["problems"]
+    assert len(report["method_config_fingerprints"]) == 1
+    reps[1]["provenance"]["config"][field] = "changed metadata for the same clip"
+    report = M.check_provenance(reps)
+    assert not report["consistent"]
+    assert any("clipA: reps ran different effective clip configurations" in p
+               for p in report["problems"])
+    assert len(report["method_config_fingerprints"]) == 1
+
+
 def test_cold_archive_metadata_only_drops_arrays_keeps_id_lists(tmp_path: Path) -> None:
     slug = tmp_path / "abc-x"
     (slug / "mapillary").mkdir(parents=True)
@@ -901,3 +1150,97 @@ def test_compare_pairs_matching_clips_and_refuses_the_rest(tmp_path: Path) -> No
     assert any("only 2 paired clips" in n for n in cmp["notes"])
     md = M.render_compare(cmp, "base", "new")
     assert "Not compared: clipC" in md and "New better on 2 clips" in md
+
+
+def _comparison_summary(errors: dict[str, float]) -> dict:
+    return {
+        "clips": {cid: {
+            "name": cid, "fleet": "core", "city": "Same city",
+            "gt_n_waypoints": 8, "vo_segments": ["0:300"],
+            "methods": {
+                "pipeline": {"symmetric_mean_m": {"median": error}},
+                "city_centroid": {"symmetric_mean_m": {"median": 1000.0}},
+            },
+        } for cid, error in errors.items()},
+        "provenance": {}, "run_config": {},
+    }
+
+
+def test_compare_counts_failed_regressions_recoveries_and_failed_ties() -> None:
+    base = _comparison_summary({"improved": 100, "regressed": 100,
+                                "recovered": float("inf"), "both_failed": float("inf")})
+    new = _comparison_summary({"improved": 50, "regressed": float("inf"),
+                               "recovered": 200, "both_failed": float("inf")})
+    cmp = M.compare_runs(base, new)
+    assert cmp["n_clips"] == 4 and not cmp["excluded"]
+    assert (cmp["new_better"], cmp["new_worse"], cmp["ties"]) == (2, 1, 1)
+    assert cmp["sign_test_p"] == 1.0          # binomial test on all three changes
+    assert cmp["base_failures"] == cmp["new_failures"] == 2
+    assert cmp["n_finite_pairs"] == 1
+    assert cmp["median_ratio"]["estimate"] == 0.5
+    assert cmp["wilcoxon_p"] is None
+    failed_rows = [r for r in cmp["rows"] if r["base_failed"] or r["new_failed"]]
+    assert all(r["log_ratio"] is None for r in failed_rows)
+    assert all(not math.isnan(r["delta"]) for r in cmp["rows"])
+    md = M.render_compare(cmp, "base", "new")
+    assert "regressed to failure" in md and "recovered from failure" in md
+    assert "both failed" in md and "finite pairs for log-ratio statistics: 1" in md
+
+
+def test_compare_keeps_a_total_failure_as_a_regression() -> None:
+    cmp = M.compare_runs(_comparison_summary({"clip": 100}),
+                         _comparison_summary({"clip": float("inf")}))
+    assert cmp["n_clips"] == 1 and cmp["new_worse"] == 1
+    assert cmp["n_finite_pairs"] == 0 and cmp["median_ratio"] is None
+    assert cmp["new_failures"] == 1
+
+
+def test_compare_accepts_failure_scores_after_summary_json_roundtrip() -> None:
+    base = json.loads(json.dumps(M._jsonable(_comparison_summary({"clip": float("inf")}))))
+    new = _comparison_summary({"clip": 20})
+    cmp = M.compare_runs(base, new)
+    assert cmp["new_better"] == 1 and not cmp["excluded"]
+
+
+def test_compare_does_not_treat_missing_method_as_an_inference_failure() -> None:
+    base = _comparison_summary({"clip": 100})
+    new = _comparison_summary({"clip": 50})
+    new["clips"]["clip"]["methods"].pop("pipeline")
+    cmp = M.compare_runs(base, new)
+    assert cmp["n_clips"] == 0 and len(cmp["excluded"]) == 1
+    assert cmp["new_worse"] == cmp["new_better"] == 0
+
+
+def test_compare_reports_intentional_between_run_provenance_changes() -> None:
+    base = _comparison_summary({"clip": 100})
+    new = _comparison_summary({"clip": 50})
+    for key in ("method_config_fingerprints", "environment_fingerprints",
+                "vpr_model_fingerprints"):
+        base["provenance"][key] = ["before"]
+        new["provenance"][key] = ["after"]
+    cmp = M.compare_runs(base, new)
+    assert cmp["n_clips"] == 1 and cmp["new_better"] == 1
+    assert any("different Python/library versions" in n for n in cmp["notes"])
+    assert any("different VPR model fingerprints" in n for n in cmp["notes"])
+
+
+def test_compare_rejects_changed_ground_truth_with_the_same_waypoint_count() -> None:
+    base = _comparison_summary({"clip": 100})
+    new = _comparison_summary({"clip": 50})
+    base["clips"]["clip"]["gt_waypoints_sha256"] = "original-coordinates-and-times"
+    new["clips"]["clip"]["gt_waypoints_sha256"] = "changed-coordinates-or-times"
+    cmp = M.compare_runs(base, new)
+    assert cmp["n_clips"] == 0
+    assert "waypoint fingerprint" in cmp["excluded"][0]["reason"]
+
+
+def test_compare_explicit_config_ablation_still_enforces_ground_truth_and_city() -> None:
+    base = _comparison_summary({"clip": 100})
+    new = _comparison_summary({"clip": 50})
+    new["run_config"] = {"config": {"pipeline_args": ["--vpr-seed-ring"]}}
+    assert M.compare_runs(base, new)["n_clips"] == 0
+    cmp = M.compare_runs(base, new, allow_config_changes=True)
+    assert cmp["n_clips"] == 1 and cmp["new_better"] == 1
+    assert any("runner configuration differs by explicit request" in n for n in cmp["notes"])
+    new["clips"]["clip"]["city"] = "Different city"
+    assert M.compare_runs(base, new, allow_config_changes=True)["n_clips"] == 0

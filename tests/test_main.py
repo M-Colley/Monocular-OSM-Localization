@@ -229,6 +229,34 @@ def test_main_wires_local_video_into_pipeline(
     assert "ulm" in str(cfg.data_dir).lower()
 
 
+def test_metadata_overrides_reach_both_coarse_search_and_recorded_config(tmp_path, monkeypatch):
+    import monocular_osm.location_prior as prior
+
+    video = tmp_path / "drive.mp4"
+    video.write_bytes(b"x")
+    seen = {}
+
+    def resolve(city, title, description, **kwargs):
+        seen["metadata"] = (city, title, description)
+        return None
+
+    def run(cfg):
+        seen["cfg"] = cfg
+        return {}
+
+    monkeypatch.setattr(prior, "resolve_coarse_prior", resolve)
+    monkeypatch.setattr(main_mod, "run_pipeline", run)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--video", str(video),
+        "--city", "Ulm, Germany", "--video-title", "District A to District B",
+        "--video-description", "Uploader route description",
+        "--data-dir", str(tmp_path / "d"), "--output-dir", str(tmp_path / "o")])
+    main_mod.main()
+    assert seen["metadata"] == ("Ulm, Germany", "District A to District B",
+                                "Uploader route description")
+    assert seen["cfg"].video_title == seen["metadata"][1]
+    assert seen["cfg"].video_description == seen["metadata"][2]
+
+
 def test_main_rejects_video_plus_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

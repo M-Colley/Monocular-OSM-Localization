@@ -19,13 +19,14 @@ Heavy/optional: needs requests + a GPU + the EigenPlaces torch.hub weights. Retu
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import hashlib
 import heapq
 import json
 import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 import numpy as np
 
@@ -49,9 +50,9 @@ HUB_EIGENPLACES = "gmberton/eigenplaces:a2969f71d5ea31017443af490b15273ca4c50af1
 # Why the last VPR entrypoint returned None (None after a success), so the
 # pipeline can record the reason instead of a bare "unavailable".
 LAST_FAILURE: str | None = None
-#: Tiles of the last Mapillary listing that returned nothing usable after
-#: splitting and retrying (recorded so an incomplete reference set is never
-#: silent). ``{"tiles": n_initial, "split": n_splits, "lost": n_lost}``.
+#: Original listing diagnostics and the exact metadata snapshot for the last
+#: Mapillary query, restored on warm hits too. Legacy metadata marks listing
+#: completeness unknown instead of implying a complete zero-loss listing.
 LAST_FETCH_STATS: dict = {}
 #: How often a tile the Graph API rejects as too large ("Please reduce the
 #: amount of data") is split into quarters. ~540 m tiles (an 8 km disc) are
@@ -106,6 +107,35 @@ def _refs_fingerprint(refs) -> str:
     exact metadata they were built from (audit kartaview:124)."""
     blob = json.dumps([[r["id"], r["lat"], r["lon"]] for r in refs])
     return hashlib.sha1(blob.encode()).hexdigest()
+
+
+def _reference_snapshot(refs, *, created_utc=None) -> dict:
+    """Identity of the exact ordered metadata set, without expiring URLs."""
+    content = [[str(r["id"]), float(r["lat"]), float(r["lon"])] for r in refs]
+    digest = hashlib.sha256(json.dumps(content, separators=(",", ":")).encode()).hexdigest()
+    return {"refs_sha256": digest, "n_refs": len(refs), "created_utc": created_utc}
+
+
+def _restore_mapillary_fetch_stats(blob: dict, refs) -> None:
+    """Warm reads retain the listing's losses and its reference-set identity.
+
+    Older metadata did not record listing completeness. Mark it unknown rather
+    than presenting it as a successful zero-loss listing or leaking another
+    query's process-global statistics.
+    """
+    global LAST_FETCH_STATS
+    listing_stats = blob.get("listing_stats")
+    known = isinstance(listing_stats, dict) and bool(listing_stats)
+    snapshot = _reference_snapshot(refs)
+    recorded = blob.get("snapshot") or {}
+    if recorded.get("refs_sha256") == snapshot["refs_sha256"]:
+        snapshot["created_utc"] = recorded.get("created_utc")
+    LAST_FETCH_STATS = {
+        **(listing_stats if known else {"listing": "unknown"}),
+        "listing_stats_known": known,
+        "cache_hit": True,
+        "snapshot": snapshot,
+    }
 
 
 def _sig_tag(sig: dict) -> str:
@@ -190,10 +220,9 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
     env var or ``token=``) unless a warm ref cache covers the query. Returns
     [] with no token and no warm cache / on error.
 
-    No metadata cache: Mapillary thumbnail URLs are signed and expire, so we
-    re-query metadata each run (cheap) and rely on the fingerprinted image
-    cache (``ref_imgs.npz``) to skip the expensive download+embed on warm runs.
-    Refs are sorted by id so that fingerprint is stable across runs.
+    Metadata and its original listing diagnostics are cached without signed
+    thumbnail URLs. A warm pixel store serves it offline. Refs are sorted by
+    id so their snapshot identity is stable across runs.
     """
     # Persistent ref cache (id/lat/lon only — NOT the expiring thumb URLs) so
     # the ref set (hence the prior) is REPRODUCIBLE across runs. Without it,
@@ -204,7 +233,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
     # Checked BEFORE the token guard: a warm cache needs no API access, so
     # offline regression sweeps run without MLY_TOKEN.
     global LAST_FETCH_STATS
-    LAST_FETCH_STATS = {}       # stays empty when a warm cache serves
+    LAST_FETCH_STATS = {}
     sig = _fetch_signature(center, radius_m, cap)
     # Signature-TAGGED meta (variants coexist) with the legacy untagged file
     # as a read fallback so pre-existing warm caches keep serving.
@@ -245,6 +274,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
             # misses.
             if n_stored == len(refs_m) or (
                     n_stored >= 30 and n_stored >= int(0.9 * len(refs_m))):
+                _restore_mapillary_fetch_stats(blob, refs_m)
                 return refs_m
             # Legacy monolithic image cache (fingerprint over the FULL meta
             # list): serve if it matches; _load_ref_images migrates it into
@@ -258,6 +288,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
                     with np.load(npz, allow_pickle=True) as d:
                         if ("fingerprint" in d.files
                                 and str(d["fingerprint"]) == fp):
+                            _restore_mapillary_fetch_stats(blob, refs_m)
                             return refs_m
                 except Exception:
                     pass
@@ -329,14 +360,18 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
         found = _mly_lookup_urls(need, token, sess)
         stats["url_lookups"], stats["url_missing"] = len(need), len(need) - len(found)
         urls.update(found)
-    LAST_FETCH_STATS = dict(stats)
     out = [{"id": i, "lat": union[i][0], "lon": union[i][1],
             **({"url": urls[i]} if i in urls else {})} for i in ids]
+    snapshot = _reference_snapshot(
+        out, created_utc=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
+    LAST_FETCH_STATS = {**stats, "listing_stats_known": True,
+                        "cache_hit": False, "snapshot": snapshot}
     if meta and out:
         os.makedirs(cache_dir, exist_ok=True)
         # store WITHOUT urls (they expire); the per-id image store holds pixels
         stable = [{"id": r["id"], "lat": r["lat"], "lon": r["lon"]} for r in out]
-        _atomic_write_json(meta, {"signature": sig, "refs": stable})
+        _atomic_write_json(meta, {"signature": sig, "refs": stable,
+                                  "listing_stats": stats, "snapshot": snapshot})
     return out
 
 
@@ -596,7 +631,7 @@ def _fetch_refs_for(source, center, radius_m, cache_dir, cap, token):
     return _fetch_refs(center, radius_m, cache_dir, cap=cap)
 
 
-def _union_refs(center, radius_m, cache_dir, cap, token, device, model_name):
+def _union_refs(center, radius_m, cache_dir, cap, token, device, model_name, *, batch_size=24):
     """Embed and CONCATENATE reference pools from several street-imagery
     sources — the coverage lever for areas where one source is thin (KITTI's
     start has 2 Mapillary refs <=50 m but 23 KartaView <=250 m). Each source
@@ -607,7 +642,9 @@ def _union_refs(center, radius_m, cache_dir, cap, token, device, model_name):
 
     import numpy as np
     import torch
-    parent = Path(cache_dir).parent
+    cache_path = Path(cache_dir)
+    regional = cache_path.parent.name == "union_regions" or cache_path.name.startswith("union_region_")
+    parent = cache_path if regional else cache_path.parent
     embs, xys = [], []
     counts = []
     for src in ("mapillary", "kartaview", "panoramax"):
@@ -617,7 +654,8 @@ def _union_refs(center, radius_m, cache_dir, cap, token, device, model_name):
                                    token if src == "mapillary" else None)
             if len(refs) < 5:
                 continue
-            e, xy = _embed_refs(refs, device, d, model_name=model_name)
+            embed_options = {"batch_size": batch_size} if batch_size != 24 else {}
+            e, xy = _embed_refs(refs, device, d, model_name=model_name, **embed_options)
             if e is not None and len(xy):
                 embs.append(e)
                 xys.append(np.asarray(xy, dtype=float))
@@ -630,16 +668,16 @@ def _union_refs(center, radius_m, cache_dir, cap, token, device, model_name):
     return torch.cat(embs), np.vstack(xys)
 
 
-def _prep(bgr):
+def _prep(bgr, size=(512, 512)):
     import cv2
     import torch
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    rgb = cv2.resize(rgb, (512, 512))
+    rgb = cv2.resize(rgb, size)
     t = torch.from_numpy(rgb).permute(2, 0, 1).float() / 255.0
     return (t - _MEAN) / _STD
 
 
-def _embed(device, imgs):
+def _embed(device, imgs, *, batch_size=24, prepare=None):
     """Embed a list of PREPPED tensors, or a uint8 BGR array ``[N,H,W,3]``.
 
     The array form preps lazily PER BATCH: materializing all prepped float32
@@ -648,17 +686,75 @@ def _embed(device, imgs):
     holds ~75 MB per 24-batch instead; results are identical.
     """
     import torch
-    lazy = not isinstance(imgs, list)
+    lazy = prepare is not None or not isinstance(imgs, list)
+    prep = prepare or _prep
     out = []
-    for i in range(0, len(imgs), 24):
-        chunk = imgs[i:i + 24]
+    for i in range(0, len(imgs), batch_size):
+        chunk = imgs[i:i + batch_size]
         if lazy:
-            chunk = [_prep(chunk[j]) for j in range(len(chunk))]
+            chunk = [prep(chunk[j]) for j in range(len(chunk))]
         batch = torch.stack(chunk).to(device)
-        with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16,
+                                           enabled=str(device).startswith("cuda")):
             f = _MODEL(batch).float()
         out.append(torch.nn.functional.normalize(f, dim=1).cpu())
     return torch.cat(out)
+
+
+def _square_query_crop(bgr, view: int):
+    """One of three evenly placed square views along the image's long axis."""
+    if view not in (0, 1, 2):
+        raise ValueError("query crop index must be 0, 1 or 2")
+    h, w = bgr.shape[:2]
+    edge = min(h, w)
+    offset = round((max(h, w) - edge) * view / 2.0)
+    return bgr[:, offset:offset + edge] if w >= h else bgr[offset:offset + edge, :]
+
+
+def _aspect_query_size(bgr) -> tuple[int, int]:
+    """Preserve aspect at roughly the control's 512² pixels, on ViT's grid."""
+    h, w = bgr.shape[:2]
+    scale = 512.0 / np.sqrt(h * w)
+    return max(14, round(w * scale / 14) * 14), max(14, round(h * scale / 14) * 14)
+
+
+class _QueryViews:
+    """Lazy BGR views: large source frames are held only for one model batch."""
+
+    def __init__(self, frames, indices, mode):
+        self.frames, self.indices, self.mode = frames, indices, mode
+        self.n_views = 3 if mode == "crops" else 1
+
+    def __len__(self):
+        return len(self.indices) * self.n_views
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[i] for i in range(*index.indices(len(self)))]
+        frame = self.frames[int(self.indices[index // self.n_views])]
+        return _square_query_crop(frame, index % 3) if self.mode == "crops" else frame
+
+
+def _query_similarities(frames, indices, ref_emb, device, *, mode="warp", batch_size=None):
+    """Score the same references with fixed query views; no geographic inputs.
+
+    ``warp`` is the unchanged control. ``crops`` takes the maximum cosine per
+    reference over three square views. ``aspect`` keeps the native aspect
+    ratio at roughly the control's pixel budget. Reference embeddings and
+    preprocessing stay unchanged, and sequence decoding happens afterwards.
+    """
+    if mode not in {"warp", "crops", "aspect"}:
+        raise ValueError(f"unknown VPR query mode: {mode}")
+    if batch_size is not None and batch_size <= 0:
+        raise ValueError("VPR query batch size must be positive")
+    if mode == "warp" and batch_size is None:
+        q_emb = _embed(device, [_prep(frames[int(i)]) for i in indices])
+        return (q_emb @ ref_emb.T).numpy()
+    views = _QueryViews(frames, indices, mode)
+    prep = (lambda im: _prep(im, _aspect_query_size(im))) if mode == "aspect" else _prep
+    q_emb = _embed(device, views, batch_size=batch_size or 4, prepare=prep)
+    scores = (q_emb @ ref_emb.T).numpy()
+    return scores.reshape(len(indices), views.n_views, -1).max(axis=1)
 
 
 def _load_ref_images(refs, cache_dir):
@@ -740,41 +836,68 @@ def _load_ref_images(refs, cache_dir):
             return None
         return None
 
-    to_dl = [r for r in refs
-             if str(r["id"]) not in have and str(r["id"]) not in legacy_imgs
-             and r.get("url")]
-    new_imgs: dict[str, np.ndarray] = {}
-    if to_dl:
-        with ThreadPoolExecutor(max_workers=16) as ex:
-            for r, a in zip(to_dl, ex.map(fetch, to_dl)):
-                if a is not None:
-                    new_imgs[str(r["id"])] = a
-
-    # servable = refs with pixels available (stored, legacy, or just fetched)
-    servable = [r for r in refs
-                if str(r["id"]) in have or str(r["id"]) in legacy_imgs
-                or str(r["id"]) in new_imgs]
-    if not servable:
+    if not refs:
         return None, None, _refs_fingerprint(refs)
-
-    # Each image keeps ITS OWN stored lat/lon (never the incoming ref's), so a
-    # cached photo can never be mislabelled with another ref's coordinates —
-    # the coordinate-mispairing failure the old fingerprint guard existed for.
-    out_raw, out_xy = [], []
-    for r in servable:
-        i = str(r["id"])
-        if i in have:
-            out_raw.append(np.asarray(store_raw[have[i]]))
-            out_xy.append(store_xy[have[i]])
-        elif i in legacy_imgs:
-            out_raw.append(legacy_imgs[i])
-            out_xy.append(legacy_xy[i])
-        else:
-            out_raw.append(new_imgs[i])
-            out_xy.append([r["lat"], r["lon"]])
-    raw = np.stack(out_raw)
-    ref_xy = np.array(out_xy, float)
-    del out_raw, out_xy
+    shape = (512, 512, 3)
+    for ref in refs:
+        key = str(ref["id"])
+        if key in have:
+            shape = store_raw[have[key]].shape
+            break
+        if key in legacy_imgs:
+            shape = legacy_imgs[key].shape
+            break
+    # Download straight into the final pool: retaining N downloaded arrays and
+    # then np.stack used two full pixel pools (~2.4 GB for 1500 references).
+    raw = np.empty((len(refs), *shape), dtype=np.uint8)
+    ref_xy = np.empty((len(refs), 2), dtype=float)
+    keep = np.zeros(len(refs), dtype=bool)
+    to_dl = []
+    for row, ref in enumerate(refs):
+        key = str(ref["id"])
+        if key in have:
+            raw[row], ref_xy[row] = store_raw[have[key]], store_xy[have[key]]
+            keep[row] = True
+        elif key in legacy_imgs:
+            raw[row], ref_xy[row] = legacy_imgs[key], legacy_xy[key]
+            keep[row] = True
+        elif ref.get("url"):
+            to_dl.append((row, ref))
+    # Release loaded/migrated arrays before downloads and model inference.
+    store_raw = store_xy = None
+    legacy_imgs.clear()
+    lraw = None
+    if to_dl:
+        pending = {}
+        jobs = iter(to_dl)
+        with ThreadPoolExecutor(max_workers=16) as ex:
+            def submit_one():
+                item = next(jobs, None)
+                if item is not None:
+                    row, ref = item
+                    pending[ex.submit(fetch, ref)] = (row, ref)
+            for _ in range(16):
+                submit_one()
+            while pending:
+                completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for future in completed:
+                    row, ref = pending.pop(future)
+                    pixels = future.result()
+                    if pixels is not None:
+                        raw[row] = pixels
+                        ref_xy[row] = [ref["lat"], ref["lon"]]
+                        keep[row] = True
+                    submit_one()
+    indices = np.flatnonzero(keep)
+    if not len(indices):
+        return None, None, _refs_fingerprint(refs)
+    # Stable in-place compaction avoids a second full allocation when a few
+    # downloads fail; every destination is <= its source in this ordered pass.
+    for destination, source in enumerate(indices):
+        if destination != source:
+            raw[destination], ref_xy[destination] = raw[source], ref_xy[source]
+    raw, ref_xy = raw[:len(indices)], ref_xy[:len(indices)]
+    servable = [refs[int(index)] for index in indices]
     fp = _refs_fingerprint(servable)
 
     # Persist the store as EXACTLY the current servable set (bounded at cap;
@@ -833,7 +956,7 @@ def _read_emb_cache(cache_dir, model_name, fp, n):
     return None
 
 
-def _embed_refs(refs, device, cache_dir, model_name="model"):
+def _embed_refs(refs, device, cache_dir, model_name="model", *, batch_size=24):
     # Fully-warm fast path: store holds every ref + embeddings cached -> return
     # without loading a single pixel or hitting the network (audit K2).
     peek = _peek_store(refs, cache_dir)
@@ -847,7 +970,8 @@ def _embed_refs(refs, device, cache_dir, model_name="model"):
         return None, None
     emb = _read_emb_cache(cache_dir, model_name, fp, len(ref_xy))
     if emb is None:
-        emb = _embed(device, raw)   # lazy per-batch prep (see _embed)
+        options = {"batch_size": batch_size} if batch_size != 24 else {}
+        emb = _embed(device, raw, **options)   # lazy per-batch prep (see _embed)
         if cache_dir:
             os.makedirs(cache_dir, exist_ok=True)
             _atomic_savez(
@@ -938,7 +1062,8 @@ def _resolve_backbone(model_name, device):
 
 def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
                             device, model_name, source, token, cap,
-                            outer_radius_m=None, outer_cap=None):
+                            outer_radius_m=None, outer_cap=None, query_mode="warp",
+                            query_batch_size=None):
     """Shared front half of both VPR entrypoints: fetch references, load/cache
     the backbone, embed the references + the ``n_query`` sampled query frames.
 
@@ -958,16 +1083,19 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
     _MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
     _STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
     resolved = _resolve_backbone(model_name, device)
+    reference_options = ({"batch_size": query_batch_size}
+                         if query_batch_size is not None else {})
     if source == "union":
         ref_emb, ref_xy = _union_refs(center, radius_m, cache_dir, cap, token,
-                                      device, resolved)
+                                      device, resolved, **reference_options)
     else:
         refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
         if len(refs) < 30:
             LAST_FAILURE = (f"only {len(refs)} {source} reference images within "
                             f"{radius_m:.0f} m (need 30)")
             return None
-        ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved)
+        ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved,
+                                     **reference_options)
         if (outer_radius_m and outer_radius_m > radius_m and cache_dir
                 and ref_emb is not None):
             core_stats = dict(LAST_FETCH_STATS)
@@ -980,7 +1108,8 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
             outer = [r for r in outer if str(r["id"]) not in have]
             added = 0
             if outer:
-                o_emb, o_xy = _embed_refs(outer, device, outer_dir, model_name=resolved)
+                o_emb, o_xy = _embed_refs(outer, device, outer_dir, model_name=resolved,
+                                         **reference_options)
                 if o_emb is not None and len(o_xy):
                     ref_emb = torch.cat([ref_emb, o_emb])
                     ref_xy = np.vstack([np.asarray(ref_xy, dtype=float),
@@ -997,15 +1126,15 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
         return None
     idx = np.linspace(0, len(frames_bgr) - 1,
                       min(n_query, len(frames_bgr))).astype(int)
-    q_emb = _embed(device, [_prep(frames_bgr[i]) for i in idx])
-    sims = (q_emb @ ref_emb.T).numpy()
+    sims = _query_similarities(frames_bgr, idx, ref_emb, device, mode=query_mode,
+                              batch_size=query_batch_size)
     return idx, sims, np.asarray(ref_xy, dtype=float)
 
 
 def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
                         cache_dir=None, n_query=40, device=None,
                         model_name="megaloc", source="kartaview", token=None,
-                        cap=1500):
+                        cap=1500, query_mode="warp", query_batch_size=None):
     """Return a ``(lat, lon)`` coarse prior from street-level VPR, or ``None``.
 
     ``center`` is a ``(lat, lon)`` seed (e.g. the city centroid); reference photos are
@@ -1022,7 +1151,8 @@ def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
     try:
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
-                                      token, cap)
+                                      token, cap, query_mode=query_mode,
+                                      query_batch_size=query_batch_size)
         if out is None:
             return None
         _idx, sims, ref_xy = out
@@ -1080,7 +1210,8 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
                         cache_dir=None, n_query=80, device=None,
                         model_name="megaloc", source="kartaview", token=None,
                         cap=1500, sequence_decode=True, query_dt_s=4.0,
-                        outer_radius_m=None, outer_cap=None):
+                        outer_radius_m=None, outer_cap=None, query_mode="warp",
+                        query_batch_size=None):
     """Per-frame VPR positions: a sparse, noisy 'GPS' track to fit the trajectory
     to (anchor-primary v2). Returns ``(query_indices, latlons[N,2], sims[N])`` for
     ``n_query`` frames sampled uniformly across the clip, or ``None``. Unlike the
@@ -1091,6 +1222,8 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
     seconds between query frames (sets the transition free radius).
     ``outer_radius_m``/``outer_cap`` add a sparser outer reference ring (see
     ``_prepare_refs_and_query``).
+    ``query_mode`` is the unchanged ``warp`` control, or an opt-in ``crops`` /
+    ``aspect`` query-only experiment; reference embeddings are reused.
     """
     try:
         import torch  # noqa: F401 - availability guard; helper re-imports
@@ -1101,7 +1234,8 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
     try:
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
-                                      token, cap, outer_radius_m, outer_cap)
+                                      token, cap, outer_radius_m, outer_cap, query_mode,
+                                      query_batch_size)
         if out is None:
             return None
         idx, sims, ref_xy = out

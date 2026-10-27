@@ -7,9 +7,9 @@ Installed as the ``osm-localize`` console script; also runnable as
     osm-localize --url ... --city ...                     # YouTube clip
     osm-localize                                           # default Ulm demo clip
 
-The estimated position (lat/lon, route, street names, map links) is
-printed at the end of the run and written to output/<slug>/result.json
-under the "position" key.
+The selected answer (lat/lon, route and map links) is printed at the end of
+the run and written to output/<slug>/result.json under "answer". The
+trajectory fit is retained under "position" for diagnostics.
 """
 
 from __future__ import annotations
@@ -182,6 +182,36 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Take every Nth frame. Default: auto — picked so the "
                         "analyzed segment yields ~4800 frames (7 min -> 3, "
                         "10 min -> 4, 15 min -> 6).")
+    p.add_argument("--frame-memory-mb", type=float, default=512.0,
+                   help="Resident decoded-frame budget in MiB (default 512). "
+                        "Long clips spill losslessly to temporary disk storage.")
+    p.add_argument("--frame-max-width", type=int, default=None,
+                   help="Optionally resize sampled frames to this maximum width; "
+                        "preserves aspect ratio. Default: original resolution.")
+    p.add_argument("--retrieval-only", action="store_true",
+                   help="With --answer track, finish after retrieval produces a "
+                        "track, skipping VO, Overpass and geometry. Without a "
+                        "track, the full pipeline is the fallback.")
+    p.add_argument("--vpr-multi-region", action="store_true",
+                   help="Experimental: search places named in video metadata "
+                        "as separate regions with independent reference budgets.")
+    p.add_argument("--vpr-region-cap", type=int, default=6,
+                   help="Maximum retrieval regions including the original search "
+                        "region (default 6).")
+    p.add_argument("--vpr-region-cache-dir", type=Path, default=None,
+                   help="Optional cache root for additional regional references, "
+                        "e.g. a drive with more free space. Original caches stay in data-dir.")
+    p.add_argument("--vpr-query-mode", choices=["warp", "crops", "aspect"], default="warp",
+                   help="Query preprocessing: original square warp, three square "
+                        "crops, or aspect-preserving patch resize (default warp).")
+    p.add_argument("--vpr-batch-size", "--vpr-query-batch-size",
+                   dest="vpr_query_batch_size", type=int, default=4,
+                   help="Maximum reference/query images embedded together (default 4); "
+                        "smaller batches reduce inference memory.")
+    p.add_argument("--video-title", default=None,
+                   help="Optional uploader title for a local video or metadata override.")
+    p.add_argument("--video-description", default=None,
+                   help="Optional uploader description for a local video or metadata override.")
     p.add_argument(
         "--analyze-minutes",
         type=float,
@@ -699,10 +729,13 @@ def main() -> None:
             submissions.append((metadata, None))
 
     for metadata, local_path in submissions:
+        effective_title = metadata.title if args.video_title is None else args.video_title
+        effective_description = (getattr(metadata, "description", None)
+                                 if args.video_description is None else args.video_description)
         if local_path is not None:
             city = args.city  # guaranteed by _validate_input_args
         else:
-            city = _resolve_city(args.city, metadata.url, metadata.title)
+            city = _resolve_city(args.city, metadata.url, effective_title)
         submission_slug = slugify_submission(
             metadata.video_id,
             metadata.title,
@@ -726,8 +759,8 @@ def main() -> None:
             # runs 7.7 km off (the city centre is 350 m off).
             from .stages.length_prior import _auto_estimated_length_m
             seed_dur = duration or getattr(metadata, "duration", None)
-            prior = resolve_coarse_prior(city, metadata.title,
-                                         getattr(metadata, "description", None),
+            prior = resolve_coarse_prior(city, effective_title,
+                                         effective_description,
                                          min_places=2,
                                          route_length_m=(_auto_estimated_length_m(seed_dur)
                                                          if seed_dur else None))
@@ -768,6 +801,9 @@ def main() -> None:
             output_dir=args.output_dir / submission_slug,
             max_frames=args.max_frames,
             frame_stride=frame_stride,
+            frame_memory_mb=args.frame_memory_mb,
+            frame_max_width=args.frame_max_width,
+            retrieval_only=args.retrieval_only,
             vo_start_sec=start,
             vo_end_sec=end,
             top_k=args.top_k,
@@ -840,9 +876,16 @@ def main() -> None:
             use_vlm_anchor=args.use_vlm_anchor,
             vpr_search_radius_m=args.vpr_search_radius,
             vpr_ref_cap=args.vpr_cap,
+            vpr_query_mode=args.vpr_query_mode,
+            vpr_query_batch_size=args.vpr_query_batch_size,
             vpr_coarse_to_fine=args.vpr_coarse_to_fine,
             vpr_c2f_radius_m=args.vpr_c2f_radius,
             vpr_seed_ring=args.vpr_seed_ring,
+            vpr_multi_region=args.vpr_multi_region,
+            vpr_region_cap=args.vpr_region_cap,
+            vpr_region_cache_dir=args.vpr_region_cache_dir,
+            video_title=effective_title,
+            video_description=effective_description,
             answer=args.answer,
             use_sun_heading=args.use_sun_heading,
             ground_truth_streets=tuple(args.ground_truth),

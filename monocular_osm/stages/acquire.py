@@ -97,7 +97,7 @@ def acquire_video(ctx: RunContext) -> None:
     ctx.video_path = _resolve_input_video(cfg)
 
 
-def extract_video_frames(ctx: RunContext) -> None:
+def extract_video_frames(ctx: RunContext, *, query_only: bool = False) -> None:
     """Decode the analysed window of the video -> ``ctx.frames``."""
     cfg = ctx.cfg
     video_path = ctx.video_path
@@ -105,11 +105,15 @@ def extract_video_frames(ctx: RunContext) -> None:
     # 2. Frames.
     print(f"[2/5] Extracting frames (stride={cfg.frame_stride}, "
           f"window={cfg.vo_start_sec}-{cfg.vo_end_sec}s)")
+    sampling = {"sample_count": 80} if query_only else {}
     ctx.frames = extract_frames(
         video_path,
         stride=cfg.frame_stride,
         max_frames=cfg.max_frames,
         start_sec=cfg.vo_start_sec,
         end_sec=cfg.vo_end_sec,
+        memory_mb=cfg.frame_memory_mb,
+        max_width=cfg.frame_max_width,
+        **sampling,
     )
     print(f"      -> {len(ctx.frames.frames)} frames @ {ctx.frames.fps:.1f} fps")

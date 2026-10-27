@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 
 import monocular_osm.stages.report as report
 from monocular_osm.stages.context import RunContext
@@ -129,3 +130,120 @@ def test_track_answer_without_a_track_is_the_fit(tmp_path):
     ctx.vpr_track = None
     report.finalize_result(ctx)
     assert ctx.result["answer"]["method"] == "pipeline"
+
+
+@pytest.mark.parametrize("mode,fit_lon,chosen_lon", [
+    ("track", 9.99, 9.98),
+    ("fit", 9.99, 9.99),
+    ("checked", 9.9801, 9.9801),
+    ("checked", 9.99, 9.98),
+])
+def test_primary_console_links_and_map_use_the_selected_answer(
+        tmp_path, capsys, monkeypatch, mode, fit_lon, chosen_lon):
+    ctx = _answer_ctx(tmp_path, mode, fit_lon)
+    plotted = []
+    from monocular_osm import position
+
+    real_plot = position.plot_answer
+
+    def capture_plot(answer, path, **kw):
+        plotted.append(answer["route_latlon"])
+        return real_plot(answer, path, **kw)
+
+    monkeypatch.setattr(position, "plot_answer", capture_plot)
+    report.finalize_result(ctx)
+    a = ctx.result["answer"]
+    console = capsys.readouterr().out
+    assert console.count("ESTIMATED POSITION") == 1
+    assert f"answer={mode}" in console
+    assert f"{chosen_lon:.6f}" in console
+    assert f"q={a['latitude']:.6f},{chosen_lon:.6f}" in console
+    assert f"mlon={chosen_lon:.6f}" in console
+    assert a["start"]["longitude"] == chosen_lon
+    assert plotted == [a["route_latlon"]]
+    assert a["map_artifact"] == "answer.png"
+    assert (ctx.cfg.output_dir / "answer.png").read_bytes().startswith(b"\x89PNG")
+    assert ctx.result["position"]["route_latlon"][0][1] == fit_lon
+
+
+def test_retrieval_answer_is_reported_without_candidates_or_a_road(tmp_path, capsys):
+    ctx = _answer_ctx(tmp_path, "track", 9.99)
+    del ctx.result["position"]
+    ctx.candidates, ctx.road, ctx.cache_path = [], None, None
+    report.finalize_result(ctx)
+    saved = json.loads((ctx.cfg.output_dir / "result.json").read_text(encoding="utf-8"))
+    assert saved["answer"]["method"] == "vpr_track_only"
+    assert saved["answer"]["map_artifact"] == "answer.png"
+    assert saved["provenance"]["osm_graph"] is None
+    assert "ESTIMATED POSITION" in capsys.readouterr().out
+
+
+def test_map_failure_keeps_the_route_and_removes_a_stale_map(tmp_path, monkeypatch):
+    ctx = _answer_ctx(tmp_path, "track", 9.99)
+    stale = ctx.cfg.output_dir / "answer.png"
+    stale.write_bytes(b"old map")
+    from monocular_osm import position
+
+    def fail_plot(*args, **kwargs):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(position, "plot_answer", fail_plot)
+    report.finalize_result(ctx)
+    a = ctx.result["answer"]
+    assert a["route_latlon"] and "disk unavailable" in a["map_error"]
+    assert "map_artifact" not in a and not stale.exists()
+    assert json.loads((ctx.cfg.output_dir / "result.json").read_text(encoding="utf-8"))["answer"]
+
+
+def test_no_selected_answer_removes_a_previous_map(tmp_path):
+    ctx = _report_ctx(tmp_path)
+    stale = ctx.cfg.output_dir / "answer.png"
+    stale.write_bytes(b"old map")
+    report.finalize_result(ctx)
+    assert "answer" not in ctx.result and not stale.exists()
+
+
+def test_checkpoint_does_not_freeze_derived_channel_statuses(tmp_path):
+    ctx = _report_ctx(tmp_path, use_plate_anchor=True)
+    report.finalize_result(ctx)
+    assert ctx.result["channels"]["plate"]["status"] == "inactive"
+    assert "plate" not in ctx.channel_status
+    ctx.plate_center = (48.4, 9.99)
+    report.finalize_result(ctx)
+    assert ctx.result["channels"]["plate"]["status"] == "ok"
+
+
+def test_failed_json_write_preserves_the_previous_checkpoint(tmp_path, monkeypatch):
+    path = tmp_path / "result.json"
+    path.write_text('{"answer": "usable checkpoint"}', encoding="utf-8")
+
+    def interrupted_dump(result, stream, **kwargs):
+        stream.write('{"answer":')
+        raise OSError("disk write failed")
+
+    monkeypatch.setattr(report.json, "dump", interrupted_dump)
+    with pytest.raises(OSError, match="disk write failed"):
+        report._write_result_json(path, {"answer": "new"})
+    assert json.loads(path.read_text(encoding="utf-8"))["answer"] == "usable checkpoint"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_checkpoint_does_not_print_a_second_primary_position(tmp_path, capsys):
+    ctx = _answer_ctx(tmp_path, "track", 9.99)
+    ctx.result["execution"] = {"stage": "retrieval", "geometry": "pending"}
+    report.finalize_result(ctx)
+    checkpoint_console = capsys.readouterr().out
+    assert "checkpointed" in checkpoint_console and "ESTIMATED POSITION" not in checkpoint_console
+    ctx.result["execution"]["stage"] = "complete"
+    report.finalize_result(ctx)
+    assert capsys.readouterr().out.count("ESTIMATED POSITION") == 1
+
+
+def test_frame_sampling_provenance_survives_a_retrieval_only_report(tmp_path):
+    ctx = _report_ctx(tmp_path)
+    ctx.road = None
+    ctx.frames.sampling = {"mode": "linspace", "dense_count": 300,
+                           "dense_indices": [0, 149, 299], "sample_count": 3}
+    report.finalize_result(ctx)
+    saved = json.loads((ctx.cfg.output_dir / "result.json").read_text(encoding="utf-8"))
+    assert saved["frame_sampling"] == ctx.frames.sampling

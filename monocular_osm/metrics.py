@@ -65,7 +65,7 @@ from pyproj import CRS, Transformer
 from shapely.geometry import LineString, Point
 
 #: Success thresholds (metres) reported for start and symmetric-mean error.
-THRESHOLDS_M: tuple[int, ...] = (25, 50, 100, 250, 500, 1000)
+THRESHOLDS_M: tuple[int, ...] = (25, 50, 100, 200, 250, 500, 1000)
 
 #: Resampling step (metres) for pred->GT and the curve distances.
 DENSIFY_M: float = 10.0
