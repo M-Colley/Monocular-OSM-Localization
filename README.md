@@ -14,12 +14,14 @@
 Reference clip used in the demo:
 [Driving in Ulm, Germany](https://www.youtube.com/watch?v=ULl8s4qydrk).
 
-**Current measured baseline:** run `v6`, one cold repetition on each of the
-15 available **development** clips, gives **9/15 within 200 m** and **135 m
-median symmetric route error** when answering with the retrieval track.
-The trajectory fit gives 6/15 and 395 m. These development clips were used to
-choose the method; these are not held-out accuracy estimates. See
-[the experiment record](docs/experiments_2026-10.md#9-v6-the-complete-reference-pool-end-to-end).
+**Current measured baseline:** `reliable_cold_dev` at clean source `2b95f12`,
+one cold repetition on all 15 available **development** clips, gives
+**9/15 within 200 m** and **135.10 m median symmetric route error** for the
+selected retrieval answer. All 15 executions completed; failures remain in
+the accuracy count. These development clips were used to choose the method,
+so this is not held-out accuracy. The older `v6` retrieval run also passed
+9/15; its trajectory fit passed 6/15. See
+[the experiment record](docs/experiments_2026-10.md#completed-reliability-baseline-and-coverage-candidates).
 The target of 15/15 within 200 m is not yet achieved. Older tables below are
 historical measurements with their stated code/configuration. The frozen
 seven-clip `test1` evaluation is separate and must finish before its final

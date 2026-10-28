@@ -652,3 +652,64 @@ actual decoder, continuity settings and any argmax fallback. Crops-max or
 reference-mean scores cannot stand in for the raw warp score. Searching more
 reference pools can raise a median through selection alone; this remains an
 unvalidated heuristic, rather than a calibrated probability of correctness.
+
+### Completed reliability baseline and coverage candidates
+
+The clean `2b95f12` checkout completed `reliable_cold_dev`: one cold,
+retrieval-only CPU repetition of every available registered development clip.
+All 15 processes exited successfully. The selected `result.answer` passes
+**9/15 at 200 m symmetric mean route error**, with median **135.10 m**. The
+strict goal audit rejects the result with all clips present. This reproduces
+the earlier pass count and does not establish the 15/15 target.
+
+| Clip | Symmetric error (m) |
+|---|---:|
+| Ulm 4K | 16.37 |
+| Ulm 2 | 45.49 |
+| Berlin | 135.10 |
+| London | 62.52 |
+| KITTI 0009 | 3,734.60 |
+| KITTI 0033 | 7,003.79 |
+| Chicago (`vCSEG6KaFng`) | 169.25 |
+| Chicago (`LmIHvLMLqFk`) | 132.57 |
+| Phoenix | 18,644.08 |
+| Detroit (`ZhGb8q1kliY`) | 55.34 |
+| Detroit (`1nF_7l07i-E`) | 73.30 |
+| Detroit (`g5lnpYCk1Ec`) | 1,384.62 |
+| Atlanta night | 6,589.58 |
+| Atlanta (`kxEDNj5L_yQ`) | 6,024.41 |
+| Newcastle | 34.62 |
+
+Two independent cold acquisition candidates at `5dcca38` used the same
+registered windows and GT fingerprints. Phoenix's six metadata regions
+reduced its error to **25.57 m**, choosing Scottsdale for all 80 queries.
+Detroit's complete municipal hierarchy fetched all 27 coarse and three fine
+cells, but scored **1,552.23 m**, worse than its baseline by 167.61 m. Geographic
+coverage and successful execution did not establish accurate retrieval. Every
+later candidate retains explicit decoder telemetry; the older baseline source
+records requested Viterbi, without proving whether each call used a fallback.
+
+Original summaries and separate bounded scoring replays are preserved under
+`output/completed_runs_20261028_0855`. The bounded discrete Fréchet diagnostic
+uses the same 1,500-vertex cap and a two-row dynamic program. Full baseline
+aggregation took 2.875 s; every primary metric, Hausdorff value and success
+flag exactly matched the original scoring. One legacy GEOS Fréchet diagnostic
+was corrected from 881.55 to 722.20 m, independently checked by grid
+reachability. No primary accuracy number changed.
+
+The fixed image-only night pilot acquired 1,498 servable references from its
+single native-OCR shop branch, with all 80 query rows. Its first decode refused
+the pool because the new helper incorrectly enforced a circle; the provider's
+documented request returns the geodesic disc's bounding box. A hash-verified
+decoder-only recovery corrected that contract, retained every reference and
+left all inference constants unchanged. The original failed forward inputs
+remain immutable. A 295-check input audit preceded separate scoring against
+all 20 registered waypoints: **124.12 m symmetric error**, with start/end
+errors 298.79/756.38 m and mean time-aligned error 538.59 m. Predicted length
+was 2,472.12 m versus 1,121.25 m for the GT curve. This meets the spatial curve
+threshold on one development clip; endpoint and time localization remain weak.
+Forwards used clean `8651070`; recovery used clean `2d72ed4`, with no new
+forwards, downloads, reference filtering or GT input. The recovered freeze is
+`03ae8b4565f02be4f8a7a785128f2b5a20a41f7590cfef7b1f03996615be8c93`
+under `E:/monocular-osm-image-poi-pilot/run2`. Normal assisted CLI validation is
+still required; these component successes cannot be pooled into a 15-clip claim.
