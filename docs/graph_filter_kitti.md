@@ -133,6 +133,21 @@ Native peak private commit was 1,432 MB and working set 1,021 MB. The public
 genealogy stride 12 here, preserving the exact route. Frozen manifest SHA256:
 `15da5a787ab0d1994256ebdcca6035616621399ecdcd4f1e84fd440aee11f671`.
 
+A second normal benchmark run at clean commit `f9ad7d23` tested automatic
+named-city map loading on KITTI 0033. Its inputs were a separate copy of the
+registered MP4 and public cached OSM HTTP responses. `--graph-filter-only`
+resolved the city map automatically; the recorded configured map path, position
+disc and bounding box were all null. The city query was `Karlsruhe, Germany`.
+The selected answer scored **4.80 m symmetric route error**, and inference took
+405.8 s. The strict filter input audit passed on this real result. The full
+development-goal audit correctly rejected this one-clip run as incomplete.
+
+The run is named `filter_city_auto`, with a complete prediction/source freeze
+before offline aggregation. Its constructed city-map SHA256 is
+`e27cb1fd5b2f399392dc7a8c868b1e4f37630e3991473a4d2504de4a1f2e4437`.
+This adds an automatic-map check on the same video; the five-seed and broader
+generalization limitations above still apply.
+
 ## Historical calibrated-camera and sensor-time summary
 
 * **With real odometry it works, even on a whole city.** KITTI 0033 (165 s,
