@@ -930,3 +930,28 @@ The full regression at clean `a25445e` passes **3,490 tests**, six skips and fou
 warnings in 453.21 s, with tracked source bytes unchanged. See
 `output/tests-rank-flow-20261028.{xml,log,source.json,review.json}`. The complete
 fixed-profile baseline remains **9/15** and the 15/15 goal remains active.
+
+### Rank/Phoenix results and paired learned-feature motion
+
+The rank replay at clean `d1db35e` completed all forty outputs before independent
+audit and separate scoring. All sixteen new outputs fail 200 m. The equal-three
+ensemble's best diagnostic error is 1,335.47 m, while the original MegaLoc
+temporal control remains 208.53 m. All twenty-four original official scores
+reproduce exactly. The [research report](recent_methods_2026-10.md#rank-fusion-completed-negative-comparison)
+contains the full sixteen-row-equivalent table and proof limits. No default
+or policy changed.
+
+Normal Phoenix assisted-v1 also completed, with a pre-scoring inference audit.
+All six metadata regions completed, but coordinate dominance 29/80 exceeds
+the fixed gate and municipality fallback exceeds its cell budget. The unchanged
+policy selects baseline: **18,644.08 m**, failing the target. The summary SHA256
+is `68e9bbf9335f6e03709857ff486b6d3e18bea0b0516ec61a6b0c69d14a1e5c3d`.
+The earlier successful metadata component remains a separate diagnostic.
+
+Clean `87282b2` adds a full-native ORB/XFeat consecutive-motion comparison with
+unchanged geometry gates and explicit unknown-motion semantics. The fixed
+four-frame CPU runtime smoke and independent input/matching audit pass; all
+six smoke pairs are low-parallax unknown, so no pose-quality claim follows.
+The full 2,950-frame paired input experiment is running without localization,
+GT or policy changes. New focused tests pass; the latest full regression
+remains the separately recorded 3,490-pass suite at `a25445e`.

@@ -519,26 +519,95 @@ binding; it does not claim an independent video re-decode or feature retracking.
 The legacy probe/audit and its initial missing-helper import failure are
 preserved separately under `E:/monocular-osm-road-flow-proof`.
 
-## Rank fusion and normal Phoenix validation: running
+## Rank fusion: completed negative comparison
 
-As of 28 October 2026, 19:08 UTC, two guarded experiments remain in progress.
-They do not supply new accuracy results yet.
+Clean `d1db35e` computes float64 average-tie percentile ranks for each raw
+MegaLoc, ImAge and SelaVPR++ query row, then their fixed equal-weight mean.
+All 9,735 references and 80 actual query times are retained. Single-encoder
+rank controls separate fusion from the rank transformation. Reference-mean
+correction occurs after ranking/fusion. This is an explicitly posthoc DEV
+hypothesis after the earlier encoder outcomes; ranks are not calibrated
+localization probabilities.
 
-- Clean `d1db35e` implements full-gallery, float64 average-tie percentile ranks
-  for MegaLoc, ImAge and SelaVPR++, then their fixed equal-weight mean. All
-  references and actual native query times are retained. Single-encoder rank
-  controls distinguish fusion from the rank transformation. Four matrices ×
-  two appearance normalizations × two fixed decoders give sixteen new routes;
-  all twenty-four historical cosine routes are retained byte-for-byte. Every
-  output must finish before the new forty-output master, independent audit and
-  scoring. This is an explicitly posthoc DEV hypothesis after the earlier
-  encoder outcomes; ranks are not calibrated localization probabilities.
-- The normal Phoenix assisted-v1 run uses fresh query/OCR/automatic VO and the
-  unchanged public CLI policy. All six metadata-derived public regions were
-  seeded without choosing a winner. Historical reference encoding remains
-  UNVERIFIED. The earlier 25.57 m component result does not establish that the
-  normal policy reaches or selects it. Parent prediction freeze and independent
-  inference audit must precede separate scoring.
+All sixteen new routes and twenty-four historical cosine controls finished
+before the forty-output master, independent audit and separate scoring:
+
+| Appearance | Exact simple raw (m) | Exact simple reference mean (m) | Revised temporal raw (m) | Revised temporal reference mean (m) |
+|---|---:|---:|---:|---:|
+| MegaLoc percentile | 1,189.14 | 2,449.96 | 1,379.21 | 2,054.56 |
+| ImAge percentile | 1,266.69 | 1,614.19 | 1,516.69 | 1,513.75 |
+| SelaVPR++ percentile | 4,808.89 | 1,202.30 | 1,592.77 | 1,204.39 |
+| Equal-three mean | 1,597.77 | 4,621.97 | 1,335.47 | 4,125.66 |
+
+All sixteen fail 200 m. The ensemble does not improve on the original
+MegaLoc revised temporal control's 208.53 m. Encoder disagreement did not
+establish complementary correct matches. Every original control's official
+score reproduces exactly. No rank or fusion configuration is adopted.
+
+Execution took 2,038.25 s on CPU2, with 0.28 GiB peak sampled process-tree RSS.
+Independent audit reproduced all four rank/fusion matrices bit-for-bit and
+all eight simple DP paths, objectives and scalar median-five routes exactly.
+All eight revised temporal objectives and physical graphs also matched; no
+second global joint-heading optimum proof is claimed. All 2,887 protected
+files remained unchanged. Scores preserve unrounded metrics as well as the
+ordinary display format, using the same 20 waypoints and 19 covered times.
+
+Artifacts under `E:/monocular-osm-rank-fusion-proof`: master
+`ea034eeed2e8ca9f88cb8b644ea6ba7c74b50e7da94a30ad5c659c1f785b3bc1`, audit
+`8cc38fcb47912be6ef34a1561841a45f8138104cf50bf821bf2aef459538ee8f`, score
+`5feeff81a833230939b296467024e03b5c1364e664c24ef3d869203253f2eed7`.
+
+## Normal Phoenix assisted-v1: completed failure
+
+The ordinary public CLI at clean `d1db35e` completed in 1,506.7 s with fresh
+query/OCR/automatic VO and no forced child or region. All six public metadata
+regions completed: 8,700 references, cache hits, zero lost tiles or missing
+URLs, identical actual query/model/decoder identity. Historical reference
+encoding remains UNVERIFIED.
+
+The metadata candidate's raw median 0.1863955 exceeds baseline 0.1323504 and
+the fixed admission requirements, but 29/80 repeated coordinates give 0.3625
+dominance, above the fixed 0.25 limit. The fallback municipality plan needs
+at least 65 cells, exceeding its 64-cell bound. Expansion is therefore partial,
+and the unchanged policy selects baseline. This is not a missing-cache failure
+or an incomplete metadata-region acquisition. The earlier 25.57 m component
+result does not establish a deployable policy success.
+
+Independent inference audit passed before scoring. The selected answer fails:
+**18,644.08 m** symmetric mean, with 18,624.53/18,920.49 m start/end errors.
+All 1,091 consumed protected files stayed unchanged through ordinary offline
+aggregation. The strict goal checker reports this error and fourteen missing
+clips; a single normal proof is not a complete fleet evaluation.
+
+Parent master is `4556b893f09a1d5921ef265816a363ab932a157d580b9e62eee19efae3377f49`,
+audit `30c3dd8acbdbcba7e044fd22c81a6125d3486a4a7e4f56e26de0536d15537f8c`, benchmark
+summary `68e9bbf9335f6e03709857ff486b6d3e18bea0b0516ec61a6b0c69d14a1e5c3d`.
+Input-only route-support analysis is under
+`output/policy_geometry_review_20261028`; extent or repeated occupancy alone
+cannot prove correct place or a validated stop. No quality limit changed.
+
+## Consecutive learned features: runtime smoke passed
+
+Clean `87282b2` adds a matched, input-only ORB/XFeat motion experiment. Both
+frontends use the same 2,950 native frames at stride three, native intrinsics,
+parallax/static filters, stable top-300 moving matches and essential-matrix
+gates, with RNG zero for each pair. All rejection means unknown motion,
+not a verified stop. Translations have unit scale, not metres.
+
+The fixed first-four-frame runtime smoke completed in 10.14 s on CPU2/inter-op1
+with 0.43 GiB peak sampled RSS. Independent audit checked the native pixels,
+actual preprocessing tensors, model state, regenerated ORB features, reciprocal
+matches and pose bookkeeping. All six pairs fail the parallax gate; no actual
+essential fit occurs in this smoke. Synthetic tests cover fit/mask branches.
+This does not establish frontend quality. Saved XFeat features are bound to
+model/source/input proof, without a second neural feature-generation run.
+
+Smoke master `63bca94f04403589f08daff5ad07d4c9f1880d00346ed7e4c941410f3612d9fd`
+and independent audit `6b28e0e43c243287ce07f4cb3046025baab2fcd9de749258ffdd10fe08fbf9c6`
+are under `E:/monocular-osm-xfeat-motion-proof`. The full paired sequence is
+running; it has no localization/GT input and supplies no accuracy result yet.
+The four new files pass 104 focused tests including existing compatibility
+cases; those overlap and are not added to the full-suite count below.
 
 The full suite at clean `a25445e` passes **3,490 tests**, with six skips and four
 warnings in 453.21 s. All 436 tracked non-label/result file hashes stayed
