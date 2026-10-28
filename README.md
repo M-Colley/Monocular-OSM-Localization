@@ -573,6 +573,19 @@ choosing null and every cue path unchanged from its control.
 python main.py --video drive.mp4 --city "City, Country" --assisted-only --assisted-profile v2 --frame-memory-mb 128
 ```
 
+`--assisted-profile v3` preserves v1's earlier stages and original metadata
+admission. If complete metadata retrieval is declined, it tries one full-support
+reference-mean decode across all acquired metadata pools before the municipality
+fallback. Raw-cosine and coordinate-collapse gates remain unchanged; the raw
+decoder output is retained only as a diagnostic. Its Phoenix replay reached
+27.87 m, but fresh normal-CLI and complete fleet evaluation remain pending.
+This is an opt-in experiment; v1 remains the assisted default. See
+[the controlled comparison](docs/recent_methods_2026-10.md).
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --assisted-only --assisted-profile v3 --frame-memory-mb 128
+```
+
 Decoded-frame memory is bounded by `--frame-memory-mb` (default 512 MiB).
 Long clips spill losslessly to temporary storage, which is released on exit.
 `--frame-max-width 1280` optionally reduces resolution while preserving aspect

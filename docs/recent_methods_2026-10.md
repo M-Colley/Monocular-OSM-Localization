@@ -24,7 +24,7 @@ CVPR/ICCV 2025–26 and older released controls.
 | Method | Finding for this project |
 |---|---|
 | [ImAge, NeurIPS 2025](https://github.com/Lu-Feng/ImAge) | Released code and GSV weights. Actually encoded the full night and Detroit galleries and native query views on CPU; results below. |
-| [MutualVPR, NeurIPS 2025](https://papers.nips.cc/paper_files/paper/2025/hash/04388b6780bcf1a39ad0a91422f09a85-Abstract-Conference.html) | Official source and author-linked weights located. Five source files were verified against their Git blobs at commit `bd373c6`; no checkpoint download or inference yet. The example needs a real checkpoint path and uses a loose load, so strict full-state compatibility must be established before a controlled comparison. |
+| [MutualVPR, NeurIPS 2025](https://papers.nips.cc/paper_files/paper/2025/hash/04388b6780bcf1a39ad0a91422f09a85-Abstract-Conference.html) | Official source and author-linked weights verified at commit `bd373c6`. Restricted metadata inspection matches all 646 checkpoint tensor schemas after the uniform DataParallel prefix is removed; actual strict loading, forward execution and accuracy are untested. |
 | [TRAIL, ECCV 2026](https://arxiv.org/abs/2609.07373) | Particularly relevant to a query trajectory and unordered reference gallery. Uses learned emission and motion functions; an official runnable checkpoint was not verified. The hand-built spatial experiment below is not a reproduction. |
 | [SelaVPR++](https://github.com/Lu-Feng/SelaVPRplusplus) | T-PAMI 2025 online publication, not CVPR. Official base release verified; full 9,735-reference comparison completed. All eight new routes fail 200 m; results below. |
 | [EfficientVPR, CVPR 2026](https://openaccess.thecvf.com/content/CVPR2026/html/Tang_EfficientVPR_Toward_Efficient_Visual_Place_Recognition_via_Scene-Aware_Prompt_Tuning_CVPR_2026_paper.html) | Paper verified. Inspected repository snapshot had README and gitignore, without an implementation or checkpoint. |
@@ -728,8 +728,19 @@ Artifacts under `E:/monocular-osm-metadata-union-proof`: all-output master
 `d5925d1fa77f5b6f2d3144e0213e17c928cdafeb81124b6d151b3300425e9a3f`, independent audit
 `6c01acce3651629f047396a6ef9520e98c0871a1f753e7292e705436b5c60d69`, all-ten score
 `858e98dca49c0419dd6a0816a3135c8f5ed18599928a87b086a3b5d073b824c6`.
-This is a successful posthoc DEV replay. It is not yet integrated into the
-ordinary CLI, adopted as a default, or a complete fifteen-clip result.
+This is a successful posthoc DEV replay. It is integrated into the ordinary CLI
+as explicit `--assisted-profile v3` at `f72fdaf`; fresh normal-CLI evaluation is
+pending. It is not adopted as a default or a complete fifteen-clip result.
+
+V3 preserves v1's earlier-stage precedence and exact original metadata gate.
+Only a complete legacy decline can request the new full-support decode before
+municipality fallback. All actual metadata calls are retained, including an
+ordinary coarse/fine refinement. Both new decoder outputs and the original
+controls are frozen before admission; only reference mean is selectable.
+The saved child answer preserves the exact metric-median route and timestamps.
+Independent review caught and closed two audit gaps: an admitted union could
+otherwise be relabeled as legacy, and an embedded candidate could hide a changed
+displayed answer. Regression cases now reject both coherent altered transcripts.
 
 The complete regression suite at clean `70c1d20` passes **3,668 tests**, with
 six skips and four warnings in 427.08 s. All 448 tracked non-label/result
@@ -737,6 +748,16 @@ files remain byte-identical, with all 30 excluded label/result boundaries
 unchanged by metadata checks. See
 `output/tests-metadata-map-motion-20261028.{xml,log,source.json,review.json}`.
 The last complete fixed-policy selected-answer fleet remains **9/15**.
+
+The newer complete suite at clean `f72fdaf` passes **3,860 tests**, with six
+skips and four warnings in 514.73 s. All 459 tracked non-label/result files
+stayed byte-identical, and all 30 excluded label/result metadata boundaries
+were unchanged. CPU thread counts were OpenCV2/Torch2/inter-op1, with external
+test networking disabled. See
+`output/tests-assisted-v3-20261028.{xml,log,source.json,review.json}`. The clean
+normal Phoenix v3 preparation contains all six public pools/8,700 reference
+rows, original video and pinned model/runtime assets; no old query descriptors,
+OCR, VO or routes are copied. Inference and separate accuracy scoring are pending.
 
 ## Physical-road projection: all twelve variants fail the target
 
@@ -806,21 +827,35 @@ master `8a718914a015e879ddd52d9240c93a912e2c97fe973b236bdc268e0d5bac4129`, audit
 `77c817c5585d903ba74f80b4b7bb26b04e88a74ca0367a91ba90582db4df6f3f`.
 The frozen local DINO source revision remains UNVERIFIED, and 322 is an explicit
 method choice rather than the official parser's 504 default. No FoL++ or
-gallery accuracy claim is made. The complete existing Night gallery test is
-running separately on CPU2: all 2,998 references and 240 native query crops,
+gallery accuracy claim is made. The complete existing Night gallery test
+finished separately on CPU2: all 2,998 references and 240 native query crops,
 with four FoL global-stage routes and four new cached-matrix MegaLoc controls
 fixed before scoring. It retains all seven forward-output schemas and hashes,
 but only the global descriptor values; this is not the local reranking stage.
 Input freeze `5cc8744f3ca98ba684a40f822b674f3aa222322d1b0f94c6de45bc4998092a26`
 and profile `d1e72cb128b6b0ef7b11dd2b1a7b7bc136f87cb6a92f7e6be66b3de10106a95a`
 are fixed. No selected variant or default adoption is claimed.
+All 3,238 forwards and eight routes completed in 1,783.83 s; peak sampled RSS
+was 1.30 GiB and private commit 1.78 GiB. The full192 state matched the strict
+checkpoint. Root rehashed all 18 output artifacts, 15 prepared artifacts and
+eight executed sources before accepting master
+`24d4366d3317e7e660d246dcdb0d22555a630b81b03ad4dba676702d7066d13a`.
+The independent input-only audit passed all reference/native crop checks;
+complete output/algebra/decoder audit is running. No GT or accuracy score has
+been read for these eight outputs yet.
 
 The further NeurIPS source check located
 [MutualVPR's official repository](https://github.com/Gucci233/MutualVPR),
 including an author-linked checkpoint. Five inspected source files match their
 Git blobs at `bd373c6e734556f33d9b4cbc5396862592e624a7`; the source-only receipt is
-`output/mutualvpr_readiness_20261028/source_receipt.json`. No weights were
-downloaded or inference performed. Root licensing and strict complete-state
-checkpoint compatibility remain unverified. The example sets GPU visibility
-at import and loads an empty checkpoint path with `strict=False`; it needs a
-bounded wrapper before it can provide a reproducible additional comparison.
+`output/mutualvpr_readiness_20261028/source_receipt.json`. A subsequent static
+readiness check verified 18 source blobs and anonymously downloaded the
+384,797,922-byte author-linked checkpoint. Restricted weights-only FakeTensor
+inspection found 646 tensors matching every expected architecture key, shape
+and dtype after only the uniform `module.` prefix is removed. This includes
+all twelve convolutional adapters and BatchNorm buffers. The local checkpoint
+SHA is `e8ca2129256bee963d7a8f0e9db7ef0763a16b520bb06811511ea1992ab2f1f0`;
+no publisher digest was available. No constructor or forward has run. Root and
+checkpoint licensing remain unverified; the backbone is Apache 2.0. The example
+sets GPU visibility at import and uses an empty checkpoint path with
+`strict=False`; a separate bounded strict-load wrapper is being prepared.
