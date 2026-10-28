@@ -32,6 +32,17 @@ CVPR/ICCV 2025–26 and older released controls.
 | [Sequence-Matching Receptiveness, IROS 2025](https://github.com/QVPR/vpr-smr-predictor) | Assumes ordered comparable traverses and a trained predictor; unsuitable as a direct replacement for unordered-gallery decoding. |
 | [To Match or Not to Match, CVPR 2025 IMW](https://github.com/FarInHeight/To-Match-or-Not-to-Match) | Motivated a paired geometry test. Its warning that reranking can hurt modern VPR makes an unchanged retrieval control essential. |
 | [XFeat, CVPR 2024 control](https://github.com/verlab/accelerated_features) | Released compact local features and CPU inference; prepared as a controlled replacement for ORB extraction/matching. |
+| [OSMLoc, Information Fusion 2026](https://github.com/WHU-USI3DV/OSMLoc) | Released image-to-OSM code and checkpoints; already represented in this repository's historical experiments. Those use oracle local priors and odometry, so they do not establish city-wide monocular localization. |
+| [RHO, CVPR 2026](https://github.com/InSAI-Lab/RHO) | Official source exists, but its two-branch model uses a holistic panorama. The current videos provide one forward-facing camera; a ready checkpoint was not verified from the inspected README/releases. |
+| [SeqLoc, August 2026 preprint](https://arxiv.org/html/2608.07835v1) | Online entropy-weighted pose-volume fusion and map-shaped recovery are relevant. Its main experiments use reference-pose-derived ideal odometry and a 32 m initial crop error; appendix tests add simulated drift. That is a different problem from finding a route several kilometres away using this project's actual VO. Official runnable release not verified. |
+| [BEVMapMatch, IROS 2026](https://github.com/ssuralcmu/BEVMapMatch) | Released model/download instructions; its sensor-derived BEV front end is based on UniTR/nuScenes and a Linux stack. Converting one dashcam video into the required BEV inputs needs additional work; no local accuracy result claimed. |
+| [Hierarchical OSM relocalization, June 2026 revision](https://arxiv.org/abs/2603.01613v2) | DINO tokens plus coarse FFT correlation and uncertainty-controlled refinement. The current title is “Uncertainty-Aware Hierarchical Re-Localization in OpenStreetMap via Semantic Alignment”; an official runnable release was not verified. |
+
+[Dash2Sim](https://www.cs.cmu.edu/~dash2sim/) is another relevant 2026 direction:
+joint reconstruction of video and co-located geotagged street-view images can
+transfer metric scale and georeferencing. Its author page still marks code and
+data as forthcoming. It is a possible downstream use of verified image matches,
+not a measured replacement for the present retrieval stage.
 
 Other screened NeurIPS methods require inputs this project does not currently
 have, such as LiDAR, a maintained posed scene map, floor plans or georeferenced
