@@ -132,3 +132,32 @@ def test_final_source_digest_and_clean_commit_are_rechecked(monkeypatch):
     monkeypatch.setattr(runner.subprocess, "check_output", lambda *a, **k: "dirty\n")
     with pytest.raises(ValueError, match="clean"):
         runner.verify_source(source, "pin")
+
+
+def test_system_commit_uses_psapi_limit_minus_total_not_process_pagefile(monkeypatch):
+    def information(pointer, size):
+        record = pointer._obj
+        record.CommitLimit, record.CommitTotal, record.PageSize = 1000, 750, 4096
+        return 1
+    monkeypatch.setattr(runner.ctypes, "WinDLL", lambda *a, **k: SimpleNamespace(GetPerformanceInfo=information), raising=False)
+    assert runner.system_commit_bytes() == 250*4096
+
+
+def test_memory_report_distinguishes_system_commit_and_process_allowance(monkeypatch):
+    def status(pointer):
+        pointer._obj.avail_phys = 9*2**30
+        pointer._obj.avail_commit = 20*2**30  # Not actual free system commit.
+        return 1
+    monkeypatch.setattr(runner.ctypes, "windll", SimpleNamespace(kernel32=SimpleNamespace(GlobalMemoryStatusEx=status)), raising=False)
+    monkeypatch.setattr(runner, "system_commit_bytes", lambda: 7*2**30)
+    memory = runner.windows_memory()
+    assert memory["available_physical_gib"] == 9 and memory["available_commit_gib"] == 7
+    assert memory["process_available_pagefile_gib"] == 20
+    with pytest.raises(MemoryError):
+        runner.require_headroom(memory)
+
+
+def test_unavailable_actual_commit_measurement_fails_closed(monkeypatch):
+    monkeypatch.setattr(runner.ctypes, "WinDLL", lambda *a, **k: SimpleNamespace(GetPerformanceInfo=lambda *a: 0), raising=False)
+    with pytest.raises(OSError, match="system commit"):
+        runner.system_commit_bytes()

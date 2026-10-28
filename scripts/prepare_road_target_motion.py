@@ -77,6 +77,19 @@ def verified_inputs(pbf_family, pbf_sha, input_plan, plan_sha, video):
             "all_targets_sha256": sha(Path(pbf_family)/"all_junction_targets.json")}
 
 
+def system_commit_bytes():
+    """Actual system commit headroom; process pagefile allowance differs."""
+    class Performance(ctypes.Structure):
+        _fields_ = [("cb", ctypes.c_ulong), *[(name, ctypes.c_size_t) for name in (
+            "CommitTotal", "CommitLimit", "CommitPeak", "PhysicalTotal", "PhysicalAvailable",
+            "SystemCache", "KernelTotal", "KernelPaged", "KernelNonpaged", "PageSize")],
+            *[(name, ctypes.c_ulong) for name in ("HandleCount", "ProcessCount", "ThreadCount")]]
+    value = Performance(); value.cb = ctypes.sizeof(value)
+    if not ctypes.WinDLL("psapi", use_last_error=True).GetPerformanceInfo(ctypes.byref(value), value.cb):
+        raise OSError("cannot measure actual system commit headroom")
+    return (value.CommitLimit-value.CommitTotal)*value.PageSize
+
+
 def windows_memory():
     class Memory(ctypes.Structure):
         _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong),
@@ -84,7 +97,9 @@ def windows_memory():
     value = Memory(); value.length = ctypes.sizeof(value)
     if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(value)):
         raise OSError("cannot measure actual Windows RAM and commit availability")
-    return {"available_physical_gib": value.avail_phys/2**30, "available_commit_gib": value.avail_commit/2**30}
+    return {"available_physical_gib": value.avail_phys/2**30, "available_commit_gib": system_commit_bytes()/2**30,
+            "process_available_pagefile_gib": value.avail_commit/2**30,
+            "commit_measurement": "PSAPI GetPerformanceInfo (CommitLimit-CommitTotal)*PageSize"}
 
 
 def require_headroom(memory):
