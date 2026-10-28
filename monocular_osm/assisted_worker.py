@@ -107,6 +107,14 @@ def run_child(kind, parent):
         "parent_output": str(parent.cfg.output_dir.resolve()), "launch_commit_headroom_bytes": headroom,
         "policy_evidence": deepcopy(parent.assisted_evidence),
         "cues_artifact": str((parent.assisted_child_root / "cues/candidate.json").resolve())}
+    execution_id = parent.result["assisted_inputs"].get("execution_id", parent.assisted_child_root.name)
+    request["execution_id"] = execution_id
+    if kind == "expanded":
+        from .public_reference_cache import prepare_reuse
+        request["public_reference_reuse"] = prepare_reuse(
+            getattr(parent, "assisted_worker_outcomes", {}).get("baseline"), cfg,
+            execution_id=execution_id, video_sha256=request["video_sha256"],
+            source_sha256=request["source_sha256"], child_root=parent.assisted_child_root)
     path = cfg.output_dir / "request.json"
     _write_result_json(path, _safe(request))
     env = os.environ.copy()
@@ -137,6 +145,12 @@ def run_child(kind, parent):
         value["reported_status"] = value.get("status")
         value["status"] = "failed"
         value["transport_error"] = f"worker exited with code {returncode}; frozen diagnostics retained"
+    outcomes = getattr(parent, "assisted_worker_outcomes", {})
+    outcomes[kind] = {"kind": kind, "status": value.get("status"), "worker_returncode": returncode,
+        "execution_id": execution_id, "video_sha256": request["video_sha256"],
+        "source_sha256": deepcopy(request["source_sha256"]), "output_dir": str(cfg.output_dir.resolve()),
+        "request_sha256": file_sha256(path), "frozen_artifact": deepcopy(value.get("frozen_artifact"))}
+    parent.assisted_worker_outcomes = outcomes
     return value
 
 
@@ -295,7 +309,19 @@ def _pipeline_child(cfg, kind, request=None):
     if kind == "expanded":
         ctx.assisted_city_admission = lambda: _metadata_admission(ctx, request or {})
     try:
-        result = pipeline._run_pipeline_stages(ctx)
+        if kind in {"baseline", "expanded"}:
+            from .public_reference_cache import track_scope, seal_pool_audits
+            with track_scope(cfg, kind, (request or {}).get("public_reference_reuse"), expected=request) as calls:
+                result = pipeline._run_pipeline_stages(ctx)
+            audits = getattr(ctx, "retrieval_audits", [])
+            if len(calls) == len(audits):
+                for audit, call in zip(audits, calls):
+                    audit["public_cache_request"] = call["request"]
+                    audit["public_cache_reuse"] = call["reuse"]
+            if kind == "baseline":
+                seal_pool_audits(audits, cfg)
+        else:
+            result = pipeline._run_pipeline_stages(ctx)
         prediction = baselines.answer(result)
         candidate = {"status": "complete" if prediction is not None else "unavailable"}
         if prediction is not None:
@@ -313,6 +339,8 @@ def _pipeline_child(cfg, kind, request=None):
             candidate["retrieval_selection"] = {name: deepcopy(result.get(name)) for name in
                 ("multi_region_retrieval", "city_cover_retrieval", "vpr_coarse_to_fine",
                  "vpr_decoding", "vpr_prior", "vpr_listing", "assisted_expansion_gate")}
+            if request and request.get("public_reference_reuse"):
+                candidate["public_reference_cache_reuse"] = deepcopy(request["public_reference_reuse"])
             if kind == "expanded" and not _expansion_complete(result, getattr(ctx, "retrieval_audits", [])):
                 candidate["status"] = "partial"
         if kind == "poi_joint":
