@@ -23,7 +23,7 @@ CVPR/ICCV 2025–26 and older released controls.
 
 | Method | Finding for this project |
 |---|---|
-| [ImAge, NeurIPS 2025](https://github.com/Lu-Feng/ImAge) | Released code and GSV weights. Actually encoded the full night gallery and native query views on CPU; results below. |
+| [ImAge, NeurIPS 2025](https://github.com/Lu-Feng/ImAge) | Released code and GSV weights. Actually encoded the full night and Detroit galleries and native query views on CPU; results below. |
 | [TRAIL, September 2026 preprint](https://arxiv.org/abs/2609.07373) | Particularly relevant to a query trajectory and unordered reference gallery. Uses learned emission and motion functions; an official runnable checkpoint was not verified. The hand-built spatial experiment below is not a reproduction. |
 | [SelaVPR++](https://github.com/Lu-Feng/SelaVPRplusplus) | T-PAMI 2025 online publication, not CVPR. Released code and checkpoints; CPU path inspected, not yet timed or evaluated locally. |
 | [EfficientVPR, CVPR 2026](https://openaccess.thecvf.com/content/CVPR2026/html/Tang_EfficientVPR_Toward_Efficient_Visual_Place_Recognition_via_Scene-Aware_Prompt_Tuning_CVPR_2026_paper.html) | Paper verified. Inspected repository snapshot had README and gitignore, without an implementation or checkpoint. |
@@ -227,8 +227,22 @@ unchanged. Its SHA256 is
 `05611027916cf49a3488756a5f084089a3c3df5e44d12a74fe5a9ee047a95e8a`.
 The original 1,920 night pair metrics and all 80 route IDs exactly reproduce
 the previous XFeat control. The 51.4 MB of saved correspondences remove that
-older study's hash-only replay limitation. At this update, separate official
-scoring is pending; no rectification accuracy improvement is claimed.
+older study's hash-only replay limitation. Separate official scoring gives:
+
+| Gallery | Original XFeat error (m) | Panorama-aware XFeat error (m) | Original / panorama-aware route length (km) |
+|---|---:|---:|---:|
+| Night | 721.90 | 720.38 | 194.85 / 190.95 |
+| Detroit | 1,716.25 | 2,034.92 | 593.84 / 670.28 |
+
+All four fail the 200 m threshold. Rectification does not supply a useful
+local-reranking improvement in this fixed test, and neither variant includes a
+temporal decoder. The large route lengths expose repeated jumps between remote
+matches. This result does not test panorama-aware **global** descriptors or a
+joint temporal geometry model: the top-eight candidate list still comes from
+the original whole-image embeddings. No extra candidate search or parameter
+choice follows from these scores. The official score JSON is
+`E:/monocular-osm-panorama-xfeat-proof/run1_score/official_scores.json`, SHA256
+`d8792f9f91501a6625315e609db47e91ce7e9b2a65036dc7c2bde2268f1fdd16`.
 
 The unchanged whole-image ImAge experiment also started on the full Detroit
 gallery from clean `d18e629bba6b702c5dda3796affc19ee50ce8f78`. All 32 raw
@@ -243,6 +257,37 @@ process-tree peak of 2.275 GB resident memory. The actual model-state identity
 matches the night ImAge test. All four predictions are frozen under
 `E:/monocular-osm-image-gallery-proof/run1/inference`, SHA256
 `acff5f18daabb9774755884adf78ce1b09b233a3e212c5fc6317534be89d334b`.
-Independent input/descriptor/decoder audit and separate scoring are pending;
-no Detroit ImAge accuracy claim is available yet. Its legacy MegaLoc
-gallery-encoding provenance remains an explicit comparison limitation.
+Independent audit verified all 9,735 pixel identities, the fresh native query
+grid, 177 official checkpoint tensors and the loaded model-state hash. CPU4
+descriptor products reproduce the saved similarity matrix bit-for-bit. A
+separate scalar-current-state recurrence reproduces all four complete DP paths,
+routes and objectives exactly. Source/input/prediction hashes are unchanged.
+The accepted audit SHA256 is
+`d1e8b6434686f362ed3d751f8c5b367e5ea8c36f5c993613d60ec83cf831e4e4`.
+
+| Detroit encoder | Raw error (m) | Reference-mean error (m) |
+|---|---:|---:|
+| Frozen MegaLoc control | 4,779.68 | 4,839.55 |
+| Fresh ImAge GSV | 1,475.68 | 1,341.31 |
+
+Both original controls reproduce the earlier exact full-gallery result. ImAge
+improves this matched decoder/gallery comparison, but both variants remain far
+above 200 m. Its start error is 5,368.51 m; raw/reference-mean end errors are
+1,860.68/5,285.53 m and time-aligned means are 3,666.61/3,491.77 m. The ordinary
+cold baseline's 1,384.62 m is a different gallery/pipeline configuration, not
+the paired control in this table. Legacy MegaLoc gallery-encoding provenance
+remains an explicit limitation on causal encoder-only claims.
+
+Every spatial result uses all 20 identical registered waypoints. Timed
+diagnostics use the 19 covered timestamps, without extrapolation. The G5 file's
+rounded header says 4–598 s, but its authenticated points span 5.0–598.9 s,
+inside the registered 4–599 s extraction window; no points were edited or
+discarded to make header strings agree. The official score JSON is
+`E:/monocular-osm-image-gallery-proof/run1_score/official_scores.json`, SHA256
+`b0659ef519e00dcb03fb6cce34870268fb4cfe3a8766caed6bad812c273cde95`.
+
+Complete eight-row tables, timed diagnostics, input/score freeze hashes and
+auditor/scorer recovery records are under
+`output/new_methods_20261028/gallery_and_panorama_results.{json,md}`. All
+inference and scoring jobs are terminal. No default or fixed-policy selection
+rule changed. The established full-fleet result remains 9/15.
