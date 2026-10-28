@@ -6,6 +6,28 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Experimental all-branch POI component
+
+- Added opt-in `--answer poi` / `--poi-only`, using full-window native video
+  VO, 24 stamp-filtered OCR samples, a named-city retail inventory and every
+  literal-clue branch. Equal default neighborhoods are 1 km / 500 references,
+  with 80 shared query descriptors and fixed raw appearance/distance/bearing.
+- The selected POI route requires complete regional retrieval. Missing clues,
+  failed regions and exceeded budgets remain unanswered; ordinary VPR/matcher
+  outputs are not substituted. Default pipeline behavior is unchanged.
+- Dedicated whole-city map inputs and existing regional cache families retain
+  source/override provenance. Video/VO/OCR/inventory/map identities, all plans,
+  reference IDs and score matrices freeze before separate scoring. Native
+  bbox/time guards reject incompatible external or resized inputs.
+- POI OCR injects cached PP-OCRv6 small assets explicitly, disables downloads
+  and accelerators, and verifies actual CPU providers, ORT thread bounds 2/1
+  and recognition/classification batches of four. Warm caches retain verified
+  runtime identities; regional retrieval scopes Torch operator threads to four.
+  The fixed road grid matches 12.5 m per-segment endpoint-inclusive sampling.
+- Validation uses mocked acquisition, real geometry tests and an actual offline
+  24-frame native CPU OCR readiness check; no normal-CLI fresh-reference or
+  fleet accuracy claim is made for the public component.
+
 ### Independent video-only road-graph filter
 
 - Added opt-in `--answer filter` / `--graph-filter-only`: selects the filter

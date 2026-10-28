@@ -487,6 +487,45 @@ It freezes predictions and source/input hashes before separate scoring.
 Five PF seeds succeeded on one fixed MP4-derived KITTI 0033 trajectory; this
 is not fleet validation. See [the measured evidence](docs/graph_filter_kitti.md).
 
+`--answer poi` / `--poi-only` is a separate **EXPERIMENTAL** component. It
+uses the full analysis window, ordinary automatic stride, generic 70° video
+intrinsics, 24 native OCR samples (minimum text length 2), a public city-wide
+retail inventory and all literal-clue branches. Every branch receives a
+1,000 m neighborhood and up to 500 references; 80 query samples share one
+descriptor cache. Raw appearance, timed distance and bearing scores select
+the component route only after every region succeeds. Missing clues or a
+failed region leave it unanswered, with no fallback method.
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --poi-only --frame-memory-mb 128
+```
+
+`--poi-radius-m` and `--poi-ref-cap` expose the equal experimental budgets.
+`--poi-map-path` supplies a trusted whole-city map; `--poi-inventory-dir`
+selects the shared city-inventory cache. Imagery uses existing VPR source,
+query-mode, batch-size and regional-cache options, on CPU. Union evidence is
+currently unsupported. The profile rejects frame caps, resized pixels,
+super-resolution, external OCR videos/poses, position discs and label inputs.
+Retrieval scopes Torch CPU operator threads to four. OCR requires already
+cached RapidOCR PP-OCRv6 small detector/recognizer and mobile classifier assets;
+it does not download missing weights or silently change engines. It verifies
+CPU-only ONNX Runtime sessions with two operator threads, one inter-op thread
+and recognition/classification batches of four, recording actual providers,
+parameters and weight hashes, including verified warm-cache provenance.
+OCR sampling stays inside the actual decoded VO horizon, so boxes and generic
+intrinsics share native pixels. This horizon can end before the requested
+window or an independently sampled full-video probe. The full-city road grid
+uses fixed 12.5 m per-segment sampling, including endpoints. It freezes
+OCR/VO/map/inventory identities and
+every regional score matrix before separate evaluation. Query GPS stamps are
+filtered; public POI/reference coordinates remain valid inputs.
+
+This path has mocked acquisition/integration checks and a real offline
+24-frame CPU OCR readiness check. Normal CLI fresh-reference accuracy is still
+under investigation. It does not establish fleet accuracy or a fixed
+assisted-selection policy across the development clips. Existing default
+answers remain unchanged.
+
 Decoded-frame memory is bounded by `--frame-memory-mb` (default 512 MiB).
 Long clips spill losslessly to temporary storage, which is released on exit.
 `--frame-max-width 1280` optionally reduces resolution while preserving aspect

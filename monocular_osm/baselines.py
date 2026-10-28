@@ -218,6 +218,11 @@ def graph_filter_only(result: dict) -> Prediction | None:
     return _from_report("graph_filter_only", result, "filter_position")
 
 
+def poi_only(result: dict) -> Prediction | None:
+    """Explicit experimental all-branch POI component, when fully available."""
+    return _from_report("poi_only", result, "poi_position")
+
+
 def vpr_prior_only(result: dict) -> Prediction | None:
     """``result["vpr_prior"]`` — the retrieval centre as a single point."""
     vp = (result or {}).get("vpr_prior")

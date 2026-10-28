@@ -537,16 +537,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "is wider than --vpr-search-radius, also search a sparse "
                         "outer ring of references out to the seed radius (max "
                         "8 km), keeping the dense core set unchanged.")
-    p.add_argument("--answer", choices=["fit", "track", "checked", "filter"], default="track",
+    p.add_argument("--answer", choices=["fit", "track", "checked", "filter", "poi"], default="track",
                    help="Route written to result['answer']: the retrieval track "
                         "itself (default; the fit when retrieval found nothing), the "
                         "trajectory fit (result['position']), or the fit checked "
                         "against the track (replaced by the track when they disagree "
                         "by over 250 m). Chosen by the pre-registered "
                         "answer_selection rule on the dev clips. 'filter' runs only video VO "
-                        "and the independent whole-city road-graph filter; skips retrieval/matching.")
+                        "and the independent whole-city road-graph filter; skips retrieval/matching. "
+                        "'poi' is an EXPERIMENTAL all-branch literal-POI component; no fallback answer.")
     p.add_argument("--graph-filter-only", action="store_const", const="filter", dest="answer",
                    help="Alias for --answer filter; saves and selects the independent filter route.")
+    p.add_argument("--poi-only", action="store_const", const="poi", dest="answer",
+                   help="Alias for --answer poi; EXPERIMENTAL video OCR + city POIs + neighborhood imagery.")
+    p.add_argument("--poi-radius-m", type=float, default=1000.0,
+                   help="EXPERIMENTAL POI neighborhood radius for every literal branch (default 1000 m).")
+    p.add_argument("--poi-ref-cap", type=int, default=500,
+                   help="EXPERIMENTAL equal reference cap per POI branch (default 500); no branch pruning.")
+    p.add_argument("--poi-map-path", type=Path, default=None,
+                   help="Existing whole-city driving GraphML for the POI component; a trusted city-map database.")
+    p.add_argument("--poi-inventory-dir", type=Path, default=None,
+                   help="Shared city retail-inventory cache; default is poi_inventory beside submission data folders.")
     p.add_argument("--vpr-c2f-radius", type=float, default=2000.0,
                    help="Tight second-pass disc radius (m) for "
                         "--vpr-coarse-to-fine (default 2000).")
@@ -770,7 +781,7 @@ def main() -> None:
         # video, not from ground truth.
         sub_osm_around = osm_around
         osm_around_source = "user" if osm_around is not None else None
-        if sub_osm_around is None and args.coarse_from_video and args.answer != "filter":
+        if sub_osm_around is None and args.coarse_from_video and args.answer not in {"filter", "poi"}:
             from .location_prior import resolve_coarse_prior
             # Two corroborating place names, as for OCR seeds: one title word
             # becomes an 800 m hard gate on retrieval and the road graph, and
@@ -835,6 +846,10 @@ def main() -> None:
             graph_filter_map_path=args.graph_filter_map_path,
             graph_filter_path_budget_mb=args.graph_filter_path_budget_mb,
             graph_filter_target_hz=args.graph_filter_target_hz,
+            poi_radius_m=args.poi_radius_m,
+            poi_ref_cap=args.poi_ref_cap,
+            poi_map_path=args.poi_map_path,
+            poi_inventory_dir=args.poi_inventory_dir,
             camera_height_m=args.camera_height_m,
             fusion_weights=args.fusion_weights,
             scale_recovery_thresh_m=args.scale_recovery_thresh_m,

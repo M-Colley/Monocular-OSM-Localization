@@ -968,6 +968,10 @@ def _provenance_of(result: dict | None) -> dict:
     git = prov.get("git") or {}
     cfg = prov.get("config") or {}
     backbone = (((result or {}).get("vpr_prior") or {}).get("backbone") or {})
+    poi_audit = prov.get("poi_localization_audit") or {}
+    if not backbone:
+        backbone = next(((r.get("provenance") or {}).get("backbone") for r in (poi_audit.get("regions") or [])
+                         if isinstance(r, dict) and (r.get("provenance") or {}).get("backbone")), {})
     return {
         "present": bool(prov),
         "commit": git.get("commit"), "dirty": git.get("dirty"),
@@ -977,6 +981,8 @@ def _provenance_of(result: dict | None) -> dict:
         "package_version": prov.get("package_version"),
         "config": cfg,
         "graph_filter_inputs": prov.get("graph_filter_inputs"),
+        "poi_inputs": prov.get("poi_inputs"),
+        "poi_localization_audit": prov.get("poi_localization_audit"),
         "python": prov.get("python"),
         "libraries": prov.get("libraries") or {},
         # The actual loaded model, including the pinned hub revision. A
@@ -1028,9 +1034,23 @@ def _health_of(result: dict | None) -> dict:
     backbone = (vpr_prior.get("backbone") or {}).get("name")
     n_frames, n_valid = result.get("n_frames"), result.get("n_valid_poses")
     cfg = (result.get("provenance") or {}).get("config") or {}
+    poi = (result.get("provenance") or {}).get("poi_localization_audit") or {}
+    poi_regions = poi.get("regions") or []
+    poi_requested = cfg.get("answer") == "poi"
+    poi_models = [(r.get("provenance") or {}).get("backbone") or {} for r in poi_regions if isinstance(r, dict)]
+    poi_complete = (poi.get("status") == "ok" and "failed_regions" in poi and not poi["failed_regions"]
+                    and bool(poi_regions) and all(isinstance(r, dict) and r.get("status") == "ok" for r in poi_regions))
     return {
         "filter_only": (cfg.get("answer") == "filter" and cfg.get("graph_filter") is True
                         and (result.get("answer") or {}).get("mode") == "filter"),
+        "poi_only": (poi_requested and (result.get("answer") or {}).get("mode") == "poi" and poi_complete
+                     and (ch.get("poi_retrieval") or {}).get("status") == "ok"),
+        "poi_requested": poi_requested, "poi_status": poi.get("status"), "poi_complete": poi_complete,
+        "poi_retrieval_status": (ch.get("poi_retrieval") or {}).get("status"),
+        "poi_source": ((poi_regions[0].get("provenance") or {}).get("source")
+                       if poi_regions and isinstance(poi_regions[0], dict) else None),
+        "poi_backbone": poi_models[0].get("name") if poi_models else None,
+        "poi_device": poi_models[0].get("device") if poi_models else None,
         "vpr_status": (ch.get("vpr") or {}).get("status"),
         "vpr_reason": (ch.get("vpr") or {}).get("reason") or (ch.get("vpr") or {}).get("error"),
         "vpr_source": vpr_prior.get("source"),
@@ -1041,9 +1061,15 @@ def _health_of(result: dict | None) -> dict:
         "valid_pose_frac": (round(n_valid / n_frames, 3)
                             if n_frames and n_valid is not None else None),
         "reference_snapshots": {
+            **{f"poi_region_{i}": rp["reference_inventory"]["refs_sha256"]
+               for i, region in enumerate(poi_regions) if isinstance(region, dict)
+               and isinstance(rp := region.get("provenance"), dict)
+               and (rp.get("reference_inventory") or {}).get("refs_sha256")},
+            **{
             name: stats["snapshot"]["refs_sha256"]
             for name, stats in (result.get("vpr_listing") or {}).items()
             if isinstance(stats, dict) and (stats.get("snapshot") or {}).get("refs_sha256")
+            },
         },
         "failed_channels": sorted(k for k, v in ch.items()
                                   if (v or {}).get("status") == "failed"),
@@ -1055,12 +1081,15 @@ def degraded_reasons(health: dict, *, token_set: bool) -> list[str]:
     if not health:
         return []
     why = []
-    if not health.get("filter_only") and health.get("vpr_status") != "ok":
+    independent = health.get("filter_only") or health.get("poi_only")
+    if health.get("poi_requested") and (not health.get("poi_complete") or health.get("poi_retrieval_status") != "ok"):
+        why.append("POI localization is partial, failed or unavailable")
+    if not independent and health.get("vpr_status") != "ok":
         why.append(f"retrieval {health.get('vpr_status')}"
                    + (f" ({health['vpr_reason']})" if health.get("vpr_reason") else ""))
-    elif not health.get("filter_only") and token_set and health.get("vpr_source") not in (None, "mapillary", "union"):
+    elif not independent and token_set and health.get("vpr_source") not in (None, "mapillary", "union"):
         why.append(f"retrieval used {health.get('vpr_source')!r} although a token was set")
-    if not health.get("filter_only") and health.get("vpr_backbone") not in (None, "megaloc"):
+    if not independent and health.get("vpr_backbone") not in (None, "megaloc"):
         why.append(f"retrieval backbone {health.get('vpr_backbone')!r}, not megaloc")
     if health.get("failed_channels"):
         why.append("failed channels: " + ", ".join(health["failed_channels"]))
@@ -1291,6 +1320,7 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 "matcher_only": B.matcher_only(result) if ok else None,
                 "pinned_only": B.pinned_only(result) if ok else None,
                 "graph_filter_only": B.graph_filter_only(result) if ok else None,
+                "poi_only": B.poi_only(result) if ok else None,
                 "vpr_prior_only": B.vpr_prior_only(result) if ok else None,
                 "vpr_track_only": B.vpr_track_only(result) if ok else None,
                 "track_checked": B.track_checked(result) if ok else None,
@@ -1311,7 +1341,7 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 rep["health"] = _health_of(result)
                 # Device: recorded by the pipeline since 2026-10-16; older reps
                 # fall back to what the runner exposed (a hidden GPU = CPU).
-                rep["vpr_device"] = rep["health"].get("vpr_device") or (
+                rep["vpr_device"] = rep["health"].get("poi_device") or rep["health"].get("vpr_device") or (
                     "cpu" if st.get("cuda_visible_devices") in ("-1", "") else None)
                 rep["degraded"] = degraded_reasons(
                     rep["health"], token_set=bool(rep["provenance"].get("mly_token_set")))
@@ -1346,9 +1376,11 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
             "health": {
                 "n_degraded": sum(1 for r in clip_reps if r.get("degraded")),
                 "degraded": sorted({w for r in clip_reps for w in r.get("degraded", [])}),
-                "vpr_sources": sorted({str(r["health"].get("vpr_source")) for r in clip_reps
+                "vpr_sources": sorted({str(r["health"].get("poi_source") if r["health"].get("poi_requested")
+                                           else r["health"].get("vpr_source")) for r in clip_reps
                                        if r.get("health")}),
-                "vpr_backbones": sorted({str(r["health"].get("vpr_backbone")) for r in clip_reps
+                "vpr_backbones": sorted({str(r["health"].get("poi_backbone") if r["health"].get("poi_requested")
+                                             else r["health"].get("vpr_backbone")) for r in clip_reps
                                          if r.get("health")}),
                 "vpr_devices": sorted({str(r.get("vpr_device")) for r in clip_reps
                                        if r.get("health")}),
@@ -1433,15 +1465,18 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
         # mandatory or explicitly enabled methods even if every inference
         # failed. Per-clip misses of a method that ran elsewhere also count.
         fleet_provs = [r["provenance"] for r in reps if r["clip"] in ids]
-        all_filter = bool(fleet_provs) and all(p.get("config", {}).get("answer") == "filter" for p in fleet_provs)
-        required = set() if all_filter else {"pipeline", "matcher_only"}
+        all_independent = bool(fleet_provs) and all(p.get("config", {}).get("answer") in {"filter", "poi"} for p in fleet_provs)
+        required = set() if all_independent else {"pipeline", "matcher_only"}
         if execution_plan is not None or any("answer" in p.get("config", {}) for p in fleet_provs):
             required.add("answer")
-        if any(p.get("config", {}).get("use_vpr_prior") and p.get("config", {}).get("answer") != "filter"
+        if any(p.get("config", {}).get("use_vpr_prior") and p.get("config", {}).get("answer") not in {"filter", "poi"}
                for p in fleet_provs):
             required.update(("vpr_prior_only", "vpr_track_only", "track_checked"))
-        if any(p.get("config", {}).get("graph_filter") for p in fleet_provs):
+        if any(p.get("config", {}).get("graph_filter") and p.get("config", {}).get("answer") != "poi"
+               for p in fleet_provs):
             required.add("graph_filter_only")
+        if any(p.get("config", {}).get("answer") == "poi" for p in fleet_provs):
+            required.add("poi_only")
         not_run = [m for m in method_names if m not in required
                    if not any(clips_out[i]["methods"][m]["n_answered"]
                               for i in ids if m in clips_out[i]["methods"])]
@@ -1621,6 +1656,7 @@ METHOD_LABEL = {
     "vpr_track_only": "VPR track only",
     "track_checked": "Fit checked against track (250 m)",
     "answer": "Answer (selected primary result)",
+    "poi_only": "Experimental POI alignment",
     "pipeline_selective": "Selective (pre-registered τ)",
     "city_centroid": "City centroid",
 }
@@ -1702,16 +1738,15 @@ def render_markdown(summary: dict) -> str:
         methods = [m for m in ("answer", "pipeline", "pipeline_selective", "city_centroid",
                                "track_checked", "vpr_prior_only", "vpr_track_only",
                                "matcher_only", "pinned_only",
-                               "graph_filter_only") if m in fs["methods"]]
+                               "graph_filter_only", "poi_only") if m in fs["methods"]]
         oracle = [m for m in fs["methods"] if m.startswith("shortlist_oracle@")]
         L.append(f"## {fleet} fleet\n")
         if fs.get("methods_not_run"):
             L.append("Not run (no clip produced an answer, so no row/column): "
                      + ", ".join(_label(m) for m in fs["methods_not_run"]) + ".\n")
         L.append("### Run health\n")
-        L.append("What each clip's runs actually executed. A degraded run (retrieval "
-                 "off, a fallback source/backbone, failed channels) is not the "
-                 "published configuration and should not be read as a result for it.\n")
+        L.append("Requested stages, actual retrieval source/backbone and failed channels are recorded. "
+                 "Independent filter and POI modes do not require the ordinary trajectory fit or VPR-prior stages.\n")
         hh = ["Clip", "ok/reps", "degraded", "retrieval source", "backbone", "device",
               "OCR seed fired", "valid poses (median)"]
         L.append("| " + " | ".join(hh) + " |")

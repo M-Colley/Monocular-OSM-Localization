@@ -60,6 +60,11 @@ class PipelineConfig:
     # existing budget, and resolves to 256 MiB for the filter-only answer.
     graph_filter_path_budget_mb: float | None = None
     graph_filter_target_hz: float = 10.0
+    # Explicit experimental component; the normal retrieval answer is unchanged.
+    poi_radius_m: float = 1000.0
+    poi_ref_cap: int = 500
+    poi_map_path: Path | None = None
+    poi_inventory_dir: Path | None = None
     # Step lengths for the filter: "plane" = metric, from the road-plane
     # homography and an assumed camera height (monocular_osm/plane_speed.py);
     # "unit" = the VO's unit steps (no speed).
@@ -352,10 +357,11 @@ class PipelineConfig:
             raise ValueError("frame_memory_mb must be positive and finite")
         if self.frame_max_width is not None and self.frame_max_width <= 0:
             raise ValueError("frame_max_width must be positive")
-        if self.answer not in {"track", "fit", "checked", "filter"}:
-            raise ValueError("answer must be track, fit, checked or filter")
+        if self.answer not in {"track", "fit", "checked", "filter", "poi"}:
+            raise ValueError("answer must be track, fit, checked, filter or poi")
         filter_only = self.answer == "filter"
-        if self.frame_stride is None and not filter_only:
+        poi_only = self.answer == "poi"
+        if self.frame_stride is None and not (filter_only or poi_only):
             self.frame_stride = 6
         if self.frame_stride is not None and self.frame_stride <= 0:
             raise ValueError("frame_stride must be positive")
@@ -380,6 +386,27 @@ class PipelineConfig:
         if self.graph_filter_path_budget_mb is not None and (
                 not math.isfinite(self.graph_filter_path_budget_mb) or self.graph_filter_path_budget_mb <= 0):
             raise ValueError("graph_filter_path_budget_mb must be positive and finite")
+        if isinstance(self.poi_radius_m, bool) or not math.isfinite(self.poi_radius_m) or self.poi_radius_m <= 0:
+            raise ValueError("poi_radius_m must be positive and finite")
+        if isinstance(self.poi_ref_cap, bool) or not isinstance(self.poi_ref_cap, int) or self.poi_ref_cap <= 0:
+            raise ValueError("poi_ref_cap must be a positive integer")
+        if poi_only:
+            if self.vo_workers is None:
+                self.vo_workers = 2
+            if self.max_frames is not None:
+                raise ValueError("POI answer requires the full registered window: max_frames must be None")
+            if self.frame_max_width is not None or self.use_ocr_super_res or self.ocr_video_path is not None:
+                raise ValueError("POI answer requires native pixels and OCR from the same unresized video")
+            if (self.osm_around is not None or self.estimated_length_m is not None
+                    or self.ground_truth_waypoints is not None or self.ground_truth_streets
+                    or self.openvo_trajectory_path is not None or self.vggt_long_trajectory_path is not None
+                    or self.use_da3_trajectory or self.use_ground_flow_scale
+                    or self.graph_filter or self.graph_filter_vpr or self.graph_filter_map_path is not None):
+                raise ValueError("POI answer rejects external priors, trajectories and incompatible component overrides")
+            if self.vpr_source not in {"mapillary", "kartaview", "panoramax"}:
+                raise ValueError("POI evidence currently requires one supported reference source, not union")
+            if self.ocr_engine != "rapidocr":
+                raise ValueError("POI OCR requires the explicit cached RapidOCR CPU runtime; engine fallback is disabled")
         if self.vpr_query_mode not in {"warp", "crops", "aspect"}:
             raise ValueError("vpr_query_mode must be warp, crops or aspect")
         if self.vpr_query_batch_size <= 0:
@@ -557,6 +584,13 @@ def _run_filter_only(ctx: RunContext) -> dict:
                            run_filter=graph_filter_channel, finalize=finalize_result)
 
 
+def _run_poi_only(ctx: RunContext) -> dict:
+    from .stages.poi_only import run_poi_only
+
+    return run_poi_only(ctx, extract=extract_video_frames, run_vo=run_visual_odometry,
+                        finalize=finalize_result)
+
+
 def _run_pipeline_stages(ctx: RunContext) -> dict:
     cfg = ctx.cfg
 
@@ -564,6 +598,8 @@ def _run_pipeline_stages(ctx: RunContext) -> dict:
     acquire_video(ctx)
     if cfg.answer == "filter":
         return _run_filter_only(ctx)
+    if cfg.answer == "poi":
+        return _run_poi_only(ctx)
     query_only = (cfg.retrieval_only and cfg.answer == "track" and cfg.use_vpr_prior
                   and not cfg.use_ipm_scale)
     if query_only:

@@ -101,7 +101,7 @@ def extract_video_frames(ctx: RunContext, *, query_only: bool = False) -> None:
     """Decode the analysed window of the video -> ``ctx.frames``."""
     cfg = ctx.cfg
     video_path = ctx.video_path
-    if cfg.answer == "filter":
+    if cfg.answer in {"filter", "poi"}:
         import math
         import cv2
 
@@ -111,11 +111,16 @@ def extract_video_frames(ctx: RunContext, *, query_only: bool = False) -> None:
         finally:
             cap.release()
         if not math.isfinite(fps) or fps <= 0:
-            raise ValueError("filter answer requires a usable encoded video FPS; refusing an assumed timebase")
+            raise ValueError("component answer requires a usable encoded video FPS; refusing an assumed timebase")
         if cfg.frame_stride is None:
-            cfg.frame_stride = max(1, int(round(fps / cfg.graph_filter_target_hz)))
+            if cfg.answer == "filter":
+                cfg.frame_stride = max(1, int(round(fps / cfg.graph_filter_target_hz)))
+            else:
+                from ..cli import _auto_frame_stride
+                duration = cfg.vo_end_sec - cfg.vo_start_sec if cfg.vo_end_sec is not None else None
+                cfg.frame_stride = _auto_frame_stride(duration, fps=fps)
         if query_only:
-            raise ValueError("filter answer requires dense temporal acquisition")
+            raise ValueError("component answer requires dense temporal acquisition")
 
     # 2. Frames.
     print(f"[2/5] Extracting frames (stride={cfg.frame_stride}, "
