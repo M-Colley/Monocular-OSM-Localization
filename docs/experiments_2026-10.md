@@ -906,3 +906,27 @@ four warnings in 393.62 s; all 416 tracked source/test/doc files were unchanged.
 Artifacts are `output/tests-current-20261028.{xml,log,review.json}`. No default
 or fixed policy was changed. The complete fleet result remains **9/15**;
 individual component results cannot be pooled into a 15/15 claim.
+
+### Road-flow support correction and ongoing fixed-profile checks
+
+Two full-window night input probes exposed a coverage inconsistency: the
+legacy road-feature band excluded the estimator's entire required 10–20 m
+depth interval at an allowed pitch. Clean `a25445e` adds an explicit optional
+geometry-derived band, preserving the default and all quality thresholds.
+The paired probe restores 1,450/1,474 finite estimates but still fails both
+sharpness and consistency checks, with zero confidence. Negative/clipped
+estimates are not validated stops. No metric localization or accuracy gain
+is claimed. The [research report](recent_methods_2026-10.md#road-flow-coverage-and-quality-paired-input-experiment)
+records the same-native-frame proof and independent cached audits.
+
+Clean `d1db35e` also adds a fixed equal-three-encoder rank-fusion replay with
+single-encoder rank controls: sixteen new predictions plus twenty-four old
+cosine controls, all frozen before new scoring. The actual guarded replay and
+normal Phoenix assisted-v1 validation are running as of 28 October 2026,
+19:08 UTC. Neither is an accuracy result yet; Phoenix uses fresh query/OCR/VO,
+all public metadata regions and no forced stage or selected region.
+
+The full regression at clean `a25445e` passes **3,490 tests**, six skips and four
+warnings in 453.21 s, with tracked source bytes unchanged. See
+`output/tests-rank-flow-20261028.{xml,log,source.json,review.json}`. The complete
+fixed-profile baseline remains **9/15** and the 15/15 goal remains active.

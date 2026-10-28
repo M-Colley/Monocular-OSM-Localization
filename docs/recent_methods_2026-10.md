@@ -471,3 +471,77 @@ warnings in 393.62 s. All 416 tracked source/test/doc files stayed unchanged
 during the run. JUnit is `output/tests-current-20261028.xml`, SHA256
 `dee611191b9537452a7cc6964f4cb31fe84be4623ad198c92aaf761d33f04ce6`.
 No default policy changed; the complete fixed-profile result remains **9/15**.
+
+## Road-flow coverage and quality: paired input experiment
+
+The normal night run did not measure road-plane speed after its weak ORB VO.
+An independent full-window input probe therefore tested the existing road-flow
+estimator without VO directions or stop flags. It decoded all 8,850 native
+frames in the registered 0–295 s window, tracking 1,474 intervals at stride six.
+The fixed profile uses 960×540 tracking, generic 70-degree FOV and 1.4 m camera
+height, the existing 10–20 m depth interval and unchanged confidence gates.
+It computes neither a geographic route nor an accuracy score.
+
+The legacy seed band starts at row 297. At the calibration search's lower
+horizon boundary, every tracked starting point projects to 2.87–9.83 m:
+**none reaches the required 10–20 m interval**. All 1,474 travel estimates are
+unknown, rather than measured zero movement. Independent cached algebra and
+ray-plane checks confirm the coverage inconsistency. The original assertion
+that the seed band covered all relevant pitches was too broad.
+
+Source `a25445e` adds an explicit optional tracker band and the pure
+`road_seed_top_row` projection helper. It projects the far road point at the
+existing horizon search bound, floors the result and unions it with the legacy
+band. This derives row **247** for the declared geometry. The default band,
+depth interval, calibration and quality thresholds remain unchanged.
+
+| Input measurement | Legacy band | Geometry-derived band |
+|---|---:|---:|
+| Seed top row | 297 | 247 |
+| Tracked correspondences | 549,034 | 563,857 |
+| Finite forward estimates / 1,474 intervals | 0 | 1,450 |
+| Horizon sharpness | 0 | 0 |
+| Confidence | 0 | 0 |
+| Eligible for metric localization | No | No |
+
+Both measurements use exactly the same 8,850 native frame records and pixel
+stream. Widening the band repairs support but does not repair the night flow:
+1,078 raw steps are negative, and clipping creates 1,140 zeros that cannot be
+interpreted as stops. Fast-step relative spread is 0.866, above the unchanged
+0.55 rejection threshold. No metric localization follows from these inputs.
+
+The paired run finished in 101.53 s on CPU2. Its master is
+`6a197bae3e730b53fe2b63c45fff51b4c112791b928e59388f485008d2035013`;
+independent cached audit `caadc250f3f2265541d0d52727efa099fbafc637cfff36768ba066417354129f`
+passes 161 checks, including independent projection, motion/spread arithmetic
+and gate rejection. That audit verifies cached native records and video hash
+binding; it does not claim an independent video re-decode or feature retracking.
+The legacy probe/audit and its initial missing-helper import failure are
+preserved separately under `E:/monocular-osm-road-flow-proof`.
+
+## Rank fusion and normal Phoenix validation: running
+
+As of 28 October 2026, 19:08 UTC, two guarded experiments remain in progress.
+They do not supply new accuracy results yet.
+
+- Clean `d1db35e` implements full-gallery, float64 average-tie percentile ranks
+  for MegaLoc, ImAge and SelaVPR++, then their fixed equal-weight mean. All
+  references and actual native query times are retained. Single-encoder rank
+  controls distinguish fusion from the rank transformation. Four matrices ×
+  two appearance normalizations × two fixed decoders give sixteen new routes;
+  all twenty-four historical cosine routes are retained byte-for-byte. Every
+  output must finish before the new forty-output master, independent audit and
+  scoring. This is an explicitly posthoc DEV hypothesis after the earlier
+  encoder outcomes; ranks are not calibrated localization probabilities.
+- The normal Phoenix assisted-v1 run uses fresh query/OCR/automatic VO and the
+  unchanged public CLI policy. All six metadata-derived public regions were
+  seeded without choosing a winner. Historical reference encoding remains
+  UNVERIFIED. The earlier 25.57 m component result does not establish that the
+  normal policy reaches or selects it. Parent prediction freeze and independent
+  inference audit must precede separate scoring.
+
+The full suite at clean `a25445e` passes **3,490 tests**, with six skips and four
+warnings in 453.21 s. All 436 tracked non-label/result file hashes stayed
+unchanged, and label/result boundaries were checked by metadata only. Artifacts
+are `output/tests-rank-flow-20261028.{xml,log,source.json,review.json}`. This is
+regression evidence, not a completed fifteen-clip accuracy result.
