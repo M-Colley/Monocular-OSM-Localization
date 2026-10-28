@@ -185,7 +185,8 @@ def test_query_adapter_uses_one_fresh_three_crop_cache_and_actual_cpu_bounds(tmp
     fake_torch = SimpleNamespace(__version__="mock", get_num_threads=lambda: state["intra"],
         set_num_threads=lambda v: state.update(intra=v), get_num_interop_threads=lambda: state["inter"],
         set_num_interop_threads=lambda v: state.update(inter=v), from_numpy=lambda a: a,
-        hub=SimpleNamespace(set_dir=lambda p: calls.append(("hub", p))))
+        hub=SimpleNamespace(set_dir=lambda p: calls.append(("hub", p))),
+        tensor=lambda values, dtype: np.asarray(values, dtype=dtype), float32=np.float32)
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setattr(runner, "configure_environment", lambda: None)
     monkeypatch.setattr(runner, "check_headroom", lambda: runner.MIN_COMMIT)
@@ -194,9 +195,13 @@ def test_query_adapter_uses_one_fresh_three_crop_cache_and_actual_cpu_bounds(tmp
     monkeypatch.setattr(kv, "_resolve_backbone", lambda *a: "megaloc")
     monkeypatch.setattr(kv, "backbone_info", lambda: {"name": "megaloc", "hub": kv.HUB_MEGALOC, "device": "cpu"})
     monkeypatch.setattr(kv, "_audit_model_state", lambda: {"sha256": "a" * 64})
+    monkeypatch.setattr(kv, "_MEAN", None)
+    monkeypatch.setattr(kv, "_STD", None)
     def query(frames, indices, refs, device, **kwargs):
         assert kwargs["mode"] == "crops" and kwargs["batch_size"] == 4 and device == "cpu"
         assert indices.tolist() == list(range(80)) and state == {"intra": 4, "inter": 1}
+        np.testing.assert_array_equal(kv._MEAN.reshape(-1), np.array([.485, .456, .406], np.float32))
+        np.testing.assert_array_equal(kv._STD.reshape(-1), np.array([.229, .224, .225], np.float32))
         kwargs["query_cache"]["only"] = SimpleNamespace(numpy=lambda: np.ones((240, 4), np.float32))
         calls.append(("query", len(refs)))
         return np.full((80, len(refs)), .2, np.float32)
@@ -206,6 +211,19 @@ def test_query_adapter_uses_one_fresh_three_crop_cache_and_actual_cpu_bounds(tmp
     assert [row for row in calls if row[0] == "query"] == [("query", 3)]
     assert proof["cpu_runtime"]["intra_op_threads"] == 4 and proof["cpu_runtime"]["inter_op_threads"] == 1
     assert state["intra"] == 2 and not proof["network_allowed"]
+
+
+def test_standalone_adapter_initializes_real_prep_before_any_model_forward(monkeypatch):
+    import torch
+    from monocular_osm import kartaview_vpr as kv
+    monkeypatch.setattr(kv, "_MEAN", None)
+    monkeypatch.setattr(kv, "_STD", None)
+    runner.initialize_query_normalization(kv, torch)
+    actual = kv._prep(np.array([[[51, 102, 153]]], dtype=np.uint8))
+    expected = (torch.tensor([.6, .4, .2]) - torch.tensor([.485, .456, .406])) / torch.tensor([.229, .224, .225])
+    assert actual.shape == (3, 512, 512) and actual.dtype == torch.float32
+    assert actual.device.type == "cpu"
+    torch.testing.assert_close(actual[:, 0, 0], expected)
 
 
 @pytest.mark.parametrize("dirty", [False, True])

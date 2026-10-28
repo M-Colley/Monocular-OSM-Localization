@@ -239,6 +239,12 @@ def offline():
     finally: socket.socket.connect, socket.socket.connect_ex = previous, previous_ex
 
 
+def initialize_query_normalization(kv, torch):
+    """Initialize canonical preprocessing used by normal VPR entry points."""
+    kv._MEAN = torch.tensor([.485, .456, .406], dtype=torch.float32).reshape(3, 1, 1)
+    kv._STD = torch.tensor([.229, .224, .225], dtype=torch.float32).reshape(3, 1, 1)
+
+
 def forward_queries(frames, union, models):
     configure_environment()
     os.environ["TORCH_HOME"], os.environ["HF_HOME"] = str(models / "torch"), str(models / "hf")
@@ -254,6 +260,7 @@ def forward_queries(frames, union, models):
     cv2.setNumThreads(1)
     query_cache, audit = {}, {}
     with offline(), torch_cpu_threads(4) as runtime:
+        initialize_query_normalization(kv, torch)
         before_model_memory = check_headroom()
         kv._resolve_backbone("megaloc", "cpu")
         require(kv.backbone_info() == {"name": "megaloc", "hub": kv.HUB_MEGALOC, "device": "cpu"}, "registered model unavailable; backbone fallback forbidden")
