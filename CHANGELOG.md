@@ -24,9 +24,13 @@ All notable changes to this project are documented here. This project adheres to
   and recognition/classification batches of four. Warm caches retain verified
   runtime identities; regional retrieval scopes Torch operator threads to four.
   The fixed road grid matches 12.5 m per-segment endpoint-inclusive sampling.
-- Validation uses mocked acquisition, real geometry tests and an actual offline
-  24-frame native CPU OCR readiness check; no normal-CLI fresh-reference or
-  fleet accuracy claim is made for the public component.
+- Normal CLI source `b48a217` completed KITTI 0009 with fresh native OCR/VO,
+  an automatic whole-city map and verified copies of the five live-pilot pools.
+  An independent input audit preceded offline scoring: 13.32 m symmetric route
+  error, 41.07 m start error against the registered 12 waypoints, in 140.33 s.
+  Conservative process-tree native peaks sum to 2.551 GB resident /3.743 GB
+  private commit. Reference embeddings were cached; this is one development
+  clip, with no 15-clip or held-out accuracy claim.
 
 ### Independent video-only road-graph filter
 

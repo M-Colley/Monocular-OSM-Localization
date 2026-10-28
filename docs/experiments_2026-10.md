@@ -604,8 +604,36 @@ source at commit `8aa9f05f80bd1e432546cc2575199117371d6612`. Artifacts are in
 `16e5a067b1734dffeb81c20412eb518a750f453666ad39bcd967d85de8608d37`.
 Peak resident memory was 2.13 GiB and peak private commit 3.15 GiB. This checks
 fresh public-reference acquisition for one disclosed development experiment.
-The normal CLI still needs its own check with fresh native OCR and VO; no
-15-clip success or held-out accuracy follows from this result.
+The subsequent normal `main.py --poi-only` check ran from a clean detached
+checkout at `b48a2177cf4a579d259625815b737aafb745449c`. Its complete registered
+0–46 s MP4 window produced 149 native frames at automatic stride 3, fresh
+generic-70-degree VO (134 valid poses), and all 24 fresh native OCR samples.
+The VO coordinates and timestamps exactly match the earlier MP4-derived pilot
+artifacts. The map was rebuilt automatically from copies of public named-city
+HTTP responses, with no explicit GraphML override. All five reference pools
+and model assets were hash-verified copies from the live pilot, isolated on
+E:; no saved OCR, VO, branch winner or prediction was reused. Cached reference
+embeddings and fresh query embeddings supplied 2,500 unique references and
+80 queries, with every branch scored before selecting branch 4.
+
+The prediction/source freeze is
+`d322c7eb4235829c6cf6ce3e1f5ff7054c530ccd4b0f500c2bf7f13329cd1d0d`.
+An independent strict-input audit and 78 direct artifact/source/identity checks
+passed before label access. Separate official benchmark scoring gives
+**13.32 m symmetric route error**, 41.07 m start error and 21.97 m end error.
+It uses the registered **12-waypoint** labels; the standalone live pilot above
+used an **11-waypoint** label set. Its 13.02 m value is therefore a different
+scoring reference, rather than an exact normal-CLI replay target.
+
+The normal run took 140.33 s. Telemetry includes the Windows venv launcher and
+all descendant processes: the conservative sums of their native peaks were
+2.551 GB resident memory and 3.743 GB private commit; sampled simultaneous
+aggregate peaks were 1.971 GB resident and 2.351 GB private. Original caches
+remained unchanged, and the source checkout stayed clean. The deployment,
+copy lineage, frozen output and separate score are under
+`E:/monocular-osm-normal-poi-proof/normal_cli_b48a217_run1`.
+This checks one normal development-clip invocation with verified warm reference
+caches. It establishes neither 15-clip success nor held-out accuracy.
 
 ### Provisional assisted policy
 

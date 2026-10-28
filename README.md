@@ -520,11 +520,15 @@ OCR/VO/map/inventory identities and
 every regional score matrix before separate evaluation. Query GPS stamps are
 filtered; public POI/reference coordinates remain valid inputs.
 
-This path has mocked acquisition/integration checks and a real offline
-24-frame CPU OCR readiness check. Normal CLI fresh-reference accuracy is still
-under investigation. It does not establish fleet accuracy or a fixed
-assisted-selection policy across the development clips. Existing default
-answers remain unchanged.
+The normal CLI at source `b48a217` completed KITTI 0009 in 140.33 s with fresh
+native OCR and VO, automatic whole-city OSM construction, and verified copies
+of all five live-pilot reference pools. Independent input audit passed before
+separate scoring: **13.32 m symmetric route error**, 41.07 m start error against
+the registered 12 waypoints. Conservative process-tree native peak sums were
+2.551 GB resident memory and 3.743 GB private commit. This is one development
+clip, with cached reference embeddings; it establishes neither 15-clip accuracy
+nor a fixed assisted-selection policy. Existing default answers remain
+unchanged. See [the experiment details](docs/experiments_2026-10.md).
 
 Decoded-frame memory is bounded by `--frame-memory-mb` (default 512 MiB).
 Long clips spill losslessly to temporary storage, which is released on exit.
