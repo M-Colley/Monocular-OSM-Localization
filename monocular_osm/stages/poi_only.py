@@ -6,6 +6,8 @@ from dataclasses import asdict
 import datetime
 import hashlib
 import json
+import math
+from numbers import Integral, Real
 import os
 from pathlib import Path
 import re
@@ -175,6 +177,43 @@ def _ocr(ctx, K, video_sha, shape):
     return detections, metadata
 
 
+def _canonical_retrieval_request(center, radius_m, cap):
+    """Canonical numeric types without rounding or truncating a request."""
+    def exact_float(value, name):
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError(f"{name} must be a finite real number")
+        try:
+            result = float(value)
+        except (ValueError, OverflowError):
+            raise ValueError(f"{name} must be a finite real number") from None
+        # Compare NumPy integer scalars as Python integers: NumPy otherwise
+        # rounds a large integer to float during the equality comparison.
+        original = int(value) if isinstance(value, Integral) else value
+        if not math.isfinite(result) or result != original:
+            raise ValueError(f"{name} must be exactly representable as a finite float")
+        return result
+
+    try:
+        point = tuple(center)
+    except TypeError:
+        raise ValueError("center must contain exactly two finite coordinates") from None
+    if len(point) != 2:
+        raise ValueError("center must contain exactly two finite coordinates")
+    point = tuple(exact_float(value, "center") for value in point)
+    radius = exact_float(radius_m, "radius_m")
+    if not -90 <= point[0] <= 90 or not -180 <= point[1] <= 180 or radius <= 0:
+        raise ValueError("center must be WGS84 and radius_m must be positive")
+    if isinstance(cap, bool) or not isinstance(cap, Real):
+        raise ValueError("cap must be a positive exact integer")
+    try:
+        count = int(cap)
+    except (ValueError, OverflowError):
+        raise ValueError("cap must be a positive exact integer") from None
+    if count <= 0 or count != cap:
+        raise ValueError("cap must be a positive exact integer")
+    return point, radius, count
+
+
 def _retrieval(ctx, inputs, *, audit_query=False):
     """Own one stage-local descriptor cache; preserve every callback's evidence."""
     from .. import kartaview_vpr as kv
@@ -182,6 +221,7 @@ def _retrieval(ctx, inputs, *, audit_query=False):
     source = ctx.cfg.vpr_source
     api_sha = file_sha256(Path(kv.__file__))
     def retrieve(frames, timestamps, center, *, radius_m, cap, n_query, query_cache):
+        center, radius_m, cap = _canonical_retrieval_request(center, radius_m, cap)
         identity = {"center": list(center), "radius_m": radius_m, "cap": cap,
                     "inventory": inputs["inventory"]["snapshot_sha256"], "source": source,
                     "requested_model": "megaloc", "query_mode": ctx.cfg.vpr_query_mode,
