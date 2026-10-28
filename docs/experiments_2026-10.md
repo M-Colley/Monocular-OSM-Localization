@@ -606,3 +606,21 @@ Peak resident memory was 2.13 GiB and peak private commit 3.15 GiB. This checks
 fresh public-reference acquisition for one disclosed development experiment.
 The normal CLI still needs its own check with fresh native OCR and VO; no
 15-clip success or held-out accuracy follows from this result.
+
+### Provisional assisted policy
+
+`monocular_osm/assisted_policy.py` declares a single input-only decision policy
+at commit `5b724af`. Its 83 synthetic tests check stage ordering, missing and
+partial evidence, fixed thresholds and preservation of a valid baseline. It
+does not acquire candidates or alter the default pipeline, and no fleet result
+has been measured for this policy. Its constants are disclosed post-hoc dev
+heuristics, fixed before a complete assisted run.
+
+The ordinary track's similarity is the raw cosine at the decoded reference;
+Viterbi can select a reference below that frame's argmax. An adapter must bind
+the exact query pixels/descriptors, indices, times, model and preprocessing
+before comparing baseline and expanded medians. It must record the statistic,
+actual decoder, continuity settings and any argmax fallback. Crops-max or
+reference-mean scores cannot stand in for the raw warp score. Searching more
+reference pools can raise a median through selection alone; this remains an
+unvalidated heuristic, rather than a calibrated probability of correctness.

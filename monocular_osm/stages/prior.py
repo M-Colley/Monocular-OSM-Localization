@@ -32,7 +32,8 @@ _PASS1_COVER_CAP = 3000
 # find the right district (the FINE pass still uses full density on its tight
 # disc). Cap the tokened coarse pass here so un-seeded/mega-city runs finish.
 _PASS1_TOKEN_CAP = 1200
-# Pass-2 is kept as the placement prior only if its median top-1 VPR similarity
+# Pass-2 is kept as the placement prior only if its median decoded-reference
+# VPR similarity (raw cosine at the selected reference, not necessarily argmax)
 # is within this margin of pass-1's (else pass 1 already localized better;
 # audit deepdive C2F-1 — London pass-1 0.10 km was silently overwritten).
 _C2F_SIM_MARGIN = 0.02
@@ -657,7 +658,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                         # disc that CLIPS the true refs (route past the radius, or
                         # a slightly-off pass-1 centre) or re-fetches a sparser
                         # cold set drifts its robust centre OUTWARD and scores a
-                        # LOWER median top-1 similarity — same MegaLoc space both
+                        # LOWER median decoded-reference cosine — same MegaLoc space both
                         # passes, so it is a fair, GT-free arbiter. Keep pass 2's
                         # centre/track for placement only when it does not lose
                         # match quality (London pass-1 0.10 km -> pass-2 0.32 km
