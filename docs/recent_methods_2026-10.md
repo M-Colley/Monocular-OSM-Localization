@@ -840,9 +840,33 @@ was 1.30 GiB and private commit 1.78 GiB. The full192 state matched the strict
 checkpoint. Root rehashed all 18 output artifacts, 15 prepared artifacts and
 eight executed sources before accepting master
 `24d4366d3317e7e660d246dcdb0d22555a630b81b03ad4dba676702d7066d13a`.
-The independent input-only audit passed all reference/native crop checks;
-complete output/algebra/decoder audit is running. No GT or accuracy score has
-been read for these eight outputs yet.
+The independent output audit passed all reference/native crop and canonical
+tensor checks, complete192 checkpoint/state binding, all 719,520 per-view
+cosines bit-for-bit, and the max-of-three reduction. Independent float64 dot
+products differ by at most `5.47e-8`. It reconstructed all four exact-simple
+optimal paths and checked all four erased-heading path objectives and physical
+edge counts; it does not claim a second heading-global optimum or neural
+output-value replay. All 379 protected files stayed unchanged. Audit
+`343863f166b54dc2d6f10a721628bd36a075719ef284425eb501de5017814be9`
+passed before separate all-eight scoring:
+
+| Fixed Night output | FoL global stage (m) | New cached MegaLoc control (m) |
+|---|---:|---:|
+| Exact simple, raw | 10,958.01 | 173.10 |
+| Exact simple, reference mean | 1,862.74 | 11,090.49 |
+| Heading erased, raw | 428.98 | 711.00 |
+| Heading erased, reference mean | 556.12 | 681.34 |
+
+**All four FoL routes fail 200 m; FoL is not adopted.** All eight routes were
+scored, with no selected variant. Score freeze:
+`50167df9a22bc0a966b6b50a6d9a47b6121e12669d193cec557417994c1ce799`.
+The legacy MegaLoc reference encoding remains UNVERIFIED, so this compares
+the declared bundled methods rather than isolating an encoder-only effect.
+The second registered comparison on G5's complete 9,735-reference gallery is
+running after independent checks of all 13,939 raw occurrences, both query
+index systems and all 80 native frames/240 crops. Its inference source is a
+separate adapter; earlier failed preparations and their exact schemas remain
+preserved. No G5 result or default change is claimed.
 
 The further NeurIPS source check located
 [MutualVPR's official repository](https://github.com/Gucci233/MutualVPR),
@@ -855,7 +879,14 @@ inspection found 646 tensors matching every expected architecture key, shape
 and dtype after only the uniform `module.` prefix is removed. This includes
 all twelve convolutional adapters and BatchNorm buffers. The local checkpoint
 SHA is `e8ca2129256bee963d7a8f0e9db7ef0763a16b520bb06811511ea1992ab2f1f0`;
-no publisher digest was available. No constructor or forward has run. Root and
-checkpoint licensing remain unverified; the backbone is Apache 2.0. The example
+no publisher digest was available. Root and checkpoint licensing remain
+unverified; the backbone is Apache 2.0. The example
 sets GPU visibility at import and uses an empty checkpoint path with
-`strict=False`; a separate bounded strict-load wrapper is being prepared.
+`strict=False`; a separate bounded strict-load wrapper was prepared and passed
+32 synthetic tests. Its 44-image input freeze contains 32 references selected
+by fixed ID spacing and the first four registered native queries with three
+crops each. The first actual runtime attempt stopped before model construction
+or any forward because the isolated environment lacks the author's declared
+`timm==1.0.15` dependency. The failed run and original executor/input/deployment
+bytes remain preserved. A pinned isolated dependency setup is being prepared;
+there is no MutualVPR localization result.
