@@ -59,7 +59,7 @@ def _safe(path, root=None):
     for name in (str(path), str(path.resolve())):
         folded = name.replace("\\", "/").casefold()
         _require("ground_truth" not in folded and not re.search(
-            r"(?:^|[/_.-])(?:scores?|scoring)(?:[_.-]|$).*\.jsonl?$", folded),
+            r"(?:^|[/_.-])(?:scores?|scoring)(?=[_.-]|$).*\.jsonl?$", folded),
             "query labels and saved scores are forbidden reference inputs")
     resolved = path.resolve()
     if root is not None:
