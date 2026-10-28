@@ -1,7 +1,7 @@
 """Bounded offline OSM way geometry, deliberately not a routing graph.
 
-The public GDAL dataset feature iterator consumes every layer in one pass,
-before any spatial filter. Full selected way WKB and every emitted OSM tag
+The public GDAL dataset iterator reads the whole extract with line-geometry
+interest and no spatial filter. Full selected way WKB and every emitted OSM tag
 are retained in SQLite, with an RTree of geographic bounds. Intersections,
 connectivity, legal access and direction of travel are not inferred.
 
@@ -33,14 +33,16 @@ GIB = 1024**3
 PHYSICAL_HIGHWAYS = ("motorway", "motorway_link", "trunk", "trunk_link", "primary",
     "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link",
     "unclassified", "residential", "living_street", "service", "road", "track")
-PROFILE = {"version": "whole-extract-physical-road-geometry-v1", "bbox": None,
+PROFILE = {"version": "whole-extract-physical-road-geometry-v2", "bbox": None,
     "mask": None, "sql_filter": None, "highways": list(PHYSICAL_HIGHWAYS),
     "access_policy": "physical highway class only; private/no/destination access retained, not legal routing",
     "excluded": "area=yes; highway outside fixed list (including construction/proposed/footway/pedestrian)",
     "geometry": "full source OSM way LineString WKB, WGS84 longitude/latitude; no simplify/split/snap",
     "tags": "all_tags JSON; report_all_tags=yes, no ignored keys; OSM way ID preserved",
     "topology": False, "routed_graph": False, "oneway_enforced": False,
-    "reading": "GDALDatasetGetNextFeature all layers; node/way indexes enabled; no spatial filters",
+    "reading": "GDALDatasetGetNextFeature with SET interest_layers = lines; node/way indexes explicitly enabled; no spatial/attribute filters",
+    "geometry_layer_interest": ["lines"],
+    "unselected_geometry_not_built": ["points", "multilinestrings", "multipolygons", "other_relations"],
     "assembly_guard": "each selected source-way ID/exact tags/node-reference count agrees; no independent coordinate/order verification",
     "coordinate_authority": "GDAL OSM node-coordinate assembly; ordered source node-reference hash retained separately",
     "max_source_bytes": GIB, "max_features_seen": 50_000_000, "max_ways": 10_000_000,
@@ -374,6 +376,7 @@ class GdalWays:
         signatures = {"GDALAllRegister": (None, []), "GDALOpenEx": (ptr, [char, C.c_uint, C.POINTER(char), C.POINTER(char), C.POINTER(char)]),
             "GDALClose": (None, [ptr]), "GDALDatasetGetNextFeature": (ptr, [ptr, C.POINTER(ptr), C.POINTER(C.c_double), ptr, ptr]),
             "GDALDatasetTestCapability": (C.c_int, [ptr, char]), "OGR_L_GetName": (char, [ptr]),
+            "GDALDatasetExecuteSQL": (ptr, [ptr, char, ptr, char]), "GDALDatasetReleaseResultSet": (None, [ptr, ptr]),
             "OGR_L_GetSpatialRef": (ptr, [ptr]), "OSRGetAuthorityCode": (char, [ptr, char]),
             "OGR_F_GetFieldIndex": (C.c_int, [ptr, char]), "OGR_F_IsFieldSetAndNotNull": (C.c_int, [ptr, C.c_int]),
             "OGR_F_GetFieldAsString": (char, [ptr, C.c_int]), "OGR_F_GetGeometryRef": (ptr, [ptr]),
@@ -383,6 +386,15 @@ class GdalWays:
         for name, (result, args) in signatures.items():
             fn = getattr(self.lib, name); fn.restype, fn.argtypes = result, args
         self.lib.GDALAllRegister()
+
+    def _declare_interest(self, dataset):
+        # Driver-level layer interest avoids constructing unrelated invalid
+        # polygons/relations. It is not a spatial/attribute filter, and all
+        # selected source-way IDs/tags/counts still have to match the ledger.
+        result = self.lib.GDALDatasetExecuteSQL(dataset, b"SET interest_layers = lines", None, None)
+        if result:
+            self.lib.GDALDatasetReleaseResultSet(dataset, result)
+            raise ValueError("OSM layer-interest command returned unexpected result")
 
     def rows(self, path, config, temporary, guard):
         """Yield every eligible whole way. Warnings refuse, never truncate."""
@@ -426,6 +438,8 @@ class GdalWays:
                 dataset = self.lib.GDALOpenEx(str(Path(path).resolve()).encode("utf-8"), 4, drivers, opts, None)
                 require(dataset and not errors, "GDAL OSM open refused: "+str(errors[:3]))
                 require(self.lib.GDALDatasetTestCapability(dataset, b"RandomLayerRead"), "dataset interleaved feature reading unavailable")
+                self._declare_interest(dataset)
+                require(not errors, "GDAL road-layer selection refused: "+str(errors[:3]))
                 while True:
                     guard.check()
                     layer, fraction = C.c_void_p(), C.c_double()
@@ -438,6 +452,7 @@ class GdalWays:
                     try:
                         require(layer.value, "GDAL returned feature without owning layer")
                         name = self.lib.OGR_L_GetName(layer).decode("utf-8", "strict")
+                        require(name == "lines", "GDAL emitted unselected geometry layer despite line interest")
                         counts[name] += 1
                         require(sum(counts.values()) <= PROFILE["max_features_seen"], "source feature bound exceeded")
                         if name != "lines": continue

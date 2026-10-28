@@ -160,6 +160,54 @@ def test_gdal_index_and_temp_configuration_restored_after_close(tmp_path):
         pyogrio.set_gdal_config_options(previous)
 
 
+def bad_unselected_ring(source):
+    synthetic_osm(source)
+    body = source.read_text(encoding="utf-8").replace("</osm>",
+        '<way id="201"><nd ref="1"/><nd ref="2"/><nd ref="3"/></way>'
+        '<relation id="301"><member type="way" ref="201" role="outer"/>'
+        '<tag k="type" v="multipolygon"/><tag k="landuse" v="forest"/></relation></osm>')
+    source.write_text(body, encoding="utf-8")
+
+
+def test_unselected_polygon_warning_reproduces_old_all_layer_failure(tmp_path, monkeypatch):
+    pytest.importorskip("pyogrio")
+    source, config, temporary = tmp_path/"bad-ring.osm", tmp_path/"osmconf.ini", tmp_path/"temp"
+    temporary.mkdir(); bad_unselected_ring(source); config.write_text(road.OSM_CONFIG)
+    reader = road.GdalWays()
+    monkeypatch.setattr(reader, "_declare_interest", lambda _: None)
+    with pytest.raises(ValueError, match="Non closed ring"):
+        list(reader.rows(source, config, temporary, Guard()))
+
+
+def test_line_interest_avoids_unselected_polygon_and_preserves_all_physical_ways(tmp_path):
+    pyogrio = pytest.importorskip("pyogrio")
+    source, config, temporary = tmp_path/"bad-ring.osm", tmp_path/"osmconf.ini", tmp_path/"temp"
+    temporary.mkdir(); bad_unselected_ring(source); config.write_text(road.OSM_CONFIG)
+    ledger = tmp_path/"expected.sqlite"; road.source_way_ledger(source, ledger, Guard())
+    reader = road.GdalWays(); declare = reader._declare_interest
+    def checked_declare(dataset):
+        assert all(pyogrio.get_gdal_config_option(k) in (True, "YES") for k in (
+            "OSM_INDEX_POINTS", "OSM_USE_POINTS_INDEX", "OSM_INDEX_WAYS", "OSM_USE_WAYS_INDEX"))
+        return declare(dataset)
+    reader._declare_interest = checked_declare
+    result = road.build_index(reader.rows(source, config, temporary, Guard()), tmp_path/"roads.sqlite", Guard(), source_ledger=ledger)
+    assert result["counts"]["ways"] == 1 and result["counts"]["vertices"] == 3
+    assert reader.stats["warnings"] == [] and set(reader.stats["layers_seen"]) == {"lines"}
+
+
+def test_selected_missing_node_still_refused_with_line_interest(tmp_path):
+    pytest.importorskip("pyogrio")
+    source, config, temporary = tmp_path/"broken.osm", tmp_path/"osmconf.ini", tmp_path/"temp"
+    temporary.mkdir(); bad_unselected_ring(source)
+    text = source.read_text(encoding="utf-8").replace('<way id="101"><nd ref="1"/><nd ref="2"/><nd ref="3"/>',
+        '<way id="101"><nd ref="1"/><nd ref="999"/><nd ref="3"/>')
+    source.write_text(text, encoding="utf-8"); config.write_text(road.OSM_CONFIG)
+    ledger = tmp_path/"expected.sqlite"; road.source_way_ledger(source, ledger, Guard())
+    with pytest.raises(ValueError, match="source-way reference ledger"):
+        road.build_index(road.GdalWays().rows(source, config, temporary, Guard()),
+            tmp_path/"roads.sqlite", Guard(), source_ledger=ledger)
+
+
 def test_silent_gdal_missing_node_truncation_refused_by_source_ledger(tmp_path):
     pytest.importorskip("pyogrio")
     source, config = tmp_path/"broken.osm", tmp_path/"osmconf.ini"
