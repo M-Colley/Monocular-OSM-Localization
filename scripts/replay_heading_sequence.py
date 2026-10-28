@@ -281,7 +281,7 @@ def infer(family,expected_commit,input_freeze_sha256):
             del views,result
             print("heading replay: "+model+" all six paths complete",flush=True)
         require(completed==PROFILE["outputs"],"not all twelve paths finished")
-        source_identity(expected_commit,sources);freeze(family/"inputs_frozen.json");original_inputs(declared);base.verify_originals(lineage["copied"])
+        source_identity(expected_commit,sources);freeze(family/"inputs_frozen.json",input_freeze_sha256);original_inputs(declared);base.verify_originals(lineage["copied"])
         require(all(sha(ROOT/n)==d for n,d in actual_sources.items()),"source bytes changed")
         require("torch" not in sys.modules,"model runtime imported during model-free replay")
         write(output/"runtime.json",{"status":"complete","source_commit":expected_commit,"source_sha256":sources,"profile_sha256":PROFILE_SHA256,"input_freeze_sha256":sha(family/"inputs_frozen.json"),

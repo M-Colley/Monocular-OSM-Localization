@@ -237,3 +237,19 @@ def test_prepared_freeze_cannot_be_reblessed_between_commands(fixture):
     with pytest.raises(ValueError,match='registered freeze changed'):
         r.infer(family,'pin',prepared['input_freeze_sha256'])
     assert not (family/'predictions').exists()
+
+
+def test_in_run_generated_plan_and_manifest_mutation_cannot_be_reblessed(fixture,monkeypatch):
+    path,family,_,_=fixture;prepared=r.prepare(path,family,'pin');decode=r.core.decode_heading_tracks;changed=[]
+    def mutate(*a,**k):
+        result=decode(*a,**k)
+        if not changed:
+            p=family/'plan.json';v=r.load(p);v['input_identity']['unregistered']='changed during decoding';rewrite(p,v)
+            p=family/'inputs_frozen.json';v=r.load(p);v['artifacts']['plan.json']=r.sha(family/'plan.json');rewrite(p,v)
+            changed.append(True)
+        return result
+    monkeypatch.setattr(r.core,'decode_heading_tracks',mutate)
+    with pytest.raises(ValueError,match='registered freeze changed'):
+        r.infer(family,'pin',prepared['input_freeze_sha256'])
+    assert not (family/'predictions/frozen_predictions.json').exists()
+    assert (family/'predictions/failure.json').exists()
