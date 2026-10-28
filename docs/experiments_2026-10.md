@@ -790,3 +790,24 @@ forwards, downloads, reference filtering or GT input. The recovered freeze is
 `03ae8b4565f02be4f8a7a785128f2b5a20a41f7590cfef7b1f03996615be8c93`
 under `E:/monocular-osm-image-poi-pilot/run2`. Normal assisted CLI validation is
 still required; these component successes cannot be pooled into a 15-clip claim.
+
+The first normal assisted night invocation at clean `300a82f` ended at the
+standard **3,600 s timeout**, with no parent selected answer or prediction
+freeze. Its fresh automatic native VO had 1,432/2,950 valid poses and OCR
+retained two literal branches. Policy v1 therefore correctly followed
+`baseline → cues → expanded`; it did not force the earlier single-branch
+image-only experiment. The cold baseline completed, but the isolated expanded
+worker repeated the same public 8 km/cap-1,200 pool and fine-pool acquisition
+and encoding, exhausting the remaining budget. The benchmark driver's exit
+code zero indicates that it recorded the timeout, not successful localization.
+
+All 317 partial-run artifacts are preserved, without promoting partial caches
+or opening labels. Their freeze SHA256 is
+`d2f82949868d822fee3d868dae37fbcbfdef015a0a2c3620f0708f64deaf506e`.
+An independent failure/input audit passed with unchanged bytes and no surviving
+owned process births. The run has no accuracy score. It exposes a performance
+problem: isolated stages should share verified copies of completed public
+reference inputs while preserving separate query, OCR, VO and prediction
+state. Existing legacy descriptor files do not attest their historical encoder
+identity; any reuse must retain that uncertainty or bind a fresh-encoding
+receipt, rather than silently upgrading provenance.

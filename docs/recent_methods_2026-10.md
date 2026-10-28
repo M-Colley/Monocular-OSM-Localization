@@ -169,10 +169,10 @@ checks precede separate label access. Negative variants are retained alongside
 positive ones; no per-clip oracle combines them. A complete normal assisted
 15-clip run and held-out validation are still required before any fleet claim.
 
-The full tracked regression suite at `206c374` passed **2,727 tests**, with
-four skips and four dependency deprecation warnings, in 380.93 s. This includes
-the exact decoder, spatial posterior and ImAge/XFeat/ORB adapters. New metadata
-and city-gallery experiment runners added later require their own checks.
+The full tracked regression suite at `567bf54` passed **2,938 tests**, with
+five skips and four dependency deprecation warnings, in 405.95 s. This includes
+the exact decoder, spatial posterior, ImAge/XFeat/ORB adapters, metadata
+collector, full-gallery runner and paired panorama experiment.
 
 ## Public camera metadata and the next controlled tests
 
@@ -200,14 +200,35 @@ ID and channels. Unknown/fisheye types retain their unmodified pixels. The
 transform makes no world-heading or exact central-camera claim for stitched
 panoramas. Its 36 tests and an independent 3D-ray calculation passed; that is
 geometry validation, not a localization result. A separate paired XFeat test
-is being prepared, with a freshly reproduced unmodified control and retained
-correspondences so that geometry can be audited directly.
+uses a freshly reproduced unmodified control and retained correspondences so
+that geometry can be audited directly. This borrows a preprocessing principle
+from [RHO's public utility](https://github.com/InSAI-Lab/RHO/blob/ee6883f6fc7780c4ded3aa06b62d79d84949df8d/maploc/data/mapillary/utils.py);
+it does not reproduce RHO's network or its three-view 120-degree configuration.
 
 The Detroit metadata freeze is
 `21639dac26d61a4794210603f7810dcb38c391d313ff09e5af8e25ce5e30600d`,
 under `E:/monocular-osm-reference-metadata/g5_run1`. The collector's clean
 source is `6f2cfc8b87b3296a6f690ad9b88703c33c50ae6b`, with 66 focused
 metadata/geometry tests passing. It does not produce a location or route.
+
+The same acquisition on all 1,498 night references found only **17 panoramas**,
+with 1,465 perspective images and 16 fisheye/brown images. In the fixed top-eight
+local-matcher lists, 12/640 night occurrences are panoramas, versus 278/640 for
+Detroit. The format hypothesis therefore applies much more strongly to
+Detroit. The night gallery cannot be explained by panoramic distortion alone.
+
+The paired panorama inference completed in 402.05 s on CPU2, with a conservative
+process-tree peak of 1.29 GB resident memory. Both unmodified/rectified routes
+for both galleries were frozen together:
+`98d02f28f7c8df3733c3b76d2334cf687ef9363540c61ac6ddf689b5ccf8a0f6`.
+An independent 170,398-check audit reproduced all 7,320 OpenCV fits and masks,
+hull scores, rankings and all four routes exactly; 1,977 protected files stayed
+unchanged. Its SHA256 is
+`05611027916cf49a3488756a5f084089a3c3df5e44d12a74fe5a9ee047a95e8a`.
+The original 1,920 night pair metrics and all 80 route IDs exactly reproduce
+the previous XFeat control. The 51.4 MB of saved correspondences remove that
+older study's hash-only replay limitation. At this update, separate official
+scoring is pending; no rectification accuracy improvement is claimed.
 
 The unchanged whole-image ImAge experiment also started on the full Detroit
 gallery from clean `d18e629bba6b702c5dda3796affc19ee50ce8f78`. All 32 raw
@@ -217,7 +238,11 @@ matches the original 80-frame control. The runner retains all four outputs
 before scoring, streams one raw pool at a time and checks both physical and
 actual commit headroom before each descriptor batch. It passed 135 focused
 gallery/adapter/decoder tests, with one Windows symlink capability skip.
-At this record's update it is still running; no Detroit ImAge accuracy claim
-is available yet. The estimated 47–50 minutes of CPU encoding is not a measured
-completion time. Its legacy MegaLoc gallery-encoding provenance remains an
-explicit comparison limitation.
+It completed in 2,623.92 s of inference (about 44 minutes), with a conservative
+process-tree peak of 2.275 GB resident memory. The actual model-state identity
+matches the night ImAge test. All four predictions are frozen under
+`E:/monocular-osm-image-gallery-proof/run1/inference`, SHA256
+`acff5f18daabb9774755884adf78ce1b09b233a3e212c5fc6317534be89d334b`.
+Independent input/descriptor/decoder audit and separate scoring are pending;
+no Detroit ImAge accuracy claim is available yet. Its legacy MegaLoc
+gallery-encoding provenance remains an explicit comparison limitation.
