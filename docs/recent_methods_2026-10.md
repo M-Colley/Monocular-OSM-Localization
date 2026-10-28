@@ -736,3 +736,74 @@ files remain byte-identical, with all 30 excluded label/result boundaries
 unchanged by metadata checks. See
 `output/tests-metadata-map-motion-20261028.{xml,log,source.json,review.json}`.
 The last complete fixed-policy selected-answer fleet remains **9/15**.
+
+## Physical-road projection: all twelve variants fail the target
+
+The fixed projection ablation completed all twelve original heading routes
+uniformly, with twelve byte-identical controls. Every one of the 960 rows and
+all timestamps/end rows were retained. The full index uses all 1,415,696
+audited physical ways and 12,135,432 vertices, with one AEQD frame centred on
+the mean of all 9,735 public reference coordinates. All actual route points
+are inside the public extract polygon; the outside/hole unchanged rule remains
+explicit and tested. No distance cap, smoothing, trimming, endpoint pinning,
+alignment or radius search was introduced.
+
+Projection moves points by mean 4.2401 m, median 4.1677 m and maximum 13.6774 m.
+It took 54.69 s on CPU2 with 0.85 GiB peak sampled process-tree RSS.
+An independent implementation rebuilt the complete metric map, proved global
+nearest ways using rectangle candidates and all candidate distances, and
+computed closest points through line project/interpolate. All 107 distinct
+source points and all 960 output rows, numeric-ID ties, inverse coordinates,
+displacements and byte-identical controls passed; 1,992 protected files stayed
+unchanged. This audit uses no producer nearest-point implementation.
+
+All twelve new projected routes still exceed 200 m. The lowest symmetric mean
+is **208.3916317 m**, versus **208.5294520 m** for its original MegaLoc
+raw/heading-erased control, an improvement of only 0.1378203 m. Across all
+twelve pairs, changes range from -0.6851 to +0.8073 m. Every original numeric
+metric reproduces exactly. No variant is adopted; this small lateral
+projection does not solve the remaining route-selection error. It does not
+test connected or directionally legal map matching.
+
+Under `E:/monocular-osm-road-projection-proof`: master
+`d50f71c08b89790393c682e031564647332074db7a8752ec723140247dbd1352`, independent audit
+`7807b5266f1ee3d187887295a66dd42e213fe07331bda881d5d3f1e29ce5bb0c`, all-24 score
+`10e14e71b45558afbc1ea8ef73015da98a0e79ca5eea909bcde1915c65e56507`.
+The first scorer assertion compared metric dictionaries with older annotation
+fields; it failed with no numerical differences. Its source/failure receipt
+is preserved. The corrected scorer checks every numerical metric and retains
+the older annotations separately; no prediction or geometry changed.
+
+## FoL-base: strict complete-state CPU smoke and audit pass
+
+The first strict load failed before any forward because the released checkpoint
+contains `aggregator.dust_bin`, absent from the GitHub inference class. That
+failed run and all 195 source/checkpoint files remain frozen. The authors'
+[published demo implementation](https://huggingface.co/spaces/shunpeng/fol-visual-place-recognition/blob/de6483cd4165412c01786b4fffc14ed8992c0415/fol/aggregator.py)
+documents retaining this unused training scalar for strict checkpoint loading.
+
+A declared compatibility subclass calls the unchanged Git constructor and
+adds only that author-published parameter assignment. It inherits the original
+forward and region selection methods unchanged. Symbolic base-768 schema checks
+and 61 focused tests pass. No checkpoint key is ignored; all 192 tensors and
+90,056,257 elements load strictly, including the actual scalar value. Actual
+model state matches the full checkpoint digest
+`870ad36903cf658a1ee6897139a81f678df87b921fe6054b659bce826e3fbaaa`.
+
+The new runtime smoke completed four native frames at ordinals 0,3,6,9 in
+11.17 s on CPU2/inter-op1, with 0.82 GiB peak sampled RSS. All seven output
+components are saved. Independent audit redecoded the first ten native frames,
+reconstructed all four normalized/resized input tensors, checked every saved
+output shape/dtype/typed hash and global norm, and independently hashed the
+complete weights-only CPU checkpoint and retained scalar. It made no neural
+forward or model constructor call; it does not establish neural output-value
+correctness or geographic localization quality.
+
+Under `E:/monocular-osm-fol-runtime-proof`: failed-run freeze
+`96a7851b248b7ee02874c14140076d013cd3f71efc9f014398997bec5adcb229`, successful run2
+master `8a718914a015e879ddd52d9240c93a912e2c97fe973b236bdc268e0d5bac4129`, audit
+`77c817c5585d903ba74f80b4b7bb26b04e88a74ca0367a91ba90582db4df6f3f`.
+The frozen local DINO source revision remains UNVERIFIED, and 322 is an explicit
+method choice rather than the official parser's 504 default. No FoL++ or
+gallery accuracy claim is made. A complete existing-gallery comparison is
+being prepared separately, with every variant fixed before scoring.
