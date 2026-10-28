@@ -173,3 +173,51 @@ The full tracked regression suite at `206c374` passed **2,727 tests**, with
 four skips and four dependency deprecation warnings, in 380.93 s. This includes
 the exact decoder, spatial posterior and ImAge/XFeat/ORB adapters. New metadata
 and city-gallery experiment runners added later require their own checks.
+
+## Public camera metadata and the next controlled tests
+
+A separate input-only acquisition requested the same seven public metadata
+fields for **every one of the 9,735 Detroit reference IDs**, without selecting
+by location, similarity or GT. All 195 fixed batches returned HTTP 200, with
+2,469,214 decoded bytes and no retries. An independent 14,331-check audit
+reproduced the normalized records from the saved response bodies and verified
+request budgets, IDs, coordinates, source and freezes.
+
+The uniform result contains **7,785 panoramas (79.97%)**: 5,085 `spherical`
+and 2,700 `equirectangular`; 1,947 images are `perspective`, and three have
+unknown camera type. The official MapillaryJS converter treats both panorama
+labels as spherical. Computed heading/rotation is available for 9,703 IDs,
+but a panorama's camera orientation is not the vehicle's travel direction.
+Only 2,921 references belong to repeated capture sequences, with at most six
+members each; this sampled gallery is not a collection of complete traverses.
+
+Hash-verified sample images confirm complete panoramas stretched into the
+cache's 512-square raster. Comparing them with ordinary dashcam crops using a
+pinhole fundamental-matrix model has a projection mismatch. The experimental
+`monocular_osm/panorama_views.py` converts a verified complete equirectangular
+reference into four fixed 90-degree perspective views, preserving the original
+ID and channels. Unknown/fisheye types retain their unmodified pixels. The
+transform makes no world-heading or exact central-camera claim for stitched
+panoramas. Its 36 tests and an independent 3D-ray calculation passed; that is
+geometry validation, not a localization result. A separate paired XFeat test
+is being prepared, with a freshly reproduced unmodified control and retained
+correspondences so that geometry can be audited directly.
+
+The Detroit metadata freeze is
+`21639dac26d61a4794210603f7810dcb38c391d313ff09e5af8e25ce5e30600d`,
+under `E:/monocular-osm-reference-metadata/g5_run1`. The collector's clean
+source is `6f2cfc8b87b3296a6f690ad9b88703c33c50ae6b`, with 66 focused
+metadata/geometry tests passing. It does not produce a location or route.
+
+The unchanged whole-image ImAge experiment also started on the full Detroit
+gallery from clean `d18e629bba6b702c5dda3796affc19ee50ce8f78`. All 32 raw
+archives and 9,735 canonical IDs have verified pixels, without duplicate
+conflicts; every native query pixel, source ordinal and actual timestamp
+matches the original 80-frame control. The runner retains all four outputs
+before scoring, streams one raw pool at a time and checks both physical and
+actual commit headroom before each descriptor batch. It passed 135 focused
+gallery/adapter/decoder tests, with one Windows symlink capability skip.
+At this record's update it is still running; no Detroit ImAge accuracy claim
+is available yet. The estimated 47–50 minutes of CPU encoding is not a measured
+completion time. Its legacy MegaLoc gallery-encoding provenance remains an
+explicit comparison limitation.
