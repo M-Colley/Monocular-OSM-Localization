@@ -178,3 +178,33 @@ def test_fixed_profile_cannot_be_overridden_or_silently_mutated():
     plan["profile"]["cap"] = 10
     with pytest.raises(ValueError, match="profile content changed"):
         decode_single_branch_image_track(evidence, plan, query_video_sha256=VIDEO)
+
+
+@pytest.mark.parametrize("window", [None, [0.], [-1., 100.], [2., 2.], [0., "later"], [False, 100.]])
+def test_native_ocr_window_must_be_declared_and_finite(window):
+    original = _plan()
+    native = original["ocr_provenance"]
+    native["window"] = window
+    with pytest.raises(ValueError, match="window"):
+        plan_single_branch(original["clues"], native)
+
+
+@pytest.mark.parametrize("times", [[1000., 1001., 1002.], [0., 1., 101.]])
+def test_same_video_evidence_outside_native_ocr_window_is_refused(times):
+    plan = _plan()
+    evidence = _evidence(plan)
+    evidence["query_times"] = np.array(times)
+    with pytest.raises(ValueError, match="native OCR video window"):
+        decode_single_branch_image_track(evidence, plan, query_video_sha256=VIDEO)
+
+
+def test_query_cannot_precede_native_ocr_window_and_open_ended_window_is_allowed():
+    original = _plan()
+    native = original["ocr_provenance"]
+    native["window"] = [1., None]
+    plan = plan_single_branch(original["clues"], native)
+    evidence = _evidence(plan)
+    with pytest.raises(ValueError, match="native OCR video window"):
+        decode_single_branch_image_track(evidence, plan, query_video_sha256=VIDEO)
+    evidence["query_times"] += 1.
+    assert decode_single_branch_image_track(evidence, plan, query_video_sha256=VIDEO)["status"] == "complete"

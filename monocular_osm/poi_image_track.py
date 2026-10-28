@@ -42,6 +42,22 @@ def _digest_string(value):
     return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
 
 
+def _native_window(native):
+    window = native.get("window")
+    if not isinstance(window, (list, tuple)) or len(window) != 2:
+        raise ValueError("native OCR needs a declared finite-start video window")
+    try:
+        start = float(window[0])
+        end = None if window[1] is None else float(window[1])
+    except (TypeError, ValueError):
+        raise ValueError("native OCR video window must have numeric limits") from None
+    if (isinstance(window[0], bool) or isinstance(window[1], bool)
+            or not np.isfinite(start) or start < 0
+            or (end is not None and (not np.isfinite(end) or end <= start))):
+        raise ValueError("native OCR video window must have finite ordered limits")
+    return start, end
+
+
 def plan_single_branch(clues, ocr_provenance):
     """Plan the entire sole literal branch; zero/ambiguous branches refuse."""
     if not isinstance(clues, Mapping) or clues.get("selected_answer") is not None:
@@ -52,6 +68,7 @@ def plan_single_branch(clues, ocr_provenance):
     if not isinstance(ocr_provenance, Mapping):
         raise ValueError("native same-video OCR provenance is required")
     native = json.loads(json.dumps(dict(ocr_provenance), allow_nan=False))
+    _native_window(native)
     inventory = clues.get("inventory") or {}
     if not isinstance(inventory, Mapping):
         raise ValueError("fingerprinted city inventory provenance is required")
@@ -135,6 +152,9 @@ def _validated_evidence(evidence, plan, query_video_sha256):
             or np.any(scores < -1 - PROFILE["cosine_tolerance"])
             or np.any(scores > 1 + PROFILE["cosine_tolerance"])):
         raise ValueError("query/reference shapes, finite cosines and actual ordered timestamps must agree")
+    start, end = _native_window(plan["ocr_provenance"])
+    if times[0] < start or (end is not None and times[-1] > end):
+        raise ValueError("query timestamps must remain within the native OCR video window")
     times, refs = np.asarray(times, float), np.asarray(refs, float)
     scores = np.ascontiguousarray(scores, dtype=np.float32)
     intervals = np.diff(times)
@@ -174,7 +194,11 @@ def _decode(centered, xy, times):
 
 
 def decode_single_branch_image_track(evidence, plan, *, query_video_sha256):
-    """Decode full evidence with no VO input and no acquisition fallback."""
+    """Decode full evidence; caller binds its rows/indices to actual input pixels.
+
+    This pure API verifies video identity and the registered native OCR window.
+    It cannot itself inspect the extraction grid or pixels, and accepts no VO.
+    """
     indices, times, refs, scores, ids, frame, xy, provenance = _validated_evidence(
         evidence, plan, query_video_sha256)
     order = np.argsort(ids, kind="stable")
