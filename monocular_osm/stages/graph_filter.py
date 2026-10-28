@@ -2,10 +2,11 @@
 
 Runs :mod:`monocular_osm.graph_filter` — sequential Monte Carlo localisation on
 the directed OSM road graph (Brubaker et al., CVPR 2013 style) — on the visual
-odometry and stores its route beside, never instead of, the matcher's answer:
+odometry. The companion mode stores its route beside the matcher's answer:
 ``result["graph_filter"]`` carries the filter's summary and
 ``result["filter_position"]`` a position report the benchmark can score as a
-separate method.
+separate method. The explicit ``--answer filter`` mode skips retrieval/matching,
+uses an independent whole-city graph and selects that route as the answer.
 
 **Evidence has two input regimes.** The historical KITTI evaluation used raw
 camera PNGs, calibrated rectified intrinsics and OXTS sensor timestamps. Its
@@ -15,11 +16,14 @@ under that research setup; default pipeline settings require separate tests.
 
 A fresh MP4-plus-city-only probe used generic 70-degree intrinsics, video
 presentation times, assumed camera height 1.5 m, stride 1 and 600,000 particles.
-Seed 0 localized at 78.5 video seconds: mean mode error thereafter 5.48 m,
-final mode error 13.30 m, smoothed-route symmetric error 4.83 m against the
-committed waypoints. Prediction and input/source hashes were frozen before
-separate GPS scoring. This is one seed on one drive, with explicit experimental
-settings; see ``docs/graph_filter_kitti.md`` for provenance and limitations.
+Seeds 0-4 localized at 76.5-79.5 video seconds: mean mode error thereafter
+5.35 +/- 0.17 m, final mode error 13.38 +/- 0.13 m, smoothed-route symmetric
+error 5.02 +/- 0.24 m against the committed waypoints. Predictions and hashes
+were frozen before separate scoring; seeds 1-4 reused the exact frozen
+MP4-derived VO and plane odometry, changing only the PF seed. Whole-run online
+mean error was still 4.36 km because the early modes were wrong. This tests
+Monte Carlo robustness on one drive with explicit experimental settings; see
+``docs/graph_filter_kitti.md`` for provenance and limitations.
 
 By default (``graph_filter_speed="plane"``), metric lengths come from the road
 plane and an assumed camera height (:mod:`monocular_osm.plane_speed`). Unit-step
@@ -42,6 +46,30 @@ _TARGET_STEP_S = 0.5
 #: Below this fraction of moving steps with a road-plane estimate, the speed
 #: profile is mostly interpolation: use unit steps and say so.
 _MIN_PLANE_COVERAGE = 0.2
+
+
+def _whole_city_map(ctx):
+    """Load the filter's independent city map, without any retrieval/seed crop."""
+    from pathlib import Path
+    import osmnx as ox
+    from ..graph_filter import fetch_drive_graph
+    from ..provenance import file_sha256
+
+    explicit = getattr(ctx.cfg, "graph_filter_map_path", None)
+    if explicit is not None:
+        path = Path(explicit).resolve(strict=True)
+        graph = ox.load_graphml(path)
+        source = "explicit_cache"
+    else:
+        slug = ctx.cfg.city.replace(",", "").replace(" ", "_")
+        path = (ctx.cfg.data_dir / f"{slug}_graph_filter_city.graphml").resolve()
+        before = file_sha256(path) if path.is_file() else None
+        graph = fetch_drive_graph(place=ctx.cfg.city, cache_path=path)
+        source = "city_cache" if before is not None and before == file_sha256(path) else "named_city_fetch"
+    metadata = {"scope": "whole_city", "city": ctx.cfg.city, "query": ctx.cfg.city,
+                "cache_path": str(path), "configured_path": str(explicit) if explicit is not None else None,
+                "sha256": file_sha256(path), "source": source, "around": None, "bbox": None}
+    return graph, metadata
 
 
 def _plane_speed(ctx: RunContext):
@@ -74,7 +102,10 @@ def graph_filter_channel(ctx: RunContext) -> None:
         return
 
     road, traj, frames = ctx.road, ctx.traj, ctx.frames
-    if road is None or traj is None or frames is None or len(frames.timestamps) < 3:
+    filter_only = cfg.answer == "filter"
+    independent_map = filter_only or getattr(cfg, "graph_filter_map_path", None) is not None
+    if (traj is None or frames is None or len(frames.timestamps) < 3
+            or (road is None and not independent_map)):
         _record_channel(ctx.channel_status, "graph_filter", "inactive",
                         reason="no road graph / trajectory")
         return
@@ -91,14 +122,36 @@ def graph_filter_channel(ctx: RunContext) -> None:
 
         print(f"[9b] Road-graph particle filter "
               f"({cfg.graph_filter_particles:,} particles, seed {cfg.graph_filter_seed})")
-        frame_dt = float(np.median(np.diff(np.asarray(frames.timestamps, float))))
+        timestamps = np.asarray(frames.timestamps, float)
+        intervals = np.diff(timestamps)
+        if (len(timestamps) != len(traj.xz) or not np.isfinite(timestamps).all()
+                or np.any(intervals <= 0)):
+            raise ValueError("filter requires finite increasing video timestamps matching its VO poses")
+        frame_dt = float(np.median(intervals))
         speed = _plane_speed(ctx) if cfg.graph_filter_speed == "plane" else None
         odom = odometry_from_trajectory(
             traj, frame_dt, heading_source="rotation",
             step_lengths_m=None if speed is None else speed.lengths_m)
+        odom.dt = intervals
         factor = max(1, int(round(_TARGET_STEP_S / max(frame_dt, 1e-3))))
         odom = aggregate_odometry(odom, factor)
-        net = RoadNetwork.from_graph(road.graph)
+        map_input = None
+        if independent_map:
+            graph, map_input = _whole_city_map(ctx)
+            if filter_only:
+                from pathlib import Path
+                from ..osm_data import _build_polyline_view
+                from ..provenance import config_snapshot
+                from .report import _write_result_json
+
+                ctx.road = road = _build_polyline_view(graph)
+                ctx.cache_path = Path(map_input["cache_path"])
+                ctx.result["filter_inputs"]["map"] = map_input
+                _write_result_json(cfg.output_dir / "filter_inputs.json",
+                                   {**ctx.result["filter_inputs"], "config": config_snapshot(cfg)})
+        else:
+            graph = road.graph
+        net = RoadNetwork.from_graph(graph)
 
         obs: list = []
         if cfg.graph_filter_vpr and ctx.vpr_track is not None and ctx.anchor_origin == "vpr":
@@ -106,13 +159,16 @@ def graph_filter_channel(ctx: RunContext) -> None:
             # (a look-alike street across the city): a wide sigma and a high
             # outlier probability keep one bad frame from pulling the cloud.
             idx, latlons, _sims = ctx.vpr_track
-            xy = latlon_to_xy(np.asarray(latlons, float), road.crs)
+            xy = latlon_to_xy(np.asarray(latlons, float), net.crs)
             for fi, (x, y) in zip(np.asarray(idx, int), xy):
                 obs.append(PositionObservation(step=int(round(fi / factor)),
                                                x=float(x), y=float(y),
                                                sigma_m=40.0, outlier=0.4))
         fcfg = FilterConfig(n_particles=int(cfg.graph_filter_particles),
                             seed=int(cfg.graph_filter_seed))
+        budget_mib = getattr(cfg, "graph_filter_path_budget_mb", None)
+        if budget_mib is not None:
+            fcfg.path_budget_mb = float(budget_mib) * 1024 ** 2 / 1e6
         if speed is not None:
             # As in the KITTI evaluation: a wide global-scale prior for the
             # assumed camera height, per-step noise from the estimator's own
@@ -121,6 +177,16 @@ def graph_filter_channel(ctx: RunContext) -> None:
             dev = speed.rel_spread if np.isfinite(speed.rel_spread) else 0.15
             fcfg.metric_speed_dev_sigma = float(np.clip(dev, 0.05, 0.3))
         res = run_filter(net, odom, fcfg, position_obs=obs)
+        if filter_only:
+            prediction = res.to_json()
+            prediction["video_times_s"] = timestamps[res.frame_index].tolist()
+            prediction["input_policy"] = ctx.result["filter_inputs"]["input_policy"]
+            _write_result_json(cfg.output_dir / "filter_prediction.json", prediction)
+            np.savez_compressed(cfg.output_dir / "filter_prediction.npz", times=res.times,
+                                frame_index=res.frame_index, video_times_s=timestamps[res.frame_index],
+                                mode_latlon=res.mode_latlon, smoothed_latlon=res.smoothed_latlon,
+                                final_xy=res.final_xy, final_w=res.final_w,
+                                confidence=res.confidence, n_modes=res.n_modes)
     except Exception as e:  # an experimental channel must never sink the run
         print(f"      -> graph filter failed ({type(e).__name__}: {e})")
         _record_channel(ctx.channel_status, "graph_filter", "failed", error=e)
@@ -131,7 +197,7 @@ def graph_filter_channel(ctx: RunContext) -> None:
     keep = np.unique(np.linspace(0, len(route) - 1,
                                  min(len(route), _MAX_ROUTE_POINTS)).round().astype(int))
     route = route[keep]
-    times = np.asarray(res.times, float)[keep] if len(res.times) == len(res.mode_latlon) else None
+    times = timestamps[np.asarray(res.frame_index, int)][keep]
     final = np.asarray(res.mode_latlon, float)[-1]
     conf = float(res.confidence[-1])
     n_modes = int(res.n_modes[-1])
@@ -154,6 +220,8 @@ def graph_filter_channel(ctx: RunContext) -> None:
         "n_reinit": int(res.n_reinit),
         "runtime_s": round(float(res.runtime_s), 1),
         "map": res.map_stats,
+        "map_input": map_input,
+        "config": res.config,
     }
     report = {
         "source": "graph_filter",

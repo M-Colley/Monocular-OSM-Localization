@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from scripts.probe_strict_video_filter import metric_config, parser, video_odometry, write_json
+from scripts.probe_strict_video_filter import metric_config, parser, preserve_sources, sha256, video_odometry, write_json
 
 
 def test_video_pts_define_filter_time_and_aggregation():
@@ -43,3 +43,16 @@ def test_json_artifacts_do_not_emit_nonfinite_values(tmp_path):
     path = tmp_path / "prediction.json"
     write_json(path, {"metric": float("nan"), "nested": [float("inf"), 2.0]})
     assert json.loads(path.read_text()) == {"metric": None, "nested": [None, 2.0]}
+
+
+def test_replay_source_snapshots_preserve_the_hashed_bytes(tmp_path):
+    root, output = tmp_path / "code", tmp_path / "experiment"
+    source = root / "package" / "filter.py"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"# exact original source\r\n")
+    hashes = preserve_sources([source], output, root)
+    relative = str(source.relative_to(root))
+    snapshot = output / "source_snapshot" / relative
+    assert hashes[relative] == sha256(snapshot) == sha256(source)
+    source.write_bytes(b"# later checkout change\n")
+    assert hashes[relative] == sha256(snapshot) != sha256(source)

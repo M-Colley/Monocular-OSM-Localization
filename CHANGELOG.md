@@ -6,6 +6,26 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Independent video-only road-graph filter
+
+- Added opt-in `--answer filter` / `--graph-filter-only`: selects the filter
+  route in the console, maps, checkpoint and benchmark while skipping
+  retrieval and shape matching. Existing default behavior is retained.
+- The profile uses an independent whole-city map, generic 70° intrinsics,
+  actual video PTS, road-plane height 1.5 m, 600,000 particles, seed 0,
+  two VO workers, approximately 10 Hz sampling and 256 MiB genealogy by
+  default. Explicit stride, particle count and other filter knobs are recorded.
+- `--graph-filter-map-path` accepts a trusted whole-city database. Provenance
+  records its configured/actual path, city/query, scope, cache source and SHA;
+  input and override audits remain strict. Hashes bind the file, not its
+  acquisition history. Predictions and source bytes freeze before scoring.
+- Strict MP4-derived KITTI 0033 filtering localized all five PF seeds on
+  one fixed VO estimate: symmetric smoothed-route error 5.02 ± 0.24 m,
+  with whole-run online error still 4.36 ± 0.63 km. The normal CLI computed
+  fresh VO and reproduced seed 0 bit-for-bit, with 4.83 m selected-route
+  error and peak private commit 1,432 MB. Historical calibrated-camera /
+  OXTS-time research is labeled separately; fleet accuracy remains unproven.
+
 ### Retrieval output and benchmark reliability
 
 - The selected `result.answer` now drives the console position, map links and

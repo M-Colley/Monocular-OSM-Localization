@@ -29,7 +29,9 @@ class PipelineConfig:
     # None = no cap; the [vo_start_sec, vo_end_sec] segment bounds the
     # frame count. A fixed cap silently truncates longer segments.
     max_frames: int | None = None
-    frame_stride: int = 6
+    # None resolves to the historical stride 6, or measured ~10 Hz video
+    # sampling for the opt-in filter answer after acquiring the video.
+    frame_stride: int | None = None
     frame_memory_mb: float = 512.0
     frame_max_width: int | None = None
     # Skip geometry when retrieval produced a track; without a track the full
@@ -47,12 +49,17 @@ class PipelineConfig:
     # a runtime/recall trade-off to measure (scripts/diagnose_pool_recall.py).
     walks_per_node: int = 40
     # Opt-in road-graph particle filter (monocular_osm/graph_filter.py): runs on
-    # the VO and stores its route in result["filter_position"], never as the
-    # headline. Needs metric odometry to work (see stages/graph_filter.py).
+    # the VO and stores its route in result["filter_position"]. The explicit
+    # answer='filter' mode selects it and skips retrieval/matching.
     graph_filter: bool = False
-    graph_filter_particles: int = 200_000
+    graph_filter_particles: int | None = None
     graph_filter_seed: int = 0
     graph_filter_vpr: bool = False     # also feed VPR positions as observations
+    graph_filter_map_path: Path | None = None
+    # MiB requested by the user; None preserves the companion channel's
+    # existing budget, and resolves to 256 MiB for the filter-only answer.
+    graph_filter_path_budget_mb: float | None = None
+    graph_filter_target_hz: float = 10.0
     # Step lengths for the filter: "plane" = metric, from the road-plane
     # homography and an assumed camera height (monocular_osm/plane_speed.py);
     # "unit" = the VO's unit steps (no speed).
@@ -345,8 +352,34 @@ class PipelineConfig:
             raise ValueError("frame_memory_mb must be positive and finite")
         if self.frame_max_width is not None and self.frame_max_width <= 0:
             raise ValueError("frame_max_width must be positive")
-        if self.answer not in {"track", "fit", "checked"}:
-            raise ValueError("answer must be track, fit or checked")
+        if self.answer not in {"track", "fit", "checked", "filter"}:
+            raise ValueError("answer must be track, fit, checked or filter")
+        filter_only = self.answer == "filter"
+        if self.frame_stride is None and not filter_only:
+            self.frame_stride = 6
+        if self.frame_stride is not None and self.frame_stride <= 0:
+            raise ValueError("frame_stride must be positive")
+        if self.graph_filter_particles is None:
+            self.graph_filter_particles = 600_000 if filter_only else 200_000
+        if self.graph_filter_particles <= 0:
+            raise ValueError("graph_filter_particles must be positive")
+        if not math.isfinite(self.graph_filter_target_hz) or self.graph_filter_target_hz <= 0:
+            raise ValueError("graph_filter_target_hz must be positive and finite")
+        if filter_only:
+            self.graph_filter = True
+            if self.vo_workers is None:
+                self.vo_workers = 2
+            if self.graph_filter_path_budget_mb is None:
+                self.graph_filter_path_budget_mb = 256.0
+            if (self.osm_around is not None or self.estimated_length_m is not None
+                    or self.ground_truth_waypoints is not None
+                    or self.ground_truth_streets or self.graph_filter_vpr):
+                raise ValueError("filter answer requires city-only inputs and no position observations; score separately")
+            if self.use_ground_flow_scale:
+                raise ValueError("filter answer uses fresh visual odometry with road-plane speed")
+        if self.graph_filter_path_budget_mb is not None and (
+                not math.isfinite(self.graph_filter_path_budget_mb) or self.graph_filter_path_budget_mb <= 0):
+            raise ValueError("graph_filter_path_budget_mb must be positive and finite")
         if self.vpr_query_mode not in {"warp", "crops", "aspect"}:
             raise ValueError("vpr_query_mode must be warp, crops or aspect")
         if self.vpr_query_batch_size <= 0:
@@ -517,11 +550,20 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
             ctx.frames.close()
 
 
+def _run_filter_only(ctx: RunContext) -> dict:
+    from .stages.filter_only import run_filter_only
+
+    return run_filter_only(ctx, extract=extract_video_frames, run_vo=run_visual_odometry,
+                           run_filter=graph_filter_channel, finalize=finalize_result)
+
+
 def _run_pipeline_stages(ctx: RunContext) -> dict:
     cfg = ctx.cfg
 
     # 1-2. The video and its frames.
     acquire_video(ctx)
+    if cfg.answer == "filter":
+        return _run_filter_only(ctx)
     query_only = (cfg.retrieval_only and cfg.answer == "track" and cfg.use_vpr_prior
                   and not cfg.use_ipm_scale)
     if query_only:

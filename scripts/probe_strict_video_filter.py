@@ -64,6 +64,22 @@ def write_json(path, value):
     os.replace(temporary, path)
 
 
+def preserve_sources(paths, output, root=ROOT):
+    """Keep the actual hashed source bytes so later replay needs no live checkout."""
+    hashes = {}
+    for path in paths:
+        relative = str(Path(path).resolve().relative_to(Path(root).resolve()))
+        data = Path(path).read_bytes()
+        hashes[relative] = hashlib.sha256(data).hexdigest()
+        snapshot = Path(output) / "source_snapshot" / relative
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        snapshot.write_bytes(data)
+    write_json(Path(output) / "source_snapshot.json", {
+        "purpose": "Source bytes preserved before inference and separate scoring.",
+        "files": {relative: {"sha256": value} for relative, value in hashes.items()}})
+    return hashes
+
+
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--video", type=Path, required=True)
@@ -159,11 +175,12 @@ def main(argv=None):
 
     source_paths = [Path(__file__).resolve(), *[ROOT / "monocular_osm" / name for name in
                    ("visual_odometry.py", "plane_speed.py", "graph_filter.py", "frame_extraction.py")]]
+    source_hashes = preserve_sources(source_paths, out)
     config = {"created_utc": datetime.now(timezone.utc).isoformat(), "city": args.city,
               "video": str(video), "graph": str(graph), "video_sha256": sha256(video),
               "graph_sha256": sha256(graph), "window": {"start_sec": args.start, "end_sec": args.end},
               "container_fps": fps, "container_frame_count": int(n_header),
-              "source_sha256": {str(p.relative_to(ROOT)): sha256(p) for p in source_paths},
+              "source_sha256": source_hashes,
               "dependencies": {name: importlib.metadata.version(name) for name in
                                ("numpy", "opencv-python", "scipy", "scikit-image", "osmnx")},
               "vo": {"fresh": True, "version": VO_ALGO_VERSION, "stride": 1, "max_frames": None,

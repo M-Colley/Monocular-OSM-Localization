@@ -178,6 +178,7 @@ def finalize_result(ctx: RunContext) -> None:
     # trajectory fit so runs remain comparable across versions.
     from .. import baselines as _bl
     _pick = {"fit": _bl.pipeline_headline, "track": _bl.vpr_track_only,
+             "filter": _bl.graph_filter_only,
              "checked": _bl.track_checked}[cfg.answer](result)
     if _pick is None and cfg.answer == "track":
         _pick = _bl.pipeline_headline(result)          # no track: the fit
@@ -188,6 +189,8 @@ def finalize_result(ctx: RunContext) -> None:
             _pick.route_latlon, mode=cfg.answer,
             method=_pick.meta.get("chose", _pick.name), source=_pick.source,
             disagreement_m=_pick.meta.get("disagreement_m"))
+        if cfg.answer == "filter" and "route_t_sec" in result.get("filter_position", {}):
+            result["answer"]["route_t_sec"] = result["filter_position"]["route_t_sec"]
         _answer_map = cfg.output_dir / "answer.png"
         try:
             plot_answer(result["answer"], _answer_map, road=road)
@@ -217,6 +220,7 @@ def finalize_result(ctx: RunContext) -> None:
     _g = road.graph.graph if road is not None else {}
     result["provenance"] = collect_provenance(
         cfg, extra={"vo_algo_version": VO_ALGO_VERSION,
+                    "graph_filter_inputs": result.get("filter_inputs"),
                     "vo_cache": str(vo_cache) if vo_cache is not None else None,
                     "osm_graph": {
                         "cache": str(cache_path) if cache_path is not None else None,

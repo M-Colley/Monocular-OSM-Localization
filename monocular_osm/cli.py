@@ -246,9 +246,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="EXPERIMENTAL, off by default: also run the road-graph particle "
                         "filter (monocular_osm/graph_filter.py) on the visual odometry and "
                         "store its route in result['filter_position'] (never the headline). "
-                        "It needs speed: with road-plane step lengths (the default, "
-                        "--graph-filter-speed plane) it localized KITTI 0033 on the whole "
-                        "Karlsruhe map in 5 of 5 seeds; with unit steps it mostly fails. "
+                        "For independent whole-city video-only filtering use --answer filter. "
                         "See docs/graph_filter_kitti.md; its confidence is not calibrated.")
     p.add_argument("--graph-filter-speed", choices=("plane", "unit"), default="plane",
                    help="Step lengths for --graph-filter: 'plane' = metric, from the road "
@@ -258,9 +256,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Assumed camera height above the road for --graph-filter-speed "
                         "plane (a typical windscreen dashcam is 1.2-1.7 m). It sets a "
                         "global scale only, which the filter's scale state absorbs.")
-    p.add_argument("--graph-filter-particles", type=int, default=200_000,
-                   help="Particle count for --graph-filter (memory ~2 GB and ~2-4 min "
-                        "at 200k; the whole-city evaluation used 600k).")
+    p.add_argument("--graph-filter-particles", type=int, default=None,
+                   help="Particle count: default 200000 for the companion channel, "
+                        "600000 for --answer filter.")
+    p.add_argument("--graph-filter-map-path", type=Path, default=None,
+                   help="Existing whole-city driving GraphML for the filter; never refetched "
+                        "if this explicit file is missing or invalid. Filter-only mode otherwise "
+                        "loads a dedicated named-city cache, independent of retrieval discs.")
+    p.add_argument("--graph-filter-path-budget-mb", type=float, default=None,
+                   help="Genealogy memory budget in MiB (filter-only default 256); "
+                        "does not change the particle modes.")
+    p.add_argument("--graph-filter-target-hz", type=float, default=10.0,
+                   help="Video sampling rate for --answer filter when --frame-stride is omitted "
+                        "(default 10 Hz, limited by the video's own FPS).")
     p.add_argument("--graph-filter-seed", type=int, default=0,
                    help="Random seed for --graph-filter.")
     p.add_argument("--graph-filter-vpr", action="store_true",
@@ -529,13 +537,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "is wider than --vpr-search-radius, also search a sparse "
                         "outer ring of references out to the seed radius (max "
                         "8 km), keeping the dense core set unchanged.")
-    p.add_argument("--answer", choices=["fit", "track", "checked"], default="track",
+    p.add_argument("--answer", choices=["fit", "track", "checked", "filter"], default="track",
                    help="Route written to result['answer']: the retrieval track "
                         "itself (default; the fit when retrieval found nothing), the "
                         "trajectory fit (result['position']), or the fit checked "
                         "against the track (replaced by the track when they disagree "
                         "by over 250 m). Chosen by the pre-registered "
-                        "answer_selection rule on the dev clips.")
+                        "answer_selection rule on the dev clips. 'filter' runs only video VO "
+                        "and the independent whole-city road-graph filter; skips retrieval/matching.")
+    p.add_argument("--graph-filter-only", action="store_const", const="filter", dest="answer",
+                   help="Alias for --answer filter; saves and selects the independent filter route.")
     p.add_argument("--vpr-c2f-radius", type=float, default=2000.0,
                    help="Tight second-pass disc radius (m) for "
                         "--vpr-coarse-to-fine (default 2000).")
@@ -759,7 +770,7 @@ def main() -> None:
         # video, not from ground truth.
         sub_osm_around = osm_around
         osm_around_source = "user" if osm_around is not None else None
-        if sub_osm_around is None and args.coarse_from_video:
+        if sub_osm_around is None and args.coarse_from_video and args.answer != "filter":
             from .location_prior import resolve_coarse_prior
             # Two corroborating place names, as for OCR seeds: one title word
             # becomes an 800 m hard gate on retrieval and the road graph, and
@@ -790,7 +801,7 @@ def main() -> None:
         # half the intended stride (2x the VO cost) and a VO cache no
         # --skip-download rerun can reuse.
         frame_stride = args.frame_stride
-        if frame_stride is None:
+        if frame_stride is None and args.answer != "filter":
             probe = local_path
             if probe is None:
                 # Same pick the pipeline uses to choose the analyzed file, so
@@ -821,6 +832,9 @@ def main() -> None:
             graph_filter_seed=args.graph_filter_seed,
             graph_filter_vpr=args.graph_filter_vpr,
             graph_filter_speed=args.graph_filter_speed,
+            graph_filter_map_path=args.graph_filter_map_path,
+            graph_filter_path_budget_mb=args.graph_filter_path_budget_mb,
+            graph_filter_target_hz=args.graph_filter_target_hz,
             camera_height_m=args.camera_height_m,
             fusion_weights=args.fusion_weights,
             scale_recovery_thresh_m=args.scale_recovery_thresh_m,

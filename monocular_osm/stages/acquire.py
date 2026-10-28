@@ -101,6 +101,21 @@ def extract_video_frames(ctx: RunContext, *, query_only: bool = False) -> None:
     """Decode the analysed window of the video -> ``ctx.frames``."""
     cfg = ctx.cfg
     video_path = ctx.video_path
+    if cfg.answer == "filter":
+        import math
+        import cv2
+
+        cap = cv2.VideoCapture(str(video_path))
+        try:
+            fps = float(cap.get(cv2.CAP_PROP_FPS)) if cap.isOpened() else 0.0
+        finally:
+            cap.release()
+        if not math.isfinite(fps) or fps <= 0:
+            raise ValueError("filter answer requires a usable encoded video FPS; refusing an assumed timebase")
+        if cfg.frame_stride is None:
+            cfg.frame_stride = max(1, int(round(fps / cfg.graph_filter_target_hz)))
+        if query_only:
+            raise ValueError("filter answer requires dense temporal acquisition")
 
     # 2. Frames.
     print(f"[2/5] Extracting frames (stride={cfg.frame_stride}, "

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as _dt
+import hashlib
 import importlib.metadata as _md
 import os
 import platform
@@ -39,6 +40,28 @@ TRACKED_DISTRIBUTIONS = (
 SECRET_ENV_VARS = ("MLY_TOKEN",)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def file_sha256(path: Path | str) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def snapshot_sources(paths, output_dir: Path, *, root: Path = _REPO_ROOT) -> dict[str, str]:
+    """Preserve the exact bytes whose hashes identify a prediction's source."""
+    hashes = {}
+    for path in paths:
+        path = Path(path).resolve()
+        relative = str(path.relative_to(root.resolve()))
+        data = path.read_bytes()
+        destination = Path(output_dir) / "source_snapshot" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        hashes[relative] = hashlib.sha256(data).hexdigest()
+    return hashes
 
 
 def _git(*args: str) -> str | None:

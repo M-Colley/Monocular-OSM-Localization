@@ -67,11 +67,137 @@ def test_complete_registered_development_target_passes():
     assert not report["reasons"] and not report["missing_ids"]
 
 
+def _filter_contract(city):
+    config = {"answer": "filter", "graph_filter": True, "graph_filter_vpr": False,
+              "graph_filter_map_path": None, "city": city, "osm_around": None,
+              "estimated_length_m": None}
+    inputs = {"input_policy": {key: False for key in (
+        "calibration", "raw_images", "sensor_timestamps", "gps_or_oxts",
+        "ground_truth", "retrieval", "initial_position")},
+        "video": {"path": "/videos/registered.mp4", "sha256": "a" * 64},
+        "timing": {"source": "video_pts_or_encoded_fps"},
+        "map": {"scope": "whole_city", "city": city, "query": city,
+                "cache_path": "/maps/whole_city.graphml", "sha256": "b" * 64,
+                "source": "named_city_fetch", "around": None, "bbox": None}}
+    return config, inputs
+
+
+def _valid_filter(repeats=1):
+    summary, manifest = _valid(repeats=repeats)
+    for rep in summary["reps"]:
+        cfg, inputs = _filter_contract("Registered city")
+        rep["provenance"] = {"config": cfg, "graph_filter_inputs": inputs}
+        rep["scores"]["answer"]["meta"] = {"mode": "filter", "method": "graph_filter_only"}
+    return summary, manifest
+
+
+def test_filter_goal_requires_full_input_contract_and_preserves_legacy_modes():
+    summary, manifest = _valid_filter(repeats=2)
+    report = M.check_goal(summary, manifest, min_repeats=2)
+    assert report["goal_met"] and report["n_passing"] == 15
+    assert "acquisition history" in report["input_contract_notes"][0]
+    for mode in ("fit", "track", "checked"):
+        legacy, manifest = _valid()
+        for rep in legacy["reps"]:
+            rep["scores"]["answer"]["meta"]["mode"] = mode
+        assert M.check_goal(legacy, manifest)["goal_met"]
+
+
+@pytest.mark.parametrize("field", ["calibration", "raw_images", "sensor_timestamps", "gps_or_oxts",
+                                   "ground_truth", "retrieval", "initial_position"])
+@pytest.mark.parametrize("value", [True, None])
+def test_filter_rejects_external_or_unknown_input_policy(field, value):
+    summary, manifest = _valid_filter()
+    policy = summary["reps"][0]["provenance"]["graph_filter_inputs"]["input_policy"]
+    if value is None:
+        policy.pop(field)
+    else:
+        policy[field] = value
+    assert not M.check_goal(summary, manifest)["goal_met"]
+
+
 def test_missing_clip_cannot_change_the_denominator():
     summary, manifest = _valid()
     summary["clips"].pop("clip14")
     report = M.check_goal(summary, manifest)
     assert not report["goal_met"] and report["missing_ids"] == ["clip14"]
+
+
+@pytest.mark.parametrize("change", ["missing_audit", "mode_config", "disabled", "vpr",
+                                    "method", "seed", "length", "video_hash", "video_path",
+                                    "timing", "map_scope", "map_city", "map_query", "map_hash",
+                                    "map_source", "map_path", "around", "bbox", "missing_bbox"])
+def test_filter_rejects_stale_method_cropped_map_and_unproven_input_contract(change):
+    summary, manifest = _valid_filter()
+    rep = summary["reps"][0]
+    cfg = rep["provenance"]["config"]
+    inputs = rep["provenance"]["graph_filter_inputs"]
+    graph = inputs["map"]
+    if change == "missing_audit":
+        rep["provenance"].pop("graph_filter_inputs")
+    elif change == "mode_config": cfg["answer"] = "track"
+    elif change == "disabled": cfg["graph_filter"] = False
+    elif change == "vpr": cfg["graph_filter_vpr"] = True
+    elif change == "method": rep["scores"]["answer"]["meta"]["method"] = "vpr_track_only"
+    elif change == "seed": cfg.update(osm_around=[48.4, 9.9, 3000], osm_around_source="video_title")
+    elif change == "length": cfg["estimated_length_m"] = 1000
+    elif change == "video_hash": inputs["video"]["sha256"] = "unknown"
+    elif change == "video_path": inputs["video"]["path"] = "relative.mp4"
+    elif change == "timing": inputs["timing"]["source"] = "sensor_timestamps"
+    elif change == "map_scope": graph["scope"] = "clip_bbox"
+    elif change == "map_city": graph["city"] = "Another city"
+    elif change == "map_query": graph["query"] = "A neighbourhood"
+    elif change == "map_hash": graph["sha256"] = "unknown"
+    elif change == "map_source": graph["source"] = "gt_extent"
+    elif change == "map_path": graph["cache_path"] = "/ground_truth/route.graphml"
+    elif change == "around": graph["around"] = [48.4, 9.9, 3000]
+    elif change == "bbox": graph["bbox"] = [48, 49, 8, 9]
+    elif change == "missing_bbox": graph.pop("bbox")
+    assert not M.check_goal(summary, manifest)["goal_met"]
+
+
+def test_explicit_whole_city_database_override_is_recorded_and_bound_to_used_file():
+    summary, manifest = _valid_filter()
+    for rep in summary["reps"]:
+        rep["provenance"]["config"]["graph_filter_map_path"] = "/maps/whole_city.graphml"
+        rep["provenance"]["graph_filter_inputs"]["map"]["source"] = "explicit_cache"
+    assert M.check_goal(summary, manifest)["goal_met"]
+    graph = summary["reps"][0]["provenance"]["graph_filter_inputs"]["map"]
+    graph["cache_path"] = "/maps/different_file.graphml"
+    assert not M.check_goal(summary, manifest)["goal_met"]
+    graph["cache_path"] = "/maps/whole_city.graphml"
+    cfg = summary["reps"][0]["provenance"]["config"]
+    cfg["graph_filter_map_path"] = "maps/whole_city.graphml"
+    assert not M.check_goal(summary, manifest)["goal_met"]
+    graph["configured_path"] = "maps/whole_city.graphml"
+    assert M.check_goal(summary, manifest)["goal_met"]
+    cfg["graph_filter_map_path"] = None
+    assert not M.check_goal(summary, manifest)["goal_met"]
+
+
+@pytest.mark.parametrize("source", ["map", "video"])
+def test_filter_cannot_mix_modes_or_hide_map_and_video_changes_between_repeats(source):
+    summary, manifest = _valid_filter(repeats=2)
+    summary["reps"][1]["provenance"]["graph_filter_inputs"][source]["sha256"] = "c" * 64
+    report = M.check_goal(summary, manifest)
+    assert not report["goal_met"] and "content changes" in " ".join(report["clips"][0]["reasons"])
+    summary, manifest = _valid_filter()
+    summary["reps"][0]["scores"]["answer"]["meta"]["mode"] = "track"
+    assert not M.check_goal(summary, manifest)["goal_met"]
+
+
+@pytest.mark.parametrize("change", ["missing_clip", "failed_repeat", "oracle", "dirty",
+                                    "mixed_config", "unknown_commit", "gt_leak"])
+def test_filter_mode_cannot_bypass_existing_target_and_provenance_requirements(change):
+    summary, manifest = _valid_filter()
+    if change == "missing_clip": summary["clips"].pop("clip14")
+    elif change == "failed_repeat": summary["reps"][0]["rc"] = 1
+    elif change == "oracle": summary["reps"][0]["scores"]["answer"]["oracle"] = True
+    elif change == "dirty": summary["provenance"]["dirty"] = ["True"]
+    elif change == "mixed_config": summary["provenance"]["method_config_fingerprints"].append("other")
+    elif change == "unknown_commit": summary["reps"][0]["commit"] = "unknown"
+    elif change == "gt_leak": summary["reps"][0]["provenance"]["config"]["ground_truth_waypoints"] = "gps.json"
+    assert not M.check_goal(summary, manifest)["goal_met"]
 
 
 @pytest.mark.parametrize("error", ["inf", float("inf"), float("nan"), None])
@@ -195,7 +321,8 @@ def test_cli_emits_json_and_nonzero_until_the_goal_is_met(tmp_path, capsys):
     assert "cannot audit inputs" in json.loads(capsys.readouterr().out)["reasons"][0]
 
 
-def test_current_aggregator_complete_answer_summary_can_pass(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["track", "filter"])
+def test_current_aggregator_complete_answer_summary_can_pass(tmp_path, monkeypatch, mode):
     from tests.test_benchmark import M as benchmark, _fake_result, _setup_root, _write_rep
 
     root, manifest = _setup_root(tmp_path)
@@ -205,8 +332,12 @@ def test_current_aggregator_complete_answer_summary_can_pass(tmp_path, monkeypat
     for entry, shift in zip(manifest["clips"], (0.0, 5000.0, 10000.0)):
         cid = entry["id"]
         result = _fake_result(shift, 20.0)
-        result["provenance"]["config"]["answer"] = "track"
-        result["answer"] = {"mode": "track", "method": "vpr_track_only",
+        result["provenance"]["config"]["answer"] = mode
+        if mode == "filter":
+            cfg, inputs = _filter_contract(entry["city"])
+            result["provenance"]["config"].update(cfg)
+            result["provenance"]["graph_filter_inputs"] = inputs
+        result["answer"] = {"mode": mode, "method": "graph_filter_only" if mode == "filter" else "vpr_track_only",
                             "route_latlon": result["position"]["route_latlon"]}
         _write_rep(run_dir, cid, 0, result)
         status_path = run_dir / cid / "rep0/status.json"
@@ -218,4 +349,16 @@ def test_current_aggregator_complete_answer_summary_can_pass(tmp_path, monkeypat
         json.dumps({"execution_plan": plan, "config": {"pipeline_args": []}}), encoding="utf-8")
     summary = benchmark.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
     report = M.check_goal(summary, manifest, expected_count=3)
-    assert report["goal_met"], report
+    assert report["goal_met"], json.dumps(report, indent=2)
+    if mode == "filter":
+        assert summary["reps"][0]["provenance"]["graph_filter_inputs"]["map"]["scope"] == "whole_city"
+        # An explicit database override remains a method knob: city/clip
+        # exceptions must not silently remove it from consistency checks.
+        result_path = run_dir / cid / "rep0/result.json"
+        result["provenance"]["config"]["graph_filter_map_path"] = "/maps/override.graphml"
+        result_path.write_text(json.dumps(result), encoding="utf-8")
+        with pytest.raises(SystemExit, match="different effective method configurations"):
+            benchmark.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=99)
+        mixed = benchmark.aggregate(run_dir, manifest, root=root, allow_network=False,
+                                    n_resamples=99, allow_mixed=True)
+        assert not M.check_goal(mixed, manifest, expected_count=3)["goal_met"]

@@ -976,6 +976,7 @@ def _provenance_of(result: dict | None) -> dict:
         "vo_algo_version": prov.get("vo_algo_version"),
         "package_version": prov.get("package_version"),
         "config": cfg,
+        "graph_filter_inputs": prov.get("graph_filter_inputs"),
         "python": prov.get("python"),
         "libraries": prov.get("libraries") or {},
         # The actual loaded model, including the pinned hub revision. A
@@ -1026,7 +1027,10 @@ def _health_of(result: dict | None) -> dict:
     vpr_prior = result.get("vpr_prior") or {}
     backbone = (vpr_prior.get("backbone") or {}).get("name")
     n_frames, n_valid = result.get("n_frames"), result.get("n_valid_poses")
+    cfg = (result.get("provenance") or {}).get("config") or {}
     return {
+        "filter_only": (cfg.get("answer") == "filter" and cfg.get("graph_filter") is True
+                        and (result.get("answer") or {}).get("mode") == "filter"),
         "vpr_status": (ch.get("vpr") or {}).get("status"),
         "vpr_reason": (ch.get("vpr") or {}).get("reason") or (ch.get("vpr") or {}).get("error"),
         "vpr_source": vpr_prior.get("source"),
@@ -1051,12 +1055,12 @@ def degraded_reasons(health: dict, *, token_set: bool) -> list[str]:
     if not health:
         return []
     why = []
-    if health.get("vpr_status") != "ok":
+    if not health.get("filter_only") and health.get("vpr_status") != "ok":
         why.append(f"retrieval {health.get('vpr_status')}"
                    + (f" ({health['vpr_reason']})" if health.get("vpr_reason") else ""))
-    elif token_set and health.get("vpr_source") not in (None, "mapillary", "union"):
+    elif not health.get("filter_only") and token_set and health.get("vpr_source") not in (None, "mapillary", "union"):
         why.append(f"retrieval used {health.get('vpr_source')!r} although a token was set")
-    if health.get("vpr_backbone") not in (None, "megaloc"):
+    if not health.get("filter_only") and health.get("vpr_backbone") not in (None, "megaloc"):
         why.append(f"retrieval backbone {health.get('vpr_backbone')!r}, not megaloc")
     if health.get("failed_channels"):
         why.append("failed channels: " + ", ".join(health["failed_channels"]))
@@ -1428,11 +1432,13 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
         # Hide optional methods that were never requested/produced, but keep
         # mandatory or explicitly enabled methods even if every inference
         # failed. Per-clip misses of a method that ran elsewhere also count.
-        required = {"pipeline", "matcher_only"}
         fleet_provs = [r["provenance"] for r in reps if r["clip"] in ids]
+        all_filter = bool(fleet_provs) and all(p.get("config", {}).get("answer") == "filter" for p in fleet_provs)
+        required = set() if all_filter else {"pipeline", "matcher_only"}
         if execution_plan is not None or any("answer" in p.get("config", {}) for p in fleet_provs):
             required.add("answer")
-        if any(p.get("config", {}).get("use_vpr_prior") for p in fleet_provs):
+        if any(p.get("config", {}).get("use_vpr_prior") and p.get("config", {}).get("answer") != "filter"
+               for p in fleet_provs):
             required.update(("vpr_prior_only", "vpr_track_only", "track_checked"))
         if any(p.get("config", {}).get("graph_filter") for p in fleet_provs):
             required.add("graph_filter_only")
@@ -1508,7 +1514,8 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
         "thresholds_m": list(THRESHOLDS_M),
         "clips": clips_out, "fleets": fleets,
         "reps": [{k_: v for k_, v in r.items() if k_ != "provenance"} | {
-            "commit": r["provenance"]["commit"]} for r in reps],
+            "commit": r["provenance"]["commit"],
+            "provenance": r["provenance"]} for r in reps],
     }
 
 

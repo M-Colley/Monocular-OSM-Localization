@@ -461,6 +461,32 @@ Retrieval-only acquisition retains the same 80 query frames that the dense
 pipeline would select, then releases them when the run finishes. A missing
 track triggers dense re-extraction before the geometry fallback.
 
+For the experimental video-and-city particle-filter answer, use:
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --answer filter --frame-memory-mb 128
+```
+
+`--graph-filter-only` is an alias for `--answer filter`. This mode skips
+retrieval and matching, and selects `graph_filter_only` for the console,
+map links, `answer.png` and benchmark scoring. Its defaults are 600,000
+particles, seed 0, road-plane speed, camera height 1.5 m, two VO workers,
+approximately 10 Hz video sampling and 256 MiB of genealogy storage.
+`--graph-filter-particles`, `--graph-filter-seed`, `--graph-filter-speed`,
+`--camera-height-m`, `--vo-workers`, `--graph-filter-target-hz` and
+`--graph-filter-path-budget-mb` expose those settings. An explicit
+`--frame-stride` overrides automatic sampling; video PTS supply timing.
+
+The filter uses an independent whole-city map/cache. To reuse an existing
+whole-city driving GraphML, set `--graph-filter-map-path PATH`. The configured
+path, actual file hash, city/query and declared scope remain in provenance
+and override audits. Scope is a trusted map-database declaration: a file hash
+establishes identity, rather than proving its acquisition history. This mode
+rejects position discs, label inputs, VPR observations and a route-length prior.
+It freezes predictions and source/input hashes before separate scoring.
+Five PF seeds succeeded on one fixed MP4-derived KITTI 0033 trajectory; this
+is not fleet validation. See [the measured evidence](docs/graph_filter_kitti.md).
+
 Decoded-frame memory is bounded by `--frame-memory-mb` (default 512 MiB).
 Long clips spill losslessly to temporary storage, which is released on exit.
 `--frame-max-width 1280` optionally reduces resolution while preserving aspect
@@ -1177,18 +1203,21 @@ literature points the other way: [Brubaker et al. (CVPR 2013)](https://openacces
 localize KITTI to about 3 m from odometry and an OSM map alone, on a smaller
 (18 km²) map. The road-graph particle filter in this repo
 ([`docs/graph_filter_kitti.md`](docs/graph_filter_kitti.md)) reproduces that
-with real odometry (7 m in ~25 s on KITTI 0033, even on the whole city) and shows
+with real odometry (7 m in ~25–31 s on KITTI 0033, including the whole city) and shows
 where the gap actually is: this repo's monocular VO has **no speed** (unit-length
 steps) and its heading drifts 8-14° per minute, so the *odometry*, not the map
 matching, is the bottleneck. Giving the VO steps a metric length from the road
 plane and an assumed camera height ([`monocular_osm/plane_speed.py`](monocular_osm/plane_speed.py))
-closes most of that gap on KITTI 0033: the filter then localizes it on the
-whole Karlsruhe map in 5 of 5 seeds (final ~10 m, smoothed route within 1 m),
-with no GPS and no image retrieval, where the pipeline is 7.1 km off. The
-caveats are as large as the result: it locks on only near the end of the drive,
-it fails if the assumed height is 20 % too low (1 of 5), its confidence is not
-calibrated, the 46 s drive 0009 still fails, and one drive is not a benchmark
-result. It is available as the opt-in `--graph-filter` channel. A follow-up
+closes most of that gap in research using calibrated raw images and OXTS frame
+intervals: KITTI 0033 localizes on the whole city in 5 of 5 seeds, with final
+error around 10 m. A separate MP4-only test used generic 70° intrinsics and
+video timing: all five PF seeds localized at 76.5–79.5 s, with final mode error
+13.38 ± 0.13 m and smoothed-route symmetric error 5.02 ± 0.24 m. The normal
+`--answer filter` entry point reproduced seed 0 bit-for-bit. Early online
+modes remain wrong (whole-run error 4.36 ± 0.63 km), confidence is uncalibrated,
+and one fixed VO trajectory is not a fleet benchmark. The short 0009 drive
+still fails the historical city-map tests. The companion `--graph-filter`
+channel retains its original role beside the normal answer. A follow-up
 on the exact v2 data ([`docs/experiments_2026-10.md`](docs/experiments_2026-10.md))
 locates the other failures: on three of the four failing core clips the
 retrieval search disc did not contain the route at all (bad seeds from the

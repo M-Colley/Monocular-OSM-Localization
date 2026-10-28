@@ -11,7 +11,7 @@ import json
 import math
 import re
 import statistics
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parents[1]
 _FORBIDDEN_FLAGS = ("--osm-around", "--ground-truth", "--ground-truth-waypoints",
@@ -39,6 +39,73 @@ def _known_leak(args) -> bool:
                 or re.search(r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+", text)):
             return True
     return False
+
+
+def _absolute_path(value) -> bool:
+    return (isinstance(value, str) and bool(value)
+            and (PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute()))
+
+
+def _sha256(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value) is not None
+
+
+def _paths_match(left, right):
+    if PureWindowsPath(left).drive or PureWindowsPath(right).drive:
+        return PureWindowsPath(left) == PureWindowsPath(right)
+    return PurePosixPath(left) == PurePosixPath(right)
+
+
+def _filter_answer_issues(rep, score, city):
+    """Audit video-only filtering; explicit city-map scope is a trusted declaration.
+
+    A file digest binds the actual database, not its acquisition history. The
+    caller must supply a whole-city map, rather than a clip/GT-centred crop.
+    """
+    problems = []
+    provenance = rep.get("provenance") or {}
+    cfg = provenance.get("config") or {}
+    if ((score.get("meta") or {}).get("method") != "graph_filter_only"
+            or cfg.get("answer") != "filter" or cfg.get("graph_filter") is not True
+            or cfg.get("graph_filter_vpr") is not False):
+        problems.append("filter answer lacks its enabled, retrieval-independent method configuration")
+    if (cfg.get("city") != city or cfg.get("osm_around") is not None
+            or cfg.get("estimated_length_m") is not None):
+        problems.append("filter configuration violates the registered city-only inference contract")
+    inputs = provenance.get("graph_filter_inputs") or {}
+    policy = inputs.get("input_policy") or {}
+    forbidden = ("calibration", "raw_images", "sensor_timestamps", "gps_or_oxts",
+                 "ground_truth", "retrieval", "initial_position")
+    if any(policy.get(name) is not False for name in forbidden):
+        problems.append("strict filter input-policy audit is missing or reports external inputs")
+    video = inputs.get("video") or {}
+    if (not _absolute_path(video.get("path")) or not _sha256(video.get("sha256"))
+            or _known_leak([video.get("path", "")])):
+        problems.append("filter video provenance lacks a clean absolute path and content digest")
+    if (inputs.get("timing") or {}).get("source") != "video_pts_or_encoded_fps":
+        problems.append("filter timing does not come from the encoded video")
+    graph = inputs.get("map") or {}
+    if (graph.get("scope") != "whole_city" or graph.get("city") != city or graph.get("query") != city
+            or "around" not in graph or graph["around"] is not None
+            or "bbox" not in graph or graph["bbox"] is not None
+            or graph.get("source") not in {"explicit_cache", "city_cache", "named_city_fetch"}
+            or not _absolute_path(graph.get("cache_path")) or not _sha256(graph.get("sha256"))
+            or _known_leak([graph.get("cache_path", "")])):
+        problems.append("filter map lacks a fingerprinted whole-city database contract")
+    configured = cfg.get("graph_filter_map_path")
+    if configured is not None:
+        if not isinstance(configured, str) or not configured.strip():
+            problems.append("explicit filter map override is not a valid recorded path")
+        if graph.get("source") != "explicit_cache":
+            problems.append("explicit filter map override disagrees with recorded map provenance")
+        if _absolute_path(configured):
+            if not _paths_match(configured, str(graph.get("cache_path", ""))):
+                problems.append("explicit filter map path differs from the map actually used")
+        elif graph.get("configured_path") != configured:
+            problems.append("relative filter map override lacks its exact configured-path provenance")
+    elif graph.get("source") == "explicit_cache":
+        problems.append("explicit filter map use is absent from the effective method configuration")
+    return problems
 
 
 def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
@@ -163,10 +230,19 @@ def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
                 issues.append(f"rep{rep.get('rep')}: selected score is an oracle/GT result")
             if method == "answer":
                 mode = (score.get("meta") or {}).get("mode")
-                if source != "result.answer" or mode not in {"fit", "track", "checked"}:
+                if source != "result.answer" or mode not in {"fit", "track", "checked", "filter"}:
                     issues.append(f"rep{rep.get('rep')}: selected answer is stale or missing")
                 else:
                     answer_modes.add(mode)
+                if mode == "filter":
+                    issues.extend(f"rep{rep.get('rep')}: {problem}"
+                                  for problem in _filter_answer_issues(rep, score, clip.get("city")))
+        filter_inputs = [(rep.get("provenance") or {}).get("graph_filter_inputs") or {}
+                         for rep in records if (((rep.get("scores") or {}).get(method) or {}).get(
+                             "meta") or {}).get("mode") == "filter"]
+        if len({((data.get("video") or {}).get("sha256"),
+                 (data.get("map") or {}).get("sha256")) for data in filter_inputs}) > 1:
+            issues.append("filter video/map content changes between repeats")
         measured = statistics.median(errors) if errors else None
         if measured is not None and median is not None and abs(round(measured, 1) - median) > 0.051:
             issues.append("reported median does not match the recorded repeat scores")
@@ -183,6 +259,9 @@ def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
         "min_repeats": min_repeats, "n_passing": passed, "n_expected": len(expected),
         "missing_ids": missing, "unexpected_ids": unexpected,
         "reasons": list(dict.fromkeys(reasons)), "clips": rows,
+        "input_contract_notes": (["Explicit filter maps are trusted whole-city database inputs; "
+                                  "content hashes bind the file, not its acquisition history."]
+                                 if "filter" in answer_modes else []),
     }
 
 
