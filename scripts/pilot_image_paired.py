@@ -220,6 +220,26 @@ def state_digest(model):
     return digest.hexdigest()
 
 
+def verify_backbone_imports(official, modules=None):
+    """A namespace package has search paths rather than a __file__."""
+    official = Path(official).resolve(strict=True)
+    origins = {}
+    for name, module in list((sys.modules if modules is None else modules).items()):
+        if name != "backbone" and not name.startswith("backbone."): continue
+        filename = getattr(module, "__file__", None)
+        if filename is not None:
+            path = Path(filename).resolve(strict=True)
+            require(path.is_relative_to(official), "official backbone import escaped copied source")
+            origins[name] = {"file": str(path)}
+        else:
+            paths = [Path(path).resolve(strict=True) for path in getattr(module, "__path__", [])]
+            require(name == "backbone" and paths == [official / "backbone"],
+                    "namespace backbone has missing, mixed or escaped search paths")
+            origins[name] = {"namespace_paths": [str(path) for path in paths]}
+    require("backbone" in origins, "official backbone import is missing")
+    return origins
+
+
 def load_model(inputs, torch):
     official = inputs / "official"
     require(sha(inputs / "ImAge_GSV.pth") == CHECKPOINT_SHA, "prepared official checkpoint changed")
@@ -235,9 +255,7 @@ def load_model(inputs, torch):
         model.load_state_dict(state, strict=True)
         del state
         model = model.to(device="cpu", dtype=torch.float32).eval()
-        for name, module in sys.modules.copy().items():
-            if name == "backbone" or name.startswith("backbone."):
-                require(Path(module.__file__).resolve().is_relative_to(official.resolve()), "official backbone import escaped copied source")
+        audit["loaded_backbone_origins"] = verify_backbone_imports(official)
         require(sys.modules["backbone.dinov2.attention"].XFORMERS_AVAILABLE is False, "CPU experiment forbids xformers")
         require(sys.modules["backbone.dinov2.block"].XFORMERS_AVAILABLE is False, "CPU experiment forbids xformers blocks")
         audit.update(unsafe_globals_allowlisted=unsafe, state_dict_strict=True, weights_only=True)

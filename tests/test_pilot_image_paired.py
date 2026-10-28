@@ -137,6 +137,31 @@ def test_module_prefix_only_removes_one_uniform_prefix():
     assert p.strip_module_prefix({"a": 1}) == {"a": 1}
 
 
+def test_real_namespace_package_origin_uses_paths_not_none_file(tmp_path):
+    official = tmp_path / "official"; (official / "backbone").mkdir(parents=True)
+    child = official / "backbone/vision_transformer.py"; child.write_text("# actual file")
+    modules = {"backbone": SimpleNamespace(__file__=None, __path__=[str(official / "backbone")]),
+        "backbone.vision_transformer": SimpleNamespace(__file__=str(child))}
+    got = p.verify_backbone_imports(official, modules)
+    assert got["backbone"] == {"namespace_paths": [str((official / "backbone").resolve())]}
+    assert got["backbone.vision_transformer"] == {"file": str(child.resolve())}
+
+
+@pytest.mark.parametrize("case", ["missing_path", "empty_path", "mixed_path", "outside_path", "outside_file", "child_namespace", "absent_backbone"])
+def test_namespace_verifier_still_refuses_unknown_or_escaped_origin(tmp_path, case):
+    official = tmp_path / "official"; (official / "backbone").mkdir(parents=True)
+    outside = tmp_path / "outside"; outside.mkdir(); file = outside / "module.py"; file.write_text("# outside")
+    modules = {"backbone": SimpleNamespace(__file__=None, __path__=[official / "backbone"])}
+    if case == "missing_path": modules["backbone"] = SimpleNamespace(__file__=None)
+    if case == "empty_path": modules["backbone"].__path__ = []
+    if case == "mixed_path": modules["backbone"].__path__.append(outside)
+    if case == "outside_path": modules["backbone"].__path__ = [outside]
+    if case == "outside_file": modules["backbone.vision_transformer"] = SimpleNamespace(__file__=file)
+    if case == "child_namespace": modules["backbone.unknown"] = SimpleNamespace(__file__=None, __path__=[official / "backbone"])
+    if case == "absent_backbone": modules = {}
+    with pytest.raises(ValueError): p.verify_backbone_imports(official, modules)
+
+
 def test_checkpoint_is_weights_only_with_narrow_numpy_allowlist():
     calls = []
     @contextmanager
