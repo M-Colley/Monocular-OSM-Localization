@@ -705,7 +705,7 @@ the earlier pass count and does not establish the 15/15 target.
 | Atlanta (`kxEDNj5L_yQ`) | 6,024.41 |
 | Newcastle | 34.62 |
 
-Two independent cold acquisition candidates at `5dcca38` used the same
+Three independent cold acquisition candidates at `5dcca38` used the same
 registered windows and GT fingerprints. Phoenix's six metadata regions
 reduced its error to **25.57 m**, choosing Scottsdale for all 80 queries.
 Detroit's complete municipal hierarchy fetched all 27 coarse and three fine
@@ -713,6 +713,20 @@ cells, but scored **1,552.23 m**, worse than its baseline by 167.61 m. Geographi
 coverage and successful execution did not establish accurate retrieval. Every
 later candidate retains explicit decoder telemetry; the older baseline source
 records requested Viterbi, without proving whether each call used a fallback.
+
+Atlanta (`kxEDNj5L_yQ`) completed the same generic six-region configuration as
+Phoenix in 5,986 s, with all six inner calls using Viterbi and 8,995 servable
+reference occurrences across the pools. The region selector used Vinings for
+three queries, the search-seed/Vinings corridor for 60, and the
+search-seed/Midtown corridor for 17. An independent 272-check public-input audit
+froze the complete reference files, source and prediction before scoring.
+The original pinned benchmark gives **32.76 m symmetric error**, versus
+6,024.41 m for its cold baseline; start/end errors are 146.03/118.25 m against
+all 20 registered waypoints. Original and bounded-diagnostic aggregations agree
+exactly on every saved score, with no warnings. The older source does not emit
+full query-descriptor or similarity matrices; this remains a regional component
+result awaiting normal assisted-policy validation. Audit and separate scoring
+are in `output/atlanta_kx_regions_input_audit_5dcca38`.
 
 Original summaries and separate bounded scoring replays are preserved under
 `output/completed_runs_20261028_0855`. The bounded discrete Fréchet diagnostic
