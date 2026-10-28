@@ -44,15 +44,19 @@ def actual_audit(monkeypatch, score=.17, *, model="3", pixels="1"):
     return value
 
 
-def fixture(tmp_path, monkeypatch, *, score=.17, model="3", pixels="1", failed_assistance=False, runtime_patch=None):
+def fixture(tmp_path, monkeypatch, *, score=.17, model="3", pixels="1", failed_assistance=False, runtime_patch=None,
+            relative_paths=False):
     tmp_path.mkdir(parents=True, exist_ok=True)
     video = tmp_path / "video.mp4"
     video.write_bytes(b"synthetic registered encoded pixels")
-    cfg = PipelineConfig(url="", city="Registered city", data_dir=tmp_path / "data/video",
-        output_dir=tmp_path / "out", video_path=video, answer="assisted", frame_stride=6,
+    if relative_paths:
+        monkeypatch.chdir(tmp_path)
+    cfg = PipelineConfig(url="", city="Registered city", data_dir=Path("data/video") if relative_paths else tmp_path / "data/video",
+        output_dir=Path("runs/output") if relative_paths else tmp_path / "out",
+        video_path=Path("video.mp4") if relative_paths else video, answer="assisted", frame_stride=6,
         vo_start_sec=0., vo_end_sec=300.)
-    cfg.output_dir.mkdir()
-    ctx = RunContext(cfg=cfg, fusion_w=None, video_path=video)
+    cfg.output_dir.mkdir(parents=True)
+    ctx = RunContext(cfg=cfg, fusion_w=None, video_path=cfg.video_path)
     returned = {}
 
     def child(kind, parent):
@@ -61,7 +65,7 @@ def fixture(tmp_path, monkeypatch, *, score=.17, model="3", pixels="1", failed_a
         assert kind == "baseline", "unexpected future stage"
         directory = parent.assisted_child_root / kind
         directory.mkdir(parents=True)
-        child_cfg = worker.child_config(cfg, kind, video)
+        child_cfg = worker.child_config(cfg, kind, parent.video_path)
         child_cfg.output_dir = directory
         request = {"kind": kind, "config": config_snapshot(child_cfg),
             "video_sha256": parent.result["assisted_inputs"]["video"]["sha256"],
@@ -100,7 +104,7 @@ def fixture(tmp_path, monkeypatch, *, score=.17, model="3", pixels="1", failed_a
         write(cfg.output_dir / "result.json", parent.result)
 
     stage.run_assisted(ctx, finalize=finalize, run_child=child)
-    result = SimpleNamespace(ctx=ctx, children=returned, finalize=finalize)
+    result = SimpleNamespace(ctx=ctx, children=returned, finalize=finalize, output=cfg.output_dir.resolve())
     refresh_parent(result)
     return result
 
@@ -138,6 +142,46 @@ def test_failed_reached_assistance_is_retained_and_safe_baseline_fallback_can_pa
     report = check(case)
     assert report["goal_met"], reasons(report)
     assert [x["status"] for x in case.ctx.result["assisted_audit"]["reached_stages"]] == ["complete", "failed", "failed"]
+
+
+@pytest.mark.parametrize("relative_paths", [True, False])
+def test_frozen_goal_audit_is_independent_of_verifier_working_directory(tmp_path, monkeypatch, relative_paths):
+    case = fixture(tmp_path / "original", monkeypatch, relative_paths=relative_paths)
+    elsewhere = tmp_path / "unrelated"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    result = check(case)
+    assert result["goal_met"], reasons(result)
+    inputs, transcript = case.ctx.result["assisted_inputs"], case.ctx.result["assisted_audit"]
+    files = audit.parent_files(inputs["config"], inputs, transcript)
+    assert files.root == case.output
+    if relative_paths:
+        assert files.cwd == tmp_path / "original"
+        nested = files.child(case.output / "children" / inputs["execution_id"] / "baseline")
+        assert nested.cwd == files.cwd
+        assert nested.path("candidate.json") == nested.root / "candidate.json"
+        assert nested.config_path("data/video", strict=False) == tmp_path / "original/data/video"
+
+
+@pytest.mark.parametrize("fault", ["suffix", "traversal", "execution", "tamper", "absolute", "split_roles", "relative_role"])
+def test_canonical_output_anchor_never_overrides_mismatch_or_tampered_layout(tmp_path, monkeypatch, fault):
+    case = fixture(tmp_path / "original", monkeypatch, relative_paths=True)
+    inputs, transcript = deepcopy(case.ctx.result["assisted_inputs"]), deepcopy(case.ctx.result["assisted_audit"])
+    cfg = inputs["config"]
+    if fault == "suffix": cfg["output_dir"] = "different/output"
+    elif fault == "traversal": cfg["output_dir"] = "../runs/output"
+    elif fault == "execution": inputs["execution_id"] = "f" * 32
+    elif fault == "tamper": transcript["reached_stages"][0]["artifacts"][0]["sha256"] = "f" * 64
+    elif fault == "absolute":
+        other = tmp_path / "different_absolute_output"; other.mkdir(); cfg["output_dir"] = str(other)
+    elif fault == "relative_role": transcript["reached_stages"][0]["artifacts"][0]["path"] = "candidate.json"
+    else:
+        import shutil
+        item = transcript["reached_stages"][0]["artifacts"][0]
+        other = tmp_path / "other/runs/output/children" / inputs["execution_id"] / "baseline" / Path(item["path"]).name
+        other.parent.mkdir(parents=True); shutil.copyfile(item["path"], other); item["path"] = str(other)
+    elsewhere = tmp_path / "unrelated"; elsewhere.mkdir(); monkeypatch.chdir(elsewhere)
+    with pytest.raises(ValueError): audit.parent_files(cfg, inputs, transcript)
 
 
 @pytest.mark.parametrize("field", ["decision_trace", "decision_inputs", "evidence", "selected_route_sha256",

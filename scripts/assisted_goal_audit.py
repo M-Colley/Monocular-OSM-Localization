@@ -77,13 +77,29 @@ def load_npz(path):
 
 
 class Files:
-    def __init__(self, root):
+    def __init__(self, root, *, cwd=None):
         self.root = Path(root).resolve(strict=True)
+        self.cwd = Path(cwd).resolve(strict=True) if cwd is not None else None
+
+    def config_path(self, path, *, strict=True):
+        """Resolve execution-CWD paths without consulting the verifier's CWD."""
+        value = Path(path)
+        if not value.is_absolute():
+            require(self.cwd is not None, "relative configuration path has no proven execution working directory")
+            require(not value.drive, "drive-relative configuration path is ambiguous")
+            value = self.cwd / value
+        return value.resolve(strict=strict)
 
     def path(self, path):
-        value = Path(path).resolve(strict=True)
+        value = Path(path)
+        if not value.is_absolute():
+            value = self.root / value
+        value = value.resolve(strict=True)
         require(value.is_relative_to(self.root), "artifact escapes the parent output")
         return value
+
+    def child(self, root):
+        return Files(self.path(root), cwd=self.cwd)
 
     def record(self, record, ledger=None):
         require(isinstance(record, dict) and sha_string(record.get("sha256")), "artifact lacks a digest")
@@ -104,6 +120,51 @@ class Files:
                     "child freeze contains an escaping or changed artifact")
             ledger[target] = expected
         return value, ledger
+
+
+def parent_files(config, inputs, audit):
+    """Prove the canonical output and original CWD from frozen absolute roles.
+
+    Absolute configured outputs remain authoritative. A relative output may be
+    anchored only by an identical normalized suffix of the common execution
+    root; no search, basename fallback, or parent traversal is permitted.
+    """
+    execution = inputs["execution_id"]
+    require(isinstance(execution, str) and re.fullmatch(r"[a-f0-9]{32}", execution) is not None,
+            "invalid execution identity for output anchoring")
+    roots = set()
+    expected_names = {"candidate_artifact": "candidate.json", "result_artifact": "result.json",
+                      "frozen_artifact": "child_frozen.json"}
+    for record in audit["reached_stages"]:
+        artifacts = record.get("artifacts") or []
+        if not artifacts:
+            continue
+        require(len(artifacts) == 3 and {item["role"] for item in artifacts} == set(expected_names),
+                "output anchor lacks all three frozen child roles")
+        for item in artifacts:
+            path = Path(item["path"])
+            require(path.is_absolute() and ".." not in path.parts, "output anchor requires absolute frozen artifact paths")
+            path = path.resolve(strict=True)
+            require(path.name == expected_names[item["role"]] and path.parent.name == record["kind"]
+                    and path.parent.parent.name == execution and path.parent.parent.parent.name == "children",
+                    "frozen artifact has a different execution layout")
+            require(sha_string(item.get("sha256")) and file_sha(path) == item["sha256"], "output anchor artifact changed")
+            roots.add(path.parents[3])
+    require(len(roots) == 1, "frozen child roles disagree about the canonical parent output")
+    root = roots.pop()
+    configured = Path(config["output_dir"])
+    if configured.is_absolute():
+        require(configured.resolve(strict=True) == root, "absolute configured output differs from its frozen execution")
+        return Files(root)
+    suffix = relative(configured)
+    require(not suffix.drive, "drive-relative output is ambiguous")
+    count = len(suffix.parts)
+    require(count <= len(root.parts) and (not count or Path(*root.parts[-count:]) == suffix),
+            "relative configured output is not a suffix of its frozen execution")
+    cwd = root.parents[count - 1] if count else root
+    files = Files(root, cwd=cwd)
+    require(files.config_path(configured) == root, "relative output does not resolve under its proven execution CWD")
+    return files
 
 
 def sources(files, root, declared):
@@ -235,13 +296,13 @@ def verify_child(files, record, inputs, before):
     if record.get("reported_status") is not None:
         child.update(reported_status=record["reported_status"], transport_error=record.get("error"))
     require(child_record(kind, child, files.root, expected=inputs) == record, "child record differs from frozen evidence")
-    _, ledger = files.freeze(base / "child_frozen.json")
+    _, ledger = files.child(base).freeze(base / "child_frozen.json")
     request_path = base / "request.json"
     require(request_path in ledger, "child freeze omits its requested inputs")
     request = load_json(request_path)
     require(request["kind"] == kind and request["video_sha256"] == inputs["video"]["sha256"]
             and request["source_sha256"] == inputs["source_sha256"]
-            and request["policy_evidence"] == before and Path(request["parent_output"]).resolve() == files.root,
+            and request["policy_evidence"] == before and files.config_path(request["parent_output"]) == files.root,
             "child request differs from its parent video/source/decision evidence")
     require(candidate.get("kind") == kind, "candidate identifies another stage")
     sources(files, base, candidate["source_sha256"])
@@ -252,7 +313,7 @@ def verify_child(files, record, inputs, before):
     require(requested == cfg, "child execution changed its requested configuration")
     expected = child_config(_from_snapshot(parent_cfg), kind, parent_cfg.get("video_path") or inputs["video"]["path"])
     expected.output_dir = Path(cfg["output_dir"])
-    require(expected.output_dir.resolve() == base, "child effective output identifies a different execution")
+    require(files.config_path(expected.output_dir) == base, "child effective output identifies a different execution")
     if parent_cfg.get("frame_stride") is None or kind == "metric_pf":
         expected.frame_stride = cfg.get("frame_stride")
     require(config_snapshot(expected) == cfg, "child changed its component/baseline configuration")
@@ -394,7 +455,7 @@ def cues(files, child, ledger, inputs, reader_issues):
             and all(np.array_equal(signed[key], data[key]) for key in ("xz", "valid"))
             and runtime["workers"] == 2 and all(isinstance(runtime[k], str) and runtime[k] for k in ("numpy", "opencv"))
             and sha_string(signature["frames_sha256"])
-            and Path(signature["video"]["path"]).resolve() == Path(inputs["video"]["path"]).resolve()
+            and files.config_path(signature["video"]["path"]) == files.config_path(inputs["video"]["path"])
             and extraction["start_sec"] == inputs["registered_window"][0]
             and extraction["end_sec"] == inputs["registered_window"][1]
             and extraction["stride"] == quality["stride"] and extraction["fps"] == quality["fps"]
@@ -663,7 +724,7 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
             "stages/graph_filter.py", "stages/report.py")}
         require(required_sources <= set(declared), "assisted source snapshot omits a required component")
         require(policy["source_sha256"] == declared["monocular_osm/assisted_policy.py"], "policy source is not bound to the parent snapshot")
-        files = Files(cfg["output_dir"])
+        files = parent_files(cfg, inputs, audit)
         sources(files, files.root, inputs["source_sha256"])
         physical = load_json(files.root / "result.json")
         require((physical.get("provenance") or {}).get("assisted_inputs") == inputs
