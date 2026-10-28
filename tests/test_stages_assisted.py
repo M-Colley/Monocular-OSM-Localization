@@ -20,10 +20,11 @@ def candidate(score=.17):
             "decoded_reference_cosines": [score]*4, "decoded_reference_latlon": route}}
 
 
-def run(tmp_path, responses):
+def run(tmp_path, responses, *, profile="v1"):
     video = tmp_path / "video.mp4"
     video.write_bytes(b"video")
-    cfg = SimpleNamespace(output_dir=tmp_path / "output", city="Example", vo_start_sec=0., vo_end_sec=3.)
+    cfg = SimpleNamespace(output_dir=tmp_path / "output", city="Example", vo_start_sec=0., vo_end_sec=3.,
+                          assisted_profile=profile)
     cfg.output_dir.mkdir()
     ctx = RunContext(cfg=cfg, fusion_w=None, video_path=video)
     calls = []
@@ -95,6 +96,32 @@ def test_unrounded_decoded_cosine_drives_cutoff(tmp_path):
                                   "expanded": {"status": "unavailable"}})
     assert calls == ["baseline", "cues", "expanded"]
     assert result["assisted_audit"]["evidence"]["baseline"]["similarity_median"] == .16196
+
+
+@pytest.mark.parametrize("complete", [True, False])
+def test_v2_controller_selects_only_complete_all_branch_image_union(tmp_path, complete):
+    from monocular_osm import assisted_policy_v2 as policy
+    from monocular_osm.poi_image_union import PROFILE_SHA256
+    cues = {"status": "complete", "cues": {"duration_s": 3.,
+        "vo": {"status": "complete", "valid_fraction": .5},
+        "ocr": {"status": "complete", "clue_branch_count": 2}}}
+    image = {"status": "complete" if complete else "partial",
+        "route_latlon": [[49.+i*.0001, 8.4] for i in range(80)],
+        "route_timestamps": [i*3./79 for i in range(80)],
+        "retained_branch_count": 2, "successful_branch_count": 2 if complete else 1,
+        "uses_rigid_vo": False, "radius_m": 3000, "cap": 1500, "query_mode": "crops",
+        "score_normalization": "reference_mean", "candidate_pruning": False,
+        "profile_sha256": PROFILE_SHA256}
+    responses = {"baseline": candidate(.12), "cues": cues, "poi_image_union": image,
+        "expanded": {"status": "unavailable"}}
+    result, calls = run(tmp_path, responses, profile="v2")
+    assert calls == ["baseline", "cues", "poi_image_union"] + ([] if complete else ["expanded"])
+    audit = result["assisted_audit"]
+    assert audit["selected_candidate"] == ("poi_image_union" if complete else "baseline")
+    assert audit["policy_version"] == policy.POLICY_VERSION
+    assert audit["config_sha256"] == policy.CONFIG_SHA256
+    assert result["assisted_inputs"]["policy"]["source_sha256"] == file_sha256(policy.__file__)
+    assert [policy.decide_assisted_policy(e) for e in audit["decision_inputs"]] == audit["decision_trace"]
 
 
 def test_actual_worker_module_entrypoint_defines_helpers_before_main():

@@ -10,6 +10,7 @@ import re
 import uuid
 import numpy as np
 from ..assisted_policy import CONFIG_SHA256, POLICY_VERSION, decide_assisted_policy, policy_config
+from ..assisted_profiles import resolve_policy
 from ..provenance import config_snapshot, file_sha256, snapshot_sources
 from .context import _record_channel
 from .poi_only import _safe
@@ -17,6 +18,7 @@ from .report import _write_result_json
 
 REQUESTS = {"request_ocr_vo": "cues", "request_poi_joint": "poi_joint",
             "request_poi_image_track": "poi_image_track", "request_metric_pf": "metric_pf",
+            "request_poi_image_union": "poi_image_union",
             "request_expanded_retrieval": "expanded"}
 HASH = re.compile(r"[a-f0-9]{64}")
 STATISTIC = "raw_cosine_at_decoded_reference"
@@ -97,7 +99,7 @@ def summary(kind, child):
     else:
         for name in ("retained_branch_count", "successful_branch_count", "uses_rigid_vo", "radius_m",
                      "cap", "query_mode", "score_normalization", "metric_only",
-                     "uses_user_spatial_prior", "position_observation_count"):
+                     "uses_user_spatial_prior", "position_observation_count", "profile_sha256", "candidate_pruning"):
             if name in child:
                 result[name] = child[name]
     return result
@@ -156,6 +158,7 @@ def begin(ctx):
     root = Path(__file__).resolve().parents[2]
     sources = [root / "main.py", *sorted((root / "monocular_osm").rglob("*.py"))]
     execution_id = uuid.uuid4().hex
+    policy = resolve_policy(getattr(ctx.cfg, "assisted_profile", "v1"))
     ctx.assisted_child_root = ctx.cfg.output_dir / "children" / execution_id
     inputs = {"created_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "execution_id": execution_id,
@@ -164,8 +167,8 @@ def begin(ctx):
         "registered_window": [ctx.cfg.vo_start_sec, ctx.cfg.vo_end_sec], "city": ctx.cfg.city,
         "input_policy": {name: False for name in ("ground_truth", "calibration", "sensor_timestamps",
             "raw_images", "gps_or_oxts", "manual_region_coordinates", "external_trajectory", "external_ocr_video")},
-        "policy": {"version": POLICY_VERSION, "config": policy_config(), "config_sha256": CONFIG_SHA256,
-                   "source_sha256": file_sha256(root / "monocular_osm/assisted_policy.py")},
+        "policy": {"version": policy.POLICY_VERSION, "config": policy.policy_config(), "config_sha256": policy.CONFIG_SHA256,
+                   "source_sha256": file_sha256(Path(policy.__file__))},
         "source_sha256": snapshot_sources(sources, ctx.cfg.output_dir), "config": config_snapshot(ctx.cfg)}
     ctx.result["assisted_inputs"] = inputs
     _write_result_json(ctx.cfg.output_dir / "assisted_inputs.json", _safe(inputs))
@@ -188,6 +191,7 @@ def run_assisted(ctx, *, finalize, run_child=None):
     if run_child is None:
         from ..assisted_worker import run_child
     begin(ctx)
+    policy = resolve_policy(getattr(ctx.cfg, "assisted_profile", "v1"))
     ctx.result["execution"] = {"stage": "assisted", "experimental": True}
     for channel in ("vpr", "plate", "vlm", "sun", "ocr_anchor", "loop_closure", "coarse_from_frames",
                     "orienternet", "geometry", "graph_filter", "poi", "poi_retrieval"):
@@ -207,7 +211,7 @@ def run_assisted(ctx, *, finalize, run_child=None):
     terminal = None
     for _ in range(len(REQUESTS) + 1):
         trace_inputs.append(deepcopy(evidence))
-        decision = decide_assisted_policy(evidence)
+        decision = policy.decide_assisted_policy(evidence)
         trace.append(decision)
         action = decision["next_action"]
         if action in {"keep_baseline", "select_candidate", "no_selection"}:
@@ -232,7 +236,7 @@ def run_assisted(ctx, *, finalize, run_child=None):
     audit = {"decision_trace": trace, "decision_inputs": trace_inputs, "evidence": evidence,
              "reached_stages": reached, "selected_candidate": selected,
              "selected_route_sha256": digest(children[selected]["route_latlon"]) if selected else None,
-             "policy_version": POLICY_VERSION, "config_sha256": CONFIG_SHA256,
+             "policy_version": policy.POLICY_VERSION, "config_sha256": policy.CONFIG_SHA256,
              "comparison_limit": "fixed expanded pool selection can inflate raw cosine; unvalidated dev heuristic"}
     audit["selected_child_artifact_sha256"] = next((item["sha256"] for record in reached
         if record["kind"] == selected for item in record["artifacts"]

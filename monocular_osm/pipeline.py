@@ -244,6 +244,8 @@ class PipelineConfig:
     # rule (benchmarks/preregistered_rules.json), which selected "track" on the
     # dev clips of run v6 (9 of 15 within 200 m; the fit 6, checked 8).
     answer: str = "track"
+    # Explicitly versioned experimental assisted policy; ordinary answer is unchanged.
+    assisted_profile: str = "v1"
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.
@@ -362,6 +364,8 @@ class PipelineConfig:
         filter_only = self.answer == "filter"
         poi_only = self.answer == "poi"
         assisted = self.answer == "assisted"
+        if self.assisted_profile not in {"v1", "v2"}:
+            raise ValueError("assisted_profile must be v1 or v2")
         if self.frame_stride is None and not (filter_only or poi_only or assisted):
             self.frame_stride = 6
         if self.frame_stride is not None and self.frame_stride <= 0:

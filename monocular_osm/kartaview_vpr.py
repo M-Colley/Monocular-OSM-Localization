@@ -1249,6 +1249,10 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
             raise ValueError("full reference identity currently requires a single source and disc")
         reference_identity["ref_ids"] = _embedded_reference_ids(refs, ref_xy, cache_dir, source)
         reference_identity["embedding_dimensions"] = int(ref_emb.shape[1])
+        if audit is not None:
+            reference_identity["listed_ref_ids"] = [f"{source}:{r['id']}" for r in refs]
+            reference_identity["listed_ref_latlon"] = [[float(r["lat"]), float(r["lon"])] for r in refs]
+            reference_identity["listing_snapshot"] = _reference_snapshot(refs)
     idx = np.linspace(0, len(frames_bgr) - 1,
                       min(n_query, len(frames_bgr))).astype(int)
     if audit is not None:
@@ -1272,6 +1276,11 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
                          reference_pool={"source": source, "center": list(map(float, center)),
                              "radius_m": float(radius_m), "cap": int(cap), "count": int(len(ref_xy)),
                              "fetch": deepcopy(LAST_FETCH_STATS)})
+            if audit.get("reference_rows_requested"):
+                if len(ref_xy) > 1500:
+                    raise ValueError("per-reference evidence audit exceeds its 1500-row bound")
+                audit["reference_row_embeddings_sha256"] = [
+                    _audit_tensor_sha(ref_emb[i:i+1]) for i in range(len(ref_xy))]
         except Exception as error:
             _audit_issue(audit, error)
     query_options = ({"query_cache": query_cache, "model_name": resolved}
@@ -1311,7 +1320,8 @@ def _embedded_reference_ids(refs, ref_latlon, cache_dir, source):
 def kartaview_vpr_evidence(frames_bgr, timestamps, center, radius_m=3000.0, *,
                             cache_dir=None, n_query=80, device=None, model_name="megaloc",
                             source="mapillary", token=None, cap=1500, query_mode="warp",
-                            query_batch_size=4, query_cache=None):
+                            query_batch_size=4, query_cache=None, audit=None,
+                            query_video_sha256=None):
     """Full appearance evidence for an opt-in joint localizer, without decoding.
 
     Uses the ordinary bounded acquisition/embedding path. The output preserves
@@ -1319,6 +1329,9 @@ def kartaview_vpr_evidence(frames_bgr, timestamps, center, radius_m=3000.0, *,
     can merge overlapping discs without counting one photo twice. Cache files
     currently lack model/preprocessing identity; that limitation is explicit.
     No default track/prior call retains these matrices or changes behavior.
+    An opt-in audit binds the actual native pixels, descriptors, model and
+    reference tensor rows. Its complete status refers to matrix identity;
+    provenance.acquisition separately reports bounded-listing completeness.
     """
     global LAST_FAILURE
     LAST_FAILURE = None
@@ -1343,11 +1356,20 @@ def kartaview_vpr_evidence(frames_bgr, timestamps, center, radius_m=3000.0, *,
                 or abs(seed[0]) > 90 or abs(seed[1]) > 180
                 or not np.isfinite(radius_m) or radius_m <= 0):
             raise ValueError("reference disc needs finite WGS84 coordinates and positive radius")
+        if audit is not None:
+            if (not isinstance(audit, dict) or not isinstance(query_video_sha256, str)
+                    or len(query_video_sha256) != 64
+                    or any(c not in "0123456789abcdef" for c in query_video_sha256)
+                    or n_query > 80 or cap > 1500):
+                raise ValueError("audited evidence needs a video SHA256 and bounded query/reference counts")
+            audit.clear()
+            audit.update(status="pending", reference_rows_requested=True)
         identity = {}
+        audit_options = {"audit": audit} if audit is not None else {}
         prepared = _prepare_refs_and_query(
             frames_bgr, center, radius_m, cache_dir, n_query, device, model_name,
             source, token, cap, query_mode=query_mode, query_batch_size=query_batch_size,
-            query_cache=query_cache, reference_identity=identity)
+            query_cache=query_cache, reference_identity=identity, **audit_options)
         if prepared is None:
             return None
         indices, similarities, coordinates = prepared
@@ -1356,7 +1378,7 @@ def kartaview_vpr_evidence(frames_bgr, timestamps, center, radius_m=3000.0, *,
                 or np.shape(similarities) != (len(indices), len(ref_ids))
                 or not np.isfinite(similarities).all() or not np.isfinite(coordinates).all()):
             raise ValueError("appearance matrix and reference inventory do not agree")
-        return {"query_indices": indices, "query_times": times[indices],
+        result = {"query_indices": indices, "query_times": times[indices],
                 "similarities": similarities, "ref_latlon": coordinates, "ref_ids": ref_ids,
                 "provenance": {
                     "experimental": True, "source": source, "cache": str(cache_dir),
@@ -1372,9 +1394,82 @@ def kartaview_vpr_evidence(frames_bgr, timestamps, center, radius_m=3000.0, *,
                     "reference_inventory": _reference_snapshot([
                         {"id": key, "lat": coordinate[0], "lon": coordinate[1]}
                         for key, coordinate in zip(ref_ids, coordinates)])}}
+        if audit is not None:
+            proof, row_identities = _finish_evidence_audit(
+                audit, indices, similarities, coordinates, ref_ids, times,
+                query_mode, query_video_sha256)
+            result["status"] = "complete"
+            result["provenance"].update(query_identity=proof, reference_identities=row_identities,
+                acquisition=_evidence_acquisition(identity, ref_ids, source, cap, LAST_FETCH_STATS))
+        return result
     except Exception as exc:
+        if isinstance(audit, dict):
+            _audit_issue(audit, exc)
         LAST_FAILURE = f"{type(exc).__name__}: {exc}"
         return None
+
+
+def _finish_evidence_audit(audit, indices, similarities, coordinates, ref_ids, timestamps,
+                           query_mode, video_sha256):
+    """Bind an opt-in undecoded matrix to the actual query and reference rows."""
+    def valid_sha(value):
+        return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+    idx, times = np.asarray(indices), np.asarray(timestamps, dtype=float)
+    views = 3 if query_mode == "crops" else 1
+    required = ("query_pixels_sha256", "query_descriptors_sha256", "actual_model_state_sha256")
+    if (audit.get("issues") or any(not valid_sha(audit.get(k)) for k in required)
+            or idx.ndim != 1 or not np.issubdtype(idx.dtype, np.integer)
+            or not np.array_equal(audit.get("query_indices"), idx)
+            or not np.array_equal(audit.get("raw_similarities"), similarities)
+            or not np.array_equal(audit.get("ref_ids"), ref_ids)
+            or not np.array_equal(audit.get("ref_latlon"), coordinates)
+            or audit.get("query_mode") != query_mode
+            or audit.get("query_descriptor_shape") != [len(idx) * views, audit.get("preprocessing", {}).get("dimensions")]):
+        raise ValueError("actual query/reference evidence identity is incomplete or inconsistent")
+    row_hashes = audit.get("reference_row_embeddings_sha256")
+    if (not isinstance(row_hashes, list) or len(row_hashes) != len(ref_ids)
+            or any(not valid_sha(value) for value in row_hashes)):
+        raise ValueError("actual per-reference embedding identities are incomplete")
+    proof = {"query_video_sha256": video_sha256,
+        "query_pixels_sha256": audit["query_pixels_sha256"],
+        "query_descriptors_sha256": audit["query_descriptors_sha256"],
+        "actual_model_state_sha256": audit["actual_model_state_sha256"],
+        "query_indices_sha256": _audit_array_sha(idx),
+        "query_times_sha256": _audit_array_sha(times[idx]), "query_mode": query_mode,
+        "views": views, "aggregation": ("maximum cosine over three crop descriptors for each reference"
+            if views == 3 else "one descriptor per query reference comparison")}
+    rows = {str(identifier): {"embedding_sha256": digest, "pixel_sha256": None,
+        "encoding_identity": audit["reference_encoding_identity"]}
+        for identifier, digest in zip(ref_ids, row_hashes)}
+    audit.update(status="complete", query_identity=deepcopy(proof), query_times=times[idx].copy())
+    return proof, rows
+
+
+def _evidence_acquisition(identity, embedded_ids, source, cap, fetch):
+    """Account for every capped listing member without inventing download causes."""
+    listed = identity["listed_ref_ids"]
+    snapshot = identity["listing_snapshot"]
+    used = set(map(str, embedded_ids))
+    if (len(set(listed)) != len(listed) or not used <= set(listed)
+            or len(listed) > cap or snapshot["n_refs"] != len(listed)):
+        raise ValueError("embedded references do not partition the bounded public listing")
+    known_complete = (source == "mapillary" and fetch.get("listing_stats_known") is True
+        # The legacy graph fallback does not exhaust paging.next and may stop
+        # at a full max-depth page. Its lost==0 is not a completeness proof.
+        and fetch.get("listing") == "tiles"
+        and type(fetch.get("lost")) is int and fetch["lost"] == 0
+        and fetch.get("snapshot", {}).get("refs_sha256") == snapshot["refs_sha256"]
+        and fetch.get("snapshot", {}).get("n_refs") == len(listed))
+    return {"status": "complete" if known_complete else "unknown", "listing_complete": bool(known_complete),
+        "cap": int(cap), "listed_ref_ids": list(listed),
+        "listed_ref_latlon": deepcopy(identity["listed_ref_latlon"]),
+        "listed_references": [{"id": value.removeprefix(source + ":"),
+            "lat": float(point[0]), "lon": float(point[1])}
+            for value, point in zip(listed, identity["listed_ref_latlon"])],
+        "unserved_references": [{"ref_id": value, "reason": "not_in_embedded_reference_snapshot"}
+            for value in listed if value not in used],
+        "listing_snapshot_sha256": snapshot["refs_sha256"],
+        "scope": "capped public metadata set; only zero-loss tile listings prove completeness; absent embedded rows have unknown acquisition cause"}
 
 
 def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,

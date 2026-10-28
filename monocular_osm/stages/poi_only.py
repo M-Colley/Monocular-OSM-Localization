@@ -175,7 +175,7 @@ def _ocr(ctx, K, video_sha, shape):
     return detections, metadata
 
 
-def _retrieval(ctx, inputs):
+def _retrieval(ctx, inputs, *, audit_query=False):
     """Own one stage-local descriptor cache; preserve every callback's evidence."""
     from .. import kartaview_vpr as kv
 
@@ -190,11 +190,14 @@ def _retrieval(ctx, inputs):
         external = ctx.cfg.vpr_region_cache_dir
         directory = (Path(external) / ctx.cfg.data_dir.name / f"{source}_region_{tag}" if external is not None
                      else ctx.cfg.data_dir / f"{source}_regions" / tag)
+        audit = {} if audit_query else None
+        audited = ({"audit": audit, "query_video_sha256": inputs["video"]["sha256"]}
+                   if audit_query else {})
         with torch_cpu_threads(4) as cpu_runtime:
             raw = kv.kartaview_vpr_evidence(frames, timestamps, center, radius_m=radius_m,
                 cache_dir=str(directory), n_query=n_query, source=source, cap=cap, device="cpu",
                 token=os.environ.get("MLY_TOKEN"), query_mode=ctx.cfg.vpr_query_mode,
-                query_batch_size=ctx.cfg.vpr_query_batch_size, query_cache=query_cache)
+                query_batch_size=ctx.cfg.vpr_query_batch_size, query_cache=query_cache, **audited)
         if raw is None:
             raise RuntimeError(_safe(kv.LAST_FAILURE or "no neighborhood evidence"))
         raw = dict(raw)
