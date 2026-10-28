@@ -552,8 +552,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Alias for --answer poi; EXPERIMENTAL video OCR + city POIs + neighborhood imagery.")
     p.add_argument("--assisted-only", action="store_const", const="assisted", dest="answer",
                    help="EXPERIMENTAL fixed input-only assisted policy with isolated component runs.")
-    p.add_argument("--assisted-profile", choices=["v1", "v2"], default="v1",
-                   help="Versioned assisted experiment: v2 uses all OCR regions in one weak-motion image decode.")
+    p.add_argument("--assisted-profile", choices=["v1", "v2", "v3"], default="v1",
+                   help="Versioned assisted experiment: v2 uses all OCR regions in one weak-motion image decode; "
+                        "v3 preserves v1 stages and adds an experimental full-support metadata reference-mean decode.")
     p.add_argument("--poi-radius-m", type=float, default=1000.0,
                    help="EXPERIMENTAL POI neighborhood radius for every literal branch (default 1000 m).")
     p.add_argument("--poi-ref-cap", type=int, default=500,

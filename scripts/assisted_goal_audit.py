@@ -287,7 +287,9 @@ def verify_child(files, record, inputs, before):
     if not roles:
         require(record.get("status") == "failed" and bool(record.get("error")), "unfrozen child lacks a terminal failure")
         child = {"status": "failed", "error": record["error"]}
-        require(child_record(kind, child, files.root, expected=inputs) == record, "failed child summary is stale")
+        rebuilt = (child_record(kind, child, files.root, expected=inputs, profile="v3") if profile == "v3"
+                   else child_record(kind, child, files.root, expected=inputs))
+        require(rebuilt == record, "failed child summary is stale")
         return child, {}
     require(set(roles) == {"result_artifact", "candidate_artifact", "frozen_artifact"}, "incomplete child artifact roles")
     base = files.root / "children" / inputs["execution_id"] / kind
@@ -298,7 +300,9 @@ def verify_child(files, record, inputs, before):
     child = {**candidate, **roles, "worker_returncode": record.get("worker_returncode"), "status": record.get("status")}
     if record.get("reported_status") is not None:
         child.update(reported_status=record["reported_status"], transport_error=record.get("error"))
-    require(child_record(kind, child, files.root, expected=inputs) == record, "child record differs from frozen evidence")
+    rebuilt = (child_record(kind, child, files.root, expected=inputs, profile="v3") if profile == "v3"
+               else child_record(kind, child, files.root, expected=inputs))
+    require(rebuilt == record, "child record differs from frozen evidence")
     _, ledger = files.child(base).freeze(base / "child_frozen.json")
     request_path = base / "request.json"
     require(request_path in ledger, "child freeze omits its requested inputs")
@@ -326,13 +330,455 @@ def verify_child(files, record, inputs, before):
         expected_snapshot.pop("assisted_profile", None)
     require(expected_snapshot == cfg, "child changed its component/baseline configuration")
     result = load_json(base / "result.json")
+    new_union = is_metadata_union(child.get("comparison"))
     if "candidate" in result:
         require(result["candidate"] == candidate, "component result differs from frozen candidate")
     elif candidate.get("route_latlon") is not None:
         require((result.get("answer") or {}).get("route_latlon") == candidate["route_latlon"], "child selected route is stale")
-    if kind in {"baseline", "expanded"} and child.get("status") == "complete" and not (child.get("comparison") or {}).get("unavailable_reason"):
+    if new_union and child.get("status") == "complete":
+        answer = result.get("answer") or {}
+        require(answer.get("route_latlon") == child["route_latlon"]
+                and answer.get("method") == "metadata_union_reference_mean"
+                and answer.get("source") == "assisted_v3.full_sequence.reference_mean"
+                and answer.get("route_t_sec") == child["route_timestamps"]
+                and (result.get("assisted_metadata_union") or {}).get("artifacts") == child["comparison"]["metadata_union_artifacts"],
+                "new full child answer has ordinary smoothing or stale route/decoder provenance")
+    require(not new_union or profile == "v3" and kind == "expanded", "full metadata comparison outside its explicit v3 expanded stage")
+    if kind in {"baseline", "expanded"} and child.get("status") == "complete" and not (child.get("comparison") or {}).get("unavailable_reason") and not new_union:
         retrieval_route(candidate, result)
     return child, ledger
+
+
+def is_metadata_union(value):
+    if not isinstance(value, dict) or "schema" not in value:
+        return False
+    from monocular_osm.assisted_comparison import SCHEMA
+    return isinstance(value, dict) and value.get("schema") == SCHEMA
+
+
+def metadata_union_math(arrays, output, variant):
+    """Independently verify a full path/objective/median5; no optimality claim."""
+    import numpy as np
+    import pyproj
+    from collections import Counter
+    from monocular_osm.full_sequence import PROFILE, PROFILE_SHA256
+    from monocular_osm.assisted_worker import _array_sha
+    require(variant in {"raw", "reference_mean"}, "unsupported full metadata variant")
+    ids, refs, score, times = (np.asarray(arrays[k]) for k in ("ref_ids", "ref_latlon", "raw_similarities", "query_times"))
+    indices = np.asarray(arrays["query_indices"])
+    n = len(ids)
+    require(1 <= n <= 10000 and ids.shape == (n,) and ids.dtype.kind in "US" and len(set(ids.tolist())) == n
+            and refs.shape == (n, 2) and refs.dtype == np.float64 and np.isfinite(refs).all()
+            and np.all(abs(refs[:, 0]) <= 90) and np.all(abs(refs[:, 1]) <= 180)
+            and score.shape == (80, n) and score.dtype == np.float32 and np.isfinite(score).all()
+            and np.max(abs(score)) <= 1.00001 and indices.dtype.kind in "iu"
+            and np.array_equal(indices, np.arange(80)) and times.shape == (80,) and times.dtype == np.float64
+            and np.isfinite(times).all() and times[0] >= 0 and np.all(np.diff(times) > 0), "bounded complete full metadata evidence required")
+    path = np.asarray(output["chosen_ref_indices"])
+    require(path.shape == (80,) and path.dtype.kind in "iu" and path.min() >= 0 and path.max() < n,
+            "full metadata path index is outside the complete union")
+    order = np.argsort(ids.astype(str), kind="stable")
+    lat0 = float(np.mean(refs[order, 0])); angles = np.deg2rad(refs[order, 1])
+    sine, cosine = float(np.mean(np.sin(angles))), float(np.mean(np.cos(angles)))
+    require(np.hypot(sine, cosine) >= 1e-8, "unstable all-reference metric longitude")
+    lon0 = float(np.rad2deg(np.arctan2(sine, cosine)))
+    require(not pyproj.network.is_network_enabled(), "audit PROJ networking must be disabled")
+    metric = pyproj.CRS.from_proj4(f"+proj=aeqd +lat_0={lat0} +lon_0={lon0} +ellps=WGS84 +units=m +no_defs")
+    forward = pyproj.Transformer.from_crs("EPSG:4326", metric, always_xy=True)
+    inverse = pyproj.Transformer.from_crs(metric, "EPSG:4326", always_xy=True)
+    x, y = forward.transform(refs[:, 1], refs[:, 0]); xy = np.column_stack([x, y])
+    require(np.isfinite(xy).all(), "full metadata metric coordinates are nonfinite")
+    raw = score[np.arange(80), path].astype(np.float64)
+    means = np.ascontiguousarray(score).mean(axis=0, dtype=np.float64)
+    emissions = raw - (means[path] if variant == "reference_mean" else 0.)
+    objective = float(emissions[0]); distances = []
+    for q in range(1, 80):
+        distance = float(np.hypot(*(xy[path[q]] - xy[path[q - 1]])))
+        free = PROFILE["transition_base_free_m"] + PROFILE["transition_free_speed_mps"] * max(float(times[q] - times[q - 1]), PROFILE["transition_dt_floor_s"])
+        objective = objective - PROFILE["transition_excess_penalty"] * max(distance - free, 0.) + float(emissions[q])
+        distances.append(distance)
+    chosen = refs[path]; selected_xy = xy[path]
+    smooth = np.asarray([np.median(selected_xy[max(0, q - 2):min(80, q + 3)], axis=0) for q in range(80)])
+    lon, lat = inverse.transform(smooth[:, 0], smooth[:, 1]); route = np.column_stack([lat, lon])
+    dominance = max(Counter(map(tuple, chosen)).values()) / 80
+    require(output.get("status") == "complete" and output.get("variant") == variant
+            and output.get("candidate_pruning") is False and output.get("full_reference_count") == n
+            and output.get("all_states_per_query") == n and output["chosen_ref_ids"] == ids[path].tolist()
+            and output["raw_route_latlon"] == chosen.tolist() and output["selected_raw_cosines"] == raw.tolist()
+            and output["selected_emissions"] == emissions.tolist() and output["route_timestamps"] == times.tolist()
+            and output["dominant_coordinate_fraction"] == dominance
+            and output["unique_coordinate_count"] == len(set(map(tuple, chosen)))
+            and finite(output["objective"]) and math.isclose(output["objective"], objective, rel_tol=1e-12, abs_tol=1e-8)
+            and np.asarray(output["route_latlon"]).shape == (80, 2)
+            and np.allclose(output["route_latlon"], route, rtol=0, atol=1e-10),
+            "full metadata path/raw scores/objective/actual median-five route differ")
+    return {"variant": variant, "raw_cosines": raw.tolist(), "unsmoothed_reference_latlon": chosen.tolist(),
+            "similarity_median": float(np.median(raw)), "dominant_coordinate_fraction": dominance,
+            "metric_origin_latlon": [lat0, lon0], "objective": objective, "path": path,
+            "profile_sha256": PROFILE_SHA256, "transition_distances_m": distances,
+            "input_hashes": {"raw_cosines_sha256": _array_sha(score), "ref_ids_sha256": digest(ids.tolist()),
+                "ref_latlon_sha256": _array_sha(refs), "query_times_sha256": _array_sha(times),
+                "metric_origin_latlon": [lat0, lon0]}}
+
+
+def metadata_union_rebuild(regions, descriptor_rows=None):
+    """Canonical union from every frozen pool; never call the producer builder."""
+    import numpy as np
+    from monocular_osm.assisted_worker import _array_sha
+    descriptor_rows = descriptor_rows or {}
+    require(1 <= len(regions) <= 6 and len({r["key"] for r in regions}) == len(regions), "all1..6 metadata pools required")
+    entries = {}; occurrences = 0; inputs = {}; grid = None
+    for region in sorted(regions, key=lambda r: r["key"]):
+        z = region["arrays"]; ids, ll, score = (z[k] for k in ("ref_ids", "ref_latlon", "raw_similarities"))
+        n = len(ids)
+        require(1 <= n <= 1500 and len(set(ids.tolist())) == n and ids.dtype.kind in "US"
+                and ll.shape == (n, 2) and np.isfinite(ll).all() and score.shape == (80, n)
+                and score.dtype == np.float32 and np.isfinite(score).all(), "bounded whole metadata pool required")
+        current = (_array_sha(z["query_indices"]), _array_sha(z["query_times"]))
+        require(grid is None or grid == current, "metadata pools changed actual query grids"); grid = current
+        inputs[region["key"]] = {k: _array_sha(v) for k, v in z.items()}; occurrences += n
+        for col, identifier in enumerate(ids.tolist()):
+            require(isinstance(identifier, str) and identifier.startswith("mapillary:"), "public Mapillary provider IDs required")
+            entries.setdefault(identifier, []).append((region["key"], col, ll[col], score[:, col]))
+    require(1 <= len(entries) <= 10000, "full metadata union reference bound")
+    ids = np.asarray(sorted(entries)); refs = []; columns = []; mapping = []
+    for identifier in ids.tolist():
+        rows = entries[identifier]; key, col, ref, scores = rows[0]
+        require(all(np.array_equal(row[2], ref) for row in rows), "overlap reference coordinates disagree")
+        hashes = []
+        for name, index, _, _ in rows:
+            data = descriptor_rows.get(name)
+            hashes.append(_array_sha(data[index:index + 1]) if data is not None else None)
+        if len(rows) > 1:
+            require(all(v is not None and v == hashes[0] for v in hashes), "overlap lacks identical actual descriptor rows")
+            stack = np.stack([row[3].astype(float) for row in rows])
+            require(np.max(stack.max(axis=0) - stack.min(axis=0)) <= 1e-6, "overlap raw cosine envelope differs")
+        refs.append(ref); columns.append(scores)
+        mapping.append({"ref_id": identifier, "canonical_region": key, "canonical_column": col,
+            "occurrences": [{"region": row[0], "column": row[1], "descriptor_sha256": h} for row, h in zip(rows, hashes)]})
+    first = regions[0]["arrays"]
+    return {"ref_ids": ids, "ref_latlon": np.asarray(refs, np.float64),
+            "raw_similarities": np.ascontiguousarray(np.column_stack(columns), dtype=np.float32),
+            "query_indices": first["query_indices"], "query_times": first["query_times"],
+            "mapping": mapping, "reference_occurrences": occurrences, "input_sha256": inputs}
+
+
+def metadata_descriptor_rows(files, records, regions, ledger):
+    """Bind saved overlap rows to the exact consumed tensor and public payload."""
+    import numpy as np
+    from collections import Counter
+    from monocular_osm.assisted_worker import _array_sha
+    from monocular_osm.public_reference_cache import _PAYLOAD, _pool_identity
+    from monocular_osm.kartaview_vpr import _refs_fingerprint, _sig_tag
+    counts = Counter(str(v) for r in regions for v in r["arrays"]["ref_ids"])
+    affected = {r["key"] for r in regions if any(counts[str(v)] > 1 for v in r["arrays"]["ref_ids"])}
+    require(isinstance(records, list) and len(records) == len(affected)
+            and {r["region"] for r in records} == affected, "all and only affected metadata descriptor pools required")
+    by_name = {r["key"]: r for r in regions}; result = {}
+    for record in records:
+        region = by_name[record["region"]]; audit = region["audit"]; z = region["arrays"]
+        path = files.record(record["artifact"], ledger); arrays = load_npz(path)
+        require(set(arrays) == {"rows"}, "overlap descriptor artifact has unexpected roles")
+        rows = arrays["rows"]; n = len(z["ref_ids"])
+        require(rows.shape == (n, 8448) and rows.dtype == np.float32 and np.isfinite(rows).all()
+                and _array_sha(rows) == record["rows_sha256"], "actual overlap descriptor shape/hash differs")
+        tensor = hashlib.sha256(json.dumps([list(rows.shape), "torch.float32"], separators=(",", ":")).encode())
+        tensor.update(memoryview(np.ascontiguousarray(rows)).cast("B"))
+        receipt = record["receipt"]
+        require(receipt.get("status") == "complete" and receipt.get("payload_mode") == "descriptors_and_pixels"
+                and digest(_pool_identity(receipt)) == receipt.get("pool_id") and receipt.get("count") == n
+                and receipt.get("ref_ids_sha256") == _array_sha(z["ref_ids"])
+                and receipt.get("ref_latlon_sha256") == _array_sha(np.asarray(z["ref_latlon"], float))
+                and receipt.get("ref_embeddings_sha256") == tensor.hexdigest() == audit["ref_embeddings_sha256"]
+                and receipt.get("actual_model_state_sha256") == audit["actual_model_state_sha256"]
+                and receipt.get("backbone") == audit["backbone"] and receipt.get("preprocessing") == audit["preprocessing"]
+                and receipt.get("reference_encoding_identity") == audit.get("reference_encoding_identity", "UNVERIFIED"),
+                "actual overlap rows/public receipt/model identity differs or encoding claim was upgraded")
+        request = audit.get("public_cache_request")
+        require(isinstance(request, dict) and receipt["request"] == request,
+                "descriptor receipt has no exact actual public request")
+        refs = receipt["servable_refs"]
+        require(["mapillary:" + str(r["id"]) for r in refs] == z["ref_ids"].tolist()
+                and np.array_equal(np.asarray([[r["lat"], r["lon"]] for r in refs], float), z["ref_latlon"])
+                and _refs_fingerprint(refs) == receipt["fingerprint"], "cached descriptor provider-ID/coordinate order differs")
+        tag = _sig_tag(receipt["metadata_signature"]); model = receipt["backbone"]["name"]
+        allowed = {"metadata": {f"mly_ref_meta_{tag}.json", "mly_ref_meta.json"}, "pixels": {"ref_img_store.npz"},
+            "descriptors": {f"ref_emb_{model}_{receipt['fingerprint'][:10]}.npz", f"ref_emb_{model}.npz"},
+            "image_store": {f"mly_ref_store_{tag}.json"}}
+        directory = Path(receipt["request"]["cache_dir"]).resolve(strict=True); hashes = {}; descriptor_path = None
+        for item in receipt["files"]:
+            require(isinstance(item["name"], str) and Path(item["name"]).name == item["name"]
+                    and _PAYLOAD.fullmatch(item["name"]) and item["role"] in {"metadata", "pixels", "descriptors", "image_store"},
+                    "non-public descriptor receipt payload")
+            require(item["name"] in allowed[item["role"]], "descriptor source filename identifies another request/fingerprint")
+            target = directory / item["name"]
+            for candidate in (target, target.resolve()):
+                require(not re.search(r"(?:^|[/_.-])(?:gt|ground[-_]?truth|oxts|labels?)(?=$|[/_.-])",
+                    str(candidate).replace("\\", "/").casefold()), "label path in public reference receipt")
+            target = target.resolve(strict=True)
+            require(target.is_relative_to(directory) and str(target) not in hashes and sha_string(item["sha256"])
+                    and target.stat().st_size == item["bytes"] and file_sha(target) == item["sha256"], "protected reference payload changed")
+            hashes[str(target)] = item["sha256"]
+            if item["role"] == "descriptors":
+                require(descriptor_path is None, "multiple actual descriptor payloads"); descriptor_path = target
+        require({r["role"] for r in receipt["files"]} >= {"metadata", "pixels", "descriptors"}
+                and hashes == record["protected_hashes"] and descriptor_path is not None, "public payload/source inventory differs")
+        source_rows = load_npz(descriptor_path)
+        require(set(source_rows) == {"emb", "fingerprint"} and np.array_equal(source_rows["emb"], rows)
+                and str(source_rows["fingerprint"]) == receipt["fingerprint"], "saved descriptor rows differ from their actual cache source")
+        result[record["region"]] = rows
+    return result
+
+
+def metadata_regions(files, value, ledger, window):
+    """Load complete frozen regional controls; each remains its own Viterbi proof."""
+    import numpy as np
+    audits = comparison(files, value, ledger, window, require_all=True)
+    require(1 <= len(audits) <= 6, "full metadata candidate requires1..6 complete pools")
+    paths = sorted((files.record(r, ledger) for r in value["audit_artifacts"] if Path(r["path"]).suffix == ".npz"), key=lambda p: int(p.stem))
+    regions = []
+    for i, (audit, path) in enumerate(zip(audits, paths)):
+        z = load_npz(path); n = len(z["ref_ids"]); pool = audit.get("reference_pool") or {}; fetch = pool.get("fetch") or {}
+        require(audit.get("status") == "complete" and not audit.get("issues") and 1 <= n <= 1500
+                and np.array_equal(z["query_indices"], np.arange(80)) and pool.get("source") == "mapillary"
+                and pool.get("count") == n and fetch.get("listing") == "tiles" and fetch.get("listing_stats_known") is True
+                and not fetch.get("truncated") and type(fetch.get("lost")) is int and fetch["lost"] == 0
+                and fetch.get("snapshot", {}).get("n_refs") == n, "full metadata pool has incomplete capped served imagery")
+        regions.append({"key": f"audit_{i:04d}", "audit": audit, "arrays": z})
+    return regions
+
+
+def metadata_baseline_binding(files, child, ledger, inputs, baseline_child):
+    """Prove the original baseline transport, never an appearance-only substitute."""
+    from monocular_osm.stages.assisted import summary
+    base = Path(child["candidate_artifact"]["path"]).parent; request = load_json(base / "request.json")
+    binding = request.get("metadata_union_baseline") or {}
+    expected = {"kind": "baseline", "execution_id": inputs["execution_id"], "video_sha256": inputs["video"]["sha256"],
+                "source_sha256": inputs["source_sha256"], "window": inputs["registered_window"]}
+    require(binding.get("schema") == "metadata-union-baseline-binding-v3" and binding.get("status") == "complete"
+            and binding.get("expected") == expected and baseline_child is not None and baseline_child.get("status") == "complete"
+            and baseline_child.get("worker_returncode") == 0, "full metadata baseline is not the actual same-execution complete child")
+    baseline_root = files.root / "children" / inputs["execution_id"] / "baseline"
+    _, baseline_ledger = files.freeze(baseline_root / "child_frozen.json")
+    for role, name in (("candidate_artifact", "candidate.json"), ("frozen_artifact", "child_frozen.json"), ("request_artifact", "request.json")):
+        target = files.record(binding[role], None if role == "frozen_artifact" else baseline_ledger)
+        require(target == baseline_root / name, "full metadata baseline transport escaped its actual execution")
+        if role != "request_artifact":
+            require(binding[role]["sha256"] == baseline_child[role]["sha256"], "full metadata binding points to another baseline")
+    original = summary("baseline", baseline_child)
+    require(binding.get("original_summary") == original, "full metadata baseline replaced original legacy summary/identity")
+    return request, binding, original
+
+
+def metadata_actual_plan(files, child, ledger, inputs, gate, control_ledger, value):
+    """Bind all ordered requests/regions/C2F using JSON only, before NPZ loads."""
+    record = gate["metadata_union_plan"]; plan_path = files.record(record["artifact"], control_ledger)
+    base = Path(child["candidate_artifact"]["path"]).parent
+    require(plan_path == base / "metadata_admission/union_plan.json" and ledger.get(plan_path) == record["artifact"]["sha256"],
+            "actual metadata request plan is not in both scoped and final freezes")
+    plan = load_json(plan_path); live = gate["live_reference_calls"]
+    ordered = plan["ordered_requests"]; count = plan["requested_pool_count"]
+    regions = child["retrieval_selection"]["multi_region_retrieval"]["regions"]
+    require(plan == record["plan"] and plan.get("schema") == "metadata-union-actual-pool-plan-v3"
+            and plan.get("status") == "complete" and plan.get("queries") == 80 and plan.get("maximum_pools") == 6
+            and plan.get("maximum_references") == 10000 and type(count) is int and 1 <= count <= 6
+            and len(ordered) == count and plan.get("regional_plan_count") == len(regions)
+            and plan.get("regional_plan") == regions and [r["audit_index"] for r in ordered] == list(range(count)),
+            "incomplete or changed all-call metadata plan")
+    calls = [{"request": r["request"], "reuse": r["reuse"]} for r in ordered]
+    require(live.get("status") == "complete" and live.get("call_count") == live.get("audit_count") == count
+            and live.get("calls") == calls and live.get("calls_sha256") == plan.get("calls_sha256") == digest(calls),
+            "metadata actual request order changed")
+    paths = sorted((files.record(r, control_ledger) for r in value["audit_artifacts"] if Path(r["path"]).suffix == ".json"), key=lambda p: int(p.stem))
+    require(len(paths) == count, "an actual metadata pool is absent from frozen control")
+    for i, (path, call) in enumerate(zip(paths, calls)):
+        meta = load_json(path); request = call["request"]; pool = meta.get("reference_pool") or {}
+        require(int(path.stem) == i and meta.get("public_cache_request") == request and meta.get("public_cache_reuse") == call["reuse"]
+                and all(pool.get(k) == request[k] for k in ("source", "center", "radius_m", "cap"))
+                and request.get("source") == "mapillary" and request.get("model_name") == meta["backbone"]["name"] == "megaloc"
+                and request.get("device") == meta["backbone"]["device"] == "cpu" and request.get("query_mode") == meta["query_mode"] == "warp",
+                "planned actual metadata call differs from its frozen pool/model/preprocessing")
+        require({**meta["backbone"], "weights_sha256": meta["actual_model_state_sha256"]} == value["model"]
+                and meta["preprocessing"] == value["query"]["preprocessing"]
+                and meta["query_pixels_sha256"] == value["query"]["pixels_sha256"]
+                and meta["query_descriptors_sha256"] == value["query"]["descriptors_sha256"],
+                "all actual metadata pools must share the declared model and native query identity before array load")
+    available = set(range(count)); mapping = []
+    for region in regions:
+        terminal_search(region)
+        matches = [i for i in sorted(available) if all(calls[i]["request"].get(k) == region[field]
+            for k, field in (("center", "center"), ("radius_m", "radius_m"), ("cap", "ref_cap")))]
+        require(matches, "planned metadata region has no actual request"); chosen = matches[0]; mapping.append(chosen); available.remove(chosen)
+    extra = sorted(available)
+    require(plan["regional_to_audit_indices"] == mapping and plan["ordinary_refinement_call_indices"] == extra,
+            "metadata requests were omitted/reordered or relabeled as refinement")
+    if extra:
+        trace = plan.get("c2f_trace")
+        require(len(extra) == 1 and inputs["config"].get("vpr_coarse_to_fine") is True and isinstance(trace, dict)
+                and finite(trace.get("tight_radius_m")) and trace["tight_radius_m"] > 0
+                and calls[extra[0]]["request"]["radius_m"] == trace["tight_radius_m"]
+                and trace == child["retrieval_selection"].get("vpr_coarse_to_fine"), "unmapped request is not a proven ordinary C2F call")
+    return plan, plan_path
+
+
+def metadata_union_component(files, child, ledger, inputs, before, gate, baseline_child):
+    """Verify the frozen research bundle using independent union/path arithmetic.
+
+    This binds every full path and objective, rather than proving global DP
+    optimality; the independent standalone experiment covers that separate claim.
+    """
+    import numpy as np
+    from monocular_osm import assisted_comparison as adapter, assisted_metadata_union as component
+    from monocular_osm import metadata_union as core, assisted_policy as v1, assisted_policy_v3 as v3
+    from monocular_osm.assisted_worker import _array_sha
+    from monocular_osm.stages.assisted import summary
+    request, binding, baseline_summary = metadata_baseline_binding(files, child, ledger, inputs, baseline_child)
+    base = Path(child["candidate_artifact"]["path"]).parent
+    control_path = files.record(gate["metadata_control"], ledger)
+    require(control_path == base / "metadata_admission/control_frozen.json", "metadata control freeze has another scope")
+    control, control_ledger = files.freeze(control_path)
+    require(control.get("control_scope") == "pre_municipality_metadata_only"
+            and control.get("status") == "complete_control_not_final_child" and control.get("kind") == "expanded"
+            and control.get("source_sha256") == inputs["source_sha256"] and control.get("video_sha256") == inputs["video"]["sha256"],
+            "metadata control source/scope/video differs")
+    require(all(ledger.get(p) == h for p, h in control_ledger.items()), "metadata control bytes absent from final child freeze")
+    raw_control = control_path.parent / "control_candidate.json"; raw_request = control_path.parent / "control_request.json"
+    require(raw_control in control_ledger and raw_request in control_ledger and load_json(raw_request) == request,
+            "metadata control request was not the actual expanded request")
+    candidate = load_json(raw_control); old_comparison = candidate["comparison"]
+    require(candidate.get("control_scope") == "pre_municipality_metadata_only" and candidate.get("status") == "complete"
+            and candidate.get("kind") == "expanded" and candidate.get("window") == inputs["registered_window"]
+            and candidate.get("source_sha256") == inputs["source_sha256"] and candidate.get("video_sha256") == inputs["video"]["sha256"]
+            and old_comparison == gate["comparison"] and candidate["route_latlon"] == old_comparison["decoded_reference_latlon"]
+            and candidate["route_timestamps"] == old_comparison["query"]["times"], "metadata control route/comparison is stale")
+    actual_plan, plan_path = metadata_actual_plan(files, child, ledger, inputs, gate, control_ledger, old_comparison)
+    old_summary = summary("expanded", candidate)
+    identity = adapter.baseline_projection(baseline_child["comparison"], baseline_summary)["appearance_identity"]
+    require(adapter.baseline_projection(old_comparison, old_summary)["appearance_identity"] == identity,
+            "metadata raw model/query identity differs from the actual original baseline")
+    regions = metadata_regions(files, old_comparison, control_ledger, inputs["registered_window"])
+    require(len(regions) == actual_plan["requested_pool_count"], "actual metadata pools were dropped")
+    expected_control_members = {raw_control, raw_request, plan_path} | {files.record(r, control_ledger) for r in old_comparison["audit_artifacts"]}
+    require(set(control_ledger) == expected_control_members, "metadata control includes unscoped or omits original artifacts")
+    require(gate["evidence"] == {**deepcopy(before), "expanded": old_summary}
+            and gate["decision"] == gate["legacy_metadata_decision"] == v1.decide_assisted_policy(gate["evidence"])
+            and gate["decision"]["selected_candidate"] != "expanded", "new metadata union ran before exact old-v1 decline")
+    bundle = gate["metadata_union"]; artifacts = bundle["artifacts"]
+    require(bundle.get("status") == "complete" and artifacts.get("schema") == "metadata-union-artifacts-v3", "new research artifacts unavailable")
+    frozen_path = files.record(artifacts["frozen_artifact"], ledger)
+    require(frozen_path == base / "metadata_union/component_frozen.json", "new research freeze escaped metadata-only scope")
+    frozen, research_ledger = files.freeze(frozen_path)
+    require(frozen.get("status") == "complete" and frozen.get("control_scope") == "metadata_union_research_before_selected_route"
+            and frozen.get("sole_primary") == "reference_mean" and frozen.get("both_research_outputs") is True
+            and frozen.get("profile_sha256") == component.PROFILE_SHA256 and frozen.get("source_sha256") == inputs["source_sha256"]
+            and frozen.get("video_sha256") == inputs["video"]["sha256"], "new component profile/source/primary differs")
+    require(all(ledger.get(p) == h for p, h in research_ledger.items()), "research artifact was not frozen in final child")
+    directory = frozen_path.parent
+    names = {str(p.relative_to(directory)).replace("\\", "/") for p in research_ledger}
+    required = {"union_evidence.npz", "union_sources.json", "prediction_raw.json", "prediction_reference_mean.json",
+                "comparison_raw.json", "comparison_reference_mean.json", "decoder_evidence.json", "controls.json",
+                "runtime.json", "candidate.json", "admission.json", "union_plan.json"}
+    require(required <= names and all(name in required or re.fullmatch(r"descriptor_rows_[0-9]{4}\.npz", name) for name in names),
+            "both full research variants/controls/raw union were not retained")
+    require(files.record(artifacts["union_artifact"], research_ledger) == directory / "union_evidence.npz"
+            and files.record(artifacts["candidate_artifact"], research_ledger) == directory / "candidate.json", "union artifact role points to another bundle")
+    require(file_sha(directory / "union_plan.json") == file_sha(plan_path), "new research replaced the frozen original all-call plan")
+    controls = load_json(directory / "controls.json")
+    require(controls["reference_encoding_identity"] == "UNVERIFIED legacy reference fingerprints retained", "historical encoding identity upgraded")
+    require(all(r["receipt"].get("kv_source_sha256") == inputs["source_sha256"].get("monocular_osm/kartaview_vpr.py")
+                for r in controls["descriptor_evidence"]), "descriptor receipt source is not the actual frozen retrieval implementation")
+    def control_source(freeze, candidate_path, request_path, comp, expected):
+        return {"freeze": str(freeze), "freeze_sha256": file_sha(freeze), "candidate": str(candidate_path),
+                "candidate_sha256": file_sha(candidate_path), "identity": expected, "request": str(request_path),
+                "audit_metadata": [str(p) for p in sorted((files.path(r["path"]) for r in comp["audit_artifacts"]
+                    if Path(r["path"]).suffix == ".json"), key=lambda p: int(p.stem))]}
+    baseline_root = Path(baseline_child["candidate_artifact"]["path"]).parent
+    expected_controls = {"baseline": control_source(baseline_root / "child_frozen.json", baseline_root / "candidate.json",
+        baseline_root / "request.json", baseline_child["comparison"], binding["expected"]),
+        "metadata": control_source(control_path, raw_control, raw_request, old_comparison, {**binding["expected"], "kind": "expanded"})}
+    legacy_gate = core.legacy_gate(baseline_summary, old_summary)
+    require(controls["sources"] == expected_controls and controls["legacy_gate"] == legacy_gate,
+            "research controls do not retain the actual original baseline/metadata freezes and legacy identity gate")
+    descriptors = metadata_descriptor_rows(files, controls["descriptor_evidence"], regions, research_ledger)
+    rebuilt = metadata_union_rebuild(regions, descriptors); saved = load_npz(directory / "union_evidence.npz")
+    require(set(saved) == {"ref_ids", "ref_latlon", "raw_similarities", "query_indices", "query_times"}
+            and all(_array_sha(saved[k]) == _array_sha(rebuilt[k]) for k in saved), "saved full union differs from all canonical pool rows")
+    proof = load_json(directory / "union_sources.json")
+    expected_sources = {k: v for k, v in rebuilt.items() if not isinstance(v, np.ndarray)}
+    expected_sources.update(appearance_identity=identity, appearance_identity_sha256=digest(identity))
+    require(proof == expected_sources, "union canonical mapping/input/actual query identity differs")
+    expected_proofs = {}; outputs = {}; maths = {}
+    for variant in ("raw", "reference_mean"):
+        output = load_json(directory / f"prediction_{variant}.json"); math_record = metadata_union_math(saved, output, variant)
+        path = math_record["path"]; maths[variant] = math_record; outputs[variant] = output
+        expected_proof = {"schema": core.PROFILE["comparison_schema"], "appearance_identity": identity,
+            "appearance_identity_sha256": digest(identity), "actual_decoder_profile_sha256": core.full.PROFILE_SHA256,
+            "variant": variant, **{k: math_record[k] for k in ("raw_cosines", "unsmoothed_reference_latlon", "similarity_median", "dominant_coordinate_fraction")},
+            "selected_source_rows": [{"query_row": q, "query_index": int(saved["query_indices"][q]), "query_time": float(saved["query_times"][q]),
+                "global_column": int(col), "ref_id": rebuilt["mapping"][col]["ref_id"], "region": rebuilt["mapping"][col]["canonical_region"],
+                "region_column": rebuilt["mapping"][col]["canonical_column"], "raw_cosine": math_record["raw_cosines"][q]} for q, col in enumerate(path)]}
+        require(load_json(directory / f"comparison_{variant}.json") == expected_proof, "full selected global-ID/pool/column/raw proof differs")
+        expected_proofs[variant] = expected_proof
+    decoder = load_json(directory / "decoder_evidence.json")
+    require(decoder.get("status") == "complete" and decoder.get("profile_sha256") == core.full.PROFILE_SHA256
+            and digest(decoder["profile"]) == core.full.PROFILE_SHA256 and decoder["inputs"] == maths["raw"]["input_hashes"]
+            and decoder.get("selected_variant") is None, "actual full decoder profile/grid/source evidence differs")
+    expected_new = adapter.union_comparison({"status": "complete", "profile_sha256": core.PROFILE_SHA256,
+        "outputs": outputs, "comparisons": expected_proofs, "union": saved}, baseline_child["comparison"], baseline_summary,
+        old_comparison, old_summary, requested_pool_count=len(regions))
+    baseline_audits = comparison(files, baseline_child["comparison"],
+        files.freeze(baseline_root / "child_frozen.json")[1], inputs["registered_window"])
+    baseline_mapping = []
+    for q, (number, row) in enumerate(baseline_child["comparison"]["selected_audit_rows"]):
+        audit = baseline_audits[number]; col = int(audit["decoded_ref_indices"][row])
+        baseline_mapping.append({"query_row": q, "audit_index": number, "audit_query_row": row,
+            "region": f"audit_{number:04d}", "region_column": col, "ref_id": str(audit["ref_ids"][col]),
+            "raw_cosine": float(audit["raw_similarities"][row, col])})
+    by_id = {v: i for i, v in enumerate(saved["ref_ids"].tolist())}; metadata_mapping = []
+    for q, identifier in enumerate(old_comparison["decoded_reference_ids"]):
+        require(identifier in by_id, "original metadata selected reference omitted from full union")
+        col = by_id[identifier]
+        require(saved["ref_latlon"][col].tolist() == old_comparison["decoded_reference_latlon"][q]
+                and float(saved["raw_similarities"][q, col]) == old_comparison["decoded_reference_cosines"][q], "original metadata raw selection changed")
+        metadata_mapping.append({"query_row": q, "global_column": col, "ref_id": identifier})
+    original_base, _, _, _ = core.legacy_summary(baseline_child["comparison"], baseline_summary)
+    new_base = {**original_base, "score_identity": digest(identity)}
+    sole = {"status": "complete", "route_valid": True, "point_count": 80, "score_kind": "raw_cosine",
+        "score_identity": digest(identity), "similarity_median": maths["reference_mean"]["similarity_median"],
+        "dominant_coordinate_fraction": maths["reference_mean"]["dominant_coordinate_fraction"]}
+    expected_standalone = {"baseline_original": baseline_summary, "baseline_new_comparison": new_base,
+        "metadata_original": old_summary, "legacy_gate": legacy_gate, "sole_primary_summary": sole,
+        "sole_primary": "reference_mean", "decision": core.legacy_gate(new_base, sole), "decoder_identity_not_forged": True,
+        "original_selected_sources": {"baseline": baseline_mapping, "metadata": metadata_mapping}}
+    require(controls["standalone_admission"] == expected_standalone, "standalone raw admissions/control mappings are stale")
+    new = load_json(directory / "candidate.json")
+    require(new == {"status": "complete", "route_latlon": outputs["reference_mean"]["route_latlon"],
+                    "route_timestamps": saved["query_times"].tolist(), "comparison": expected_new}, "new sole-primary actual median5 answer differs")
+    evidence = {**deepcopy(before), "baseline": adapter.augment_baseline_summary(baseline_child["comparison"], baseline_summary),
+                "expanded": adapter.union_summary(expected_new, new["route_latlon"], new["route_timestamps"])}
+    admission = load_json(directory / "admission.json"); decision = v3.decide_assisted_policy(evidence)
+    require(admission == {"evidence": evidence, "decision": decision, "sole_primary": "reference_mean", "raw_is_diagnostic_only": True, "default_adopted": False}
+            and bundle["evidence"] == evidence and bundle["decision"] == decision, "new raw-comparison admission/pure policy differs")
+    runtime = load_json(directory / "runtime.json")
+    require(runtime.get("profile_sha256") == component.PROFILE_SHA256 and runtime.get("profile") == component.PROFILE
+            and runtime.get("source_sha256") == inputs["source_sha256"] and runtime.get("appearance_identity") == identity
+            and runtime.get("new_neural_forwards") is False and runtime.get("network") is False
+            and runtime.get("external_watchdog_required") is True and runtime.get("DP_started") is True
+            and finite(runtime.get("elapsed_s")) and 0 <= runtime["elapsed_s"] <= 3600
+            and runtime.get("estimated_extra_bytes", math.inf) <= 400 * 1024**2
+            and len(runtime.get("threadpools") or []) >= 2 and all(p.get("num_threads") == 2 for p in runtime["threadpools"]),
+            "new metadata runtime/source/resource evidence differs")
+    require(all(runtime[name][k] >= 8 * 1024**3 for name in ("memory_before", "memory_end")
+                for k in ("available_physical_bytes", "available_commit_bytes")), "new metadata lacks physical/true-commit floors")
+    admitted = decision["selected_candidate"] == "expanded"
+    require(is_metadata_union(child.get("comparison")) is admitted,
+            "admitted metadata union and final full comparison kind disagree")
+    if is_metadata_union(child.get("comparison")):
+        final = deepcopy(child["comparison"]); final.pop("metadata_union_artifacts", None); final.pop("regional_audit_artifacts", None)
+        require(admitted and final == expected_new and child["comparison"]["metadata_union_artifacts"] == artifacts
+                and child["route_latlon"] == new["route_latlon"] and child["route_timestamps"] == new["route_timestamps"], "final selected full metadata path differs from admitted research")
+    return {"admitted": admitted, "new_comparison": expected_new, "regions": regions,
+            "audit_scope": "all-union source/raw/path/objective/median5/gates; global optimality not replayed"}
 
 
 def retrieval_route(child, physical):
@@ -695,7 +1141,94 @@ def terminal_search(record):
     return True
 
 
-def expansion(files, child, ledger, inputs, before):
+def expansion_v3(files, child, ledger, inputs, before, baseline_child):
+    from monocular_osm import assisted_policy as v1
+    from monocular_osm.stages.assisted import summary
+    selection = child["retrieval_selection"]; multi = selection["multi_region_retrieval"]
+    regions = multi["regions"]
+    require(regions and len(regions) <= inputs["config"]["vpr_region_cap"], "metadata reference plans are incomplete")
+    complete = True
+    for region in regions:
+        try:
+            terminal_search(region)
+        except (ValueError, KeyError, TypeError):
+            complete = False
+    gate = selection["assisted_expansion_gate"]
+    require(gate.get("ordered_subplans") == ["metadata_and_corridors", "full_support_metadata_union_only_after_legacy_decline",
+                                           "municipality_only_if_not_admitted"], "v3 metadata-first ordering changed")
+    old = gate.get("comparison")
+    if old is None:
+        require(bool(gate.get("error")) and gate.get("municipality_skipped") is False and child["status"] != "complete",
+                "unknown metadata failure was promoted to complete expansion")
+        return
+    union = gate.get("metadata_union")
+    verified = metadata_union_component(files, child, ledger, inputs, before, gate, baseline_child) if union is not None else None
+    old_audits = ([r["audit"] for r in verified["regions"]] if verified else
+                  comparison(files, old, ledger, inputs["registered_window"], require_all=complete))
+    coords = old.get("decoded_reference_latlon") or []
+    evidence = {**deepcopy(before), "expanded": summary("expanded", {
+        "status": "complete" if complete and len(coords) >= 2 else "partial", "route_latlon": coords, "comparison": old})}
+    decision = v1.decide_assisted_policy(evidence)
+    require(gate["evidence"] == evidence and gate["decision"] == gate["legacy_metadata_decision"] == decision,
+            "v3 did not first replay exact original-v1 metadata admission/decoder identity")
+    admitted = decision["selected_candidate"] == "expanded"
+    if admitted:
+        require(union is None and gate.get("metadata_control") is None and not is_metadata_union(child.get("comparison")),
+                "new full decode ran after legacy metadata was already admitted")
+    elif union is not None:
+        admitted = verified["admitted"]
+    else:
+        require(not is_metadata_union(child.get("comparison")), "new full comparison has no frozen both-variant research proof")
+    require(gate.get("municipality_skipped") is admitted, "v3 municipality skip disagrees with actual original/new admissions")
+    city = selection.get("city_cover_retrieval"); all_regions = list(regions)
+    if admitted:
+        require(city is None and child["status"] == "complete" and not gate.get("error"), "future municipality/partial output after metadata admission")
+    else:
+        require(isinstance(city, dict), "declined metadata did not retain its municipality fallback")
+        coarse, fine = city.get("coarse_regions") or [], city.get("fine_regions") or []
+        if city.get("status") not in {"ok", "unavailable"} or not coarse:
+            complete = False
+        else:
+            n = city["n_cells"]
+            require(type(n) is int and 0 < n <= 64 and len(coarse) == n
+                    and [r["cell_index"] for r in coarse] == list(range(n))
+                    and len(fine) == len(city.get("densified_cell_indices") or []) <= inputs["config"]["vpr_city_fine_regions"]
+                    and [r["cell_index"] for r in fine] == (city.get("densified_cell_indices") or []), "municipality cells omitted or reordered")
+            require(city["plan"]["boundary_source"]["query"] == inputs["city"]
+                    and city["plan"]["boundary_validation"]["administrative_boundary_verified"] is True, "municipality is not a verified named-city plan")
+            for region in coarse + fine:
+                try:
+                    terminal_search(region)
+                except (ValueError, KeyError, TypeError):
+                    complete = False
+            require(all(r["ref_cap"] == inputs["config"]["vpr_city_coarse_cap"] for r in coarse)
+                    and all(r["ref_cap"] == inputs["config"]["vpr_ref_cap"] for r in fine), "municipality budgets changed")
+            all_regions.extend(coarse + fine)
+    require(child["status"] != "complete" or complete, "incomplete v3 search was promoted")
+    if child["status"] == "complete":
+        if is_metadata_union(child.get("comparison")):
+            old_final = deepcopy(old); old_final["audit_artifacts"] = child["comparison"]["regional_audit_artifacts"]
+            audits = comparison(files, old_final, ledger, inputs["registered_window"], require_all=True)
+            require(len(audits) == len(old_audits), "full path changed or pruned original metadata pools")
+            from monocular_osm.assisted_worker import _array_sha
+            for actual, original in zip(audits, old_audits):
+                require(all(_array_sha(actual[k]) == _array_sha(original[k]) for k in
+                    ("query_indices", "query_times", "ref_ids", "ref_latlon", "raw_similarities", "decoded_ref_indices", "decoded_cosines")),
+                    "full selected candidate changed original regional evidence")
+        else:
+            audits = comparison(files, child["comparison"], ledger, inputs["registered_window"], require_all=True)
+        for region in all_regions:
+            if region["status"] != "ok":
+                continue
+            require(any((a.get("reference_pool") or {}).get("center") == region["center"]
+                        and (a.get("reference_pool") or {}).get("radius_m") == region["radius_m"]
+                        and (a.get("reference_pool") or {}).get("cap") == region["ref_cap"] for a in audits),
+                    "successful planned v3 region lacks its actual complete matrix")
+
+
+def expansion(files, child, ledger, inputs, before, *, baseline_child=None):
+    if inputs["config"].get("assisted_profile", "v1") == "v3":
+        return expansion_v3(files, child, ledger, inputs, before, baseline_child)
     from monocular_osm.assisted_profiles import resolve_policy
     from monocular_osm.stages.assisted import summary
     decide_assisted_policy = resolve_policy(inputs["config"].get("assisted_profile", "v1")).decide_assisted_policy
@@ -819,6 +1352,10 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
             required_sources |= {"monocular_osm/" + name for name in (
                 "assisted_profiles.py", "assisted_policy_v2.py", "assisted_image_union.py",
                 "poi_image_union.py", "full_sequence.py", "sparse_sequence.py", "geo.py")}
+        elif profile == "v3":
+            policy_source = "monocular_osm/assisted_policy_v3.py"
+            from monocular_osm.stages.assisted import V3_REQUIRED_SOURCES
+            required_sources |= V3_REQUIRED_SOURCES | {"monocular_osm/public_reference_cache.py"}
         require(required_sources <= set(declared), "assisted source snapshot omits a required component")
         require(policy["source_sha256"] == declared[policy_source], "policy source is not bound to the parent snapshot")
         files = parent_files(cfg, inputs, audit)
@@ -843,7 +1380,12 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                 files.record(artifact, parent_ledger)
             child, ledger = verify_child(files, record, inputs, before)
             children[kind], ledgers[kind] = child, ledger
-            if child.get("comparison") is not None:
+            new_comparison = is_metadata_union(child.get("comparison"))
+            require(not new_comparison or profile == "v3" and kind == "expanded", "new full comparison reached an incompatible stage/profile")
+            expanded_v3 = profile == "v3" and kind == "expanded" and child.get("status") in {"complete", "partial"}
+            if expanded_v3:
+                expansion(files, child, ledger, inputs, before, baseline_child=children.get("baseline"))
+            if child.get("comparison") is not None and not new_comparison and not expanded_v3:
                 comparison(files, child["comparison"], ledger, window,
                            require_all=kind == "expanded" and child.get("status") == "complete")
             if child.get("status") == "complete":
@@ -860,7 +1402,8 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                     require(backbone == {"name": "megaloc", "hub": HUB_MEGALOC, "device": "cpu"}
                             and sha_string(weights.get("sha256")), "visual child lacks its actual registered model-state identity")
                     if kind in {"baseline", "expanded"} and not child.get("comparison", {}).get("unavailable_reason"):
-                        require(child["comparison"]["model"] == {**backbone, "weights_sha256": weights["sha256"]},
+                        model = (child["comparison"]["appearance_identity"]["model"] if new_comparison else child["comparison"]["model"])
+                        require(model == {**backbone, "weights_sha256": weights["sha256"]},
                                 "decoded comparison belongs to different actual model weights")
                     result["weights"].append(digest({**backbone, "weights_sha256": weights["sha256"]}))
                 if kind == "cues":
@@ -868,7 +1411,8 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                     if child["cues"]["ocr"]["status"] == "complete":
                         result["ocr_models"].append(ocr_identity(child["ocr_provenance"]))
                 elif kind == "expanded":
-                    expansion(files, child, ledger, inputs, before)
+                    if profile != "v3":
+                        expansion(files, child, ledger, inputs, before)
                 elif kind == "poi_joint":
                     issues = poi_issues({"provenance": {"config": child["config"], "poi_inputs": child["poi_inputs"],
                         "poi_localization_audit": child["poi_audit"]}}, {"meta": {"method": "poi_only"}}, city, segment)
@@ -896,7 +1440,7 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                     require(not issues, "; ".join(issues))
                     graph = child["filter_inputs"]["map"]
                     require(file_sha(graph["cache_path"]) == graph["sha256"], "PF whole-city map database changed")
-            derived = summary(kind, child)
+            derived = summary(kind, child, profile="v3") if profile == "v3" else summary(kind, child)
             require(record["summary"] == derived, "reached stage scalars are not derived from its frozen candidate")
             evidence[kind] = derived
             require(trace_inputs[index] == evidence and trace[index] == decide_assisted_policy(evidence), "assisted decision replay differs")

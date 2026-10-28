@@ -364,8 +364,8 @@ class PipelineConfig:
         filter_only = self.answer == "filter"
         poi_only = self.answer == "poi"
         assisted = self.answer == "assisted"
-        if self.assisted_profile not in {"v1", "v2"}:
-            raise ValueError("assisted_profile must be v1 or v2")
+        if self.assisted_profile not in {"v1", "v2", "v3"}:
+            raise ValueError("assisted_profile must be v1, v2 or v3")
         if self.frame_stride is None and not (filter_only or poi_only or assisted):
             self.frame_stride = 6
         if self.frame_stride is not None and self.frame_stride <= 0:

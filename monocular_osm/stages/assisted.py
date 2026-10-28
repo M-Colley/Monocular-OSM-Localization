@@ -22,6 +22,13 @@ REQUESTS = {"request_ocr_vo": "cues", "request_poi_joint": "poi_joint",
             "request_expanded_retrieval": "expanded"}
 HASH = re.compile(r"[a-f0-9]{64}")
 STATISTIC = "raw_cosine_at_decoded_reference"
+V3_REQUIRED_SOURCES = {
+    "monocular_osm/assisted_policy_v3.py", "monocular_osm/assisted_comparison.py",
+    "monocular_osm/assisted_metadata_union.py", "monocular_osm/metadata_union.py",
+    "monocular_osm/full_sequence.py", "monocular_osm/sparse_sequence.py",
+    "monocular_osm/geo.py", "monocular_osm/assisted_profiles.py",
+    "monocular_osm/assisted_worker.py", "monocular_osm/stages/assisted.py",
+}
 
 
 def digest(value):
@@ -70,8 +77,10 @@ def score_identity(comparison):
         return None
 
 
-def summary(kind, child):
+def summary(kind, child, *, profile="v1"):
     """Derive scalar inputs from actual decoded evidence, never rounded confidence."""
+    if profile == "v3":
+        return summary_v3(kind, child)
     status = child.get("status", "failed")
     if status not in {"complete", "partial", "failed", "unavailable"}:
         status = "failed"
@@ -105,7 +114,52 @@ def summary(kind, child):
     return result
 
 
-def child_record(kind, child, output, expected=None):
+def summary_v3(kind, child):
+    """Keep original fields; only the declared new comparison uses its own proof."""
+    if kind not in {"baseline", "expanded"}:
+        return summary(kind, child)
+    comparison = child.get("comparison") or {}
+    new_markers = {"schema", "candidate_kind", "baseline_projection", "raw_column_proof",
+                   "metadata_union_profile_sha256", "actual_decoder"}
+    is_new = (isinstance(comparison, dict) and bool(new_markers.intersection(comparison))) or any(
+        key in child for key in ("candidate_kind", "comparison_schema", "metadata_union_profile_sha256"))
+    if kind == "baseline":
+        result = summary(kind, child)
+        if result["status"] == "complete" and result["route_valid"]:
+            try:
+                from ..assisted_comparison import augment_baseline_summary
+                return augment_baseline_summary(comparison, result)
+            except (KeyError, TypeError, ValueError, IndexError, OverflowError):
+                # A missing new projection never rewrites the original legacy fields.
+                pass
+        return result
+    if not is_new:
+        return summary(kind, child)
+    from ..assisted_comparison import SCHEMA, union_summary
+    status = child.get("status", "failed")
+    if status not in {"complete", "partial", "failed", "unavailable"}:
+        status = "failed"
+    route = valid_route({**child, "status": status})
+    result = {"status": status, "route_valid": route is not None,
+              "point_count": len(route) if route is not None else 0,
+              "score_kind": None, "score_identity": None, "similarity_median": None,
+              "candidate_kind": comparison.get("candidate_kind") if isinstance(comparison, dict) else None,
+              "comparison_schema": comparison.get("schema") if isinstance(comparison, dict) else None,
+              "comparison_evidence": deepcopy(comparison)}
+    if (status == "complete" and route is not None and isinstance(comparison, dict)
+            and comparison.get("schema") == SCHEMA
+            and comparison.get("candidate_kind") == "metadata_union_reference_mean"
+            and all(key not in child or child[key] == comparison.get(source) for key, source in (
+                ("candidate_kind", "candidate_kind"), ("comparison_schema", "schema"),
+                ("metadata_union_profile_sha256", "metadata_union_profile_sha256")))):
+        try:
+            return union_summary(comparison, child["route_latlon"], child["route_timestamps"])
+        except (KeyError, TypeError, ValueError, IndexError, OverflowError):
+            pass
+    return result
+
+
+def child_record(kind, child, output, expected=None, *, profile="v1"):
     artifacts = []
     for name in ("result_artifact", "frozen_artifact", "candidate_artifact"):
         record = child.get(name)
@@ -149,7 +203,8 @@ def child_record(kind, child, output, expected=None):
     return {"kind": kind, "status": child.get("status", "failed"), "artifacts": artifacts,
             "source_sha256": deepcopy(child.get("source_sha256") or {}),
             "route_sha256": digest(child["route_latlon"]) if route is not None else None,
-            "summary": summary(kind, child), "error": child.get("error") or child.get("transport_error"),
+            "summary": (summary(kind, child, profile="v3") if profile == "v3" else summary(kind, child)),
+            "error": child.get("error") or child.get("transport_error"),
             "worker_returncode": child.get("worker_returncode"), "reported_status": child.get("reported_status"),
             "comparison": deepcopy(child.get("comparison")) if kind in {"baseline", "expanded"} else None}
 
@@ -170,6 +225,10 @@ def begin(ctx):
         "policy": {"version": policy.POLICY_VERSION, "config": policy.policy_config(), "config_sha256": policy.CONFIG_SHA256,
                    "source_sha256": file_sha256(Path(policy.__file__))},
         "source_sha256": snapshot_sources(sources, ctx.cfg.output_dir), "config": config_snapshot(ctx.cfg)}
+    if getattr(ctx.cfg, "assisted_profile", "v1") == "v3":
+        declared = {name.replace("\\", "/") for name in inputs["source_sha256"]}
+        if not V3_REQUIRED_SOURCES <= declared:
+            raise ValueError("v3 source snapshot omits an executed comparison/metadata component")
     ctx.result["assisted_inputs"] = inputs
     _write_result_json(ctx.cfg.output_dir / "assisted_inputs.json", _safe(inputs))
 
@@ -191,7 +250,8 @@ def run_assisted(ctx, *, finalize, run_child=None):
     if run_child is None:
         from ..assisted_worker import run_child
     begin(ctx)
-    policy = resolve_policy(getattr(ctx.cfg, "assisted_profile", "v1"))
+    profile = getattr(ctx.cfg, "assisted_profile", "v1")
+    policy = resolve_policy(profile)
     ctx.result["execution"] = {"stage": "assisted", "experimental": True}
     for channel in ("vpr", "plate", "vlm", "sun", "ocr_anchor", "loop_closure", "coarse_from_frames",
                     "orienternet", "geometry", "graph_filter", "poi", "poi_retrieval"):
@@ -200,11 +260,13 @@ def run_assisted(ctx, *, finalize, run_child=None):
     def execute(kind):
         try:
             ctx.assisted_evidence = deepcopy(evidence)
+            if profile == "v3" and kind == "expanded":
+                ctx.assisted_baseline_child = deepcopy(children.get("baseline", {}))
             child = _safe(run_child(kind, ctx))
-            record = child_record(kind, child, ctx.cfg.output_dir, ctx.result["assisted_inputs"])
+            record = child_record(kind, child, ctx.cfg.output_dir, ctx.result["assisted_inputs"], profile=profile)
         except Exception as error:
             child = {"status": "failed", "error": f"{type(error).__name__}: {_safe(str(error))}"}
-            record = child_record(kind, child, ctx.cfg.output_dir)
+            record = child_record(kind, child, ctx.cfg.output_dir, profile=profile)
         children[kind], evidence[kind] = child, record["summary"]
         reached.append(record)
     execute("baseline")
