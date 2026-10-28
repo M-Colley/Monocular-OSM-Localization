@@ -246,6 +246,7 @@ def _valid_terminal(terminal, request):
             and terminal["source"] == "mapillary" and terminal["fetch_signature"] == signature
             and len(refs) == count and snapshot["n_refs"] == count
             and listing.get("listing_stats_known") is True and type(listing.get("lost")) is int
+            and listing.get("listing") == "tiles" and listing.get("truncated", False) is False
             and listing["lost"] == 0 and listing["snapshot"] == snapshot
             and _reference_snapshot(refs)["refs_sha256"] == snapshot["refs_sha256"])
     except (KeyError, TypeError, ValueError):

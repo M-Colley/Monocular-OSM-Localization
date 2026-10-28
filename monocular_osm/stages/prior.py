@@ -223,6 +223,7 @@ def _terminal_sparse_search(center, request, stats, reason):
     count, lost = snapshot.get("n_refs"), stats.get("lost")
     radius = request.get("radius_m", 3000.)
     if (source != "mapillary" or stats.get("listing_stats_known") is not True
+            or stats.get("listing") != "tiles" or stats.get("truncated", False) is not False
             or isinstance(count, bool) or not isinstance(count, int) or not 0 <= count < 30
             or isinstance(lost, bool) or not isinstance(lost, int) or lost != 0
             or reason != f"only {count} {source} reference images within {radius:.0f} m (need 30)"):

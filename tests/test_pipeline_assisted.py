@@ -95,12 +95,16 @@ def test_completed_sparse_listing_retains_plan_and_uncertain_none_declines(tmp_p
     if count:
         (tmp_path / f"mly_ref_meta_{kv._sig_tag(signature)}.json").write_text(json.dumps({"signature": signature, "refs": refs}))
     request = {"source": "mapillary", "radius_m": radius, "cap": cap, "cache_dir": str(tmp_path)}
-    stats = {"listing_stats_known": True, "lost": 0, "snapshot": kv._reference_snapshot(refs)}
+    stats = {"listing": "tiles", "listing_stats_known": True, "lost": 0, "snapshot": kv._reference_snapshot(refs)}
     reason = f"only {count} mapillary reference images within 1000 m (need 30)"
     proof = _terminal_sparse_search(center, request, stats, reason)
     record = {"status": "unavailable", "center": center, "radius_m": radius, "ref_cap": cap,
               "track_decoding": {"terminal_search": proof}}
     assert worker._completed_region(record)
     assert not worker._completed_region({**record, "status": "failed"})
+    for changes in ({"listing": "graph"}, {"listing": None}, {"truncated": True}):
+        assert _terminal_sparse_search(center, request, {**stats, **changes}, reason) is None
+        stale = {**proof, "listing": {**proof["listing"], **changes}}
+        assert not worker._valid_terminal(stale, record)
     assert _terminal_sparse_search(center, request, {**stats, "lost": 1}, reason) is None
     assert not worker._completed_region({**record, "track_decoding": {}})

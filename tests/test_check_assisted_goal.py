@@ -285,7 +285,7 @@ def sparse_record(count):
         "track_decoding": {"terminal_search": {"status": "complete_empty" if count == 0 else "complete_sparse",
             "count": count, "source": "mapillary", "snapshot": snapshot, "reference_inventory": refs,
             "fetch_signature": kv._fetch_signature([49., 8.4], 3000., 1500),
-            "listing": {"listing_stats_known": True, "lost": 0, "snapshot": snapshot}}}}
+            "listing": {"listing": "tiles", "listing_stats_known": True, "lost": 0, "snapshot": snapshot}}}}
 
 
 @pytest.mark.parametrize("count", [0, 1, 29])
