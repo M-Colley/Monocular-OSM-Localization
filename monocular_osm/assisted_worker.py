@@ -94,6 +94,55 @@ def _stop_owned_child(child):
     child.wait()
 
 
+def _metadata_baseline_binding(parent, request):
+    """V3-only transport of this execution's actual saved baseline child."""
+    from . import assisted_metadata_union as component, assisted_comparison as comparison
+    try:
+        child = parent.assisted_baseline_child
+        if child.get("status") != "complete" or child.get("worker_returncode") != 0:
+            raise ValueError("completed baseline worker required")
+        root = component.safe(parent.assisted_child_root / "baseline").resolve(strict=True)
+        records = {}
+        for name,filename in (("frozen_artifact","child_frozen.json"),("candidate_artifact","candidate.json")):
+            row = child[name];path = component.safe(row["path"]).resolve(strict=True)
+            if path != root/filename or not component.core.digest(row["sha256"]) or component.sha(path) != row["sha256"]:
+                raise ValueError("baseline transport artifact escaped execution or changed")
+            records[name] = {"path":str(path),"sha256":row["sha256"]}
+        frozen = json.loads(Path(records["frozen_artifact"]["path"]).read_text(encoding="utf8"))
+        members = {str(component.relative(k)).replace("\\","/"):v for k,v in frozen["artifacts"].items()}
+        hashes = {component.safe(root/name).resolve(strict=True):digest for name,digest in members.items()}
+        candidate_path = root/"candidate.json";request_path = root/"request.json"
+        if (members.get("candidate.json") != records["candidate_artifact"]["sha256"]
+                or any(not path.is_relative_to(root) for path in hashes)):
+            raise ValueError("baseline freeze does not bind its candidate")
+        candidate = component._json_bound(candidate_path,hashes)
+        baseline_request = component._json_bound(request_path,hashes)
+        payload = {key:value for key,value in child.items() if key not in {
+            "candidate_artifact","result_artifact","frozen_artifact","worker_returncode","reported_status","transport_error"}}
+        if component.core.json_sha(payload) != component.core.json_sha(candidate):
+            raise ValueError("saved baseline response differs from frozen payload")
+        expected = {"kind":"baseline","execution_id":request["execution_id"],
+            "video_sha256":request["video_sha256"],"source_sha256":deepcopy(request["source_sha256"]),
+            "window":[request["config"]["vo_start_sec"],request["config"]["vo_end_sec"]]}
+        if (frozen.get("kind") != "baseline" or frozen.get("scoring_has_not_run") is not True
+                or any(frozen.get(k) != expected[k] for k in ("video_sha256","source_sha256"))
+                or any(candidate.get(k) != expected[k] for k in ("kind","video_sha256","source_sha256","window"))
+                or any(baseline_request.get(k) != expected[k] for k in ("kind","execution_id","video_sha256","source_sha256"))
+                or [baseline_request["config"]["vo_start_sec"],baseline_request["config"]["vo_end_sec"]] != expected["window"]):
+            raise ValueError("baseline belongs to another execution/source/video/window")
+        summary = comparison.legacy_summary(candidate["comparison"],candidate["route_latlon"])
+        original = (request.get("policy_evidence") or {}).get("baseline") or {}
+        if any(original.get(k) != summary[k] for k in summary):
+            raise ValueError("baseline original policy evidence differs from frozen raw comparison")
+        component.load_legacy_control(records["frozen_artifact"],"candidate.json",summary,expected)
+        return {"schema":"metadata-union-baseline-binding-v3","status":"complete",**records,
+            "request_artifact":{"path":str(request_path),"sha256":hashes[request_path]},
+            "original_summary":summary,"expected":expected}
+    except (OSError,KeyError,ValueError,TypeError,AttributeError) as error:
+        return {"schema":"metadata-union-baseline-binding-v3","status":"unavailable",
+            "reason":f"{type(error).__name__}: {_safe(str(error))}"}
+
+
 def run_child(kind, parent):
     headroom = _commit_headroom()
     if headroom is not None and headroom < 8 * 1024**3:
@@ -115,6 +164,8 @@ def run_child(kind, parent):
             getattr(parent, "assisted_worker_outcomes", {}).get("baseline"), cfg,
             execution_id=execution_id, video_sha256=request["video_sha256"],
             source_sha256=request["source_sha256"], child_root=parent.assisted_child_root)
+        if getattr(parent.cfg,"assisted_profile","v1") == "v3":
+            request["metadata_union_baseline"] = _metadata_baseline_binding(parent,request)
     path = cfg.output_dir / "request.json"
     _write_result_json(path, _safe(request))
     env = os.environ.copy()
@@ -277,7 +328,262 @@ def _expansion_complete(result, audits=None):
     return True
 
 
+def _attach_metadata_calls(ctx):
+    """Attach only the actual live scope's complete ordered call ledger."""
+    try:
+        calls = ctx.assisted_public_reference_calls;audits = ctx.retrieval_audits
+        if not calls or len(calls) != len(audits):
+            raise ValueError("live call/audit inventory is incomplete")
+        for audit,call in zip(audits,calls):
+            request = call["request"];pool = audit.get("reference_pool") or {}
+            if pool:
+                if any(pool.get(k) != request[k] for k in ("source","center","radius_m","cap")):
+                    raise ValueError("live request differs from its actual reference pool")
+                if audit.get("query_mode") != request["query_mode"]:
+                    raise ValueError("live request query preprocessing differs")
+            elif not _valid_terminal(audit.get("terminal_search") or {},request):
+                raise ValueError("live call lacks a complete pool or terminal inventory")
+            for key,value in (("public_cache_request",request),("public_cache_reuse",call["reuse"])):
+                if key in audit and audit[key] != value:
+                    raise ValueError("stale or reordered live request annotation")
+        for audit,call in zip(audits,calls):
+            audit["public_cache_request"] = deepcopy(call["request"])
+            audit["public_cache_reuse"] = deepcopy(call["reuse"])
+        from .assisted_metadata_union import core
+        return {"status":"complete","call_count":len(calls),"audit_count":len(audits),
+            "calls":deepcopy(calls),"calls_sha256":core.json_sha(_safe(calls))}
+    except (KeyError,ValueError,TypeError,AttributeError) as error:
+        calls = getattr(ctx,"assisted_public_reference_calls",[]);audits = getattr(ctx,"retrieval_audits",[])
+        return {"status":"unavailable","reason":f"{type(error).__name__}: {_safe(str(error))}",
+            "calls":deepcopy(calls),"call_count":len(calls),"audit_count":len(audits)}
+
+
+def _metadata_union_plan(ctx,live):
+    """ALL actual metadata/coarse-to-fine calls, never regional winners only."""
+    from .assisted_metadata_union import core
+    planned = deepcopy((ctx.result.get("multi_region_retrieval") or {}).get("regions") or [])
+    calls = deepcopy(live.get("calls") or [])
+    record = {"schema":"metadata-union-actual-pool-plan-v3","status":"unavailable",
+        "scope":"all actual pre_municipality metadata and ordinary refinement calls",
+        "regional_plan_count":len(planned),"requested_pool_count":len(calls),"queries":80,"maximum_pools":6,"maximum_references":10000,
+        "ordered_requests":[{"audit_index":i,"request":call.get("request"),"reuse":call.get("reuse")} for i,call in enumerate(calls)],
+        "calls_sha256":live.get("calls_sha256"),"regional_plan":planned,"c2f_trace":deepcopy(getattr(ctx,"c2f_info",None)),
+        "regional_to_audit_indices":[],"ordinary_refinement_call_indices":[]}
+    try:
+        if live.get("status") != "complete" or not _expansion_complete(ctx.result,ctx.retrieval_audits):
+            raise ValueError("complete actual metadata call/audit plan required")
+        if not 1 <= len(calls) <= 6 or len(calls) != len(ctx.retrieval_audits) or not planned:
+            raise ValueError("ALL actual metadata pools must fit fixed1..6 bound")
+        if core.json_sha(_safe(calls)) != live["calls_sha256"] or calls != ctx.assisted_public_reference_calls:
+            raise ValueError("actual metadata call order changed")
+        available = set(range(len(calls)))
+        for region in planned:
+            matching = [i for i in sorted(available) if all(calls[i]["request"].get(key) == region[field]
+                for key,field in (("center","center"),("radius_m","radius_m"),("cap","ref_cap")))]
+            if not matching:
+                raise ValueError("planned metadata region missing its actual request")
+            chosen = matching[0];available.remove(chosen);record["regional_to_audit_indices"].append(chosen)
+        extra = sorted(available);record["ordinary_refinement_call_indices"] = extra
+        if extra:
+            trace = record["c2f_trace"]
+            if (len(extra) != 1 or not getattr(ctx.cfg,"vpr_coarse_to_fine",False) or not isinstance(trace,dict)
+                    or not isinstance(trace.get("tight_radius_m"),(int,float)) or isinstance(trace["tight_radius_m"],bool)
+                    or not np.isfinite(trace["tight_radius_m"]) or trace["tight_radius_m"] <= 0
+                    or calls[extra[0]]["request"]["radius_m"] != trace["tight_radius_m"]):
+                raise ValueError("additional metadata request lacks ordinary C2F provenance")
+        record["status"] = "complete"
+    except (KeyError,ValueError,TypeError,AttributeError) as error:
+        record["reason"] = f"{type(error).__name__}: {_safe(str(error))}"
+    return record
+
+
+def _load_metadata_baseline(ctx,request):
+    from . import assisted_metadata_union as component
+    binding = request["metadata_union_baseline"]
+    if binding.get("schema") != "metadata-union-baseline-binding-v3" or binding.get("status") != "complete":
+        raise ValueError("same-execution completed baseline binding unavailable")
+    expected = {"kind":"baseline","execution_id":request["execution_id"],"video_sha256":request["video_sha256"],
+        "source_sha256":request["source_sha256"],"window":[ctx.cfg.vo_start_sec,ctx.cfg.vo_end_sec]}
+    root = component.safe(ctx.cfg.output_dir.parent/"baseline").resolve(strict=True)
+    for key,name in (("frozen_artifact","child_frozen.json"),("candidate_artifact","candidate.json"),("request_artifact","request.json")):
+        if component.safe(binding[key]["path"]).resolve(strict=True) != root/name:
+            raise ValueError("baseline binding escaped the current expanded execution")
+        if component.sha(root/name) != binding[key]["sha256"]:
+            raise ValueError("baseline transport record changed")
+    if binding["expected"] != expected:
+        raise ValueError("baseline transport source/video/window/execution differs")
+    return component.load_legacy_control(binding["frozen_artifact"],"candidate.json",binding["original_summary"],expected)
+
+
+def _seal_metadata_control(ctx,request,candidate,original_summary):
+    from . import assisted_metadata_union as component
+    directory = ctx.cfg.output_dir/"metadata_admission"
+    frozen = directory/"control_frozen.json"
+    if any(path.exists() for path in (frozen,directory/"control_candidate.json",directory/"control_request.json")):
+        raise ValueError("refuse stale metadata control artifacts")
+    expected = {"kind":"expanded","execution_id":request["execution_id"],"video_sha256":request["video_sha256"],
+        "source_sha256":request["source_sha256"],"window":[ctx.cfg.vo_start_sec,ctx.cfg.vo_end_sec]}
+    value = {**deepcopy(candidate),"kind":"expanded","video_sha256":expected["video_sha256"],
+        "window":expected["window"],"source_sha256":expected["source_sha256"],"control_scope":"pre_municipality_metadata_only"}
+    _write_result_json(directory/"control_candidate.json",_safe(value))
+    _write_result_json(directory/"control_request.json",_safe(request))
+    paths = [directory/"control_candidate.json",directory/"control_request.json",directory/"union_plan.json",*sorted((directory/"retrieval_audit").glob("*"))]
+    if any(not p.is_file() for p in paths):
+        raise ValueError("metadata control contains an unexpected directory")
+    _write_result_json(frozen,{"scoring_has_not_run":True,"kind":"expanded","control_scope":"pre_municipality_metadata_only",
+        "status":"complete_control_not_final_child","video_sha256":expected["video_sha256"],"source_sha256":expected["source_sha256"],
+        "artifacts":{p.relative_to(directory).as_posix():file_sha256(p) for p in paths}})
+    record = {"path":str(frozen.resolve()),"sha256":file_sha256(frozen)}
+    control = component.load_legacy_control(record,"control_candidate.json",original_summary,expected,request_relative="control_request.json")
+    return control,record
+
+
+def _verify_metadata_union_artifacts(artifacts):
+    from . import assisted_metadata_union as component
+    record = artifacts["frozen_artifact"];path = component.safe(record["path"]).resolve(strict=True)
+    if component.sha(path) != record["sha256"]:
+        raise ValueError("union component freeze changed")
+    frozen = json.loads(path.read_text(encoding="utf8"));root = path.parent
+    if frozen.get("status") != "complete" or frozen.get("both_research_outputs") is not True or frozen.get("sole_primary") != "reference_mean":
+        raise ValueError("complete fixed-primary union freeze required")
+    members = {}
+    for name,digest in frozen["artifacts"].items():
+        target = component.safe(root/component.relative(name)).resolve(strict=True)
+        if not target.is_relative_to(root) or target in members or component.sha(target) != digest:
+            raise ValueError("union artifact changed or escaped component")
+        members[target] = digest
+    for name in ("candidate_artifact","union_artifact"):
+        row = artifacts[name];target = component.safe(row["path"]).resolve(strict=True)
+        if members.get(target) != row["sha256"]:
+            raise ValueError("union source record differs from component freeze")
+
+
+def _save_metadata_union(ctx,result,evidence,decision,plan_artifact=None):
+    """Freeze BOTH research variants/source proofs before any ctx route change."""
+    from . import assisted_metadata_union as component
+    directory = ctx.cfg.output_dir/"metadata_union"
+    directory.mkdir(exist_ok=False)
+    if plan_artifact is not None:
+        path = component.safe(plan_artifact["path"]).resolve(strict=True)
+        if component.sha(path) != plan_artifact["sha256"]:
+            raise ValueError("metadata union plan changed before result freeze")
+        shutil.copyfile(path,directory/"union_plan.json")
+    research = result["research"];union = research["union"]
+    np.savez_compressed(directory/"union_evidence.npz",**{key:union[key] for key in
+        ("ref_ids","ref_latlon","raw_similarities","query_indices","query_times")})
+    _write_result_json(directory/"union_sources.json",_safe({key:value for key,value in union.items() if not isinstance(value,np.ndarray)}))
+    for variant in ("raw","reference_mean"):
+        _write_result_json(directory/f"prediction_{variant}.json",_safe(research["outputs"][variant]))
+        _write_result_json(directory/f"comparison_{variant}.json",_safe(research["comparisons"][variant]))
+    _write_result_json(directory/"decoder_evidence.json",_safe(research["full_decoder_evidence"]))
+    descriptors = []
+    for index,row in enumerate(result.get("descriptor_evidence") or []):
+        path = directory/f"descriptor_rows_{index:04d}.npz"
+        np.savez_compressed(path,rows=row["rows"])
+        descriptors.append({"region":row["region"],"artifact":{"path":str(path.resolve()),"sha256":file_sha256(path)},
+            "rows_sha256":_array_sha(row["rows"]),"receipt":deepcopy(row["receipt"]),
+            "protected_hashes":deepcopy(row["protected_hashes"])})
+    _write_result_json(directory/"controls.json",_safe({"sources":result["sources"],
+        "legacy_gate":result["legacy_gate"],"standalone_admission":research["admission"],"descriptor_evidence":descriptors,
+        "reference_encoding_identity":"UNVERIFIED legacy reference fingerprints retained"}))
+    _write_result_json(directory/"runtime.json",_safe({**result["runtime"],"profile":result["profile"],
+        "profile_sha256":result["profile_sha256"],"source_sha256":result["sources"]["metadata"]["identity"]["source_sha256"],
+        "appearance_identity":union["appearance_identity"]}))
+    _write_result_json(directory/"candidate.json",_safe(result["candidate"]))
+    _write_result_json(directory/"admission.json",_safe({"evidence":evidence,"decision":decision,
+        "sole_primary":"reference_mean","raw_is_diagnostic_only":True,"default_adopted":False}))
+    paths = sorted(p for p in directory.rglob("*") if p.is_file())
+    frozen = directory/"component_frozen.json"
+    _write_result_json(frozen,{"status":"complete","control_scope":"metadata_union_research_before_selected_route",
+        "scoring_has_not_run":True,"sole_primary":"reference_mean","both_research_outputs":True,
+        "profile_sha256":component.PROFILE_SHA256,"source_sha256":result["sources"]["metadata"]["identity"]["source_sha256"],
+        "video_sha256":result["sources"]["metadata"]["identity"]["video_sha256"],
+        "artifacts":{p.relative_to(directory).as_posix():file_sha256(p) for p in paths}})
+    record = {"path":str(frozen.resolve()),"sha256":file_sha256(frozen)}
+    for name,digest in json.loads(frozen.read_text(encoding="utf8"))["artifacts"].items():
+        if file_sha256(directory/component.relative(name)) != digest:
+            raise ValueError("union artifacts changed before adoption")
+    return {"schema":"metadata-union-artifacts-v3","frozen_artifact":record,
+        "candidate_artifact":{"path":str((directory/"candidate.json").resolve()),"sha256":file_sha256(directory/"candidate.json")},
+        "union_artifact":{"path":str((directory/"union_evidence.npz").resolve()),"sha256":file_sha256(directory/"union_evidence.npz")}}
+
+
+def _metadata_admission_v3(ctx,request):
+    from . import assisted_policy as legacy_policy, assisted_policy_v3 as policy, assisted_metadata_union as component
+    from .stages.assisted import summary
+    directory = ctx.cfg.output_dir/"metadata_admission";directory.mkdir(exist_ok=True)
+    track = ctx.vpr_track;selected = None;artifacts = None
+    record = {"ordered_subplans":["metadata_and_corridors","full_support_metadata_union_only_after_legacy_decline","municipality_only_if_not_admitted"]}
+    try:
+        live = _attach_metadata_calls(ctx);record["live_reference_calls"] = live
+        candidate = {"status":"complete" if track is not None and _expansion_complete(ctx.result,getattr(ctx,"retrieval_audits",[])) else "partial",
+            "route_latlon":np.asarray(track[1]).tolist() if track is not None else [],"comparison":_comparison(ctx,directory)}
+        if track is not None:
+            candidate["route_timestamps"] = np.asarray(ctx.frames.timestamps,float)[np.asarray(track[0],int)].tolist()
+        old_summary = summary("expanded",candidate)  # EXACT original v1 decoder/identity rules.
+        evidence = {**deepcopy(request.get("policy_evidence") or {}),"expanded":old_summary}
+        legacy_decision = legacy_policy.decide_assisted_policy(evidence)
+        record.update(evidence=evidence,decision=legacy_decision,comparison=candidate["comparison"],legacy_metadata_decision=legacy_decision)
+        admitted = legacy_decision.get("selected_candidate") == "expanded"
+        if not admitted:
+            if candidate["status"] != "complete" or live.get("status") != "complete":
+                raise ValueError("all complete live metadata audits required before union")
+            plan = _metadata_union_plan(ctx,live)
+            plan_path = directory/"union_plan.json"
+            if plan_path.exists():
+                raise ValueError("refuse existing metadata union plan")
+            _write_result_json(plan_path,_safe(plan))
+            plan_artifact = {"path":str(plan_path.resolve()),"sha256":file_sha256(plan_path)}
+            record["metadata_union_plan"] = {"artifact":plan_artifact,"plan":plan}
+            if plan["status"] != "complete":
+                raise ValueError(plan.get("reason") or "incomplete actual metadata plan")
+            baseline = _load_metadata_baseline(ctx,request)
+            metadata,control = _seal_metadata_control(ctx,request,candidate,old_summary)
+            count = plan["requested_pool_count"]
+            result = component.evaluate_metadata_union(baseline,metadata,requested_pool_count=count,reference_cfg=ctx.cfg)
+            record["metadata_control"] = control
+            if result["status"] != "complete":
+                raise ValueError(result.get("reason") or "full-support union unavailable")
+            new_evidence = {**deepcopy(request.get("policy_evidence") or {}),"baseline":result["baseline_summary"],"expanded":result["summary"]}
+            decision = policy.decide_assisted_policy(new_evidence)
+            artifacts = _save_metadata_union(ctx,result,new_evidence,decision,plan_artifact)
+            record["metadata_union"] = {"status":"complete","artifacts":artifacts,"evidence":new_evidence,"decision":decision}
+            admitted = decision.get("selected_candidate") == "expanded"
+            if admitted:
+                baseline.verify();metadata.verify()
+                for row in result.get("descriptor_evidence") or []:
+                    if any(component.sha(path) != digest for path,digest in row["protected_hashes"].items()):
+                        raise ValueError("reference source changed before union adoption")
+                selected = deepcopy(result["candidate"])
+                from .kartaview_vpr import _robust_center
+                selected["center"] = _robust_center(np.asarray(selected["route_latlon"],float),
+                    np.asarray(selected["comparison"]["raw_column_proof"]["raw_cosines"],float))
+        record["municipality_skipped"] = admitted
+    except Exception as error:
+        admitted = False
+        record.update(municipality_skipped=False,error=f"{type(error).__name__}: {_safe(str(error))}")
+    try:
+        _write_result_json(directory/"admission.json",_safe(record))
+        if admitted and selected is not None:_verify_metadata_union_artifacts(artifacts)
+    except Exception as error:
+        admitted = False
+        record.update(municipality_skipped=False,error=f"admission write failed: {type(error).__name__}: {_safe(str(error))}")
+        try:_write_result_json(directory/"admission.json",_safe(record))
+        except Exception:pass
+    ctx.result["assisted_expansion_gate"] = record
+    if admitted and selected is not None:
+        chosen = selected["comparison"]["raw_column_proof"]["raw_cosines"]
+        indices = np.asarray(selected["comparison"]["query_indices"],int)
+        route = np.asarray(selected["route_latlon"],float)
+        ctx.vpr_track = (indices,route,np.asarray(chosen,float));ctx.vpr_center = selected["center"]
+        ctx.assisted_metadata_union_selected = {"comparison":deepcopy(selected["comparison"]),"artifacts":artifacts,
+            "route_latlon":deepcopy(selected["route_latlon"]),"route_timestamps":deepcopy(selected["route_timestamps"])}
+    return admitted
+
+
 def _metadata_admission(ctx, request):
+    if getattr(ctx.cfg,"assisted_profile","v1") == "v3":
+        return _metadata_admission_v3(ctx,request)
     from .assisted_profiles import resolve_policy
     decide_assisted_policy = resolve_policy(getattr(ctx.cfg, "assisted_profile", "v1")).decide_assisted_policy
     from .stages.assisted import summary
@@ -314,6 +620,8 @@ def _pipeline_child(cfg, kind, request=None):
         if kind in {"baseline", "expanded"}:
             from .public_reference_cache import track_scope, seal_pool_audits
             with track_scope(cfg, kind, (request or {}).get("public_reference_reuse"), expected=request) as calls:
+                if kind == "expanded" and getattr(cfg,"assisted_profile","v1") == "v3":
+                    ctx.assisted_public_reference_calls = calls
                 result = pipeline._run_pipeline_stages(ctx)
             audits = getattr(ctx, "retrieval_audits", [])
             if len(calls) == len(audits):
@@ -324,6 +632,24 @@ def _pipeline_child(cfg, kind, request=None):
                 seal_pool_audits(audits, cfg)
         else:
             result = pipeline._run_pipeline_stages(ctx)
+        if kind == "expanded" and getattr(cfg,"assisted_profile","v1") == "v3" and getattr(ctx,"assisted_metadata_union_selected",None) is not None:
+            selected = ctx.assisted_metadata_union_selected
+            _verify_metadata_union_artifacts(selected["artifacts"])
+            from .position import build_answer_report,plot_answer
+            answer = build_answer_report(selected["route_latlon"],mode="track",
+                method="metadata_union_reference_mean",source="assisted_v3.full_sequence.reference_mean")
+            answer.update(route_t_sec=deepcopy(selected["route_timestamps"]),experimental=True,confidence_calibrated=False)
+            try:
+                plot_answer(answer,cfg.output_dir/"answer.png",road=None)
+                answer["map_artifact"] = "answer.png"
+            except Exception as error:
+                (cfg.output_dir/"answer.png").unlink(missing_ok=True)
+                answer["map_error"] = f"{type(error).__name__}: {_safe(str(error))}"
+            result["answer"] = answer
+            result["assisted_metadata_union"] = {"artifacts":deepcopy(selected["artifacts"]),
+                "actual_decoder":deepcopy(selected["comparison"]["actual_decoder"]),"sole_primary":"reference_mean",
+                "route_semantics":"exact metric median5 full-DP output; no additional ordinary track smoothing"}
+            _write_result_json(cfg.output_dir/"result.json",_safe(result))
         prediction = baselines.answer(result)
         candidate = {"status": "complete" if prediction is not None else "unavailable"}
         if prediction is not None:
@@ -642,6 +968,21 @@ def _valid_audit(audit, timestamps=None):
 
 
 def _comparison(ctx, output):
+    selected = getattr(ctx,"assisted_metadata_union_selected",None)
+    if getattr(getattr(ctx,"cfg",None),"assisted_profile","v1") == "v3" and selected is not None:
+        from .assisted_comparison import union_summary
+        _verify_metadata_union_artifacts(selected["artifacts"])
+        c = deepcopy(selected["comparison"])
+        indices,route,cosines = map(np.asarray,ctx.vpr_track)
+        if (not np.array_equal(indices,np.asarray(c["query_indices"]))
+                or not np.array_equal(route,np.asarray(selected["route_latlon"]))
+                or not np.array_equal(cosines,np.asarray(c["raw_column_proof"]["raw_cosines"]))
+                or not np.array_equal(np.asarray(ctx.frames.timestamps)[indices],np.asarray(c["query_times"]))):
+            raise ValueError("selected full metadata route/query grid changed after admission")
+        union_summary(c,selected["route_latlon"],selected["route_timestamps"])
+        c["metadata_union_artifacts"] = deepcopy(selected["artifacts"])
+        c["regional_audit_artifacts"] = _save_audits(getattr(ctx,"retrieval_audits",[]),output)
+        return c
     audits = getattr(ctx, "retrieval_audits", [])
     artifacts = _save_audits(audits, output)
     if ctx.vpr_track is None:

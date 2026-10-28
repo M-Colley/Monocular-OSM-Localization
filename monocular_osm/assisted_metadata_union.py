@@ -366,6 +366,9 @@ An external owned-worker watchdog enforces the3600s/8GiB limits throughout.
         return {"status":"complete","selection":research["selection"],"candidate":candidate,"summary":summary,
             "baseline_summary":comparison.augment_baseline_summary(baseline.comparison,baseline.summary),
             "legacy_gate":legacy_gate,"sources":sources,"research":research,"descriptor_receipts":[e.receipt for e in descriptor_evidence],
+            "descriptor_evidence":[{"region":region["key"],"rows":e.rows,"receipt":e.receipt,
+                "protected_hashes":{str(path):digest for path,digest in e.protected_hashes.items()}}
+                for region,e in zip(affected,descriptor_evidence)],
             "runtime":{"elapsed_s":monotonic()-began,"memory_before":before,"memory_end":after,"threadpools":threads,
                 "estimated_extra_bytes":extra,"DP_started":True,"new_neural_forwards":False,"network":False,
                 "external_watchdog_required":True},"union_decoded":True,"profile":deepcopy(PROFILE),"profile_sha256":PROFILE_SHA256,
