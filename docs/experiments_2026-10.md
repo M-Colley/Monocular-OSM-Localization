@@ -678,6 +678,27 @@ execution identities, path traversal and mismatched absolute outputs. The same
 immutable proof passes from C: with zero issues and unchanged prediction bytes;
 the fix does not rerun inference or change policy thresholds.
 
+Two weak-retrieval branches subsequently completed through the same clean
+`300a82f` normal assisted CLI. KITTI 0009 naturally selected
+`baseline → cues → poi_joint`: its raw decoded-reference median was
+`0.11663347482681274`, fresh automatic VO supplied 134/149 valid poses, and
+fresh OCR/inventory matching retained five literal branches. Independent input
+audit passed before separate official scoring: **13.32 m symmetric error**,
+41.07/21.97 m start/end against all 12 registered waypoints. Its freeze is
+`e4bde9d2119d089c743f4c8a89a4ab211288c2bebc24c947aff1e72449c56c1f`.
+
+Atlanta (`kxEDNj5L_yQ`) naturally selected `baseline → cues → expanded`,
+after fresh native VO supplied 3,880/4,463 valid poses. The fixed policy admitted
+the six metadata regions and skipped the municipality hierarchy. The strict
+input audit passed with zero issues before separate standard scoring:
+**32.76 m symmetric error**, 146.03/118.25 m start/end against all 20 waypoints,
+with no benchmark warnings. Its freeze is
+`f73a9e492dccd65eba90730a26f36bf6404cb87f3497157dde72ee954d582a10`.
+Deployment took 2,058.78 s including the ordinary baseline's fresh fine-pool
+reference encoding; sampled process-tree peaks were 3.53 GB resident and
+4.14 GB private memory. These validate individual fixed-policy branches,
+not a complete 15-clip result.
+
 ### Completed reliability baseline and coverage candidates
 
 The clean `2b95f12` checkout completed `reliable_cold_dev`: one cold,
