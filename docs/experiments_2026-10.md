@@ -581,10 +581,28 @@ These references are subsets of an existing dense archive; the counts do not
 establish what a live Mapillary fetch will supply. The inference/scoring runner
 is `scripts/pilot_poi_reference_neighborhoods.py`, with frozen plans, source
 snapshots and outputs in `output/poi_reference_neighborhood_pilot_v2`.
-Fresh acquisition and normal-pipeline POI integration remain separate checks.
+Fresh acquisition and normal-pipeline POI integration require separate checks.
 
 `monocular_osm/poi_localization.py` provides the orchestration over acquired
 inputs and an injected retrieval callback. It validates common video query
 times, backbone/preprocessing identity and duplicate photo evidence, retains
 every branch, and leaves failed or incomplete retrieval inactive. Its output
 is diagnostic; it does not choose the pipeline's answer.
+
+The subsequent live-acquisition pilot used the same five frozen literal-shop
+hypotheses and VO, with equal 1 km / 500-image requests. All five requests
+supplied 500 newly acquired, embedded references: 2,500 unique photos in the
+union. Eighty native-video queries were freshly embedded on CPU. Both the raw
+and reference-mean predictions were frozen before separate scoring; each
+selected branch 4 with **13.02 m symmetric route error**, 41.07 m start error,
+21.83 m end error and 39.48 m mean time-aligned error. Neither prediction used
+the previously selected branch or dense-pool embeddings as an inference input.
+
+The runner is `scripts/pilot_live_poi_alignment.py`, with immutable library
+source at commit `8aa9f05f80bd1e432546cc2575199117371d6612`. Artifacts are in
+`output/live_poi_alignment_pilot_v2`; the prediction-freeze SHA256 is
+`16e5a067b1734dffeb81c20412eb518a750f453666ad39bcd967d85de8608d37`.
+Peak resident memory was 2.13 GiB and peak private commit 3.15 GiB. This checks
+fresh public-reference acquisition for one disclosed development experiment.
+The normal CLI still needs its own check with fresh native OCR and VO; no
+15-clip success or held-out accuracy follows from this result.
