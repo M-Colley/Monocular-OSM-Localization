@@ -556,6 +556,16 @@ answer, with **16.37 m symmetric error** after a strict frozen-input audit and
 separate scoring. A complete 15-clip assisted result has not yet been measured.
 See [the policy and proof](docs/experiments_2026-10.md#provisional-assisted-policy).
 
+`--assisted-profile v2` selects a separate experimental policy. With weak
+motion and one to six literal OCR regions, it retrieves every region on the
+same 80 native query frames and decodes one deduplicated image-reference union.
+Every region must have complete, compatible evidence. The original v1 remains
+the assisted default; a complete v2 fleet result has not yet been measured.
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --assisted-only --assisted-profile v2 --frame-memory-mb 128
+```
+
 Decoded-frame memory is bounded by `--frame-memory-mb` (default 512 MiB).
 Long clips spill losslessly to temporary storage, which is released on exit.
 `--frame-max-width 1280` optionally reduces resolution while preserving aspect

@@ -289,5 +289,30 @@ discarded to make header strings agree. The official score JSON is
 Complete eight-row tables, timed diagnostics, input/score freeze hashes and
 auditor/scorer recovery records are under
 `output/new_methods_20261028/gallery_and_panorama_results.{json,md}`. All
-inference and scoring jobs are terminal. No default or fixed-policy selection
+inference and scoring jobs for these completed comparisons are terminal. No default or fixed-policy selection
 rule changed. The established full-fleet result remains 9/15.
+
+## Heading and temporal evidence: registered diagnostic in progress
+
+The next experiment adds public optical camera headings to the two frozen
+Detroit descriptor sets. It retains all 9,735 references and three native
+query views. Only perspective-photo headings are used; panoramas and missing
+headings remain neutral. Local query yaw comes from consecutive actual
+world-to-camera rotations, without treating VO translation units as metres.
+Quality checks retain 65 of the 79 query intervals; missing intervals contribute
+no measured turn. Crop offsets use the actual pixel centers and native camera
+intrinsics.
+
+Each encoder produces six paths: raw/reference-mean appearance crossed with
+heading removed, reference heading, and reference heading plus optional local
+yaw. One fixed 16-bin joint position/heading model searches every physical
+transition edge, with no appearance-based pruning. This is a hand-built DEV
+hypothesis, not a reproduction of TRAIL or another released learned model.
+
+The source is clean `9f7e4a4`, runner profile
+`1271d70b27215068ec8d38bd2f1174e85561d82ec26754699cd1352b01f60429`.
+The accepted input freeze is
+`5528668f329701b4fe868804b044ea77b3f4d99393b404a5d2b4ea93cc82acfb`
+under `E:/monocular-osm-heading-proof/run2`. All twelve paths must finish and
+pass an independent input/output audit before GT scoring. No accuracy result
+or policy adoption is claimed while that run is in progress.

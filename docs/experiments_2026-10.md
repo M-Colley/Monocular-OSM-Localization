@@ -811,3 +811,44 @@ reference inputs while preserving separate query, OCR, VO and prediction
 state. Existing legacy descriptor files do not attest their historical encoder
 identity; any reuse must retain that uncertainty or bind a fresh-encoding
 receipt, rather than silently upgrading provenance.
+
+### Versioned all-region image policy and reference-input reuse
+
+Clean source `9f7e4a4` adds explicit `--assisted-profile v2`. Strong-baseline,
+joint-VO and measured metric-PF admission retain v1's thresholds. Weak VO and
+one to six literal OCR branches request one common-query image union: equal
+3 km/cap-1,500 regional budgets, the same 80 native three-crop queries, global
+ID/coordinate/descriptor consistency checks and one exact reference-mean
+full-sequence decode. An incomplete branch declines the whole union; no branch
+winner or retrospective per-clip choice is substituted. V1 remains the default.
+
+The optional appearance-evidence audit binds actual query pixels, descriptor
+rows, active model tensors, indices and timestamps. Capped public listings
+must account for every served or unserved member. Only known zero-loss tile
+listings can prove completeness: the legacy graph fallback does not exhaust
+pagination, so its zero-loss statistic cannot establish a completed search.
+This also applies to strict empty/sparse terminal proofs.
+
+Within one parent execution, a successfully completed baseline may provide
+byte-verified copies of its complete public reference inputs to the expanded
+worker. Reuse checks the full request, active model, preprocessing, source,
+served row order and tensor hash. It retains historical encoding uncertainty,
+creates no query/OCR/VO/prediction cache reuse, and declines conflicts into a
+fresh isolated cache. The copied snapshot fixes the consumed reference rows;
+an expanded child cannot silently add retried photos to that same pool.
+
+The normal night v2 proof is running under
+`E:/monocular-osm-assisted-v2-proof/night_run1`, benchmark
+`assisted_v2_night_9f7e4a4`, with fresh VO/OCR/query inference and a generic
+7,200 s pipeline budget. The public seed contains 118 assets (5,086,624,543
+bytes), including prior complete reference assets whose historical encoder
+identity remains UNVERIFIED; it contains no saved query evidence or route.
+Both this run and the separate heading diagnostic have external 8 GiB
+physical-memory and actual-system-commit guards. These are ongoing tests,
+not a completed fleet result.
+
+The full regression suite for source `9f7e4a4` passed **3,241 tests**, with six
+optional/capability skips and four warnings in 468.55 s. JUnit and complete
+output are saved as `output/tests-heading-union.xml` and
+`output/tests-heading-union.log`. Numerical accuracy still requires the separate
+frozen inference/audit/scoring steps above.
