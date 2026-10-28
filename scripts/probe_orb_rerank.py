@@ -37,7 +37,7 @@ def digest(value):
 
 def checked_file(root, relative):
     path = (root / relative.replace("\\", "/")).resolve(strict=True)
-    if not path.is_relative_to(root) or path.name == "scores.json":
+    if not path.is_relative_to(root) or path.name.casefold() == "scores.json":
         raise ValueError("artifact escaped frozen inputs or requested labels/scores")
     return path
 
@@ -68,7 +68,7 @@ def inspect_inputs(run):
     indices = np.asarray(query["sampling"]["dense_indices"])
     count = len(times)
     if (scores.ndim != 2 or scores.shape[0] != count or not 2 <= count <= 80
-            or scores.shape[1] > 1500 or not np.isfinite(scores).all()
+            or not 1 <= scores.shape[1] <= 1500 or not np.isfinite(scores).all()
             or not np.array_equal(evidence["query_indices"], np.arange(count))
             or not np.array_equal(evidence["query_times"], times)
             or not np.isfinite(times).all() or np.any(np.diff(times) <= 0)
@@ -77,6 +77,10 @@ def inspect_inputs(run):
             or indices[-1] >= query["sampling"]["dense_count"]
             or metadata["query_mode"] != "crops" or metadata["source"] != "mapillary"):
         raise ValueError("unsupported or inconsistent frozen matrix/query registration")
+    if (not np.isfinite(query["fps"]) or query["fps"] <= 0 or times[0] != 0
+            or not np.isfinite(experiment["window"][1]) or times[-1] >= experiment["window"][1]
+            or not np.allclose(times, indices/query["fps"], rtol=0, atol=1e-6)):
+        raise ValueError("source ordinal map is not a proven zero-start constant-FPS registration")
     identifiers = np.asarray(evidence["ref_ids"])
     if (identifiers.shape != (scores.shape[1],) or len(set(identifiers.tolist())) != len(identifiers)
             or any(not str(value).startswith("mapillary:") for value in identifiers)
@@ -94,6 +98,8 @@ def inspect_inputs(run):
     with np.load(raw_path, allow_pickle=False) as saved:
         if not np.array_equal(saved["xy"], evidence["ref_latlon"]):
             raise ValueError("raw-pixel coordinates do not match frozen matrix columns")
+        if [str(value) for value in saved["ids"]] != [str(value).split(":", 1)[1] for value in identifiers]:
+            raise ValueError("raw-pixel IDs/order do not match frozen matrix columns")
     registration = {"frozen_prediction": {"path": str(frozen_path), "sha256": file_sha256(frozen_path)},
         "matrix": {"path": str(run / "reference_evidence.npz"), "sha256": file_sha256(run / "reference_evidence.npz")},
         "recovery_lineage": {"path": str(run / "recovery_lineage.json"), "sha256": file_sha256(run / "recovery_lineage.json")},
@@ -109,6 +115,7 @@ def stream_queries(video, query):
     """Decode sequentially, holding one frame, proving every selected source ordinal."""
     capture = cv2.VideoCapture(str(video))
     if not capture.isOpened():
+        capture.release()
         raise ValueError("cannot open frozen encoded video")
     wanted = np.asarray(query["sampling"]["dense_indices"], int)
     times = np.asarray(query["timestamps"], float)
@@ -119,6 +126,8 @@ def stream_queries(video, query):
         for ordinal in range(int(query["sampling"]["dense_count"])):
             if not capture.grab():
                 raise ValueError("video truncated before registered dense window ended")
+            if not np.isclose(capture.get(cv2.CAP_PROP_POS_FRAMES), ordinal+1, rtol=0, atol=1e-6):
+                raise ValueError("decoder native frame ordinal differs from the frozen registration")
             if selected >= len(wanted) or ordinal != wanted[selected]:
                 continue
             ok, pixels = capture.retrieve()
@@ -135,6 +144,8 @@ def stream_queries(video, query):
 
 
 def square_view(pixels, view):
+    if view not in (0, 1, 2) or pixels.ndim < 2 or not all(pixels.shape[:2]):
+        raise ValueError("nonempty native image and crop view0/1/2 required")
     h, w = pixels.shape[:2]
     edge = min(h, w)
     offset = round((max(h, w)-edge)*view/2.)
