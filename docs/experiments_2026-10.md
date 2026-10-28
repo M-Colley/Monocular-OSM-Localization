@@ -699,6 +699,23 @@ reference encoding; sampled process-tree peaks were 3.53 GB resident and
 4.14 GB private memory. These validate individual fixed-policy branches,
 not a complete 15-clip result.
 
+KITTI 0033 subsequently completed the same clean `300a82f` normal CLI with
+the natural `baseline → cues → metric_pf` sequence. The baseline median was
+`0.10499950870871544`; fresh automatic VO had 532/532 valid poses, without a
+literal POI branch. The policy's subsequent native preflight supplied
+1,589/1,594 valid poses, measured plane coverage `0.5182619647355163` and
+spread `0.09737614682216433`, satisfying the fixed eligibility conditions.
+The particle filter used 600,000 particles, seed 0 and the automatic whole-city
+map, with signed native inputs and no GT or retrieval observation. Independent
+strict input audit passed before separate official scoring: **4.83 m symmetric
+error**, 30.56/3.74 m start/end against all 14 registered waypoints. The parent
+freeze is `ab195180a379d238f37261d0292b681ce73a529d7622ab8a5450b3feb478171c`.
+The deployment took 2,535.5 s. This adds one branch proof, not a complete fleet.
+
+The subsequent paper survey and controlled encoder, geometry and sequence
+tests, including their negative results, are recorded in
+[Recent methods](recent_methods_2026-10.md). They do not change policy v1.
+
 ### Completed reliability baseline and coverage candidates
 
 The clean `2b95f12` checkout completed `reliable_cold_dev`: one cold,
@@ -745,8 +762,8 @@ The original pinned benchmark gives **32.76 m symmetric error**, versus
 6,024.41 m for its cold baseline; start/end errors are 146.03/118.25 m against
 all 20 registered waypoints. Original and bounded-diagnostic aggregations agree
 exactly on every saved score, with no warnings. The older source does not emit
-full query-descriptor or similarity matrices; this remains a regional component
-result awaiting normal assisted-policy validation. Audit and separate scoring
+full query-descriptor or similarity matrices; the subsequent normal assisted
+proof above validates its fixed-policy use. Audit and separate component scoring
 are in `output/atlanta_kx_regions_input_audit_5dcca38`.
 
 Original summaries and separate bounded scoring replays are preserved under
