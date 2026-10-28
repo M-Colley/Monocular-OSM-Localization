@@ -658,9 +658,14 @@ multipolygon alongside a valid service road. Clean `3868b81` declares
 driver-level line interest before reading. It retains warning refusal and
 the independent selected source-way ID/tag/node-reference-count completeness
 guard; a selected road with a missing middle node still fails. Independent
-reviews and 102 focused/compatibility tests pass. A new immutable run2 is
-extracting the same public source. No projection has run. Coordinates/order
-remain GDAL-authority, with no legal-routing or topology claim.
+reviews and 102 focused/compatibility tests pass. Immutable run2 completed in
+294.97 s. An independent compiled-Protobuf audit checked all 5,107,511 source
+ways, all 1,415,696 selected physical ways and 12,135,432 vertices, plus every
+WKB/index row and the complete content digest. All 22 protected files remained
+unchanged. Master is `896bc4c3bd3f44720c9c22577f1f70b90a81fe59a4008635490a25fa69261d91`;
+audit is `7998a8c258f4b6c5b00a3eccf87bfc1160839003446b81d9cd269ae37a10d6da`.
+No projection has run. Coordinates/order remain GDAL-authority, with no
+legal-routing or topology claim.
 
 The official [FoL repository](https://github.com/chenshunpeng/FoL) now exposes
 ViT-B and ViT-L checkpoints. This is the AAAI 2025 FoL release; availability
@@ -674,3 +679,60 @@ with CPU, mmap, weights-only loading and a narrow NumPy metadata allowlist
 finds 192 state tensors, 90,056,257 elements and 360,225,028 state bytes.
 No model constructor or neural forward has run. Runtime/CPU feasibility and
 strict complete-state compatibility must pass before any gallery trial.
+
+## Full-support metadata candidate: Phoenix replay passes
+
+Clean `70c1d20` adds a standalone, unadopted replay of every reference from
+all six complete metadata pools. The 80-by-8,700 raw matrix uses the exact
+original native query/model identity, with no new neural forward or API call.
+The baseline's two original audit pools are retained independently; every
+selected baseline row maps to its actual fine-pass pool, without requiring
+baseline references to belong to the metadata union. Historical reference
+encoding remains UNVERIFIED.
+
+Both full-sequence raw and reference-mean outputs were fixed before new GT
+access. Reference-mean is the sole new policy candidate. It passes the exact
+existing gates: raw selected-reference median 0.1659418 versus required 0.162,
+and unsmoothed coordinate dominance 0.175 versus maximum 0.25. The raw
+diagnostic still has 0.3625 dominance and cannot rescue a declined primary.
+Already-admitted legacy metadata and earlier baseline/POI/PF decisions retain
+precedence. No appearance, dominance or physical-motion threshold changed.
+
+Independent audit reconstructed the lexical union, both complete optimal
+paths/objectives, scalar metric median-five routes and original raw-column
+proofs. Both objective differences are zero. It also checked both original
+baseline pools, all 18 retained source control artifacts and exact Decimal
+admission arithmetic. All 1,353 protected files stayed unchanged through
+3,148 checks. Inference took 133.84 s on CPU2 with 0.13 GiB peak sampled RSS;
+independent audit took 163.38 s.
+
+Separate scoring retained both new outputs and all eight original controls:
+
+| Frozen output | Symmetric mean (m) | Mean at covered GT times (m) |
+|---|---:|---:|
+| **Fixed reference-mean primary** | **27.87** | **76.44** |
+| Raw diagnostic, not selectable | 25.65 | 73.06 |
+| Original selected baseline | 18,644.08 | 18,901.82 |
+| Original metadata selected raw references, not normal answer | 30.26 | 78.87 |
+
+All six original regional reference tracks were scored too: 18,817.59,
+6,087.77, 30.26, 24,477.94, 20,274.55 and 38,656.53 m in original order.
+The original selected baseline's symmetric score reproduces exactly. All
+scores use the registered 400:595 window and the same 20 waypoints; timed
+interpolation uses covered timestamps without extrapolation. A geographically
+accurate legacy reference track can still be declined by a fixed input gate;
+the new experiment preserves that refusal and supplies a distinct candidate.
+
+Artifacts under `E:/monocular-osm-metadata-union-proof`: all-output master
+`d5925d1fa77f5b6f2d3144e0213e17c928cdafeb81124b6d151b3300425e9a3f`, independent audit
+`6c01acce3651629f047396a6ef9520e98c0871a1f753e7292e705436b5c60d69`, all-ten score
+`858e98dca49c0419dd6a0816a3135c8f5ed18599928a87b086a3b5d073b824c6`.
+This is a successful posthoc DEV replay. It is not yet integrated into the
+ordinary CLI, adopted as a default, or a complete fifteen-clip result.
+
+The complete regression suite at clean `70c1d20` passes **3,668 tests**, with
+six skips and four warnings in 427.08 s. All 448 tracked non-label/result
+files remain byte-identical, with all 30 excluded label/result boundaries
+unchanged by metadata checks. See
+`output/tests-metadata-map-motion-20261028.{xml,log,source.json,review.json}`.
+The last complete fixed-policy selected-answer fleet remains **9/15**.
