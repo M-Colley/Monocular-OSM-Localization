@@ -837,15 +837,43 @@ creates no query/OCR/VO/prediction cache reuse, and declines conflicts into a
 fresh isolated cache. The copied snapshot fixes the consumed reference rows;
 an expanded child cannot silently add retried photos to that same pool.
 
-The normal night v2 proof is running under
+The normal night v2 proof completed under
 `E:/monocular-osm-assisted-v2-proof/night_run1`, benchmark
 `assisted_v2_night_9f7e4a4`, with fresh VO/OCR/query inference and a generic
 7,200 s pipeline budget. The public seed contains 118 assets (5,086,624,543
 bytes), including prior complete reference assets whose historical encoder
 identity remains UNVERIFIED; it contains no saved query evidence or route.
-Both this run and the separate heading diagnostic have external 8 GiB
-physical-memory and actual-system-commit guards. These are ongoing tests,
-not a completed fleet result.
+Both this run and the separate heading diagnostic used external 8 GiB
+physical-memory and actual-system-commit guards.
+
+The normal policy naturally selected `baseline → cues → poi_image_union`.
+Fresh VO remained 1,432/2,950 valid; both equal-budget literal regions completed
+with 1,498 and 1,500 disjoint references, producing a 2,998-reference union on
+the same 80 native crop queries. Independent inference-only audit passed before
+GT scoring: exact full-union replay, zero strict-input issues, 986 protected
+files unchanged. The parent freeze is
+`7e83606482b06c5ffc1f51a8270a18f5f32d5f301530d65ba35e3543011b0e98`, audit
+`0fedffbe45fe6fba877108360e5c7b14a9880f8344ef5731118693ee57c53602`.
+
+Accuracy failed: the policy chose the wrong region, with **11,090.49 m**
+symmetric mean error, 11,387.42/11,708.80 m start/end error and 3,239.49 m
+predicted length versus 1,121.25 m GT. The normal run took 2,646.7 s; all
+declared inputs were valid, so this is an algorithmic failure. V2 is not adopted.
+The benchmark summary SHA256 is
+`78266adfa7c4900158ee5d5fc7c7b94b8851819e82b1d721627f72addf7c8670`.
+The separate single-region component's earlier success does not establish that
+an image-only decoder can select between all ambiguous literal regions.
+
+Read-only cache diagnosis also found a performance bug: JSON identity hashing
+distinguished integer `3000` from float `3000.0`, placing the seeded reference
+assets in a different directory from the actual request. The centers were
+bit-identical; the newly downloaded 1.178 GB raw store was byte-identical to
+the seed. The two missing photos did not invalidate the cached 1,498-row
+embedding fingerprint. Source `f3dfa71` canonicalizes exact numeric request
+types before hashing and acquisition, preserving all coordinate precision,
+other identity fields and legacy encoding uncertainty. Its 39 new cases and
+229 focused compatibility tests pass. Existing proofs and caches were untouched;
+this fixes reuse, not the wrong-region accuracy result.
 
 The full regression suite for source `9f7e4a4` passed **3,241 tests**, with six
 optional/capability skips and four warnings in 468.55 s. JUnit and complete

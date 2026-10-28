@@ -561,6 +561,8 @@ motion and one to six literal OCR regions, it retrieves every region on the
 same 80 native query frames and decodes one deduplicated image-reference union.
 Every region must have complete, compatible evidence. The original v1 remains
 the assisted default; a complete v2 fleet result has not yet been measured.
+The audited normal night v2 test selected the wrong region (11.09 km error);
+v2 is an experiment, not an accuracy improvement established for deployment.
 
 ```bash
 python main.py --video drive.mp4 --city "City, Country" --assisted-only --assisted-profile v2 --frame-memory-mb 128
