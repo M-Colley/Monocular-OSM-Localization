@@ -64,3 +64,51 @@ def test_failures_remain_in_whole_run_aggregates():
     assert aggregate["seeds_included"] == [0, 1]
     assert aggregate["per_frame_metrics"]["mean_err_m"]["mean"] == 4502.5
     assert aggregate["time_to_localize_s_among_localized"]["mean"] == 78.5
+
+
+def _full_alignment():
+    import numpy as np
+    return {"start_sec": 0., "end_sec": None, "stride": 1, "max_frames": None,
+            "fps": 10., "frame_count": 11, "extracted_count": 11, "first_s": 0., "last_s": 1.,
+            "indices": np.array([0, 5, 10]), "video_times": np.array([0., .5, 1.])}
+
+
+def test_full_video_alignment_preserves_old_indices_and_native_stride():
+    import numpy as np
+    from scripts.score_frozen_video_filter import full_video_frame_indices
+    np.testing.assert_array_equal(full_video_frame_indices(**_full_alignment()), [0, 5, 10])
+    values = {**_full_alignment(), "frame_count": 14, "stride": 3, "extracted_count": 5,
+              "max_frames": 100, "last_s": 1.2, "indices": np.array([0, 2, 4]), "video_times": [0., .6, 1.2]}
+    np.testing.assert_array_equal(full_video_frame_indices(**values), [0, 6, 12])
+
+
+@pytest.mark.parametrize("change", [
+    {"start_sec": 5.}, {"end_sec": .9}, {"fps": 0.}, {"fps": float("nan")},
+    {"stride": 1.5}, {"stride": True}, {"frame_count": 11.5}, {"extracted_count": 10},
+    {"max_frames": 5}, {"indices": [5, 9]}, {"indices": [10, 5]}, {"indices": [5., 10.]},
+    {"video_times": [.5, .9]}, {"first_s": .1},
+    {"indices": [10], "video_times": [1.]}, {"aggregation_factor": 0},
+    {"video_times": [0., .6, 1.]}, {"indices": [5, 10], "video_times": [.5, 1.]},
+])
+def test_unsupported_or_unproven_frame_mapping_refuses_standalone_scoring(change):
+    from scripts.score_frozen_video_filter import full_video_frame_indices
+    with pytest.raises(ValueError, match="full-video alignment"):
+        full_video_frame_indices(**{**_full_alignment(), **change})
+
+
+def test_batch_main_proves_frame_alignment_before_label_directory_access(tmp_path, monkeypatch):
+    from pathlib import Path
+    from scripts import score_frozen_video_filter as scorer
+    monkeypatch.setattr(scorer, "verify_complete_batch", lambda path: ({}, {}, []))
+    def refuse(*args):
+        raise ValueError("unproven full-video alignment")
+    monkeypatch.setattr(scorer, "verify_batch_frame_alignment", refuse)
+    original = Path.resolve
+    def guarded(path, *args, **kwargs):
+        if path.name == "forbidden_labels":
+            raise AssertionError("labels accessed before full-video proof")
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "resolve", guarded)
+    with pytest.raises(ValueError, match="full-video alignment"):
+        scorer.main(["--batch", str(tmp_path), "--labels-dir", str(tmp_path / "forbidden_labels"),
+                     "--waypoints", str(tmp_path / "labels.json")])

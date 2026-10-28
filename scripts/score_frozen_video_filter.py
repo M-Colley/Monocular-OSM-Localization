@@ -3,6 +3,8 @@
 Ordered label text files must begin with latitude and longitude and correspond
 one-to-one to the rendered video frames. Sensor timestamps are never read.
 Every predeclared seed, including the original run, is reported and aggregated.
+Only proven full-video constant-FPS ordinal mappings are supported here;
+use the window-aware benchmark scorer for subwindows or unproven mappings.
 """
 
 from __future__ import annotations
@@ -92,6 +94,85 @@ def aggregate_scores(rows):
     return out
 
 
+def full_video_frame_indices(*, start_sec, end_sec, stride, max_frames, fps, frame_count,
+                             extracted_count, first_s, last_s, indices, video_times,
+                             aggregation_factor=None):
+    """Fail closed unless relative VO ordinals describe the complete video.
+
+    This shortcut scorer has no frozen absolute frame map for subwindows.
+    The benchmark scorer supports registered windows using their time axis.
+    """
+    import math
+    import numpy as np
+    message = "standalone scoring requires proven full-video alignment; use the window-aware benchmark scorer"
+    if (isinstance(frame_count, bool) or not isinstance(frame_count, (int, np.integer)) or frame_count < 2
+            or isinstance(stride, bool) or not isinstance(stride, (int, np.integer)) or stride < 1
+            or not np.isfinite([fps, start_sec, first_s, last_s]).all() or fps <= 0 or start_sec != 0
+            or first_s != 0 or (end_sec is not None and (not np.isfinite(end_sec) or end_sec + 1e-8 < frame_count / fps))):
+        raise ValueError(message)
+    expected = math.ceil(frame_count / stride)
+    if (isinstance(extracted_count, bool) or not isinstance(extracted_count, (int, np.integer))
+            or extracted_count != expected or expected < 2
+            or (max_frames is not None and (isinstance(max_frames, bool)
+                or not isinstance(max_frames, (int, np.integer)) or max_frames < expected))):
+        raise ValueError(message)
+    indices, times = np.asarray(indices), np.asarray(video_times, float)
+    if (indices.ndim != 1 or not len(indices) or not np.issubdtype(indices.dtype, np.integer)
+            or np.any(np.diff(indices) <= 0) or indices[0] != 0 or indices[-1] != expected - 1
+            or times.shape != indices.shape or not np.isfinite(times).all()
+            or np.any(np.diff(times) <= 0) or times[0] < first_s or not np.isclose(times[-1], last_s, rtol=0, atol=1e-8)):
+        raise ValueError(message)
+    if aggregation_factor is None:
+        aggregation_factor = max(1, int(round(.5 / (stride / fps))))
+    if (isinstance(aggregation_factor, bool) or not isinstance(aggregation_factor, (int, np.integer))
+            or aggregation_factor < 1):
+        raise ValueError(message)
+    if len(indices) != 1 + math.ceil((expected - 1) / aggregation_factor):
+        raise ValueError(message)
+    expected_ordinals = np.r_[0, np.minimum(np.arange(aggregation_factor, expected - 1 + aggregation_factor,
+                                                      aggregation_factor), expected - 1)]
+    if (not np.array_equal(indices, expected_ordinals)
+            or not np.allclose(times, indices * stride / fps, rtol=0, atol=1e-6)):
+        raise ValueError(message)
+    absolute = indices * stride
+    if absolute[-1] >= frame_count:
+        raise ValueError(message)
+    return absolute
+
+
+def verify_batch_frame_alignment(config, runs):
+    """Read only frozen inference artifacts, before any label-directory access."""
+    import numpy as np
+    base = Path(config["base"])
+    original = json.loads((base / "inference_config.json").read_text(encoding="utf-8"))
+    measured = json.loads((base / "measured_config.json").read_text(encoding="utf-8"))
+    with np.load(base / "fresh_trajectory.npz", allow_pickle=False) as trajectory:
+        timestamps = trajectory["timestamps"]
+    if (timestamps.shape != (measured["n_frames"],) or not np.isfinite(timestamps).all()
+            or np.any(np.diff(timestamps) <= 0) or timestamps[0] != measured["video_first_s"]
+            or timestamps[-1] != measured["video_last_s"]):
+        raise ValueError("frozen full-video timing/ordinal coverage is unproven")
+    first = None
+    for _, directory in runs:
+        with np.load(directory / "prediction.npz", allow_pickle=False) as prediction:
+            indices = prediction["frame_index"]
+            if (indices.ndim != 1 or not np.issubdtype(indices.dtype, np.integer)
+                    or not len(indices) or indices.min() < 0 or indices.max() >= len(timestamps)):
+                raise ValueError("frozen full-video frame ordinals are invalid")
+            times = timestamps[indices]  # End-of-step ordinals on the verified VO grid.
+            absolute = full_video_frame_indices(
+                start_sec=original["window"]["start_sec"], end_sec=original["window"]["end_sec"],
+                stride=original["vo"]["stride"], max_frames=original["vo"]["max_frames"],
+                fps=original["container_fps"], frame_count=original["container_frame_count"],
+                extracted_count=measured["n_frames"], first_s=timestamps[0], last_s=timestamps[-1],
+                indices=indices, video_times=times, aggregation_factor=measured["aggregation_factor"])
+        if first is None:
+            first = absolute
+        elif not np.array_equal(first, absolute):
+            raise ValueError("seeds use different video-frame indices")
+    return original, first
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--batch", type=Path, required=True)
@@ -104,18 +185,10 @@ def main(argv=None):
 
     batch = args.batch.resolve(strict=True)
     freeze, config, runs = verify_complete_batch(batch)
+    original, first_indices = verify_batch_frame_alignment(config, runs)
     # Verification above must precede this first label-directory access.
     labels_dir = args.labels_dir.resolve(strict=True)
     label_files = sorted(labels_dir.glob("*.txt"))
-    first_indices = None
-    for seed, directory in runs:
-        with np.load(directory / "prediction.npz", allow_pickle=False) as prediction:
-            indices = prediction["frame_index"].astype(int)
-        if first_indices is None:
-            first_indices = indices
-        elif not np.array_equal(first_indices, indices):
-            raise ValueError("seeds use different video-frame indices")
-    original = json.loads((Path(config["base"]) / "inference_config.json").read_text(encoding="utf-8"))
     if len(label_files) != original["container_frame_count"]:
         raise ValueError("label count and original video-frame count differ; frame alignment is unproven")
     gt, label_digest = [], hashlib.sha256()

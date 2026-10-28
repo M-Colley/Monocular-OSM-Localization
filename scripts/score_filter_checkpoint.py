@@ -3,6 +3,8 @@
 Labels are ordered text files beginning latitude longitude, one per original
 rendered video frame. Capture/sensor timestamp files are never opened. This
 program verifies the complete prediction/input/source freeze before labels.
+It accepts proven full-video constant-FPS ordinal mappings only. Registered
+subwindows remain supported by the official benchmark's time-aware scorer.
 """
 from __future__ import annotations
 
@@ -17,6 +19,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from monocular_osm.provenance import file_sha256
+from scripts.score_frozen_video_filter import full_video_frame_indices
 
 
 def verify_checkpoint(directory):
@@ -63,13 +66,22 @@ def main(argv=None):
         fps = float(cap.get(cv2.CAP_PROP_FPS))
     finally:
         cap.release()
+    extraction, timing = inputs["extraction"], inputs["timing"]
+    if (extraction["stride"] != config["frame_stride"] or extraction["max_frames"] != config["max_frames"]
+            or not np.isfinite(timing["fps"]) or not np.isclose(timing["fps"], fps, rtol=0, atol=1e-8)):
+        raise ValueError("frozen full-video extraction/FPS differs from the video")
+    with np.load(directory / "filter_prediction.npz", allow_pickle=False) as prediction:
+        indices = full_video_frame_indices(
+            start_sec=config["vo_start_sec"], end_sec=config["vo_end_sec"], stride=extraction["stride"],
+            max_frames=extraction["max_frames"], fps=fps, frame_count=count,
+            extracted_count=extraction["n_frames"], first_s=timing["first_s"], last_s=timing["last_s"],
+            indices=prediction["frame_index"], video_times=prediction["video_times_s"])
     # This is the first access to the separately supplied labels.
     files = sorted(args.labels_dir.resolve(strict=True).glob("*.txt"))
     if len(files) != count:
         raise ValueError("label/video frame counts differ; one-to-one rendered-frame alignment is unproven")
     metadata = json.loads((directory / "filter_prediction.json").read_text(encoding="utf-8"))
     with np.load(directory / "filter_prediction.npz", allow_pickle=False) as z:
-        indices = int(config["vo_start_sec"] * fps) + z["frame_index"].astype(int) * int(config["frame_stride"])
         labels, digest = [], hashlib.sha256()
         for index in indices:
             path = files[int(index)]
@@ -91,7 +103,7 @@ def main(argv=None):
     score = {"scored_utc": datetime.now(timezone.utc).isoformat(), "separate_post_freeze_scoring": True,
              "frozen_manifest_sha256": file_sha256(directory / "frozen_prediction.json"),
              "scoring_script_sha256": file_sha256(Path(__file__)),
-             "label_alignment": "Original rendered frame index from video FPS, start and stride; no sensor timestamps.",
+             "label_alignment": "Proven full-video native ordinal coverage, zero start and frozen stride; no sensor timestamps.",
              "labels": {"directory": str(args.labels_dir.resolve()), "selected_label_bytes_sha256": digest.hexdigest(),
                         "waypoints_sha256": file_sha256(args.waypoints)},
              "per_frame_metrics": metrics, "selected_answer_source": selected.source,
