@@ -638,11 +638,13 @@ caches. It establishes neither 15-clip success nor held-out accuracy.
 ### Provisional assisted policy
 
 `monocular_osm/assisted_policy.py` declares a single input-only decision policy
-at commit `5b724af`. Its 83 synthetic tests check stage ordering, missing and
-partial evidence, fixed thresholds and preservation of a valid baseline. It
-does not acquire candidates or alter the default pipeline, and no fleet result
-has been measured for this policy. Its constants are disclosed post-hoc dev
-heuristics, fixed before a complete assisted run.
+introduced at commit `5b724af`. Its initial 83 synthetic tests check stage
+ordering, missing and partial evidence, fixed thresholds and preservation of a
+valid baseline. Commit `300a82f` integrates this fixed policy through
+`--answer assisted` / `--assisted-only`, with isolated workers and strict
+benchmark evidence replay. The default remains the ordinary retrieval track.
+No complete assisted fleet result has been measured. Its constants are disclosed
+post-hoc dev heuristics, fixed before a complete assisted run.
 
 The ordinary track's similarity is the raw cosine at the decoded reference;
 Viterbi can select a reference below that frame's argmax. An adapter must bind
@@ -652,6 +654,29 @@ actual decoder, continuity settings and any argmax fallback. Crops-max or
 reference-mean scores cannot stand in for the raw warp score. Searching more
 reference pools can raise a median through selection alone; this remains an
 unvalidated heuristic, rather than a calibrated probability of correctness.
+
+The first normal assisted CLI proof used a clean detached `300a82f` checkout
+and an isolated copy of the ordinary Ulm 4K reference pool, freshly encoded on
+CPU with the verified model state. It encoded 80 fresh native-video queries
+against 1,499 servable references. The decoded-reference raw cosine median was
+`0.2678050845861435`, above the fixed `0.162` cutoff, so the only child was
+`baseline`. The ordinary answer, frozen child candidate and parent-selected
+answer have exactly equal routes and timestamps. The input audit passed before
+label access; separate standard scoring gives **16.37 m symmetric error**,
+55.32 m start error and 33.76 m end error against all eight registered waypoints.
+The deployment took 86.30 s with cached reference embeddings. This verifies the
+strong-retrieval branch on one clip; the full goal correctly reports one of 15
+present and 14 missing.
+
+The parent prediction freeze is
+`6d26b048b37e757fce1f1af0749305fcf65fc6bfc930260f8402aca444f9cdbe`,
+under `E:/monocular-osm-runs/assisted-strong-300a82f/output/benchmark_runs/assisted_strong_ulm_300a82f`.
+Verifier-only commit `5308460` fixes auditing relative configured paths from a
+different working directory. It proves the original output root and execution
+directory from all matching frozen child roles, while rejecting changed hashes,
+execution identities, path traversal and mismatched absolute outputs. The same
+immutable proof passes from C: with zero issues and unchanged prediction bytes;
+the fix does not rerun inference or change policy thresholds.
 
 ### Completed reliability baseline and coverage candidates
 

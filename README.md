@@ -532,6 +532,25 @@ clip, with cached reference embeddings; it establishes neither 15-clip accuracy
 nor a fixed assisted-selection policy. Existing default answers remain
 unchanged. See [the experiment details](docs/experiments_2026-10.md).
 
+`--answer assisted` / `--assisted-only` runs the **EXPERIMENTAL** fixed
+`assisted-policy-posthoc-dev-v1` policy. It first measures the ordinary retrieval
+answer. Weak retrieval can request native OCR and motion, then eligible POI or
+metric-filter candidates, followed by expanded geographic retrieval. Isolated
+child runs freeze their requested inputs, sources, score matrices and routes;
+the parent records the complete selection trace. Failed or partial assistance
+preserves a valid baseline. The thresholds are disclosed development heuristics,
+and the similarity cutoff is not a calibrated confidence score.
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --assisted-only --frame-memory-mb 128
+```
+
+The first normal assisted CLI proof at clean source `300a82f` ran only the
+baseline child on Ulm 4K. Its route and timestamps exactly reproduce the ordinary
+answer, with **16.37 m symmetric error** after a strict frozen-input audit and
+separate scoring. A complete 15-clip assisted result has not yet been measured.
+See [the policy and proof](docs/experiments_2026-10.md#provisional-assisted-policy).
+
 Decoded-frame memory is bounded by `--frame-memory-mb` (default 512 MiB).
 Long clips spill losslessly to temporary storage, which is released on exit.
 `--frame-max-width 1280` optionally reduces resolution while preserving aspect
