@@ -279,7 +279,10 @@ def verify_child(files, record, inputs, before):
     from monocular_osm.provenance import config_snapshot
     from monocular_osm.stages.assisted import child_record
     kind = record["kind"]
-    require(kind in {"baseline", "cues", "poi_joint", "poi_image_track", "metric_pf", "expanded"}, "unknown reached stage")
+    profile = inputs["config"].get("assisted_profile", "v1")
+    allowed = {"baseline", "cues", "poi_joint", "metric_pf", "expanded"}
+    allowed.add("poi_image_union" if profile == "v2" else "poi_image_track")
+    require(kind in allowed, "unknown or incompatible reached stage for assisted profile")
     roles = {item["role"]: item for item in record.get("artifacts") or []}
     if not roles:
         require(record.get("status") == "failed" and bool(record.get("error")), "unfrozen child lacks a terminal failure")
@@ -316,7 +319,12 @@ def verify_child(files, record, inputs, before):
     require(files.config_path(expected.output_dir) == base, "child effective output identifies a different execution")
     if parent_cfg.get("frame_stride") is None or kind == "metric_pf":
         expected.frame_stride = cfg.get("frame_stride")
-    require(config_snapshot(expected) == cfg, "child changed its component/baseline configuration")
+    expected_snapshot = config_snapshot(expected)
+    # Historical v1 freezes precede explicit profile selection. Its absent
+    # field means v1 only; an explicitly declared parent must retain the field.
+    if "assisted_profile" not in parent_cfg and "assisted_profile" not in cfg:
+        expected_snapshot.pop("assisted_profile", None)
+    require(expected_snapshot == cfg, "child changed its component/baseline configuration")
     result = load_json(base / "result.json")
     if "candidate" in result:
         require(result["candidate"] == candidate, "component result differs from frozen candidate")
@@ -565,6 +573,83 @@ def image_child(files, child, ledger, inputs, cue):
             "image acquisition lacks bounded actual CPU runtime proof")
 
 
+def image_union_child(files, child, ledger, inputs, cue):
+    """Replay every literal pool and the full union DP, without image/model I/O."""
+    import numpy as np
+    from monocular_osm.assisted_worker import _array_sha
+    from monocular_osm.poi_image_union import plan_image_union, localize_image_union
+    from monocular_osm.stages.poi_only import _safe
+    plan = plan_image_union(cue["clues"], cue["ocr_provenance"])
+    base = Path(child["candidate_artifact"]["path"]).parent
+    require(child["image_union_plan"] == plan and plan["status"] == "ready",
+            "image union changed or pruned its complete literal branch plan")
+    persisted = files.path(base / "image_union_plan.json")
+    require(persisted in ledger and load_json(persisted) == plan,
+            "image union plan was not persisted in the child freeze")
+    native = load_npz(files.record(cue["auto_quality"]["vo_artifact"]))
+    times = native["timestamps"]
+    grid, auto = child["acquisition"], cue["auto_quality"]
+    require(grid["n_frames"] == auto["n_frames"] == len(times)
+            and grid["stride"] == auto["stride"]
+            and grid["timestamps_sha256"] == auto["timestamps_sha256"] == _array_sha(times)
+            and grid["native_frame_shape_hw"] == cue["ocr_provenance"]["frame_shape_hw"]
+            and cue["window"] == auto["window"] == inputs["registered_window"],
+            "image union queries differ from the frozen native cue grid/window")
+    regions = child["regions"]
+    require(len(regions) == len(plan["region_plans"]) and not child["failed_regions"],
+            "image union omitted or failed a planned literal region")
+    array_keys = {"query_indices", "query_times", "ref_ids", "ref_latlon", "similarities"}
+    matrices, records = {}, []
+    for region, expected in zip(regions, plan["region_plans"]):
+        require(region.get("status") == "complete" and region["hypothesis_id"] == expected["hypothesis_id"]
+                and region["request_sha256"] == expected["request_sha256"],
+                "image union region order/completion differs from its frozen plan")
+        provenance = region["provenance"]
+        record = provenance["matrix_artifact"]
+        path = files.record({**record, "path": base / relative(record["path"])}, ledger)
+        require(path not in matrices, "image union reused a matrix artifact for multiple branches")
+        arrays = load_npz(path)
+        require(set(arrays) == array_keys, "image region matrix omitted or added evidence arrays")
+        runtime = provenance["cpu_runtime"]
+        require(all(runtime.get(key) == child["cpu_runtime"].get(key) for key in
+                    ("device", "intra_op_threads", "inter_op_threads", "torch_version"))
+                and provenance["backbone"] == child["actual_backbone"]
+                and provenance["query_identity"]["actual_model_state_sha256"] == child["actual_model_state"]["sha256"],
+                "image region model/runtime differs from the actual visual child")
+        matrices[path] = {"status": "complete", **arrays, "provenance": provenance}
+        records.append(record)
+
+    def retrieve(region, *, n_query, query_mode, query_cache):
+        require(n_query == 80 and query_mode == "crops", "image replay changed its fixed query profile")
+        position = plan["region_plans"].index(region)
+        path = files.path(base / relative(records[position]["path"]))
+        return matrices[path]
+
+    replay = localize_image_union(plan, timestamps=times, query_video_sha256=inputs["video"]["sha256"],
+                                  retrieve_evidence=retrieve, query_cache={})
+    require(replay.get("status") == "complete", "image union full evidence replay declined: " + str(replay.get("reason")))
+    expected_union = replay.pop("reference_union")
+    declared_union = child["reference_union"]
+    union_record = declared_union["matrix_artifact"]
+    records.append(union_record)
+    require(child["evidence_artifacts"] == records,
+            "image union artifact list differs from all planned regions plus the complete union")
+    union_path = files.record({**union_record, "path": base / relative(union_record["path"])}, ledger)
+    require(union_path not in matrices, "image union artifact aliases a branch matrix")
+    saved = load_npz(union_path)
+    require(set(saved) == array_keys, "image union matrix omitted or added evidence arrays")
+    for name in array_keys:
+        expected = np.asarray(expected_union[name])
+        require(saved[name].dtype == expected.dtype and np.array_equal(saved[name], expected),
+                "image union matrix differs from the deterministic all-region union")
+    array_names = {"query_indices", "query_times", "ref_latlon", "similarities"}
+    compact = {key: value for key, value in expected_union.items() if key not in array_names}
+    require({key: value for key, value in declared_union.items() if key != "matrix_artifact"} == _safe(compact),
+            "image union membership/canonical occurrence/identity claims changed")
+    require(all(child.get(key) == value for key, value in _safe(replay).items()),
+            "image union route/decoder/profile/provenance differs from its full-matrix replay")
+
+
 def poi_artifacts(files, child, ledger, cue):
     """Check the selected joint component's real matrices and reused native VO."""
     import numpy as np
@@ -599,7 +684,8 @@ def terminal_search(record):
             and proof.get("source") == "mapillary", "unavailable reference region has no completed listing proof")
     stats, snapshot = proof["listing"], proof["snapshot"]
     refs = proof["reference_inventory"]
-    require(stats.get("listing_stats_known") is True and type(stats.get("lost")) is int and stats["lost"] == 0
+    require(stats.get("listing_stats_known") is True and stats.get("listing") == "tiles"
+            and not stats.get("truncated") and type(stats.get("lost")) is int and stats["lost"] == 0
             and stats["snapshot"] == snapshot and snapshot["n_refs"] == count and len(refs) == count,
             "sparse listing is partial or has stale counts")
     from monocular_osm.kartaview_vpr import _reference_snapshot, _fetch_signature
@@ -610,8 +696,9 @@ def terminal_search(record):
 
 
 def expansion(files, child, ledger, inputs, before):
-    from monocular_osm.assisted_policy import decide_assisted_policy
+    from monocular_osm.assisted_profiles import resolve_policy
     from monocular_osm.stages.assisted import summary
+    decide_assisted_policy = resolve_policy(inputs["config"].get("assisted_profile", "v1")).decide_assisted_policy
     selection = child["retrieval_selection"]
     multi = selection["multi_region_retrieval"]
     regions = multi["regions"]
@@ -682,11 +769,15 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
     result = {"issues": [], "models": [], "weights": [], "runtimes": [], "ocr_models": [], "policy": None,
               "source": None, "configuration": None, "repeat_inputs": None}
     try:
-        from monocular_osm.assisted_policy import CONFIG_SHA256, POLICY_VERSION, decide_assisted_policy, policy_config
+        from monocular_osm.assisted_profiles import resolve_policy
         from monocular_osm.assisted_worker import _array_sha
         from monocular_osm.stages.assisted import REQUESTS, summary, valid_route
         provenance = rep["provenance"]
         cfg, inputs, audit = provenance["config"], provenance["assisted_inputs"], provenance["assisted_audit"]
+        profile = cfg.get("assisted_profile", "v1")
+        policy_module = resolve_policy(profile)
+        CONFIG_SHA256, POLICY_VERSION = policy_module.CONFIG_SHA256, policy_module.POLICY_VERSION
+        decide_assisted_policy, policy_config = policy_module.decide_assisted_policy, policy_module.policy_config
         window = [float(value) if value else None for value in segment.split(":")]
         require(cfg.get("answer") == "assisted" and cfg.get("city") == city
                 and (score.get("meta") or {}).get("mode") == "assisted"
@@ -722,8 +813,14 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
             "plane_speed.py", "graph_filter.py", "provenance.py", "baselines.py", "position.py",
             "stages/poi_runtime.py", "stages/poi_only.py", "stages/trajectory.py", "stages/acquire.py",
             "stages/graph_filter.py", "stages/report.py")}
+        policy_source = "monocular_osm/assisted_policy.py"
+        if profile == "v2":
+            policy_source = "monocular_osm/assisted_policy_v2.py"
+            required_sources |= {"monocular_osm/" + name for name in (
+                "assisted_profiles.py", "assisted_policy_v2.py", "assisted_image_union.py",
+                "poi_image_union.py", "full_sequence.py", "sparse_sequence.py", "geo.py")}
         require(required_sources <= set(declared), "assisted source snapshot omits a required component")
-        require(policy["source_sha256"] == declared["monocular_osm/assisted_policy.py"], "policy source is not bound to the parent snapshot")
+        require(policy["source_sha256"] == declared[policy_source], "policy source is not bound to the parent snapshot")
         files = parent_files(cfg, inputs, audit)
         sources(files, files.root, inputs["source_sha256"])
         physical = load_json(files.root / "result.json")
@@ -750,7 +847,7 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                 comparison(files, child["comparison"], ledger, window,
                            require_all=kind == "expanded" and child.get("status") == "complete")
             if child.get("status") == "complete":
-                if kind in {"baseline", "expanded", "poi_joint", "poi_image_track"}:
+                if kind in {"baseline", "expanded", "poi_joint", "poi_image_track", "poi_image_union"}:
                     runtime = child["cpu_runtime"]
                     require(runtime.get("device") == "cpu" and runtime.get("intra_op_threads") == 4
                             and type(runtime.get("inter_op_threads")) is int and runtime["inter_op_threads"] > 0
@@ -780,6 +877,8 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                     poi_artifacts(files, child, ledger, children["cues"])
                 elif kind == "poi_image_track":
                     image_child(files, child, ledger, inputs, children["cues"])
+                elif kind == "poi_image_union":
+                    image_union_child(files, child, ledger, inputs, children["cues"])
                 elif kind == "metric_pf":
                     require(child["metric_preflight"] == children["cues"]["metric_preflight"], "PF child replaced its native preflight")
                     measured = metric_package(files, child["metric_preflight"], ledgers["cues"], inputs, children["cues"]["auto_quality"])
