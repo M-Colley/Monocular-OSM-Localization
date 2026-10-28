@@ -31,7 +31,7 @@ CVPR/ICCV 2025–26 and older released controls.
 | [HOPS, ICCV 2025](https://github.com/CMalone-Jupiter/HOPS) | Descriptor fusion code exists, but needs corresponding places across reference conditions. Arbitrary nearby photos in an unordered city gallery do not supply that correspondence. |
 | [Sequence-Matching Receptiveness, IROS 2025](https://github.com/QVPR/vpr-smr-predictor) | Assumes ordered comparable traverses and a trained predictor; unsuitable as a direct replacement for unordered-gallery decoding. |
 | [To Match or Not to Match, CVPR 2025 IMW](https://github.com/FarInHeight/To-Match-or-Not-to-Match) | Motivated a paired geometry test. Its warning that reranking can hurt modern VPR makes an unchanged retrieval control essential. |
-| [XFeat, CVPR 2024 control](https://github.com/verlab/accelerated_features) | Released compact local features and CPU inference; prepared as a controlled replacement for ORB extraction/matching. |
+| [XFeat, CVPR 2024 control](https://github.com/verlab/accelerated_features) | Released compact local features and CPU inference; actually tested as a controlled replacement for ORB extraction/matching. |
 | [OSMLoc, Information Fusion 2026](https://github.com/WHU-USI3DV/OSMLoc) | Released image-to-OSM code and checkpoints; already represented in this repository's historical experiments. Those use oracle local priors and odometry, so they do not establish city-wide monocular localization. |
 | [RHO, CVPR 2026](https://github.com/InSAI-Lab/RHO) | Official source exists, but its two-branch model uses a holistic panorama. The current videos provide one forward-facing camera; a ready checkpoint was not verified from the inspected README/releases. |
 | [SeqLoc, August 2026 preprint](https://arxiv.org/html/2608.07835v1) | Online entropy-weighted pose-volume fusion and map-shaped recovery are relevant. Its main experiments use reference-pose-derived ideal odometry and a 32 m initial crop error; appendix tests add simulated drift. That is a different problem from finding a route several kilometres away using this project's actual VO. Official runnable release not verified. |
@@ -128,6 +128,7 @@ fixed assisted policy.
 | Test | Actual result |
 |---|---|
 | ORB geometry on the night clip | Fixed top eight centered references, three crops, 1,920 image pairs. No pair reached the preregistered eight reciprocal matches; every output fell back to centered retrieval. Both scored 602.75 m. Inference took 82.68 s. |
+| XFeat geometry on the same night inputs | Same candidate/view/geometry/ranking profile, replacing only ORB/matching with pinned official sparse XFeat and reciprocal cosine matching. Found positive geometric support in 1,871/1,920 pairs and changed 57/80 selections, but worsened symmetric error from 602.75 to **721.90 m**. Inference took 79.99 s; native process-tree peak was 702 MB resident / 577 MB private. |
 | Detroit native-motion plus public exit targets | Fresh 4,441-pose native VO, all literal exit-number candidates from public OSM, all-null assignment retained. Cue-only/raw/reference-mean fits scored 1,466.61 / 1,600.35 / 1,558.23 m. The sign text does not identify the camera position or prove that an exit was taken. |
 | Detroit full-support spatial posterior | All 9,735 references, density-normalized spatial appearance, finite-boundary motion and uniform recovery. Raw/reference-mean peak routes scored 7,233.69 / 4,610.70 m. Independent kernels reproduced every posterior exactly; marginal peaks nevertheless jumped between distant modes. |
 
@@ -136,8 +137,39 @@ probabilistic localization. It does not implement TRAIL's learned potentials.
 It demonstrates why independently choosing each marginal mode does not ensure
 one coherent trajectory.
 
+The XFeat source is pinned at
+`e92685f57f8318b18725c5c8c0bd28c7fe188d9a`; its 6,247,949-byte weight file has
+computed SHA256
+`0f5187fd7bedd26c7fe6acc9685444493a165a35ecc087b33c2db3627f3ea10b`,
+verified against the official Git blob. This is not an author-provided SHA256
+manifest. The adapter uses CPU sparse features, without LighterGlue or
+semi-dense refinement. All 558 feature forwards and 1,920 matching requests
+completed. The frame-independent reranker produced a 194.85 km curve, versus
+124.17 km for its already discontinuous control and 1.12 km for GT. This test
+does not establish how a separately designed temporal geometry model would
+perform.
+
+The XFeat freeze is
+`8e1ee524c33a39b799a3d64bd912d25027ad81c72b1abaeb67f28153f466d174`;
+the independent pre-scoring audit is
+`107eaa4e6b2d834d8e5895046dec17f16e74250894b2c5834e3cc8305e97dd49`.
+That audit checks source, loaded numerical state, input identities, exhaustive
+pair coverage, score arithmetic, rankings and routes. Only correspondence
+hashes were retained, so the auditor could not independently replay fundamental
+matrices, masks or hull coverage. The limitation is preserved in the separate
+score ledger. Both paired scores use all 20 identical registered waypoints;
+all protected source, input, prediction and label hashes stayed unchanged.
+Local outputs are `E:/monocular-osm-xfeat-rerank-proof/run1` and
+`run1_comparison`, with score JSON SHA256
+`119763e9eceee0dae22cfd62b0c58dab90c19caf22d25335aad1a4ef827dcfcc`.
+
 All experiments bind source, pixels, frame ordinals/timestamps, reference IDs,
 model and preprocessing identities. Prediction freezes and independent input
 checks precede separate label access. Negative variants are retained alongside
 positive ones; no per-clip oracle combines them. A complete normal assisted
 15-clip run and held-out validation are still required before any fleet claim.
+
+The full tracked regression suite at `206c374` passed **2,727 tests**, with
+four skips and four dependency deprecation warnings, in 380.93 s. This includes
+the exact decoder, spatial posterior and ImAge/XFeat/ORB adapters. New metadata
+and city-gallery experiment runners added later require their own checks.
