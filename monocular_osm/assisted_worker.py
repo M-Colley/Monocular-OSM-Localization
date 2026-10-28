@@ -17,7 +17,7 @@ from .provenance import config_snapshot, file_sha256, snapshot_sources
 from .stages.poi_only import _safe
 from .stages.report import _write_result_json
 
-KINDS = {"baseline", "cues", "poi_joint", "poi_image_track", "metric_pf", "expanded"}
+KINDS = {"baseline", "cues", "poi_joint", "poi_image_track", "poi_image_union", "metric_pf", "expanded"}
 PATH_FIELDS = {"data_dir", "output_dir", "video_path", "poi_map_path", "poi_inventory_dir",
                "graph_filter_map_path", "ground_truth_waypoints", "openvo_trajectory_path",
                "vggt_long_trajectory_path", "ocr_video_path", "vpr_region_cache_dir"}
@@ -46,7 +46,7 @@ def child_config(cfg, kind, video_path):
         raise ValueError(f"unknown assisted child {kind}")
     output = cfg.output_dir / "children" / kind
     data = cfg.data_dir if kind == "baseline" else cfg.data_dir / "assisted" / (
-        "native" if kind in {"cues", "poi_joint", "poi_image_track"} else kind) / cfg.data_dir.name
+        "native" if kind in {"cues", "poi_joint", "poi_image_track", "poi_image_union"} else kind) / cfg.data_dir.name
     changes = dict(answer="track", retrieval_only=False, output_dir=output, data_dir=data,
                    video_path=Path(video_path), skip_download=False,
                    ground_truth_waypoints=None, ground_truth_streets=())
@@ -59,7 +59,7 @@ def child_config(cfg, kind, video_path):
             vo_workers=2, osm_around=None, osm_around_source=None, estimated_length_m=None,
             graph_filter=False, graph_filter_vpr=False, graph_filter_map_path=None,
             use_ipm_scale=False, use_ground_flow_scale=False)
-        if kind == "poi_image_track":
+        if kind in {"poi_image_track", "poi_image_union"}:
             changes.update(vpr_query_mode="crops", poi_radius_m=3000., poi_ref_cap=1500)
         if kind == "metric_pf":
             changes.update(answer="filter", frame_stride=None, graph_filter=True,
@@ -277,7 +277,8 @@ def _expansion_complete(result, audits=None):
 
 
 def _metadata_admission(ctx, request):
-    from .assisted_policy import decide_assisted_policy
+    from .assisted_profiles import resolve_policy
+    decide_assisted_policy = resolve_policy(getattr(ctx.cfg, "assisted_profile", "v1")).decide_assisted_policy
     from .stages.assisted import summary
     directory = ctx.cfg.output_dir / "metadata_admission"
     directory.mkdir(exist_ok=True)
@@ -515,8 +516,12 @@ def _visual_child(cfg, video, kind, request):
     torch.hub.download_url_to_file = refuse_download
     try:
         with torch_cpu_threads(4) as runtime:
-            candidate = (_image_child(cfg, video, request) if kind == "poi_image_track"
-                         else _pipeline_child(cfg, kind, request))
+            if kind == "poi_image_union":
+                from .assisted_image_union import run_image_union_child
+                candidate = run_image_union_child(cfg, video, request)
+            else:
+                candidate = (_image_child(cfg, video, request) if kind == "poi_image_track"
+                             else _pipeline_child(cfg, kind, request))
             candidate["cpu_runtime"] = runtime
             candidate["cpu_runtime"]["opencv_num_threads"] = cv2.getNumThreads()
             candidate["model_downloads_disabled"] = True
