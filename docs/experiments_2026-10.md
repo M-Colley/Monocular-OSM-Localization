@@ -880,3 +880,29 @@ optional/capability skips and four warnings in 468.55 s. JUnit and complete
 output are saved as `output/tests-heading-union.xml` and
 `output/tests-heading-union.log`. Numerical accuracy still requires the separate
 frozen inference/audit/scoring steps above.
+
+### Completed timed-POI and SelaVPR++ follow-ups
+
+The standalone timed-POI experiment at clean `f589e88` completed all eight
+declared outputs on the full 2,998-reference night union. Independent audit
+passed before scoring. Both literal branches produce the same route as null;
+both joint models select null. All four raw outputs score **711.00 m** and all
+four reference-mean outputs **681.34 m**, failing 200 m. Capture-time text
+factors did not supply a measurable gain. Its score SHA256 is
+`8c71fc4330c40bbdfe667ba207c2b3d3be775c76fbbab08d8d5a9920950c0a69`.
+
+The official SelaVPR++ standard base model also completed all 9,735 Detroit
+reference images and 240 native query crops, CPU2 in 5,133.56 s. Eight new
+routes and sixteen historical controls were frozen before independent input,
+tensor, descriptor-algebra and decoder checks, then separate all-24 scoring.
+All eight new routes fail 200 m; the lowest error is **860.31 m**, versus
+**208.53 m** for the revised MegaLoc temporal control. The full table and proof
+limits are in [the research report](recent_methods_2026-10.md). Sela score
+SHA256 is `3987f2caaf5bd2d92f3d40a2d8e73badb28ff2868eea831a8c9bc5bdcbf3b0b2`.
+No optional Sela hashing or learned reranking was tested.
+
+The full current suite at clean `f589e88` passed **3,386 tests**, six skips and
+four warnings in 393.62 s; all 416 tracked source/test/doc files were unchanged.
+Artifacts are `output/tests-current-20261028.{xml,log,review.json}`. No default
+or fixed policy was changed. The complete fleet result remains **9/15**;
+individual component results cannot be pooled into a 15/15 claim.

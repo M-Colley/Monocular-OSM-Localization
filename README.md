@@ -29,8 +29,10 @@ results are reported.
 
 The [October research and method tests](docs/recent_methods_2026-10.md) cover
 recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled
-ImAge test passes the night clip, while candidate pruning, geometry and
-city-wide sequence experiments expose failures that remain unresolved.
+ImAge test passes the night clip. Full-gallery SelaVPR++, camera-heading and
+timed-text experiments did not meet the target on their difficult test cases.
+The revised temporal control reaches 208.53 m on Detroit, with substantial
+timing and endpoint errors; the complete fleet result remains 9/15.
 
 > [!IMPORTANT]
 > ### A free Mapillary key is crucial for good accuracy
@@ -563,6 +565,9 @@ Every region must have complete, compatible evidence. The original v1 remains
 the assisted default; a complete v2 fleet result has not yet been measured.
 The audited normal night v2 test selected the wrong region (11.09 km error);
 v2 is an experiment, not an accuracy improvement established for deployment.
+A separate [timed text-cue follow-up](docs/recent_methods_2026-10.md#timed-text-cues-completed-negative-test)
+also failed: 711.00 m raw and 681.34 m reference mean, with both joint models
+choosing null and every cue path unchanged from its control.
 
 ```bash
 python main.py --video drive.mp4 --city "City, Country" --assisted-only --assisted-profile v2 --frame-memory-mb 128

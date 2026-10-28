@@ -24,8 +24,8 @@ CVPR/ICCV 2025–26 and older released controls.
 | Method | Finding for this project |
 |---|---|
 | [ImAge, NeurIPS 2025](https://github.com/Lu-Feng/ImAge) | Released code and GSV weights. Actually encoded the full night and Detroit galleries and native query views on CPU; results below. |
-| [TRAIL, September 2026 preprint](https://arxiv.org/abs/2609.07373) | Particularly relevant to a query trajectory and unordered reference gallery. Uses learned emission and motion functions; an official runnable checkpoint was not verified. The hand-built spatial experiment below is not a reproduction. |
-| [SelaVPR++](https://github.com/Lu-Feng/SelaVPRplusplus) | T-PAMI 2025 online publication, not CVPR. Official base release verified; actual 44-image CPU smoke passes. Full-gallery accuracy experiment is being prepared. |
+| [TRAIL, ECCV 2026](https://arxiv.org/abs/2609.07373) | Particularly relevant to a query trajectory and unordered reference gallery. Uses learned emission and motion functions; an official runnable checkpoint was not verified. The hand-built spatial experiment below is not a reproduction. |
+| [SelaVPR++](https://github.com/Lu-Feng/SelaVPRplusplus) | T-PAMI 2025 online publication, not CVPR. Official base release verified; full 9,735-reference comparison completed. All eight new routes fail 200 m; results below. |
 | [EfficientVPR, CVPR 2026](https://openaccess.thecvf.com/content/CVPR2026/html/Tang_EfficientVPR_Toward_Efficient_Visual_Place_Recognition_via_Scene-Aware_Prompt_Tuning_CVPR_2026_paper.html) | Paper verified. Inspected repository snapshot had README and gitignore, without an implementation or checkpoint. |
 | [A2GC, CVPR 2026](https://github.com/CV4RA/A2GC) | Evaluation/model implementation exists; trained checkpoint and license were not verified in this search. |
 | [HOPS, ICCV 2025](https://github.com/CMalone-Jupiter/HOPS) | Descriptor fusion code exists, but needs corresponding places across reference conditions. Arbitrary nearby photos in an unordered city gallery do not supply that correspondence. |
@@ -43,6 +43,13 @@ joint reconstruction of video and co-located geotagged street-view images can
 transfer metric scale and georeferencing. Its author page still marks code and
 data as forthcoming. It is a possible downstream use of verified image matches,
 not a measured replacement for the present retrieval stage.
+
+A supplemental primary-source check also examined
+[DC-VLAQ](https://dc-vlaq.github.io/): DINOv2/CLIP residual fusion and query-residual
+aggregation are relevant to appearance changes. The project page's Code text
+has no repository link and no checkpoint was verified. No local inference or
+NeurIPS acceptance claim is made. The supplemental record is
+`output/new_methods_20261028/supplemental_primary_recheck.json`.
 
 Other screened NeurIPS methods require inputs this project does not currently
 have, such as LiDAR, a maintained posed scene map, floor plans or georeferenced
@@ -367,5 +374,100 @@ checks passed. Constructor time was 4.89 s and mean forward time 0.459 s on
 CPU2/inter-op1; external peak RSS/private memory was 0.77/1.19 GiB. No route or
 accuracy score was computed. Runtime freeze is
 `17b4fed96d33a03e02672f970a1c59af2f29fddd466f9058fdac4148ac7f3092`.
-Full 9,735-reference/240-query-view evaluation remains separate work, with
-previous MegaLoc/ImAge controls retained and all outputs fixed before scoring.
+The separate full evaluation below retains previous MegaLoc/ImAge controls,
+with all outputs fixed before new scoring.
+
+## SelaVPR++ full gallery: completed comparison
+
+Clean source `2bbd344` encoded all 9,735 canonical reference photos and 240
+native query crops on CPU2/inter-op1, batch one. This tests the official
+standard base global descriptor, without its optional hashing or learned
+reranker. All eight new routes and sixteen byte-identical historical controls
+were frozen together before new GT scoring. The eight configurations are
+declared DEV comparisons; none is a newly selected policy.
+
+| Decoder / appearance | Heading evidence | MegaLoc error (m) | ImAge error (m) | SelaVPR++ error (m) |
+|---|---|---:|---:|---:|
+| Original exact / raw | None | 4,779.68 | 1,475.68 | 4,753.36 |
+| Original exact / reference mean | None | 4,839.55 | 1,341.31 | 1,260.70 |
+| Revised temporal / raw | Removed | 208.53 | 1,464.90 | 1,187.03 |
+| Revised temporal / raw | Public camera heading | 613.60 | 1,530.08 | 1,145.26 |
+| Revised temporal / raw | Camera heading + local yaw | 244.52 | 1,528.78 | 1,146.44 |
+| Revised temporal / reference mean | Removed | 233.83 | 1,266.26 | 860.31 |
+| Revised temporal / reference mean | Public camera heading | 210.73 | 1,300.61 | 1,188.65 |
+| Revised temporal / reference mean | Camera heading + local yaw | 210.73 | 1,300.61 | 1,165.42 |
+
+All eight Sela routes fail 200 m. Its lowest spatial error is 860.31 m, with
+2,685.86 m time-aligned mean error. It does not improve on MegaLoc with the
+revised temporal decoder in this gallery. The original exact decoder includes
+its established median-five postprocessing; the revised decoder does not.
+Comparisons within each row keep the decoder fixed. Legacy MegaLoc reference
+encoding identity remains UNVERIFIED, limiting encoder-only causal claims.
+
+Execution took 5,133.56 s, with 1.82 GiB peak sampled process-tree RSS and
+1.28 GiB private memory. Independent audit checked all 9,975 canonical tensor
+hashes, fresh native frames/ordinals/timestamps, exact 44-descriptor smoke
+replay, full descriptor algebra and both simple DP paths. It checked all six
+heading objectives and physical graphs, without claiming a second full joint
+DP optimum proof. All 2,585 protected files stayed unchanged. An initial
+auditor-only safe-global list-order failure is preserved; the corrected audit
+sorts that allowlist alone, retaining duplicate/addition/omission rejection.
+Producer inputs and outputs did not change.
+
+Artifacts are under `E:/monocular-osm-selavpr-gallery-proof`:
+master `db72758e66f3e0280bc7256a87deb6619e854a42850f10578245006a8964ce58`,
+audit `2827e77d3319f4d0debe7e8fde0620ba26f3575f9770b7922f138c46e05055d7`,
+score `3987f2caaf5bd2d92f3d40a2d8e73badb28ff2868eea831a8c9bc5bdcbf3b0b2`.
+All 24 scores use the same 20 authenticated waypoints; timed diagnostics use
+19 overlapping timestamps without extrapolation. All jobs are terminal.
+
+## Timed text cues: completed negative test
+
+Clean `f589e88` tests capture-time POI evidence on the complete 2,998-reference
+night union. It retains both literal branches and null, with raw and reference
+mean appearance: eight outputs frozen before scoring. Shared-capture heading,
+normalized POI associations, physical transition normalization, a fixed outlier
+mixture and explicit uncertainty prevent treating every sign match as a precise
+camera position. Two brands in the first capture share a mall directory pylon;
+their text centers are uncertain location proxies, not two storefront rays.
+No GPS overlay, GT position or manual branch choice enters the decoder.
+
+| Appearance | Null (m) | First POI branch (m) | Second POI branch (m) | Joint model (m) |
+|---|---:|---:|---:|---:|
+| Raw | 711.00 | 711.00 | 711.00 | 711.00 |
+| Reference mean | 681.34 | 681.34 | 681.34 | 681.34 |
+
+Both joint models select null. Every cue path is identical to its null control;
+the soft factors did not change the selected trajectory. Time-aligned means
+are 1,280.68 m raw and 1,364.53 m reference mean. All eight fail 200 m. This
+standalone diagnostic does not repair the normal v2 wrong-region result.
+
+The CPU2 replay took 528.42 s without new neural inference. Independent audit
+matched all four global normalizers, six component objectives and both joint
+choices; 1,228 protected files stayed unchanged. Actual full DP optimality was
+not independently replayed; a separate tiny exhaustive test covers the recurrence.
+Artifacts are under `E:/monocular-osm-timed-poi-proof`: master
+`537497653a99c4d64c8a2d39cee2bea6910758a5c3feb42ec46c4b1ef0313ffb`, audit
+`23b3568cca84bdd6e6692ad0ed136dcd6c152a7cb81accf787c0b90e09771abe`, score
+`8c71fc4330c40bbdfe667ba207c2b3d3be775c76fbbab08d8d5a9920950c0a69`.
+
+## Project improvements supported by these results
+
+- Prioritize sequence consistency and calibrated ambiguity over another encoder
+  swap. Complete evidence acquisition does not establish a trustworthy location:
+  the normal v2 union was complete and still selected a region 11.09 km away.
+- Add standard time-aligned error, timestamp coverage, endpoint errors and route
+  length ratios alongside the existing goal metric. A spatial coverage pass can
+  conceal incorrect timing and endpoints.
+- Finish the verified served-subset cache fast path. The numeric request-key
+  bug is fixed in `f3dfa71`; known missing photos can still force loading a
+  large raw store despite a valid descriptor subset.
+- Extract versioned artifact/resource helpers from chained experiment-runner
+  imports, and separate acquisition, model, decoding and audit state behind a
+  typed retrieval session. Preserve old artifact readers and independent auditors.
+
+The full suite at clean `f589e88` passes **3,386 tests**, with six skips and four
+warnings in 393.62 s. All 416 tracked source/test/doc files stayed unchanged
+during the run. JUnit is `output/tests-current-20261028.xml`, SHA256
+`dee611191b9537452a7cc6964f4cb31fe84be4623ad198c92aaf761d33f04ce6`.
+No default policy changed; the complete fixed-profile result remains **9/15**.
