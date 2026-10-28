@@ -10,16 +10,17 @@ import json
 from types import MappingProxyType
 
 import numpy as np
-from .geo import LocalFrame
+from .geo import LocalFrame, degree_half_extent
 
-PROFILE = {"version": "single-poi-image-track-v1", "radius_m": 3000, "cap": 1500,
+PROFILE = {"version": "single-poi-image-track-v2", "radius_m": 3000, "cap": 1500,
            "query_mode": "crops", "score_normalization": "reference_mean",
            "model": "megaloc", "max_queries": 80, "ocr_samples": 24,
            "transition_base_free_m": 30., "transition_free_speed_mps": 40.,
            "transition_dt_floor_s": .5, "transition_excess_penalty": .02,
            "median_window": 5, "cosine_tolerance": 1e-5, "radius_tolerance_m": 1.,
            "timing": "each actual query interval", "ties": "lexicographic source-prefixed reference ID",
-           "smoothing": "local metric coordinate running median"}
+           "smoothing": "local metric coordinate running median",
+           "reference_extent": "WGS84 geodesic-disc bounding box; degree_half_extent; wrapped longitude"}
 
 
 def _json_sha(value):
@@ -163,8 +164,13 @@ def _validated_evidence(evidence, plan, query_video_sha256):
         raise ValueError("actual query intervals must remain finite and strictly positive")
     frame = LocalFrame(*plan["center"])
     xy = np.column_stack(frame.to_xy(refs[:, 0], refs[:, 1])).astype(np.float32)
-    if (not np.isfinite(xy).all()
-            or np.linalg.norm(xy, axis=1).max() > PROFILE["radius_m"] + PROFILE["radius_tolerance_m"]):
+    # The public provider acquires the disc's BOUNDING BOX, including corners.
+    # Preserve that fixed pool rather than silently imposing a circular crop.
+    dlat, dlon = degree_half_extent(*plan["center"], PROFILE["radius_m"] + PROFILE["radius_tolerance_m"])
+    longitude_offset = (refs[:, 1] - plan["center"][1] + 180.) % 360. - 180.
+    if (not np.isfinite(xy).all() or not np.isfinite([dlat, dlon]).all() or dlat < 0 or dlon < 0
+            or np.any(np.abs(refs[:, 0] - plan["center"][0]) > dlat + 1e-12)
+            or np.any(np.abs(longitude_offset) > dlon + 1e-12)):
         raise ValueError("reference coordinates exceed the declared fixed neighborhood")
     return indices, times, refs, scores, ids, frame, xy, provenance
 

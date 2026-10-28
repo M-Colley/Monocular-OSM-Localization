@@ -208,3 +208,31 @@ def test_query_cannot_precede_native_ocr_window_and_open_ended_window_is_allowed
         decode_single_branch_image_track(evidence, plan, query_video_sha256=VIDEO)
     evidence["query_times"] += 1.
     assert decode_single_branch_image_track(evidence, plan, query_video_sha256=VIDEO)["status"] == "complete"
+
+
+def test_provider_bounding_box_corners_are_retained_beyond_the_circular_radius():
+    from monocular_osm.geo import LocalFrame, degree_half_extent
+    plan = _plan()
+    evidence = _evidence(plan)
+    dlat, dlon = degree_half_extent(*plan["center"], PROFILE["radius_m"])
+    evidence["ref_latlon"][-1] = [plan["center"][0] + .99 * dlat, plan["center"][1] + .99 * dlon]
+    xy = LocalFrame(*plan["center"]).to_xy(*evidence["ref_latlon"][-1])
+    assert np.linalg.norm(xy) > PROFILE["radius_m"]
+    result = decode_single_branch_image_track(evidence, plan, query_video_sha256=VIDEO)
+    assert result["provenance"]["reference_count"] == 4
+    assert "bounding box" in result["provenance"]["profile"]["reference_extent"]
+
+
+@pytest.mark.parametrize("latitude,longitude", [(0., 179.999), (89.999, 0.), (90., 0.)])
+def test_geodesic_box_extent_handles_wrapped_longitude_and_poles(latitude, longitude):
+    from monocular_osm.geo import degree_half_extent
+    original = _plan()
+    for poi in original["clues"]["candidate_clusters"][0]["pois"]:
+        poi.update(lat=latitude, lon=longitude)
+    plan = plan_single_branch(original["clues"], original["ocr_provenance"])
+    evidence = _evidence(plan)
+    dlat, dlon = degree_half_extent(*plan["center"], PROFILE["radius_m"])
+    evidence["ref_latlon"][:] = plan["center"]
+    evidence["ref_latlon"][-1] = [plan["center"][0] - .5 * dlat,
+                                   (plan["center"][1] + .5 * dlon + 180.) % 360. - 180.]
+    assert decode_single_branch_image_track(evidence, plan, query_video_sha256=VIDEO)["status"] == "complete"
