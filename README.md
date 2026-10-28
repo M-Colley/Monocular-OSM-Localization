@@ -27,6 +27,11 @@ historical measurements with their stated code/configuration. The frozen
 seven-clip `test1` evaluation is separate and must finish before its final
 results are reported.
 
+The [October research and method tests](docs/recent_methods_2026-10.md) cover
+recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled
+ImAge test passes the night clip, while candidate pruning, geometry and
+city-wide sequence experiments expose failures that remain unresolved.
+
 > [!IMPORTANT]
 > ### A free Mapillary key is crucial for good accuracy
 >
