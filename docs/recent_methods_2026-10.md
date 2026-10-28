@@ -25,7 +25,7 @@ CVPR/ICCV 2025–26 and older released controls.
 |---|---|
 | [ImAge, NeurIPS 2025](https://github.com/Lu-Feng/ImAge) | Released code and GSV weights. Actually encoded the full night and Detroit galleries and native query views on CPU; results below. |
 | [TRAIL, September 2026 preprint](https://arxiv.org/abs/2609.07373) | Particularly relevant to a query trajectory and unordered reference gallery. Uses learned emission and motion functions; an official runnable checkpoint was not verified. The hand-built spatial experiment below is not a reproduction. |
-| [SelaVPR++](https://github.com/Lu-Feng/SelaVPRplusplus) | T-PAMI 2025 online publication, not CVPR. Released code and checkpoints; CPU path inspected, not yet timed or evaluated locally. |
+| [SelaVPR++](https://github.com/Lu-Feng/SelaVPRplusplus) | T-PAMI 2025 online publication, not CVPR. Official base release verified; actual 44-image CPU smoke passes. Full-gallery accuracy experiment is being prepared. |
 | [EfficientVPR, CVPR 2026](https://openaccess.thecvf.com/content/CVPR2026/html/Tang_EfficientVPR_Toward_Efficient_Visual_Place_Recognition_via_Scene-Aware_Prompt_Tuning_CVPR_2026_paper.html) | Paper verified. Inspected repository snapshot had README and gitignore, without an implementation or checkpoint. |
 | [A2GC, CVPR 2026](https://github.com/CV4RA/A2GC) | Evaluation/model implementation exists; trained checkpoint and license were not verified in this search. |
 | [HOPS, ICCV 2025](https://github.com/CMalone-Jupiter/HOPS) | Descriptor fusion code exists, but needs corresponding places across reference conditions. Arbitrary nearby photos in an unordered city gallery do not supply that correspondence. |
@@ -292,7 +292,7 @@ auditor/scorer recovery records are under
 inference and scoring jobs for these completed comparisons are terminal. No default or fixed-policy selection
 rule changed. The established full-fleet result remains 9/15.
 
-## Heading and temporal evidence: registered diagnostic in progress
+## Heading and temporal evidence: completed diagnostic
 
 The next experiment adds public optical camera headings to the two frozen
 Detroit descriptor sets. It retains all 9,735 references and three native
@@ -313,6 +313,59 @@ The source is clean `9f7e4a4`, runner profile
 `1271d70b27215068ec8d38bd2f1174e85561d82ec26754699cd1352b01f60429`.
 The accepted input freeze is
 `5528668f329701b4fe868804b044ea77b3f4d99393b404a5d2b4ea93cc82acfb`
-under `E:/monocular-osm-heading-proof/run2`. All twelve paths must finish and
-pass an independent input/output audit before GT scoring. No accuracy result
-or policy adoption is claimed while that run is in progress.
+under `E:/monocular-osm-heading-proof/run2`. All twelve paths finished before
+the independent input/output audit and separate GT scoring.
+
+| Appearance | Heading evidence | MegaLoc error (m) | ImAge error (m) |
+|---|---|---:|---:|
+| Raw | Removed | 208.53 | 1,464.90 |
+| Raw | Public camera heading | 613.60 | 1,530.08 |
+| Raw | Camera heading + local yaw | 244.52 | 1,528.78 |
+| Reference mean | Removed | 233.83 | 1,266.26 |
+| Reference mean | Public camera heading | 210.73 | 1,300.61 |
+| Reference mean | Camera heading + local yaw | 210.73 | 1,300.61 |
+
+None meets 200 m. The large MegaLoc improvement over its old 4,779.68 m
+full-gallery control comes from the revised temporal model with headings
+removed; this is not evidence that public camera headings improve that case.
+Even the 208.53 m route has 1,368.37/1,860.68 m start/end errors, a 17,040 m
+path versus 10,368 m GT, and 778.00 m time-aligned mean error. The spatial
+coverage metric does not establish accurate timing or endpoints.
+
+Execution took 1,280.77 s on CPU2, with 0.83 GiB peak sampled process-tree RSS.
+The master freeze is `180c4a005bd308d334574614dc2829e2c84a526ecf2fdb4d782e0fac2ae9ea33`.
+Independent audit `2cce72bc01bd132584039b52b2236383cc017547dcc9633ff22ed36a67422e0b`
+verified all 12 paths, 79 physical-graph steps, descriptor algebra and objective
+sums; 1,900 protected files remained unchanged. It did not independently rerun
+the full joint-state optimum. An initial auditor field-name error and its exact
+failed report/source are preserved; producer artifacts did not change.
+Official score SHA256 is `c09f871477f6fdfb67ee6cd5402158dd78575f6c12fb9406604b7876ce29bf29`.
+
+A separate posthoc DEV follow-up applied the already-established five-point
+metric running median uniformly to all twelve paths, preserving timestamps
+and endpoints' ordinary truncated windows. Every scalar coordinate median was
+checked before scoring. All twelve still fail: the lowest smoothed error is
+210.35 m; the raw MegaLoc heading-removed result becomes 222.18 m. The new
+freeze is `84e6ddfba3d23a4a7f20ad6fcef0af44c3f2f9ebe4442bd20fd2a67f96709599`,
+audit `87ae8480b54c32ab60b375f79c8c052e906ac3e8e8a660980f718e896dc1f7b6`, and score
+`91506b3b972b95eda6701f355e6a0e281f6814afcf398aedf46ba2ba10250d04`.
+No method was selected for the policy or pooled into a fleet success claim.
+
+## SelaVPR++ runtime readiness
+
+The official standard base checkpoint is 482,674,957 bytes, SHA256
+`b048490dbd1c27dee67fce6faaec7bec267d19a044c85877af94b8588e596a62`, matching
+GitHub's published release digest. Source is fixed at `56bd921cbd3d53e9c5f91d0aafff147f95fb362a`.
+The CPU adapter retains the official computation and removes only an unused
+FAISS import. The actual strict CPU state load succeeds: 97,909,629 state
+elements, 2,048-dimensional normalized descriptors, RGB/ImageNet normalization
+then 322-pixel tensor resize, ordinary Torch attention fallback.
+
+Clean `01fdfb0` encoded 12 native query crops and 32 reference photos in a
+runtime-only smoke. All 44 descriptors and bitwise canonical preprocessing
+checks passed. Constructor time was 4.89 s and mean forward time 0.459 s on
+CPU2/inter-op1; external peak RSS/private memory was 0.77/1.19 GiB. No route or
+accuracy score was computed. Runtime freeze is
+`17b4fed96d33a03e02672f970a1c59af2f29fddd466f9058fdac4148ac7f3092`.
+Full 9,735-reference/240-query-view evaluation remains separate work, with
+previous MegaLoc/ImAge controls retained and all outputs fixed before scoring.
