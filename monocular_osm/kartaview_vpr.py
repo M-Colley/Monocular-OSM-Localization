@@ -27,6 +27,7 @@ import os
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from copy import deepcopy
 
 import numpy as np
 
@@ -1098,7 +1099,7 @@ def _resolve_backbone(model_name, device):
 def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
                             device, model_name, source, token, cap,
                             outer_radius_m=None, outer_cap=None, query_mode="warp",
-                            query_batch_size=None, query_cache=None):
+                            query_batch_size=None, query_cache=None, reference_identity=None):
     """Shared front half of both VPR entrypoints: fetch references, load/cache
     the backbone, embed the references + the ``n_query`` sampled query frames.
 
@@ -1159,6 +1160,11 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
         LAST_FAILURE = (f"too few embeddable {source} references "
                         f"({0 if ref_xy is None else len(ref_xy)})")
         return None
+    if reference_identity is not None:
+        if source == "union" or outer_radius_m:
+            raise ValueError("full reference identity currently requires a single source and disc")
+        reference_identity["ref_ids"] = _embedded_reference_ids(refs, ref_xy, cache_dir, source)
+        reference_identity["embedding_dimensions"] = int(ref_emb.shape[1])
     idx = np.linspace(0, len(frames_bgr) - 1,
                       min(n_query, len(frames_bgr))).astype(int)
     query_options = ({"query_cache": query_cache, "model_name": resolved}
@@ -1166,6 +1172,98 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
     sims = _query_similarities(frames_bgr, idx, ref_emb, device, mode=query_mode,
                               batch_size=query_batch_size, **query_options)
     return idx, sims, np.asarray(ref_xy, dtype=float)
+
+
+def _embedded_reference_ids(refs, ref_latlon, cache_dir, source):
+    """Identify the ordered *servable* subset, including partial downloads."""
+    if len(refs) == len(ref_latlon):
+        result = [str(ref["id"]) for ref in refs]
+    else:
+        if cache_dir is None:
+            raise ValueError("a partial reference pool needs its per-ID cache for identity")
+        store = os.path.join(cache_dir, "ref_img_store.npz")
+        with np.load(store, allow_pickle=False) as data:
+            ids = [str(value) for value in data["ids"]]
+            xy = np.asarray(data["xy"], float)
+        if len(ids) != len(xy) or len(set(ids)) != len(ids):
+            raise ValueError("reference store has invalid ID/coordinate identity")
+        locations = dict(zip(ids, xy))
+        result = [str(ref["id"]) for ref in refs if str(ref["id"]) in locations]
+        expected = np.asarray([locations[key] for key in result], float)
+        if expected.shape != np.shape(ref_latlon) or not np.array_equal(expected, ref_latlon):
+            raise ValueError("servable reference IDs do not match the embedded coordinate order")
+    if len(set(result)) != len(result):
+        raise ValueError("embedded reference IDs must be unique")
+    return np.array([f"{source}:{identifier}" for identifier in result])
+
+
+def kartaview_vpr_evidence(frames_bgr, timestamps, center, radius_m=3000.0, *,
+                            cache_dir=None, n_query=80, device=None, model_name="megaloc",
+                            source="mapillary", token=None, cap=1500, query_mode="warp",
+                            query_batch_size=4, query_cache=None):
+    """Full appearance evidence for an opt-in joint localizer, without decoding.
+
+    Uses the ordinary bounded acquisition/embedding path. The output preserves
+    actual query times, every reference score and source-prefixed IDs so callers
+    can merge overlapping discs without counting one photo twice. Cache files
+    currently lack model/preprocessing identity; that limitation is explicit.
+    No default track/prior call retains these matrices or changes behavior.
+    """
+    global LAST_FAILURE
+    LAST_FAILURE = None
+    try:
+        times = np.asarray(timestamps, float)
+        if (times.ndim != 1 or len(times) != len(frames_bgr) or not len(times)
+                or not np.isfinite(times).all() or np.any(np.diff(times) <= 0)):
+            raise ValueError("appearance timestamps must match finite, strictly ordered frames")
+        if source == "union":
+            raise ValueError("full evidence currently requires a single reference source")
+        if source not in {"mapillary", "kartaview", "panoramax"}:
+            raise ValueError("unknown reference source")
+        for name, value in (("query count", n_query), ("reference cap", cap),
+                            ("batch size", query_batch_size)):
+            if value is None and name == "batch size":
+                continue
+            if (isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer))
+                    or value < 1):
+                raise ValueError(f"{name} must be a positive integer")
+        seed = np.asarray(center, float)
+        if (seed.shape != (2,) or not np.isfinite(seed).all()
+                or abs(seed[0]) > 90 or abs(seed[1]) > 180
+                or not np.isfinite(radius_m) or radius_m <= 0):
+            raise ValueError("reference disc needs finite WGS84 coordinates and positive radius")
+        identity = {}
+        prepared = _prepare_refs_and_query(
+            frames_bgr, center, radius_m, cache_dir, n_query, device, model_name,
+            source, token, cap, query_mode=query_mode, query_batch_size=query_batch_size,
+            query_cache=query_cache, reference_identity=identity)
+        if prepared is None:
+            return None
+        indices, similarities, coordinates = prepared
+        ref_ids = identity["ref_ids"]
+        if (np.shape(coordinates) != (len(ref_ids), 2)
+                or np.shape(similarities) != (len(indices), len(ref_ids))
+                or not np.isfinite(similarities).all() or not np.isfinite(coordinates).all()):
+            raise ValueError("appearance matrix and reference inventory do not agree")
+        return {"query_indices": indices, "query_times": times[indices],
+                "similarities": similarities, "ref_latlon": coordinates, "ref_ids": ref_ids,
+                "provenance": {
+                    "experimental": True, "source": source, "cache": str(cache_dir),
+                    "center": list(map(float, center)), "radius_m": float(radius_m), "cap": int(cap),
+                    "backbone": backbone_info(), "query_mode": query_mode,
+                    "preprocessing": {"version": 1, "reference_color": "RGB", "reference_size": [512, 512],
+                                      "reference_resize": "opencv INTER_LINEAR", "scale": "divide by255",
+                                      "mean": [.485, .456, .406], "std": [.229, .224, .225],
+                                      "descriptor_normalization": "L2",
+                                      "dimensions": identity["embedding_dimensions"]},
+                    "reference_encoding_identity": "unverified: cache schema carries reference fingerprint only",
+                    "fetch": deepcopy(LAST_FETCH_STATS),
+                    "reference_inventory": _reference_snapshot([
+                        {"id": key, "lat": coordinate[0], "lon": coordinate[1]}
+                        for key, coordinate in zip(ref_ids, coordinates)])}}
+    except Exception as exc:
+        LAST_FAILURE = f"{type(exc).__name__}: {exc}"
+        return None
 
 
 def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,
