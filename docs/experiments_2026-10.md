@@ -558,5 +558,33 @@ angular uncertainty. These are disclosed post-hoc dev experiments on the
 8,610-reference dense pilot, not the original v6 pool or a 15-clip result.
 All predictions and branch candidates are preserved under
 `output/joint_poi_alignment_pilot`; the two-phase runner is
-`scripts/pilot_joint_poi_alignment.py`. A reusable implementation and broader
-validation are still required before this can change the default answer.
+`scripts/pilot_joint_poi_alignment.py`. The reusable input-only core is now in
+`monocular_osm/poi_alignment.py`; its frozen replay exactly reproduces both
+distance-and-bearing transforms, objectives and selected branches. Sampling the
+full 149-frame VO path changes the rounded symmetric errors to 20.11 m and
+13.02 m. Broader validation is still required before changing the default answer.
+
+A second frozen experiment applies equal geographic budgets to every candidate
+shop branch, without selecting a branch by GPS. Reference IDs are sampled by
+the same deterministic hash rule, then deduplicated across overlapping discs.
+All six raw/centered predictions were frozen before separate scoring:
+
+| Reference plan | Actual union | Raw error | Centered error |
+|---|---:|---:|---:|
+| Full dense control | 8,610 | 20.11 m | 13.02 m |
+| 1 km, cap 500 per branch | 647 | 20.11 m | 13.02 m |
+| 1.5 km, cap 750 per branch | 1,409 | 20.11 m | 13.02 m |
+
+Every configuration searches all five hypotheses from the same 1,416,960
+whole-city coarse poses and recovers exactly the full-control transform.
+These references are subsets of an existing dense archive; the counts do not
+establish what a live Mapillary fetch will supply. The inference/scoring runner
+is `scripts/pilot_poi_reference_neighborhoods.py`, with frozen plans, source
+snapshots and outputs in `output/poi_reference_neighborhood_pilot_v2`.
+Fresh acquisition and normal-pipeline POI integration remain separate checks.
+
+`monocular_osm/poi_localization.py` provides the orchestration over acquired
+inputs and an injected retrieval callback. It validates common video query
+times, backbone/preprocessing identity and duplicate photo evidence, retains
+every branch, and leaves failed or incomplete retrieval inactive. Its output
+is diagnostic; it does not choose the pipeline's answer.
