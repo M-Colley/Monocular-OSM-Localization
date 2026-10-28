@@ -223,6 +223,14 @@ def poi_only(result: dict) -> Prediction | None:
     return _from_report("poi_only", result, "poi_position")
 
 
+def assisted_policy(result: dict) -> Prediction | None:
+    """Experimental fixed-policy selection over frozen child route artifacts."""
+    return _from_report("assisted_policy", result, "assisted_position")
+
+
+assisted_only = assisted_policy
+
+
 def vpr_prior_only(result: dict) -> Prediction | None:
     """``result["vpr_prior"]`` — the retrieval centre as a single point."""
     vp = (result or {}).get("vpr_prior")

@@ -357,11 +357,12 @@ class PipelineConfig:
             raise ValueError("frame_memory_mb must be positive and finite")
         if self.frame_max_width is not None and self.frame_max_width <= 0:
             raise ValueError("frame_max_width must be positive")
-        if self.answer not in {"track", "fit", "checked", "filter", "poi"}:
-            raise ValueError("answer must be track, fit, checked, filter or poi")
+        if self.answer not in {"track", "fit", "checked", "filter", "poi", "assisted"}:
+            raise ValueError("answer must be track, fit, checked, filter, poi or assisted")
         filter_only = self.answer == "filter"
         poi_only = self.answer == "poi"
-        if self.frame_stride is None and not (filter_only or poi_only):
+        assisted = self.answer == "assisted"
+        if self.frame_stride is None and not (filter_only or poi_only or assisted):
             self.frame_stride = 6
         if self.frame_stride is not None and self.frame_stride <= 0:
             raise ValueError("frame_stride must be positive")
@@ -407,6 +408,22 @@ class PipelineConfig:
                 raise ValueError("POI evidence currently requires one supported reference source, not union")
             if self.ocr_engine != "rapidocr":
                 raise ValueError("POI OCR requires the explicit cached RapidOCR CPU runtime; engine fallback is disabled")
+        if assisted:
+            if self.max_frames is not None or self.frame_max_width is not None:
+                raise ValueError("assisted answer requires the full registered native video window")
+            if (self.ground_truth_waypoints is not None or self.ground_truth_streets
+                    or self.openvo_trajectory_path is not None or self.vggt_long_trajectory_path is not None
+                    or self.use_da3_trajectory or self.ocr_video_path is not None or self.use_ocr_super_res
+                    or self.use_ground_flow_scale or self.use_ipm_scale or self.estimated_length_m is not None
+                    or self.graph_filter or self.graph_filter_vpr or self.graph_filter_map_path is not None
+                    or (self.osm_around is not None and self.osm_around_source != "video_title")):
+                raise ValueError("assisted answer rejects external priors, label inputs and incompatible component overrides")
+            if self.vpr_query_mode != "warp" or self.ocr_engine != "rapidocr":
+                raise ValueError("assisted profile requires registered MegaLoc warp comparison and cached RapidOCR")
+            if self.vpr_source not in {"mapillary", "kartaview", "panoramax"}:
+                raise ValueError("assisted profile currently requires a single supported reference source")
+            if self.poi_radius_m != 1000. or self.poi_ref_cap != 500 or self.camera_height_m != 1.5:
+                raise ValueError("assisted component budgets and camera height are fixed by the experimental profile")
         if self.vpr_query_mode not in {"warp", "crops", "aspect"}:
             raise ValueError("vpr_query_mode must be warp, crops or aspect")
         if self.vpr_query_batch_size <= 0:
@@ -591,6 +608,12 @@ def _run_poi_only(ctx: RunContext) -> dict:
                         finalize=finalize_result)
 
 
+def _run_assisted(ctx: RunContext) -> dict:
+    from .stages.assisted import run_assisted
+
+    return run_assisted(ctx, finalize=finalize_result)
+
+
 def _run_pipeline_stages(ctx: RunContext) -> dict:
     cfg = ctx.cfg
 
@@ -600,6 +623,8 @@ def _run_pipeline_stages(ctx: RunContext) -> dict:
         return _run_filter_only(ctx)
     if cfg.answer == "poi":
         return _run_poi_only(ctx)
+    if cfg.answer == "assisted":
+        return _run_assisted(ctx)
     query_only = (cfg.retrieval_only and cfg.answer == "track" and cfg.use_vpr_prior
                   and not cfg.use_ipm_scale)
     if query_only:
@@ -625,6 +650,12 @@ def _run_pipeline_stages(ctx: RunContext) -> dict:
         ctx.result.setdefault("city", cfg.city)
         ctx.result["execution"] = {"stage": "retrieval", "geometry": "pending"}
         finalize_result(ctx)
+
+    if not has_track and getattr(ctx, "require_retrieval_track", False):
+        _record_channel(ctx.channel_status, "vpr", "inactive", reason="expanded_search_produced_no_track")
+        ctx.result["execution"] = {"stage": "complete", "geometry": "skipped"}
+        finalize_result(ctx)
+        return ctx.result
 
     if not has_track and (getattr(ctx.frames, "sampling", None) or {}).get("mode") == "linspace":
         # Sparse query frames have large inter-frame baselines and cannot feed

@@ -537,7 +537,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "is wider than --vpr-search-radius, also search a sparse "
                         "outer ring of references out to the seed radius (max "
                         "8 km), keeping the dense core set unchanged.")
-    p.add_argument("--answer", choices=["fit", "track", "checked", "filter", "poi"], default="track",
+    p.add_argument("--answer", choices=["fit", "track", "checked", "filter", "poi", "assisted"], default="track",
                    help="Route written to result['answer']: the retrieval track "
                         "itself (default; the fit when retrieval found nothing), the "
                         "trajectory fit (result['position']), or the fit checked "
@@ -550,6 +550,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Alias for --answer filter; saves and selects the independent filter route.")
     p.add_argument("--poi-only", action="store_const", const="poi", dest="answer",
                    help="Alias for --answer poi; EXPERIMENTAL video OCR + city POIs + neighborhood imagery.")
+    p.add_argument("--assisted-only", action="store_const", const="assisted", dest="answer",
+                   help="EXPERIMENTAL fixed input-only assisted policy with isolated component runs.")
     p.add_argument("--poi-radius-m", type=float, default=1000.0,
                    help="EXPERIMENTAL POI neighborhood radius for every literal branch (default 1000 m).")
     p.add_argument("--poi-ref-cap", type=int, default=500,

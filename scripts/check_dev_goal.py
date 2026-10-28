@@ -1,7 +1,8 @@
 """Audit a benchmark summary against the full registered development target.
 
-This reads JSON only; it never runs a model or changes benchmark data. Missing
-clips, failed repeats and unknown provenance cannot satisfy the goal.
+This reads saved evidence; it never runs a model or changes benchmark data.
+Assisted results additionally require bounded, hash-verified JSON/NPZ artifacts.
+Missing clips, failed repeats and unknown provenance cannot satisfy the goal.
 """
 
 from __future__ import annotations
@@ -461,6 +462,22 @@ def _poi_answer_issues(rep, score, city, segment):
         return [f"POI audit is missing or malformed: {exc}"]
 
 
+def _assisted_answer_audit(rep, score, city, segment):
+    """Load array dependencies only for the experimental assisted profile."""
+    import sys
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    try:
+        from scripts.assisted_goal_audit import audit_assisted
+        return audit_assisted(rep, score, city, segment, poi_issues=_poi_answer_issues,
+                              filter_issues=_filter_answer_issues, reader_issues=_poi_reader_issues,
+                              ocr_identity=_poi_ocr_runtime_identity)
+    except Exception as error:
+        return {"issues": [f"assisted audit unavailable: {type(error).__name__}: {error}"],
+                "models": [], "weights": [], "runtimes": [], "ocr_models": [], "policy": None,
+                "source": None, "configuration": None, "repeat_inputs": None}
+
+
 def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
                expected_count: int = 15, method: str = "answer",
                min_repeats: int = 1) -> dict:
@@ -538,9 +555,13 @@ def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
 
     rows, answer_modes, poi_identities = [], set(), set()
     poi_ocr_identities, poi_cpu_identities = set(), set()
+    assisted_models, assisted_weights, assisted_policies, assisted_ocr = set(), set(), set(), set()
+    assisted_sources, assisted_configs = set(), set()
+    assisted_runtimes = set()
     for cid, entry in expected.items():
         errors = []
         issues = []
+        assisted_repeats = []
         clip = clips.get(cid) or {}
         records = by_clip[cid]
         if clip.get("split") != "dev":
@@ -585,12 +606,28 @@ def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
             if method == "answer":
                 mode = (score.get("meta") or {}).get("mode")
                 configured_answer = ((rep.get("provenance") or {}).get("config") or {}).get("answer")
-                if source != "result.answer" or mode not in {"fit", "track", "checked", "filter", "poi"}:
+                if source != "result.answer" or mode not in {"fit", "track", "checked", "filter", "poi", "assisted"}:
                     issues.append(f"rep{rep.get('rep')}: selected answer is stale or missing")
                 else:
                     answer_modes.add(mode)
                 filter_answer = mode == "filter" or configured_answer == "filter" or chosen == "graph_filter_only"
                 poi_answer = mode == "poi" or configured_answer == "poi" or chosen == "poi_only"
+                assisted_answer = mode == "assisted" or configured_answer == "assisted" or chosen in {"assisted_policy", "assisted_only"}
+                if assisted_answer:
+                    audited = _assisted_answer_audit(rep, score, clip.get("city"), entry["vo_segment"])
+                    issues.extend(f"rep{rep.get('rep')}: {problem}" for problem in audited["issues"])
+                    assisted_models.update(audited["models"])
+                    assisted_weights.update(audited["weights"])
+                    assisted_runtimes.update(audited["runtimes"])
+                    assisted_ocr.update(audited["ocr_models"])
+                    if audited["policy"] is not None:
+                        assisted_policies.add(audited["policy"])
+                    if audited["source"] is not None:
+                        assisted_sources.add(audited["source"])
+                    if audited["configuration"] is not None:
+                        assisted_configs.add(audited["configuration"])
+                    if audited["repeat_inputs"] is not None:
+                        assisted_repeats.append(audited["repeat_inputs"])
                 if filter_answer:
                     if mode != "filter":
                         issues.append(f"rep{rep.get('rep')}: filter answer mode disagrees with method/configuration")
@@ -630,12 +667,15 @@ def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
              (data.get("vo") or {}).get("K_sha256")) for data in poi_inputs}
         if len(stable_poi_inputs) > 1:
             issues.append("POI video/map/inventory/OCR/VO identities change between repeats")
+        for key in {key for value in assisted_repeats for key in value}:
+            if len({value[key] for value in assisted_repeats if key in value}) > 1:
+                issues.append(f"assisted {key} identity changes between repeats")
         measured = statistics.median(errors) if errors else None
         if measured is not None and median is not None and abs(round(measured, 1) - median) > 0.051:
             issues.append("reported median does not match the recorded repeat scores")
-        if median is not None and median > threshold_m:
+        if measured is not None and measured > threshold_m:
             issues.append(f"symmetric error exceeds {threshold_m:g} m")
-        rows.append({"clip": cid, "n_repeats": len(records), "symmetric_mean_m": median,
+        rows.append({"clip": cid, "n_repeats": len(records), "symmetric_mean_m": measured,
                      "passes": not issues, "reasons": list(dict.fromkeys(issues))})
     if len(answer_modes) > 1:
         reasons.append("the selected answer mode differs between clips/repeats")
@@ -645,6 +685,20 @@ def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
         reasons.append("POI answers used different semantic OCR model/config/runtime identities")
     if len(poi_cpu_identities) > 1:
         reasons.append("POI answers used different CPU retrieval runtime identities")
+    if len(assisted_models) > 1:
+        reasons.append("assisted answers used different semantic retrieval model/preprocessing identities")
+    if len(assisted_weights) > 1:
+        reasons.append("assisted children used different actual retrieval weights/backbones")
+    if len(assisted_policies) > 1:
+        reasons.append("assisted answers used different fixed policy identities")
+    if len(assisted_ocr) > 1:
+        reasons.append("assisted answers used different semantic OCR model/config/runtime identities")
+    if len(assisted_sources) > 1:
+        reasons.append("assisted answers used different frozen source snapshots")
+    if len(assisted_configs) > 1:
+        reasons.append("assisted answers used different effective parent method configurations")
+    if len(assisted_runtimes) > 1:
+        reasons.append("assisted visual children used different actual CPU/Torch runtime identities")
     passed = sum(row["passes"] for row in rows)
     return {
         "goal_met": not reasons and passed == expected_count,
@@ -654,10 +708,13 @@ def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
         "reasons": list(dict.fromkeys(reasons)), "clips": rows,
         "input_contract_notes": (["Explicit maps and inventories are trusted named-city database inputs; "
                                   "content hashes bind the file, not its acquisition history."]
-                                 if answer_modes & {"filter", "poi"} else []) + (
+                                 if answer_modes & {"filter", "poi", "assisted"} else []) + (
             ["POI query-video GPS/manual priors are forbidden; public POI and street-photo positions are permitted. "
              "Reference-cache encoding uncertainty remains recorded in every region's provenance."]
-            if "poi" in answer_modes else []),
+            if "poi" in answer_modes else []) + (
+            ["Assisted selection replays a fixed posthoc development policy from frozen input evidence; "
+             "cross-pool cosine selection is an unvalidated heuristic, not a calibrated probability."]
+            if "assisted" in answer_modes else []),
     }
 
 

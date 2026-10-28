@@ -11,6 +11,8 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
+import json
 from pathlib import Path
 
 import numpy as np
@@ -211,6 +213,39 @@ def _regional_cache_directories(cfg, source):
     if external is not None:
         return (Path(external) / cfg.data_dir.name).glob(f"{source}_region_*")
     return (cfg.data_dir / f"{source}_regions").glob("*")
+
+
+def _terminal_sparse_search(center, request, stats, reason):
+    """Distinguish a proven completed sparse listing from an ambiguous None."""
+    from ..kartaview_vpr import _fetch_signature, _sig_tag, _reference_snapshot
+    source = request.get("source")
+    snapshot = stats.get("snapshot") or {}
+    count, lost = snapshot.get("n_refs"), stats.get("lost")
+    radius = request.get("radius_m", 3000.)
+    if (source != "mapillary" or stats.get("listing_stats_known") is not True
+            or isinstance(count, bool) or not isinstance(count, int) or not 0 <= count < 30
+            or isinstance(lost, bool) or not isinstance(lost, int) or lost != 0
+            or reason != f"only {count} {source} reference images within {radius:.0f} m (need 30)"):
+        return None
+    signature = _fetch_signature(center, radius, request.get("cap", 1500))
+    refs, metadata = [], None
+    if count:
+        directory = Path(request["cache_dir"])
+        for path in (directory / f"mly_ref_meta_{_sig_tag(signature)}.json", directory / "mly_ref_meta.json"):
+            if not path.is_file():
+                continue
+            blob = json.loads(path.read_text(encoding="utf-8"))
+            if blob.get("signature") == signature and len(blob.get("refs") or []) == count:
+                refs, metadata = blob["refs"], str(path)
+                break
+        if metadata is None:
+            return None
+    if _reference_snapshot(refs)["refs_sha256"] != snapshot.get("refs_sha256"):
+        return None
+    return {"status": "complete_empty" if count == 0 else "complete_sparse", "count": count,
+            "source": source, "fetch_signature": signature, "snapshot": deepcopy(snapshot),
+            "listing": deepcopy(stats), "reference_inventory": refs, "metadata_source": metadata,
+            "reason": "completed public listing below the existing 30-reference decoder minimum"}
 
 
 def _multi_region_vpr(cfg, frames, center, radius_m, cap, source, token, device,
@@ -421,6 +456,37 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
             import osmnx as ox
             from ..kartaview_vpr import kartaview_vpr_track, _robust_center
             from .. import kartaview_vpr as _kv
+            if getattr(ctx, "capture_retrieval_audit", False):
+                _ordinary_track = kartaview_vpr_track
+                ctx.retrieval_audits = []
+                def kartaview_vpr_track(*args, **kwargs):
+                    audit = {"call_index": len(ctx.retrieval_audits), "request": {
+                        key: value for key, value in kwargs.items() if key not in {"token", "query_cache"}}}
+                    audit["request"]["center"] = list(args[1])
+                    if kwargs.get("source") != "union" and not kwargs.get("outer_radius_m"):
+                        kwargs.update(audit=audit, query_timestamps=np.asarray(frames.timestamps, float))
+                    else:
+                        audit["unsupported_comparison"] = "union or outer-ring evidence"
+                    try:
+                        track = _ordinary_track(*args, **kwargs)
+                    except Exception as error:
+                        audit["provider_error"] = f"{type(error).__name__}: {error}"
+                        ctx.retrieval_audits.append(audit)
+                        raise
+                    if track is not None:
+                        audit["returned_track"] = {"indices": np.asarray(track[0]),
+                            "latlon": np.asarray(track[1]), "cosines": np.asarray(track[2])}
+                    else:
+                        try:
+                            terminal = _terminal_sparse_search(args[1], audit["request"],
+                                deepcopy(_kv.LAST_FETCH_STATS), _kv.LAST_FAILURE)
+                            if terminal is not None:
+                                audit["terminal_search"] = terminal
+                                _kv.LAST_TRACK_STATS["terminal_search"] = deepcopy(terminal)
+                        except (OSError, ValueError, KeyError, TypeError) as error:
+                            audit["terminal_proof_error"] = f"{type(error).__name__}: {error}"
+                    ctx.retrieval_audits.append(audit)
+                    return track
             # Prefer an explicit --osm-around centre (robust to Nominatim
             # geocode failures / ambiguous small-town names); else geocode.
             center = ((ctx.osm_around[0], ctx.osm_around[1]) if ctx.osm_around
@@ -719,7 +785,10 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                 _record_channel(channel_status, "vpr", "inactive", reason=_why)
             # Compare city candidates with the completed ordinary baseline,
             # including pass 2, rather than suppressing its normal refinement.
-            if getattr(cfg, "vpr_city_cover", False):
+            _city_admitted = (getattr(cfg, "vpr_city_cover", False)
+                              and callable(getattr(ctx, "assisted_city_admission", None))
+                              and ctx.assisted_city_admission())
+            if getattr(cfg, "vpr_city_cover", False) and not _city_admitted:
                 _baseline_pass = "pass2" if (ctx.c2f_info or {}).get("kept") == "pass-2" else "pass1"
                 _baseline_decoding = (ctx.result.get("vpr_decoding") or {}).get(_baseline_pass, {})
                 if getattr(cfg, "vpr_multi_region", False):

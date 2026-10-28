@@ -128,7 +128,13 @@ def graph_filter_channel(ctx: RunContext) -> None:
                 or np.any(intervals <= 0)):
             raise ValueError("filter requires finite increasing video timestamps matching its VO poses")
         frame_dt = float(np.median(intervals))
-        speed = _plane_speed(ctx) if cfg.graph_filter_speed == "plane" else None
+        speed = getattr(ctx, "validated_metric_speed", None)
+        if speed is None:
+            speed = _plane_speed(ctx) if cfg.graph_filter_speed == "plane" else None
+        if getattr(ctx, "require_metric_filter", False) and speed is None:
+            _record_channel(ctx.channel_status, "graph_filter", "inactive",
+                            reason="metric_assisted_profile_refuses_unit_step_fallback")
+            return
         odom = odometry_from_trajectory(
             traj, frame_dt, heading_source="rotation",
             step_lengths_m=None if speed is None else speed.lengths_m)

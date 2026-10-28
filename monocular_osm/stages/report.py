@@ -168,6 +168,7 @@ def finalize_result(ctx: RunContext) -> None:
             "graph_filter": (cfg.graph_filter,
                              "filter_position" in result),
             "poi": (cfg.answer == "poi", "poi_position" in result),
+            "assisted": (cfg.answer == "assisted", "assisted_position" in result),
             "orienternet": (cfg.use_orienternet,
                             bool((result.get("orienternet") or {}).get("applied"))),
         },
@@ -181,6 +182,7 @@ def finalize_result(ctx: RunContext) -> None:
     _pick = {"fit": _bl.pipeline_headline, "track": _bl.vpr_track_only,
              "filter": _bl.graph_filter_only,
              "poi": _bl.poi_only,
+             "assisted": _bl.assisted_policy,
              "checked": _bl.track_checked}[cfg.answer](result)
     if _pick is None and cfg.answer == "track":
         _pick = _bl.pipeline_headline(result)          # no track: the fit
@@ -196,6 +198,10 @@ def finalize_result(ctx: RunContext) -> None:
         if cfg.answer == "poi":
             result["answer"].update(experimental=True, confidence_calibrated=False)
             result["answer"]["route_t_sec"] = result["poi_position"]["route_t_sec"]
+        if cfg.answer == "assisted":
+            result["answer"].update(experimental=True, confidence_calibrated=False)
+            if "route_t_sec" in result.get("assisted_position", {}):
+                result["answer"]["route_t_sec"] = result["assisted_position"]["route_t_sec"]
         _answer_map = cfg.output_dir / "answer.png"
         try:
             plot_answer(result["answer"], _answer_map, road=road)
@@ -212,6 +218,8 @@ def finalize_result(ctx: RunContext) -> None:
             print()
             if cfg.answer == "poi":
                 print("EXPERIMENTAL POI component; confidence is not calibrated.")
+            if cfg.answer == "assisted":
+                print("EXPERIMENTAL assisted policy; post-hoc dev rules are not calibrated.")
             print(format_answer_summary(result["answer"]))
     else:
         result.pop("answer", None)
@@ -230,6 +238,8 @@ def finalize_result(ctx: RunContext) -> None:
                     "graph_filter_inputs": result.get("filter_inputs"),
                     "poi_inputs": result.get("poi_inputs"),
                     "poi_localization_audit": result.get("poi_localization_audit"),
+                    "assisted_inputs": result.get("assisted_inputs"),
+                    "assisted_audit": result.get("assisted_audit"),
                     "vo_cache": str(vo_cache) if vo_cache is not None else None,
                     "osm_graph": {
                         "cache": str(cache_path) if cache_path is not None else None,

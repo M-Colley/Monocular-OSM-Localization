@@ -290,6 +290,21 @@ def _vpr_cache_names(root: Path, *, external_regions: bool = False) -> list[str]
     return sorted(p.name for p in Path(root).glob("*") if p.name.startswith(prefixes))
 
 
+def _assisted_cache_leaves(slug_dir: Path) -> list[Path]:
+    """Local child caches retain the parent slug below assisted/<scope>/."""
+    nested = _checked_cache_path(slug_dir, Path(slug_dir) / "assisted")
+    if not nested.exists():
+        return []
+    leaves = []
+    for scope in sorted(nested.iterdir()):
+        if scope.is_dir():
+            _checked_cache_path(slug_dir, scope)
+            leaf = _checked_cache_path(slug_dir, scope / Path(slug_dir).name)
+            if leaf.is_dir():
+                leaves.append(leaf)
+    return leaves
+
+
 def _regional_cache_root_from_argv(argv: list[str]) -> Path | None:
     """Resolve the child's effective external regional cache root, if supplied."""
     value = None
@@ -404,6 +419,7 @@ def restore_vpr_caches(slug_dir: Path, archive_to: Path | None = None, *,
     them filled the benchmark disk after ~50 reps (a full disk then silently
     disabled retrieval and truncated a road-graph cache)."""
     slug_dir = Path(slug_dir)
+    assisted = _assisted_cache_leaves(slug_dir) if not _external_regions else []
     if archive_to is not None:
         archive_to = _checked_cache_path(slug_dir, Path(archive_to))
     moved: list[str] = []
@@ -444,6 +460,11 @@ def restore_vpr_caches(slug_dir: Path, archive_to: Path | None = None, *,
                             if archive_to is not None else None)
         moved.extend("external: " + item for item in restore_vpr_caches(
             regional, regional_archive, keep_arrays=keep_arrays, _external_regions=True))
+    for leaf in assisted:
+        child_archive = (leaf / archive_to.resolve().relative_to(slug_dir.resolve())
+                         if archive_to is not None else None)
+        moved.extend(f"assisted/{leaf.parent.name}: " + item for item in restore_vpr_caches(
+            leaf, child_archive, keep_arrays=keep_arrays))
     return moved
 
 
@@ -451,6 +472,7 @@ def set_vpr_caches_aside(slug_dir: Path, *, region_cache_root: Path | None = Non
                          _external_regions: bool = False) -> list[str]:
     """Move existing VPR caches of one clip data dir into ``ASIDE_DIR``."""
     slug_dir = Path(slug_dir)
+    assisted = _assisted_cache_leaves(slug_dir) if not _external_regions else []
     if (slug_dir / ASIDE_DIR).exists():
         restore_vpr_caches(slug_dir, slug_dir / COLD_ARCHIVE_DIR / "recovered",
                            _external_regions=_external_regions)
@@ -466,6 +488,8 @@ def set_vpr_caches_aside(slug_dir: Path, *, region_cache_root: Path | None = Non
         regional = _regional_slug_root(slug_dir, Path(region_cache_root))
         moved.extend("external: " + item for item in set_vpr_caches_aside(
             regional, _external_regions=True))
+    for leaf in assisted:
+        moved.extend(f"assisted/{leaf.parent.name}: " + item for item in set_vpr_caches_aside(leaf))
     return moved
 
 
@@ -969,9 +993,15 @@ def _provenance_of(result: dict | None) -> dict:
     cfg = prov.get("config") or {}
     backbone = (((result or {}).get("vpr_prior") or {}).get("backbone") or {})
     poi_audit = prov.get("poi_localization_audit") or {}
+    assisted_audit = prov.get("assisted_audit") or {}
     if not backbone:
         backbone = next(((r.get("provenance") or {}).get("backbone") for r in (poi_audit.get("regions") or [])
                          if isinstance(r, dict) and (r.get("provenance") or {}).get("backbone")), {})
+    if not backbone:
+        backbone = next(((r.get("comparison") or {}).get("model") for r in
+                         (assisted_audit.get("reached_stages") or []) if isinstance(r, dict)
+                         and (r.get("comparison") or {}).get("model")), {})
+    selected_answer = (result or {}).get("answer") or {}
     return {
         "present": bool(prov),
         "commit": git.get("commit"), "dirty": git.get("dirty"),
@@ -983,6 +1013,13 @@ def _provenance_of(result: dict | None) -> dict:
         "graph_filter_inputs": prov.get("graph_filter_inputs"),
         "poi_inputs": prov.get("poi_inputs"),
         "poi_localization_audit": prov.get("poi_localization_audit"),
+        "assisted_inputs": prov.get("assisted_inputs"),
+        "assisted_audit": prov.get("assisted_audit"),
+        "assisted_selected_answer": ({"mode": selected_answer.get("mode"),
+            "method": selected_answer.get("method"), "source": selected_answer.get("source"),
+            "route_sha256": _fingerprint(selected_answer.get("route_latlon")),
+            "point_count": len(selected_answer.get("route_latlon") or [])}
+            if cfg.get("answer") == "assisted" else None),
         "python": prov.get("python"),
         "libraries": prov.get("libraries") or {},
         # The actual loaded model, including the pinned hub revision. A
@@ -1040,11 +1077,22 @@ def _health_of(result: dict | None) -> dict:
     poi_models = [(r.get("provenance") or {}).get("backbone") or {} for r in poi_regions if isinstance(r, dict)]
     poi_complete = (poi.get("status") == "ok" and "failed_regions" in poi and not poi["failed_regions"]
                     and bool(poi_regions) and all(isinstance(r, dict) and r.get("status") == "ok" for r in poi_regions))
+    assisted = (result.get("provenance") or {}).get("assisted_audit") or {}
+    selected_child = next((r for r in assisted.get("reached_stages") or []
+                           if isinstance(r, dict) and r.get("kind") == assisted.get("selected_candidate")), {})
+    assisted_complete = (cfg.get("answer") == "assisted" and bool(assisted.get("selected_candidate"))
+                          and selected_child.get("status") == "complete"
+                          and selected_child.get("worker_returncode") == 0
+                          and (result.get("answer") or {}).get("mode") == "assisted")
     return {
         "filter_only": (cfg.get("answer") == "filter" and cfg.get("graph_filter") is True
                         and (result.get("answer") or {}).get("mode") == "filter"),
         "poi_only": (poi_requested and (result.get("answer") or {}).get("mode") == "poi" and poi_complete
                      and (ch.get("poi_retrieval") or {}).get("status") == "ok"),
+        "assisted_only": assisted_complete,
+        "assisted_requested": cfg.get("answer") == "assisted",
+        "assisted_selected_candidate": assisted.get("selected_candidate"),
+        "assisted_child_outcomes": {r.get("kind"): r.get("status") for r in assisted.get("reached_stages") or [] if isinstance(r, dict)},
         "poi_requested": poi_requested, "poi_status": poi.get("status"), "poi_complete": poi_complete,
         "poi_retrieval_status": (ch.get("poi_retrieval") or {}).get("status"),
         "poi_source": ((poi_regions[0].get("provenance") or {}).get("source")
@@ -1081,7 +1129,9 @@ def degraded_reasons(health: dict, *, token_set: bool) -> list[str]:
     if not health:
         return []
     why = []
-    independent = health.get("filter_only") or health.get("poi_only")
+    independent = health.get("filter_only") or health.get("poi_only") or health.get("assisted_only")
+    if health.get("assisted_requested") and not health.get("assisted_only"):
+        why.append("assisted policy did not select a complete successful child")
     if health.get("poi_requested") and (not health.get("poi_complete") or health.get("poi_retrieval_status") != "ok"):
         why.append("POI localization is partial, failed or unavailable")
     if not independent and health.get("vpr_status") != "ok":
@@ -1321,6 +1371,7 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 "pinned_only": B.pinned_only(result) if ok else None,
                 "graph_filter_only": B.graph_filter_only(result) if ok else None,
                 "poi_only": B.poi_only(result) if ok else None,
+                "assisted_policy": B.assisted_policy(result) if ok else None,
                 "vpr_prior_only": B.vpr_prior_only(result) if ok else None,
                 "vpr_track_only": B.vpr_track_only(result) if ok else None,
                 "track_checked": B.track_checked(result) if ok else None,
@@ -1465,11 +1516,11 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
         # mandatory or explicitly enabled methods even if every inference
         # failed. Per-clip misses of a method that ran elsewhere also count.
         fleet_provs = [r["provenance"] for r in reps if r["clip"] in ids]
-        all_independent = bool(fleet_provs) and all(p.get("config", {}).get("answer") in {"filter", "poi"} for p in fleet_provs)
+        all_independent = bool(fleet_provs) and all(p.get("config", {}).get("answer") in {"filter", "poi", "assisted"} for p in fleet_provs)
         required = set() if all_independent else {"pipeline", "matcher_only"}
         if execution_plan is not None or any("answer" in p.get("config", {}) for p in fleet_provs):
             required.add("answer")
-        if any(p.get("config", {}).get("use_vpr_prior") and p.get("config", {}).get("answer") not in {"filter", "poi"}
+        if any(p.get("config", {}).get("use_vpr_prior") and p.get("config", {}).get("answer") not in {"filter", "poi", "assisted"}
                for p in fleet_provs):
             required.update(("vpr_prior_only", "vpr_track_only", "track_checked"))
         if any(p.get("config", {}).get("graph_filter") and p.get("config", {}).get("answer") != "poi"
@@ -1477,6 +1528,8 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
             required.add("graph_filter_only")
         if any(p.get("config", {}).get("answer") == "poi" for p in fleet_provs):
             required.add("poi_only")
+        if any(p.get("config", {}).get("answer") == "assisted" for p in fleet_provs):
+            required.add("assisted_policy")
         not_run = [m for m in method_names if m not in required
                    if not any(clips_out[i]["methods"][m]["n_answered"]
                               for i in ids if m in clips_out[i]["methods"])]
@@ -1657,6 +1710,7 @@ METHOD_LABEL = {
     "track_checked": "Fit checked against track (250 m)",
     "answer": "Answer (selected primary result)",
     "poi_only": "Experimental POI alignment",
+    "assisted_policy": "Experimental assisted policy",
     "pipeline_selective": "Selective (pre-registered τ)",
     "city_centroid": "City centroid",
 }
@@ -1738,7 +1792,7 @@ def render_markdown(summary: dict) -> str:
         methods = [m for m in ("answer", "pipeline", "pipeline_selective", "city_centroid",
                                "track_checked", "vpr_prior_only", "vpr_track_only",
                                "matcher_only", "pinned_only",
-                               "graph_filter_only", "poi_only") if m in fs["methods"]]
+                               "graph_filter_only", "poi_only", "assisted_policy") if m in fs["methods"]]
         oracle = [m for m in fs["methods"] if m.startswith("shortlist_oracle@")]
         L.append(f"## {fleet} fleet\n")
         if fs.get("methods_not_run"):

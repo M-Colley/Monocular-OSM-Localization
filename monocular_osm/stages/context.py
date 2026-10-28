@@ -131,6 +131,15 @@ class RunContext:
     waypoint_evals: Any = None
     anchored_eval: Any = None
 
+    capture_retrieval_audit: bool = False
+    require_retrieval_track: bool = False
+    retrieval_audits: list[dict] = field(default_factory=list)
+    assisted_city_admission: Any = None
+    assisted_child_root: Path | None = None
+    assisted_evidence: dict = field(default_factory=dict)
+    require_metric_filter: bool = False
+    validated_metric_speed: Any = None
+
     @classmethod
     def create(cls, cfg: "PipelineConfig") -> "RunContext":
         """A fresh context for ``cfg`` with the consensus weights resolved."""
