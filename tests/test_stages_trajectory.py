@@ -243,3 +243,21 @@ def test_interrupted_cache_write_preserves_previous_archive(tmp_path, monkeypatc
         trajectory._save_vo_cache(target, _traj(12), "signature")
     assert target.read_bytes() == b"previous complete archive"
     assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.parametrize("changed", ["opencv", "numpy", "workers"])
+def test_changed_estimator_runtime_cannot_reuse_vo_cache(tmp_path, monkeypatch, changed):
+    import cv2
+
+    ctx = _ctx(tmp_path, 12)
+    canonical, _, _ = _vo_cache_candidates(ctx.cfg)
+    _save(canonical, _traj(12), ctx)
+    if changed == "opencv":
+        monkeypatch.setattr(cv2, "__version__", cv2.__version__ + "+different")
+    elif changed == "numpy":
+        monkeypatch.setattr(np, "__version__", np.__version__ + "+different")
+    else:
+        ctx.cfg.vo_workers = 2
+    monkeypatch.setattr(trajectory, "estimate_trajectory", lambda *a, **k: _traj(12, step=2))
+    run_visual_odometry(ctx)
+    assert ctx.traj.xz[1, 0] == 2

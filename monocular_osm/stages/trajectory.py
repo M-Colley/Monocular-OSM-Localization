@@ -116,8 +116,11 @@ def _vo_input_signature(cfg: "PipelineConfig", video_path: Path, frames) -> str:
     File metadata catches replaced/re-downloaded sources cheaply. Hashing every
     sampled frame also catches same-size replacements with preserved mtimes and
     decoder changes. No second video read or giant concatenated buffer is needed.
-    Unsigned legacy caches cannot establish this identity and must be rebuilt.
+    Numerical-library versions and worker settings also identify the actual
+    estimator. Unsigned legacy caches cannot establish this identity.
     """
+    import cv2
+
     video = Path(video_path).resolve()
     source = {"path": os.path.normcase(str(video))}
     try:
@@ -132,8 +135,10 @@ def _vo_input_signature(cfg: "PipelineConfig", video_path: Path, frames) -> str:
         digest.update(memoryview(array).cast("B"))
     timestamps = np.asarray(frames.timestamps, dtype="<f8")
     signature = {
-        "schema": 1,
+        "schema": 2,
         "vo_algo_version": VO_ALGO_VERSION,
+        "odometry_runtime": {"numpy": np.__version__, "opencv": cv2.__version__,
+                             "workers": getattr(cfg, "vo_workers", None)},
         "video": source,
         "extraction": {
             "start_sec": float(cfg.vo_start_sec),
