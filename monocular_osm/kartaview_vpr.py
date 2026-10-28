@@ -758,8 +758,89 @@ def _query_cache_key(frames, indices, device, mode, model_name):
     return (id(frames), items, indices), model, mode
 
 
+def _audit_array_sha(value):
+    array = np.ascontiguousarray(value)
+    digest = hashlib.sha256(str((array.shape, array.dtype.str)).encode())
+    digest.update(memoryview(array).cast("B"))
+    return digest.hexdigest()
+
+
+def _audit_tensor_digest(tensor, digest):
+    """Hash existing dense tensors with at most 8 MiB of transfer staging."""
+    import torch
+
+    tensor = tensor.detach()
+    chunk_bytes = 8 * 1024 ** 2
+    if tensor.layout != torch.strided:
+        raise ValueError("audited tensors must have a dense strided layout")
+    if not tensor.is_contiguous():
+        if tensor.numel() * tensor.element_size() > chunk_bytes:
+            raise ValueError("large noncontiguous model tensors cannot be audited within the staging bound")
+        tensor = tensor.contiguous()
+    digest.update(json.dumps([list(tensor.shape), str(tensor.dtype)], separators=(",", ":")).encode())
+    flat = tensor.reshape(-1)
+    step = max(1, chunk_bytes // max(1, tensor.element_size()))
+    for start in range(0, flat.numel(), step):
+        raw = flat[start:start + step].cpu().contiguous().view(torch.uint8).numpy()
+        digest.update(memoryview(raw).cast("B"))
+
+
+def _audit_tensor_sha(tensor):
+    digest = hashlib.sha256()
+    _audit_tensor_digest(tensor, digest)
+    return digest.hexdigest()
+
+
+def _audit_model_state():
+    """Identify the actual parameters/buffers, independently of a hub label."""
+    digest, count, elements = hashlib.sha256(), 0, 0
+    for name, tensor in sorted(_MODEL.state_dict().items()):
+        digest.update(json.dumps(str(name), ensure_ascii=False).encode())
+        _audit_tensor_digest(tensor, digest)
+        count += 1
+        elements += int(tensor.numel())
+    return {"sha256": digest.hexdigest(), "tensor_count": count,
+            "element_count": elements, "transfer_chunk_bytes": 8 * 1024 ** 2}
+
+
+def _audit_pixels(frames, indices):
+    digest = hashlib.sha256()
+    for index in indices:
+        frame = np.asarray(frames[int(index)])
+        if frame.nbytes > 64 * 1024 ** 2:
+            raise ValueError("audited native frame exceeds the 64 MiB staging bound")
+        array = np.ascontiguousarray(frame)
+        digest.update(json.dumps([int(index), list(array.shape), array.dtype.str], separators=(",", ":")).encode())
+        digest.update(memoryview(array).cast("B"))
+    return digest.hexdigest()
+
+
+def _audit_issue(audit, error):
+    audit.setdefault("issues", []).append(f"{type(error).__name__}: {error}")
+    audit["status"] = "incomplete"
+
+
+def _audit_query(audit, frames, indices, descriptors, mode):
+    """Auditing never changes descriptors or the ordinary retrieval result."""
+    try:
+        import torch
+
+        expected_rows = len(indices) * (3 if mode == "crops" else 1)
+        if (descriptors.ndim != 2 or descriptors.shape[0] != expected_rows
+                or not bool(torch.isfinite(descriptors).all())
+                or not bool(torch.allclose(descriptors.norm(dim=1),
+                                          torch.ones(expected_rows, device=descriptors.device),
+                                          rtol=0, atol=1e-4))):
+            raise ValueError("audited query descriptors must be finite L2-normalized rows")
+        audit.update(query_pixels_sha256=_audit_pixels(frames, indices),
+                     query_descriptors_sha256=_audit_tensor_sha(descriptors),
+                     query_descriptor_shape=list(descriptors.shape), query_mode=mode)
+    except Exception as error:
+        _audit_issue(audit, error)
+
+
 def _query_similarities(frames, indices, ref_emb, device, *, mode="warp", batch_size=None,
-                        query_cache=None, model_name=None):
+                        query_cache=None, model_name=None, audit=None):
     """Score the same references with fixed query views; no geographic inputs.
 
     ``warp`` is the unchanged control. ``crops`` takes the maximum cosine per
@@ -788,6 +869,8 @@ def _query_similarities(frames, indices, ref_emb, device, *, mode="warp", batch_
                 if previous[1:] == key[1:]:
                     del query_cache[previous]
             query_cache[key] = q_emb
+    if audit is not None:
+        _audit_query(audit, frames, indices, q_emb, mode)
     scores = (q_emb @ ref_emb.T).numpy()
     n_views = 3 if mode == "crops" else 1
     return scores if n_views == 1 else scores.reshape(len(indices), n_views, -1).max(axis=1)
@@ -1099,7 +1182,8 @@ def _resolve_backbone(model_name, device):
 def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
                             device, model_name, source, token, cap,
                             outer_radius_m=None, outer_cap=None, query_mode="warp",
-                            query_batch_size=None, query_cache=None, reference_identity=None):
+                            query_batch_size=None, query_cache=None, reference_identity=None,
+                            audit=None):
     """Shared front half of both VPR entrypoints: fetch references, load/cache
     the backbone, embed the references + the ``n_query`` sampled query frames.
 
@@ -1167,10 +1251,37 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
         reference_identity["embedding_dimensions"] = int(ref_emb.shape[1])
     idx = np.linspace(0, len(frames_bgr) - 1,
                       min(n_query, len(frames_bgr))).astype(int)
+    if audit is not None:
+        try:
+            if source == "union" or outer_radius_m:
+                raise ValueError("track audit requires a single source and disc")
+            if len(idx) > 80 or len(idx) * len(ref_xy) > 1_600_000:
+                raise ValueError("track audit exceeds its 80-query/1.6-million-score bound")
+            model_state = _audit_model_state()
+            audit.update(query_indices=idx.copy(),
+                         ref_ids=_embedded_reference_ids(refs, ref_xy, cache_dir, source),
+                         ref_latlon=np.asarray(ref_xy, float).copy(),
+                         ref_embeddings_sha256=_audit_tensor_sha(ref_emb),
+                         actual_model_state_sha256=model_state["sha256"], model_state=model_state,
+                         backbone=deepcopy(backbone_info()),
+                         reference_encoding_identity="unverified: cache schema carries reference fingerprint only",
+                         preprocessing={"version": 1, "color": "BGR to RGB", "resize": "opencv INTER_LINEAR",
+                             "warp_size": [512, 512], "scale": "divide by255",
+                             "mean": [.485, .456, .406], "std": [.229, .224, .225],
+                             "descriptor_normalization": "L2", "dimensions": int(ref_emb.shape[1])},
+                         reference_pool={"source": source, "center": list(map(float, center)),
+                             "radius_m": float(radius_m), "cap": int(cap), "count": int(len(ref_xy)),
+                             "fetch": deepcopy(LAST_FETCH_STATS)})
+        except Exception as error:
+            _audit_issue(audit, error)
     query_options = ({"query_cache": query_cache, "model_name": resolved}
                      if query_cache is not None else {})
+    if audit is not None:
+        query_options["audit"] = audit
     sims = _query_similarities(frames_bgr, idx, ref_emb, device, mode=query_mode,
                               batch_size=query_batch_size, **query_options)
+    if audit is not None and len(idx) <= 80 and np.size(sims) <= 1_600_000:
+        audit["raw_similarities"] = np.asarray(sims).copy()
     return idx, sims, np.asarray(ref_xy, dtype=float)
 
 
@@ -1346,7 +1457,8 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
                         model_name="megaloc", source="kartaview", token=None,
                         cap=1500, sequence_decode=True, query_dt_s=4.0,
                         outer_radius_m=None, outer_cap=None, query_mode="warp",
-                        query_batch_size=None, query_cache=None):
+                        query_batch_size=None, query_cache=None, audit=None,
+                        query_timestamps=None):
     """Per-frame VPR positions: a sparse, noisy 'GPS' track to fit the trajectory
     to (anchor-primary v2). Returns ``(query_indices, latlons[N,2], sims[N])`` for
     ``n_query`` frames sampled uniformly across the clip, or ``None``. Unlike the
@@ -1361,10 +1473,24 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
     ``aspect`` query-only experiment; reference embeddings are reused.
     ``query_cache`` may be an explicitly owned per-video dictionary, allowing
     multiple regional searches to reuse normalized query descriptors.
+    The opt-in ``audit`` sink binds actual pixels/descriptors/model state and
+    raw decoded-reference cosines. Supply the full input ``query_timestamps``
+    grid. Missing/unsupported audit inputs remain incomparable while ordinary
+    retrieval still returns its unchanged route.
     """
     global LAST_FAILURE, LAST_TRACK_STATS
     LAST_FAILURE = None
     LAST_TRACK_STATS = {"sequence_decode_requested": bool(sequence_decode), "decoder": "unavailable"}
+    if audit is not None:
+        audit.clear()
+        audit.update(schema="vpr-track-audit-v1", status="pending", issues=[])
+        try:
+            times = np.asarray(query_timestamps, float)
+            if (times.shape != (len(frames_bgr),) or not np.isfinite(times).all()
+                    or np.any(np.diff(times) <= 0)):
+                raise ValueError("track audit requires the actual increasing input timestamp grid")
+        except Exception as error:
+            _audit_issue(audit, error)
     try:
         import torch  # noqa: F401 - availability guard; helper re-imports
     except Exception as exc:
@@ -1372,12 +1498,15 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
         LAST_TRACK_STATS["reason"] = LAST_FAILURE
         return None
     try:
+        audit_options = {"audit": audit} if audit is not None else {}
         out = _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir,
                                       n_query, device, model_name, source,
                                       token, cap, outer_radius_m, outer_cap, query_mode,
-                                      query_batch_size, query_cache)
+                                      query_batch_size, query_cache, **audit_options)
         if out is None:
             LAST_TRACK_STATS["reason"] = LAST_FAILURE or "no reference track"
+            if audit is not None:
+                audit.update(status="unavailable", reason=LAST_TRACK_STATS["reason"])
             return None
         idx, sims, ref_xy = out
         LAST_TRACK_STATS.update(n_references=int(len(ref_xy)), n_queries=int(len(idx)), decoder="argmax")
@@ -1391,8 +1520,54 @@ def kartaview_vpr_track(frames_bgr, center, radius_m=3000.0, *,
         elif sequence_decode:
             LAST_TRACK_STATS["fallback_reason"] = "fewer than three query frames"
         maxsim = sims[np.arange(len(idx)), top1]
+        if audit is not None:
+            _finish_track_audit(audit, idx, sims, top1, maxsim, query_timestamps,
+                                sequence_decode, query_dt_s)
         return idx, ref_xy[top1].astype(float), maxsim.astype(float)
     except Exception as e:
         LAST_FAILURE = f"{type(e).__name__}: {e}"
         LAST_TRACK_STATS["reason"] = LAST_FAILURE
+        if audit is not None:
+            _audit_issue(audit, e)
         return None
+
+
+def _finish_track_audit(audit, indices, similarities, chosen, cosines, timestamps,
+                        requested, query_dt_s):
+    """Finish an opt-in evidence ledger without changing decoded output."""
+    try:
+        times = np.asarray(timestamps, float)
+        if (times.ndim != 1 or len(times) <= int(np.max(indices)) or not np.isfinite(times).all()
+                or np.any(np.diff(times) <= 0) or not np.isfinite(query_dt_s) or query_dt_s <= 0):
+            raise ValueError("audit timestamps/continuity interval are invalid")
+        decoder = {"requested": bool(requested), "actual": LAST_TRACK_STATS["decoder"],
+                   "query_dt_s": float(query_dt_s), "transition_base_free_m": 30.,
+                   "transition_free_speed_mps": 40., "transition_dt_floor_s": .5,
+                   "transition_excess_penalty": .02, "maximum_viterbi_references": 6000,
+                   "fallback_reason": LAST_TRACK_STATS.get("fallback_reason")}
+        audit.update(query_times=times[indices].copy(), decoded_ref_indices=np.asarray(chosen).copy(),
+                     decoded_cosines=np.asarray(cosines).copy(), decoder=decoder,
+                     score_kind="raw_cosine_at_decoded_reference")
+        required = ("query_indices", "query_pixels_sha256", "query_descriptors_sha256",
+                    "actual_model_state_sha256", "backbone", "preprocessing", "ref_ids", "ref_latlon",
+                    "ref_embeddings_sha256", "raw_similarities")
+        if any(key not in audit for key in required):
+            raise ValueError("track audit is missing encoder/reference evidence")
+        if (np.shape(audit["raw_similarities"]) != np.shape(similarities)
+                or not np.array_equal(audit["query_indices"], indices)
+                or not np.array_equal(audit["raw_similarities"], similarities)
+                or not np.isfinite(similarities).all()
+                or np.any(np.abs(similarities) > 1.0001)
+                or np.shape(audit["ref_latlon"]) != (np.shape(similarities)[1], 2)
+                or len(audit["ref_ids"]) != np.shape(similarities)[1]):
+            raise ValueError("track audit matrix/grid differs from the decoded inputs")
+        identity = {key: audit[key] for key in ("query_pixels_sha256", "query_descriptors_sha256",
+                    "actual_model_state_sha256", "backbone", "preprocessing", "query_mode", "score_kind", "decoder")}
+        identity.update(query_indices_sha256=_audit_array_sha(indices),
+                        query_times_sha256=_audit_array_sha(times[indices]))
+        audit["comparison_identity"] = identity
+        audit["comparison_identity_sha256"] = hashlib.sha256(json.dumps(
+            identity, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+        audit["status"] = "incomplete" if audit.get("issues") else "complete"
+    except Exception as error:
+        _audit_issue(audit, error)
