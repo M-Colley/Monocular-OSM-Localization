@@ -296,7 +296,7 @@ def test_known_unserved_photos_are_accounted_without_inventing_causes():
         assert all(x["reason"]=="not_in_embedded_reference_snapshot" for x in acquisition["unserved_references"])
 
 
-@pytest.mark.parametrize("fault",["missing","status","unknown_listing","lost","bool_lost","fetch_snapshot","record_snapshot","listed_coord","listed_id","listed_duplicate","missing_outcome","overlap","unknown_outcome","redundant_ids","redundant_coords","provider"])
+@pytest.mark.parametrize("fault",["missing","status","unknown_listing","graph_listing","lost","bool_lost","fetch_snapshot","record_snapshot","listed_coord","listed_id","listed_duplicate","missing_outcome","overlap","unknown_outcome","redundant_ids","redundant_coords","provider"])
 def test_acquisition_complete_is_not_inferred_from_valid_matrix_or_query_hash(fault):
     calls=[]
     def callback(region, **kw):
@@ -307,6 +307,7 @@ def test_acquisition_complete_is_not_inferred_from_valid_matrix_or_query_hash(fa
         if fault=="missing":p.pop("acquisition")
         elif fault=="status":a["status"]="unknown"
         elif fault=="unknown_listing":f["listing_stats_known"]=False
+        elif fault=="graph_listing":f["listing"]="graph"
         elif fault=="lost":f["lost"]=1
         elif fault=="bool_lost":f["lost"]=False
         elif fault=="fetch_snapshot":f["snapshot"]["refs_sha256"]="0"*64

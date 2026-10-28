@@ -38,7 +38,7 @@ PROFILE = {
     "radius_tolerance_m": 1., "duplicate_cosine_atol": 1e-6,
     "duplicate_canonical_occurrence": "lexicographic request identity, then hypothesis ID",
     "all_branch_completion_required": True, "candidate_pruning": False,
-    "listing_completeness": "known Mapillary capped listing; zero lost tiles/pages; exact served/unserved partition",
+    "listing_completeness": "known Mapillary tiles listing; zero lost tiles; exact served/unserved partition; graph completeness unknown",
     "full_sequence_profile_sha256": FULL_PROFILE_SHA256,
     "score_arithmetic": "full_sequence float64; full-gallery metric frame; median5",
     "max_provenance_bytes_per_region": 4_000_000,
@@ -195,7 +195,7 @@ def _acquisition(provenance, ids, refs, region):
     if (not isinstance(record, Mapping) or record.get("status") != "complete"
             or record.get("listing_complete") is not True or record.get("cap") != PROFILE["cap_per_branch"]
             or provenance["source"] != "mapillary" or not isinstance(fetch, Mapping)
-            or fetch.get("listing_stats_known") is not True or fetch.get("listing") not in {"tiles", "graph"}
+            or fetch.get("listing_stats_known") is not True or fetch.get("listing") != "tiles"
             or type(fetch.get("lost")) is not int or fetch["lost"] != 0):
         raise _Invalid("bounded provider listing completeness is missing, unknown or partial")
     listed = record.get("listed_references")
@@ -372,8 +372,9 @@ def localize_image_union(plan, *, timestamps, query_video_sha256, retrieve_evide
     listing_complete=True, cap=1500, listed_references=[{id:unprefixed,lat,lon}],
     listing_snapshot_sha256 and unserved_references=[{ref_id:source-prefixed,
     reason:explicit}]. These must exactly partition the complete metadata;
-    Mapillary fetch must have known tiles/graph stats, lost=0 and the same
-    recomputed snapshot. Other provider completeness is currently unsupported.
+    Mapillary fetch must have known tiles stats, lost=0 and the same recomputed
+    snapshot. Graph paging/truncation and other provider completeness remain
+    unknown, so they decline instead of being inferred from a valid matrix.
 
     All callbacks are attempted once and outcomes retained. Partial/unknown/
     failed regions decline the entire candidate. A cap is a maximum, not an
