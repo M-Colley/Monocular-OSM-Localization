@@ -604,8 +604,9 @@ model/source/input proof, without a second neural feature-generation run.
 
 Smoke master `63bca94f04403589f08daff5ad07d4c9f1880d00346ed7e4c941410f3612d9fd`
 and independent audit `6b28e0e43c243287ce07f4cb3046025baab2fcd9de749258ffdd10fe08fbf9c6`
-are under `E:/monocular-osm-xfeat-motion-proof`. The full paired sequence is
-running; it has no localization/GT input and supplies no accuracy result yet.
+are under `E:/monocular-osm-xfeat-motion-proof`. The full paired sequence has
+completed and passed independent input audit; it supplies no geographic
+localization accuracy result.
 The four new files pass 104 focused tests including existing compatibility
 cases; those overlap and are not added to the full-suite count below.
 
@@ -614,3 +615,62 @@ warnings in 453.21 s. All 436 tracked non-label/result file hashes stayed
 unchanged, and label/result boundaries were checked by metadata only. Artifacts
 are `output/tests-rank-flow-20261028.{xml,log,source.json,review.json}`. This is
 regression evidence, not a completed fifteen-clip accuracy result.
+
+## Full consecutive-feature comparison
+
+The same clean `87282b2` paired run completed all 2,950 native frames in
+854.77 s on CPU2/inter-op1, with 0.49 GiB peak sampled process-tree RSS.
+Both frontends receive the same pixels, intrinsics, pair filters and pose
+gates. This measures accepted geometric estimates, not pose truth:
+
+| Frontend | Accepted pairs / 2,949 | Accepted fraction | Longest unknown span | Median accepted inliers |
+|---|---:|---:|---:|---:|
+| Fresh ORB | 1,431 | 48.52% | 91.2 s | 98 |
+| Released XFeat | 1,478 | 50.12% | 78.7 s | 111 |
+
+The modest coverage gain leaves long unknown intervals. Neither frontend is
+selected. Rejected motion is not a validated stop, and accepted translations
+have unit scale rather than metres. The existing ground-flow checks still
+reject metric travel estimation; no threshold was relaxed.
+
+Independent audit redecoded all 8,850 native frames and 2,950 preprocessing
+tensor proofs, regenerated all ORB features and replayed all 5,898 pair
+checks, including 3,079 essential-matrix fits. Both complete camera chains
+and planar projections match exactly, as do the first four accepted smoke
+frames. The audit made no neural forward or model constructor call. Saved
+XFeat features remain bound to the released source/state/input proof, without
+a second neural feature-generation run. All 12,081 protected files remained
+unchanged through 24,282 checks in 421.83 s.
+
+Full master under `E:/monocular-osm-xfeat-motion-proof/run1` is
+`b084a7d0ecc660d0ddaf2d9d23f6a7be946bf9b4888d48546fa330b5872d6e1a`;
+independent report under sibling `run1_full_input_audit` is
+`8ccab46983b594b703d29d02cf518385ed96344e417a01330b25cd08e7b2b98b`.
+
+## Road geometry input repair and further released candidate
+
+The whole-Michigan physical-road extraction at `3170b27` conservatively
+failed on three GDAL warnings about unclosed polygon rings. The failed
+outputs and partial databases are retained, with freeze
+`8c8957d4d0bfdac83a89491e6fb353552df918dd96c6f1a534621b74a5693dde`.
+A synthetic case reproduced the same warning from an unrelated forest
+multipolygon alongside a valid service road. Clean `3868b81` declares
+driver-level line interest before reading. It retains warning refusal and
+the independent selected source-way ID/tag/node-reference-count completeness
+guard; a selected road with a missing middle node still fails. Independent
+reviews and 102 focused/compatibility tests pass. A new immutable run2 is
+extracting the same public source. No projection has run. Coordinates/order
+remain GDAL-authority, with no legal-routing or topology claim.
+
+The official [FoL repository](https://github.com/chenshunpeng/FoL) now exposes
+ViT-B and ViT-L checkpoints. This is the AAAI 2025 FoL release; availability
+does not establish a FoL++ checkpoint or an accuracy gain here. The base
+checkpoint was downloaded from fixed Hugging Face revision
+`27f7dbfbfd0adbdf4190dab8debd03edcc99496e`: 1,080,932,591 bytes, verified against
+publisher LFS SHA256 `0f0aae410e05699cb56d26f62ae75470bc3ba780882fb788bf87365ed222c8b0`.
+Seven required source/license/preprocessing files match official Git blobs
+at `09cd23bd5a86c4d2d6ae4d117299bbd59255bd1f`. FakeTensor metadata inspection
+with CPU, mmap, weights-only loading and a narrow NumPy metadata allowlist
+finds 192 state tensors, 90,056,257 elements and 360,225,028 state bytes.
+No model constructor or neural forward has run. Runtime/CPU feasibility and
+strict complete-state compatibility must pass before any gallery trial.
