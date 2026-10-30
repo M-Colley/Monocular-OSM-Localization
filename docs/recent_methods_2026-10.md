@@ -1091,3 +1091,55 @@ before new MutualVPR scoring. The input freeze is
 `9f90a069371b4c15bbe36a33aaf9c8e5ea5ea24b0ecc9e99b4114e96144080eb`,
 input-equivalence report
 `b9c35b866fbb2a4816646a08dd82fe6c2a7f08c8504a15152a4810bc7fc16450`.
+
+## Local reference averaging: no failed clip repaired
+
+A model-free posthoc DEV experiment used every reference to average coordinates
+around each existing cached-MegaLoc route. Temperature was fixed at 0.02;
+Gaussian distance scales were 25, 50, 100 and 200 m. Both raw and reference-mean
+emissions and both existing decoders were retained. There was no new smoothing,
+neural inference, road snapping or per-clip selection. Legacy reference encoding
+remains unverified.
+
+All 32 refinements and eight byte-identical controls froze before new label
+access. Independent arithmetic agreed within 2.132e-14 degrees; root rehashed
+336 audit inputs and 344 scoring inputs. Preparation, inference, audit and
+scoring took 2.031, 3.031, 2.031 and 8.125 seconds.
+
+**All sixteen Detroit refinements fail 200 m.** Raw heading-erased refinement
+worsens its 208.529452 m control at every scale. Four Night refinements pass, but
+their control already passes; its best change is 173.095194 to 170.194868 m.
+No failed clip was repaired, no variant is adopted, and the complete fleet
+result remains 9/15.
+
+| Decoder / emission | Scale (m) | Night error (m) | Detroit G5 error (m) |
+| --- | ---: | ---: | ---: |
+| exact simple / raw | original | 173.10 | 4,779.68 |
+| exact simple / raw | 25 | 170.42 | 4,768.22 |
+| exact simple / raw | 50 | 170.19 | 4,806.55 |
+| exact simple / raw | 100 | 175.67 | 4,810.89 |
+| exact simple / raw | 200 | 179.71 | 4,809.58 |
+| exact simple / reference mean | original | 11,090.49 | 4,839.55 |
+| exact simple / reference mean | 25 | 11,082.26 | 4,832.35 |
+| exact simple / reference mean | 50 | 11,081.05 | 4,853.39 |
+| exact simple / reference mean | 100 | 11,081.64 | 4,851.28 |
+| exact simple / reference mean | 200 | 11,104.83 | 4,862.81 |
+| heading erased / raw | original | 711.00 | 208.53 |
+| heading erased / raw | 25 | 708.93 | 208.85 |
+| heading erased / raw | 50 | 705.66 | 209.45 |
+| heading erased / raw | 100 | 705.48 | 209.58 |
+| heading erased / raw | 200 | 706.36 | 210.66 |
+| heading erased / reference mean | original | 681.34 | 233.83 |
+| heading erased / reference mean | 25 | 681.16 | 233.65 |
+| heading erased / reference mean | 50 | 681.64 | 233.91 |
+| heading erased / reference mean | 100 | 679.64 | 231.33 |
+| heading erased / reference mean | 200 | 672.47 | 230.06 |
+
+Every declared output is shown; threshold decisions use unrounded values.
+Family: `E:/monocular-osm-emission-refinement-proof/run1`; scores: sibling
+`run1_score`. Master:
+`41ac90ebb35fd094b7741739c0f61398acc7c839633bbc3ce6621255adaefd36`;
+audit: `38f6df44d0716314ef6c07574430ea5084e17ab801fa37f90d9766e89a4533ad`;
+scores: `5336f70f11e1d816dc164de3f728928956f9e2827ca9c0c3d440534d102db373`;
+root acceptance:
+`28aa3fa6632af83fc42fd4a0e6b2cbd4989c12cf49c2c964fdc71b1e0c2b1981`.
