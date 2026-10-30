@@ -1045,6 +1045,9 @@ def _provenance_of(result: dict | None) -> dict:
 # clips. Compare these within each clip instead; method knobs must match the
 # whole fleet. Cache/output roots do not affect either comparison.
 _CONFIG_ROOTS = {"data_dir", "output_dir"}
+# The absolute process clock records execution provenance, not method identity.
+# Relative budgets and reserves remain method knobs in both comparisons.
+_CONFIG_OPERATIONAL_FIELDS = {"runtime_deadline_monotonic_s"}
 _CONFIG_CLIP_FIELDS = {
     "url", "city", "video_path", "video_title", "video_description", "ocr_video_path",
     "vo_start_sec", "vo_end_sec",
@@ -1059,7 +1062,9 @@ def _fingerprint(value) -> str:
 
 
 def _effective_config(prov: dict, *, within_clip: bool = False) -> dict:
-    ignored = _CONFIG_ROOTS if within_clip else _CONFIG_ROOTS | _CONFIG_CLIP_FIELDS
+    ignored = _CONFIG_ROOTS | _CONFIG_OPERATIONAL_FIELDS
+    if not within_clip:
+        ignored |= _CONFIG_CLIP_FIELDS
     return {k: v for k, v in (prov.get("config") or {}).items() if k not in ignored}
 
 

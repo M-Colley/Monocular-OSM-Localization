@@ -1002,6 +1002,84 @@ def test_provenance_allows_clip_inputs_and_repeat_output_paths_to_differ() -> No
                for p in report["problems"])
 
 
+def test_provenance_clock_origin_varies_across_runs_and_repeats_without_mutation() -> None:
+    reps = []
+    originals = []
+    for clip in ("clipA", "clipB"):
+        for repeat in range(2):
+            result = _fake_result(0, 20)
+            result["provenance"]["config"].update(
+                runtime_budget_s=7200.0,
+                runtime_deadline_monotonic_s=1_000_000.0 + len(reps) * 10_000,
+                runtime_finalization_reserve_s=120.0,
+                runtime_cleanup_reserve_s=10.0)
+            originals.append(copy.deepcopy(result))
+            reps.append(_provenance_rep(result, clip, repeat))
+
+    raw = copy.deepcopy(reps)
+    report = M.check_provenance(reps)
+    assert report["consistent"], report["problems"]
+    assert len(report["method_config_fingerprints"]) == 1
+    for within_clip in (False, True):
+        effective = [M._effective_config(r["provenance"], within_clip=within_clip)
+                     for r in reps]
+        assert len({M._fingerprint(c) for c in effective}) == 1
+        assert all("runtime_deadline_monotonic_s" not in c for c in effective)
+        assert all(c["runtime_budget_s"] == 7200.0 for c in effective)
+    # Canonicalization is a comparison projection; the saved raw snapshots keep
+    # each actual deadline and every other execution field unchanged.
+    assert reps == raw
+    for index, result in enumerate(originals):
+        assert result["provenance"]["config"]["runtime_deadline_monotonic_s"] == (
+            1_000_000.0 + index * 10_000)
+
+
+@pytest.mark.parametrize("within_clip", [False, True])
+def test_effective_config_omits_only_the_absolute_runtime_clock(within_clip) -> None:
+    prov = {"config": {
+        "data_dir": "cache", "output_dir": "out", "city": "Example",
+        "runtime_budget_s": 7200.0, "runtime_deadline_monotonic_s": 1_000_000.0,
+        "runtime_finalization_reserve_s": 120.0, "runtime_cleanup_reserve_s": 10.0,
+        "runtime_future_guard": "must-remain", "answer": "assisted",
+    }}
+    raw_snapshot = json.dumps(prov, sort_keys=True).encode("utf-8")
+    expected = {
+        "runtime_budget_s": 7200.0, "runtime_finalization_reserve_s": 120.0,
+        "runtime_cleanup_reserve_s": 10.0, "runtime_future_guard": "must-remain",
+        "answer": "assisted",
+    }
+    if within_clip:
+        expected["city"] = "Example"
+    assert M._effective_config(prov, within_clip=within_clip) == expected
+    assert M._CONFIG_OPERATIONAL_FIELDS == {"runtime_deadline_monotonic_s"}
+    assert json.dumps(prov, sort_keys=True).encode("utf-8") == raw_snapshot
+
+
+@pytest.mark.parametrize("field", [
+    "runtime_budget_s", "runtime_finalization_reserve_s", "runtime_cleanup_reserve_s",
+])
+@pytest.mark.parametrize("same_clip", [False, True])
+def test_provenance_relative_runtime_drift_is_still_inconsistent(field, same_clip) -> None:
+    first = _fake_result(0, 20)
+    first["provenance"]["config"].update(
+        runtime_budget_s=7200.0, runtime_deadline_monotonic_s=1_000_000.0,
+        runtime_finalization_reserve_s=120.0, runtime_cleanup_reserve_s=10.0)
+    second = copy.deepcopy(first)
+    second["provenance"]["config"]["runtime_deadline_monotonic_s"] += 10_000
+    second["provenance"]["config"][field] += 1
+    raw = copy.deepcopy([first, second])
+    report = M.check_provenance([
+        _provenance_rep(first),
+        _provenance_rep(second, "clipA" if same_clip else "clipB", rep=1),
+    ])
+    assert not report["consistent"]
+    assert any("effective method configurations" in p for p in report["problems"])
+    if same_clip:
+        assert any("clipA: reps ran different effective clip configurations" in p
+                   for p in report["problems"])
+    assert [first, second] == raw
+
+
 def test_provenance_optional_model_failure_is_run_health_not_model_drift() -> None:
     first = _fake_result(0, 20)
     first["vpr_prior"]["backbone"] = {"name": "megaloc", "hub": "repo:commit-A"}
