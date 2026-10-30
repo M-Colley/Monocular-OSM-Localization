@@ -1247,8 +1247,7 @@ guards and observed process termination passed.
 This establishes CPU feasibility only. Synthetic depth values do not establish
 metric scale, pose quality or localization accuracy. No native video, GPS,
 ground-truth coordinates or routes entered this synthetic experiment. The
-subsequent masked-native runtime check follows; scale consistency remains
-unmeasured.
+subsequent masked-native runtime and pair-consistency checks follow.
 
 Family: `E:/monocular-osm-metric-depth-runtime-proof/synthetic_run1`; runtime:
 `1443e04c476bd0f97385c16b26adb5b04455838dd7a60cf5802c2d1e3d095052`;
@@ -1270,10 +1269,39 @@ outer runtime was 16.25 seconds, with sampled peak RSS 836,104,192 bytes. Root
 independently checked all four actual input tensors, finite native-sized depth
 maps and unchanged 239-tensor state, and rehashed 196 declared files. This is
 runtime evidence only; it does not validate metric scale, pose or localization.
-The next experiment uses eight fixed adjacent-frame pairs per clip and retains
-every failed or unobservable pair.
+The pair experiment below uses eight fixed adjacent-frame pairs per clip and
+retains every failed or unobservable pair.
 
 Native family: `E:/monocular-osm-metric-depth-runtime-proof/native_four_run1`;
 runtime: `48158acc828591940c36638345ae2046ce52190c0181d5945c91e40115782f27`;
 root acceptance:
 `426e30068358c9c2dfe33da366ec9e3aa57b56567be832ba1223de49712152be`.
+
+The fixed pair experiment completed all 32 native depth forwards and all 16
+reports in 69.047 seconds, with sampled peak RSS 861,470,720 bytes. Complete
+original sampling signatures were reproduced before masking. Independent
+decodes verified all 32 selected native frames and timestamps; pixel checks
+and masked-only visual review passed. Root checked all 32 actual model input
+tensors, native float32 depth arrays and unchanged checkpoint state, and
+rehashed 447 declared paths. Matches were frozen before depth inference.
+
+| Pair diagnostic | Night | Detroit G5 |
+| --- | ---: | ---: |
+| Retained pairs | 8 | 8 |
+| Measured / unknown | 4 / 4 | 8 / 0 |
+| Supported triangulation points per measured pair | 181-289 | 141-273 |
+| Nonpositive direct signed motion samples | 435 / 1,200 | 1,101 / 2,330 |
+| Pairs with negative median direct signed motion | 1 / 4 | 3 / 8 |
+
+Depth-to-triangulated-depth ratios often agree between the two frames, but
+direct 3D displacement exposes conflicting motion signs. Neither agreement
+nor a small rigidity residual certifies absolute scale: multiplying every
+depth by a constant changes scale without breaking geometric consistency.
+The generic 70-degree camera intrinsics also remain uncalibrated. No scale,
+confidence, filter input or route was adopted, and no ground truth was used.
+The last complete fixed-policy localization result remains **9/15**.
+
+Pair family: `E:/monocular-osm-metric-depth-pair-proof/run1`; master:
+`4720f479972318bbaae5eab3251531a64c0d29a71189cd778f6b1477d9958883`;
+root runtime acceptance:
+`2718324bbcd773e7688c7e6e85ca047348366f3cfe54ddcd1977511b9a4733d4`.
