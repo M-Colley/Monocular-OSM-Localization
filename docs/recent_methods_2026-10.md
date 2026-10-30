@@ -1246,8 +1246,9 @@ guards and observed process termination passed.
 
 This establishes CPU feasibility only. Synthetic depth values do not establish
 metric scale, pose quality or localization accuracy. No native video, GPS,
-ground-truth coordinates or routes entered this experiment. Native-frame
-masking and scale-consistency checks remain separate pending work.
+ground-truth coordinates or routes entered this synthetic experiment. The
+subsequent masked-native runtime check follows; scale consistency remains
+unmeasured.
 
 Family: `E:/monocular-osm-metric-depth-runtime-proof/synthetic_run1`; runtime:
 `1443e04c476bd0f97385c16b26adb5b04455838dd7a60cf5802c2d1e3d095052`;
@@ -1255,3 +1256,24 @@ whole checkpoint state:
 `ebb6e31f96aa52a747d836d6557da0dd67146a21afaf8ac9a524f22251da5181`;
 root runtime acceptance:
 `8d9988453fc1cb70f77fe4148a8b7e0f009f1c04c634742c1598bf0bc8751174`.
+
+The same checkpoint then completed four masked native video frames: Night
+ordinals 0 and 8,847, and Detroit ordinals 119 and 17,879. Exact original native
+pixels were reconstructed from previously audited overlapping crops. A fixed
+mask blacks the top and bottom quarters plus all returned text-detector boxes,
+preserving the original 720x1280 grid. All four masked-only previews passed
+visual review for visible GPS coordinate overlays; detector recall is not
+certified. No recognizer or geographic-coordinate decoder ran.
+
+The four native depth forwards took 2.078, 1.687, 1.719 and 1.844 seconds. Total
+outer runtime was 16.25 seconds, with sampled peak RSS 836,104,192 bytes. Root
+independently checked all four actual input tensors, finite native-sized depth
+maps and unchanged 239-tensor state, and rehashed 196 declared files. This is
+runtime evidence only; it does not validate metric scale, pose or localization.
+The next experiment uses eight fixed adjacent-frame pairs per clip and retains
+every failed or unobservable pair.
+
+Native family: `E:/monocular-osm-metric-depth-runtime-proof/native_four_run1`;
+runtime: `48158acc828591940c36638345ae2046ce52190c0181d5945c91e40115782f27`;
+root acceptance:
+`426e30068358c9c2dfe33da366ec9e3aa57b56567be832ba1223de49712152be`.
