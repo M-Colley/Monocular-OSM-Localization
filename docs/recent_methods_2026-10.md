@@ -1190,3 +1190,38 @@ compatibility checks passed 285 tests with one skip; root reran the nine new
 regressions successfully. The live inference checkouts and outputs were not
 changed. Their eventual evaluation needs the separately reviewed comparison
 adapter, with its source recorded explicitly.
+
+## MutualVPR full-gallery comparison: no failed clip repaired
+
+The serial full-gallery run completed both cases, with 2,998 Night and 9,735
+Detroit references and 240 query views per case. All sixteen declared routes
+froze before new label access. The independent audit passed in 634.5 seconds;
+root then rehashed all 1,219 protected files before authorizing separate scoring.
+Scoring took 7.125 seconds, and root rehashed all 98 consumed scoring files.
+All eight cached-MegaLoc controls reproduce their previous unrounded spatial
+and timed metrics exactly. Legacy MegaLoc reference encoding remains unverified.
+
+**All eight new MutualVPR routes fail 200 m.** Neither difficult clip is
+repaired, and the model is not adopted. This two-case DEV experiment does not
+change the last complete fixed-policy result of 9/15. Every declared route is
+shown below; threshold decisions use unrounded errors.
+
+| Model | Decoder / emission | Night error (m) | Detroit G5 error (m) |
+| --- | --- | ---: | ---: |
+| MutualVPR | exact simple / raw | 2,239.25 | 1,403.33 |
+| MutualVPR | exact simple / reference mean | 11,665.43 | 4,570.04 |
+| MutualVPR | heading erased / raw | 393.81 | 527.74 |
+| MutualVPR | heading erased / reference mean | 11,626.83 | 2,785.22 |
+| cached MegaLoc | exact simple / raw | 173.10 | 4,779.68 |
+| cached MegaLoc | exact simple / reference mean | 11,090.49 | 4,839.55 |
+| cached MegaLoc | heading erased / raw | 711.00 | 208.53 |
+| cached MegaLoc | heading erased / reference mean | 681.34 | 233.83 |
+
+Family: `E:/monocular-osm-mutualvpr-gallery-proof/run2`; scores: sibling
+`run2_paired16_score`. Paired master:
+`e972cfe9f0a752561e73a407764b6d338c66887885b0384a2aa1086da2297078`;
+independent audit:
+`5a4790643f8243fd59178ee0ae8b9f8ae772a34d2e0cc8b1b1994d1851f76298`;
+scores: `715fb62b700000325dfbebdb648b23719103521279c8bf0947c2c47e47a074ed`;
+root score acceptance:
+`22cea4d36cfee4333529ec241a0ec3a58631147c97d7de40241e631743dcc73e`.
