@@ -9,8 +9,8 @@ A fresh, serial all-fifteen run of the fixed opt-in v3 policy is now running
 at clean source `f72fdaf`. Its complete prepared-input audit passed before
 inference. Every terminal attempt, including a missing answer or failure,
 will remain in the denominator; no new fleet accuracy is available yet.
-The first three clips (Ulm4k, Ulm2 and Berlin) have terminal successful
-processes; London is active. These execution counts are not accuracy passes.
+Live execution counts and handles are recorded in `output/goal_progress.json`.
+Completed executions are not accuracy passes.
 
 ## What was searched
 
