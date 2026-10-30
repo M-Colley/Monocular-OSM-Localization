@@ -5,6 +5,11 @@ Checked 30 October 2026. The complete cold development baseline remains
 not establish a new complete fleet result. All use development clips; the
 held-out clips have not been used for method or parameter selection.
 
+A fresh, serial all-fifteen run of the fixed opt-in v3 policy is now running
+at clean source `f72fdaf`. Its complete prepared-input audit passed before
+inference. Every terminal attempt, including a missing answer or failure,
+will remain in the denominator; no new fleet accuracy is available yet.
+
 ## What was searched
 
 The official [NeurIPS 2025](https://neurips.cc/Downloads/2025) and
@@ -24,7 +29,7 @@ CVPR/ICCV 2025–26 and older released controls.
 | Method | Finding for this project |
 |---|---|
 | [ImAge, NeurIPS 2025](https://github.com/Lu-Feng/ImAge) | Released code and GSV weights. Actually encoded the full night and Detroit galleries and native query views on CPU; results below. |
-| [MutualVPR, NeurIPS 2025](https://papers.nips.cc/paper_files/paper/2025/hash/04388b6780bcf1a39ad0a91422f09a85-Abstract-Conference.html) | Official source and author-linked weights verified at commit `bd373c6`. Strict loading and 44 CPU forwards now pass an independent runtime audit; localization accuracy is untested. |
+| [MutualVPR, NeurIPS 2025](https://papers.nips.cc/paper_files/paper/2025/hash/04388b6780bcf1a39ad0a91422f09a85-Abstract-Conference.html) | Official source and author-linked weights verified at commit `bd373c6`. Strict loading and 44 CPU forwards pass an independent runtime audit; a full-gallery Night/Detroit comparison is running, with no accuracy result yet. |
 | [TRAIL, ECCV 2026](https://arxiv.org/abs/2609.07373) | Particularly relevant to a query trajectory and unordered reference gallery. Uses learned emission and motion functions; an official runnable checkpoint was not verified. The hand-built spatial experiment below is not a reproduction. |
 | [SelaVPR++](https://github.com/Lu-Feng/SelaVPRplusplus) | T-PAMI 2025 online publication, not CVPR. Official base release verified; full 9,735-reference comparison completed. All eight new routes fail 200 m; results below. |
 | [EfficientVPR, CVPR 2026](https://openaccess.thecvf.com/content/CVPR2026/html/Tang_EfficientVPR_Toward_Efficient_Visual_Place_Recognition_via_Scene-Aware_Prompt_Tuning_CVPR_2026_paper.html) | Paper verified. Inspected repository snapshot had README and gitignore, without an implementation or checkpoint. |
@@ -58,6 +63,26 @@ The 30 October follow-up also inspected the September preprint
 training positives through appearance editing, geometry/diversity checks and
 limited regeneration. The release supplies generation code and metadata;
 generator implementations/weights and original images require separate setup.
+
+A further 30 October sweep rechecked the NeurIPS 2026 program and official
+releases. It found no new matching title relative to the earlier search;
+this remains a bounded relevance search. The most practical newly identified
+released candidate is [QAA, ICRA 2026](https://github.com/arplaboratory/QAA):
+its official demo supports CPU, and the author-linked
+[1024-dimensional safetensors checkpoint](https://huggingface.co/xjh19972/QAA-1024)
+is public. Local source and preprocessing readiness are being checked; it
+has no local runtime or accuracy result. D2-VPR has author-linked weights,
+but the anonymous checkpoint payload was not verified. UniPR-3D's released
+checkpoints exceed the present 3 GiB process budget individually. The inspected
+[TF-VPR source](https://github.com/ddfs430/TF-VPR) has a syntax error and its
+gallery-token initialization exceeds the budget for the Night gallery.
+
+The current [CROSS release](https://github.com/jiaming-ai/CROSS) includes
+monocular, stereo and RGB-D modes. Its author describes CPU support as tests
+only; mapping needs a GPU and a previously constructed posed memory. It is
+therefore not a direct city-wide replacement for this pipeline. Exact source
+pins, primary links, checkpoint metadata and static checks are recorded in
+`output/new_methods_20261030/final_primary_sweep_20261030.json`.
 It is a training-data approach, not a verified pretrained retrieval replacement
 for this CPU experiment. No local inference or accuracy result is claimed.
 The inspected README is saved at `output/new_methods_20261030/AdaptVPR_README.md`.
@@ -825,6 +850,16 @@ fields; it failed with no numerical differences. Its source/failure receipt
 is preserved. The corrected scorer checks every numerical metric and retains
 the older annotations separately; no prediction or geometry changed.
 
+A separate connected-road-distance experiment is now running on the complete
+9,735-reference Detroit gallery. It replaces only the sequence decoder's
+transition distance and radius legality with shortest undirected physical-road
+distance, bounded below by the original Euclidean distance. Shared OSM node
+IDs define connections; geometric crossings alone do not. All references and
+80 queries remain, with two fresh Euclidean controls and two connected outputs
+required before scoring. The map coordinates retain their GDAL-authority
+limitation, and the graph does not model legal driving directions or access.
+There is no geographic accuracy result or adopted policy for this experiment.
+
 ## FoL-base: strict complete-state CPU smoke and audit pass
 
 The first strict load failed before any forward because the released checkpoint
@@ -960,5 +995,16 @@ The runtime family is
 independent audit
 `59ec8164de2cbc3600ef31400ede6d7fc2f23bff83627048c2982b136056e129`.
 The measured cost suggests roughly 3.4 and 10.5 CPU hours for the Night and G5
-neural work alone, before decoding and audit. A full-gallery comparison is
-being prepared with explicit larger limits; it has not been launched.
+neural work alone, before decoding and audit. The full-gallery comparison is
+now running serially, Night then G5, with a uniform 18-hour internal limit per
+case. Before inference, a separate equivalence audit bound all 2,998 and 9,735
+reference rows and the two sets of 80 native queries/240 RGB crops to previously
+audited inputs, and confirmed the same released model/dependencies as the
+44-image runtime. All 991 protected files were rehashed unchanged. The actual
+Night run has produced positive forward-input receipts with the accepted
+complete model-state digest; that is runtime evidence, not localization accuracy.
+All sixteen declared new method/control outputs must be frozen and audited
+before new MutualVPR scoring. The input freeze is
+`9f90a069371b4c15bbe36a33aaf9c8e5ea5ea24b0ecc9e99b4114e96144080eb`,
+input-equivalence report
+`b9c35b866fbb2a4816646a08dd82fe6c2a7f08c8504a15152a4810bc7fc16450`.
