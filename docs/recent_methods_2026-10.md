@@ -1444,8 +1444,33 @@ A separate source review found that the strongest historical component
 routes use different query views, reference scope or objectives from the
 ordinary pipeline. Night's 124 m experiment used one OCR branch; the normal
 two-branch union failed, so retrospectively choosing the successful branch
-would be an oracle. G5's best 208.53 m control still exceeds 200 m. The next
-planned experiment will test one fixed full-support sequence decoder on all 15
-ordinary runs' own matched inputs, after the complete A8 run and output audit.
-It cannot borrow a favourable research gallery or choose a decoder per clip.
-The last complete fixed-policy result remains **9/15**.
+would be an oracle. G5's best 208.53 m control still exceeds 200 m. The new
+experiment uses one fixed full-support sequence decoder on all 15 ordinary
+runs' own matched inputs. The method, parameters and complete clip order were
+registered before the first new parent or array read. Each terminal clip can
+enter the comparison after the original strict/native audit, independent root
+acceptance and immutable input copies. Both complete fifteen-clip runs and
+their independent/root audits remain required before accuracy scoring.
+
+Seven completed A8 clips have passed the original integrity checks; this is
+not an accuracy result. The first matched input, Ulm4k, contains all 1,499
+observed reference columns across 80 query frames. Root independently checked
+every copied raw similarity and the sorted column mapping before launching
+the fixed raw/erased decoder. It completed in 105.266 seconds; root checked all
+80 selected reference IDs, coordinates, raw scores and timestamps against the
+frozen input and confirmed process closure. No accuracy scoring has run.
+The comparison uses no new neural inference.
+The separate input/copy transport passed 40 synthetic peer tests after a
+scoped-alias identity check was corrected; the numerical helper remains
+unchanged. No accuracy score or production policy change follows from these
+checks. Live counts and artifact receipts are in `output/goal_progress.json`.
+
+The next six input attempts remained unavailable: their overlapping references
+require descriptor evidence whose receipt payloads are absent from the
+original closed audit's protected map. These attempts remain in the
+fifteen-clip denominator. A further evidence audit must establish the exact
+consumed descriptor rows and immutable payloads before those cases can enter
+the comparison; the existing requirement has not been bypassed.
+
+This comparison cannot borrow a favourable research gallery or choose a
+decoder per clip. The last complete fixed-policy result remains **9/15**.
