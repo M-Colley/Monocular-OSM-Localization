@@ -855,15 +855,38 @@ fields; it failed with no numerical differences. Its source/failure receipt
 is preserved. The corrected scorer checks every numerical metric and retains
 the older annotations separately; no prediction or geometry changed.
 
-A separate connected-road-distance experiment is now running on the complete
+A separate connected-road-distance experiment completed on the full
 9,735-reference Detroit gallery. It replaces only the sequence decoder's
 transition distance and radius legality with shortest undirected physical-road
 distance, bounded below by the original Euclidean distance. Shared OSM node
 IDs define connections; geometric crossings alone do not. All references and
-80 queries remain, with two fresh Euclidean controls and two connected outputs
-required before scoring. The map coordinates retain their GDAL-authority
+80 queries remain. Two fresh Euclidean controls and two connected outputs were
+frozen before scoring. The map coordinates retain their GDAL-authority
 limitation, and the graph does not model legal driving directions or access.
-There is no geographic accuracy result or adopted policy for this experiment.
+Inference took 2,341.34 s with a 2.45 GiB sampled process-tree RSS peak. A
+separate 456.52 s audit reproduced both unchanged D1 controls, checked all four
+saved objectives and median filters, and independently recomputed 95 selected
+graph-pair shortest distances with zero difference. It does not independently
+rebuild the graph or prove a second connected-heading MAP optimum.
+
+All eight declared scores were retained:
+
+| Distance | Raw, original references (m) | Reference mean, original references (m) | Raw, median5 (m) | Reference mean, median5 (m) |
+|---|---:|---:|---:|---:|
+| Euclidean control | 208.53 | 233.83 | 222.18 | 237.53 |
+| Connected physical roads | 493.43 | 221.58 | 546.03 | 229.04 |
+
+**Every output fails 200 m.** The connected reference-mean variant improves its
+corresponding control, but neither connected primary route beats the unchanged
+raw control. No variant or default is adopted. The median5 curves are secondary
+diagnostics, and these development results establish no fleet gain. All 152
+consumed files were rehashed unchanged after scoring. Under
+`E:/monocular-osm-connected-road-distance-proof`: master
+`11f7a5094ccf9eee57b6f152c1868b81110cb5dbbf3171b3865bbaa31c664958`,
+independent audit
+`acb1cc3fee57d49e9c3fa407093d788782799e2d6ec84474761e1184cc426306`,
+all-eight score
+`1f5e1cde1d2c73bf576e45d3798228f4c868de5f82101176ee8a422886036220`.
 
 ## FoL-base: strict complete-state CPU smoke and audit pass
 
