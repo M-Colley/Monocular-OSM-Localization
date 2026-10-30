@@ -24,7 +24,7 @@ CVPR/ICCV 2025–26 and older released controls.
 | Method | Finding for this project |
 |---|---|
 | [ImAge, NeurIPS 2025](https://github.com/Lu-Feng/ImAge) | Released code and GSV weights. Actually encoded the full night and Detroit galleries and native query views on CPU; results below. |
-| [MutualVPR, NeurIPS 2025](https://papers.nips.cc/paper_files/paper/2025/hash/04388b6780bcf1a39ad0a91422f09a85-Abstract-Conference.html) | Official source and author-linked weights verified at commit `bd373c6`. Restricted metadata inspection matches all 646 checkpoint tensor schemas after the uniform DataParallel prefix is removed; actual strict loading, forward execution and accuracy are untested. |
+| [MutualVPR, NeurIPS 2025](https://papers.nips.cc/paper_files/paper/2025/hash/04388b6780bcf1a39ad0a91422f09a85-Abstract-Conference.html) | Official source and author-linked weights verified at commit `bd373c6`. Strict loading and 44 CPU forwards now pass an independent runtime audit; localization accuracy is untested. |
 | [TRAIL, ECCV 2026](https://arxiv.org/abs/2609.07373) | Particularly relevant to a query trajectory and unordered reference gallery. Uses learned emission and motion functions; an official runnable checkpoint was not verified. The hand-built spatial experiment below is not a reproduction. |
 | [SelaVPR++](https://github.com/Lu-Feng/SelaVPRplusplus) | T-PAMI 2025 online publication, not CVPR. Official base release verified; full 9,735-reference comparison completed. All eight new routes fail 200 m; results below. |
 | [EfficientVPR, CVPR 2026](https://openaccess.thecvf.com/content/CVPR2026/html/Tang_EfficientVPR_Toward_Efficient_Visual_Place_Recognition_via_Scene-Aware_Prompt_Tuning_CVPR_2026_paper.html) | Paper verified. Inspected repository snapshot had README and gitignore, without an implementation or checkpoint. |
@@ -891,11 +891,31 @@ scored, with no selected variant. Score freeze:
 `50167df9a22bc0a966b6b50a6d9a47b6121e12669d193cec557417994c1ce799`.
 The legacy MegaLoc reference encoding remains UNVERIFIED, so this compares
 the declared bundled methods rather than isolating an encoder-only effect.
-The second registered comparison on G5's complete 9,735-reference gallery is
-running after independent checks of all 13,939 raw occurrences, both query
-index systems and all 80 native frames/240 crops. Its inference source is a
-separate adapter; earlier failed preparations and their exact schemas remain
-preserved. No G5 result or default change is claimed.
+The second registered comparison on G5's complete 9,735-reference gallery
+completed all 9,975 forwards in 5,500 s. Peak process-tree RSS was 1.64 GiB.
+Its independent complete-output audit passed before scoring: all 13,939 raw
+occurrences, both query index systems, all 80 native frames/240 crops and all
+2,336,400 per-view cosines were checked. Float32 replay was bitwise exact;
+float64 dot products differed by at most `8.00e-8`. All four exact-simple paths
+were reconstructed independently, while all four erased-heading saved path
+objectives and physical edges passed. It does not claim a second heading-DP
+optimum or neural output-value replay. All 331 protected files stayed unchanged.
+Separate scoring retained all eight fixed outputs:
+
+| Fixed G5 output | FoL global stage (m) | New cached MegaLoc control (m) |
+|---|---:|---:|
+| Exact simple, raw | 1,526.70 | 4,779.68 |
+| Exact simple, reference mean | 1,321.66 | 4,839.55 |
+| Heading erased, raw | 1,516.32 | 208.53 |
+| Heading erased, reference mean | 1,094.24 | 233.83 |
+
+**All four G5 FoL routes fail 200 m**, as did all four Night routes. No variant
+or default is adopted. These remain bundled global-stage comparisons at 322;
+they do not rule out FoL's full local reranking method. Earlier failed G5
+preparations and their exact schemas remain preserved. The complete master is
+`87e7f322f9baea9510b36e3c5dae7c3fd68e7a9e2944c4e3b1902b04292c1916`,
+actual audit `b0a2068f74540b72acfb81a11e743b0b164bfe2bc510cf0bd5b968abcda0d24a`,
+all-eight score `577c18e624e7b7e94902b5e71699c93f04bd3d2fc5151c5ac532ba7ef46946da`.
 
 The further NeurIPS source check located
 [MutualVPR's official repository](https://github.com/Gucci233/MutualVPR),
@@ -917,5 +937,28 @@ by fixed ID spacing and the first four registered native queries with three
 crops each. The first actual runtime attempt stopped before model construction
 or any forward because the isolated environment lacks the author's declared
 `timm==1.0.15` dependency. The failed run and original executor/input/deployment
-bytes remain preserved. A pinned isolated dependency setup is being prepared;
-there is no MutualVPR localization result.
+bytes remain preserved. The exact official `timm==1.0.15` wheel was then verified
+against its PyPI digest and all 287 RECORD members, and extracted into an
+isolated target without changing the global environment. A source guard fix
+admits a legitimate public ImageNet resource only through its exact pinned
+wheel-relative path and digest; generic label/alias refusals remain in place.
+Original prepared attempts remain immutable.
+
+The new 44-image CPU2/inter-op1 run completed in **202.30 s**, using the official
+504-pixel preprocessing, strict 646-tensor loading and unchanged dense fallback.
+Peak sampled process-tree RSS was 1.08 GiB. Mean forward time was 3.805 s for
+the twelve query crops and 3.769 s for the 32 references. Independent audit
+checked all staged inputs, native reconstruction, 44 canonical PIL tensors,
+all descriptor hashes/norms and the complete weights-only state digest against
+the frozen runtime attestation. All 1,207 protected files remained unchanged.
+It performed no model constructor or forward replay and does not independently
+prove neural output values. There is still no MutualVPR localization result.
+
+The runtime family is
+`E:/monocular-osm-mutualvpr-runtime-proof/run2_guardfix1`, master
+`2d11a7cfe3182f9ebdcf2ec7ed0146aa03ded2856d2ef318e66c082aea9192d6`,
+independent audit
+`59ec8164de2cbc3600ef31400ede6d7fc2f23bff83627048c2982b136056e129`.
+The measured cost suggests roughly 3.4 and 10.5 CPU hours for the Night and G5
+neural work alone, before decoding and audit. A full-gallery comparison is
+being prepared with explicit larger limits; it has not been launched.
