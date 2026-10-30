@@ -1143,3 +1143,31 @@ audit: `38f6df44d0716314ef6c07574430ea5084e17ab801fa37f90d9766e89a4533ad`;
 scores: `5336f70f11e1d816dc164de3f728928956f9e2827ca9c0c3d440534d102db373`;
 root acceptance:
 `28aa3fa6632af83fc42fd4a0e6b2cbd4989c12cf49c2c964fdc71b1e0c2b1981`.
+
+## Runtime and metadata identity repairs: regression verified
+
+The shared deadline and source-occurrence fixes passed **3,982 tests, with six
+skips and four warnings**, at isolated commit `bc0cc4b`. All 463 protected
+non-label files and 30 label/result stat-only boundaries stayed unchanged.
+Root and an independent reviewer confirmed all 33 observed process births had
+exited. CPU/OpenCV/Torch threads were 2/2/2, with one Torch inter-op thread;
+external network access and GPU use were disabled during the regression.
+
+The fixes are integrated at `a8add7a`. Its code blobs match the tested commit;
+the remaining differences are these research notes and the explicit `psutil`
+dependency, already installed in the tested environment. The main CLI budget
+smoke check also passes. No admission threshold or source-identity tolerance
+changed. This is operational and identity correctness evidence; a fresh normal
+all-fifteen accuracy evaluation is still required. Full regression artifacts
+are under the isolated worktree's `output/tests-assisted-runtime-union-20261030.*`.
+
+## Antipodal heading hypothesis: rejected before decoding
+
+A proposed bearing-mixture change affects only exactly opposite heading pairs.
+All four existing Night/Detroit erased controls contain **zero such pairs among
+316 selected transitions**. Since the change can only subtract penalties from
+other paths, it cannot alter these selected MAP paths. The experiment stopped
+without a new decode, neural forward or ground-truth coordinate access.
+Root independently checked all bin differences and rehashed the 14 consumed
+files. Count proof: `924ae6aa70a1f51634ceed0b0b1127e6bdeee9294baee4f4a1a1d59164c58da3`;
+root acceptance: `b3fec860151949b9f363978a36414435c4b708696ec2f7efffeac8cc53b19d15`.
