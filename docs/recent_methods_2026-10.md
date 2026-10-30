@@ -11,6 +11,10 @@ inference. Every terminal attempt, including a missing answer or failure,
 will remain in the denominator; no new fleet accuracy is available yet.
 Live execution counts and handles are recorded in `output/goal_progress.json`.
 Completed executions are not accuracy passes.
+KITTI0009 reached the two-hour deadline without a parent answer, so this
+registered run cannot establish 15/15. An isolated source fix addresses both
+deadline finalization and a metadata-union duplicate-reference identity error;
+the original run continues unchanged. Neither fix has an accuracy result yet.
 
 ## What was searched
 
@@ -98,12 +102,34 @@ totalling 760,654,338 bytes. The prepared master is
 The independent full-input check passed in 105.156 s; root rehashed its 338
 protected files. Report is
 `c16ff8e5edabfcef5d8a5339df6bcfd838ff83ba61751a0925a9592cf4bd7318`.
-The serial Night then Detroit comparison is now running on CPU2/inter-op1,
-batch one, with a fixed three-hour internal budget per case. Its first actual
-reference forward binds the expected complete model state and canonical input
-tensor. All sixteen declared QAA/cached-MegaLoc outputs must freeze before new
-QAA scoring; no method is selected or adopted. MutualVPR has separately finished
-the Night case and started Detroit, with no new accuracy result yet.
+The serial Night then Detroit comparison completed on CPU2/inter-op1, batch
+one. All sixteen declared QAA/cached-MegaLoc outputs froze before the complete
+independent audit and separate label access. The audit passed in 517.735 s;
+root rehashed all 395 protected files and confirmed the owned processes exited.
+All eight learned-QAA routes fail the 200 m target:
+
+| Decoder / normalization | Night error (m) | Detroit G5 error (m) |
+| --- | ---: | ---: |
+| Exact simple / raw | 1,891.69 | 4,824.37 |
+| Exact simple / reference mean | 1,808.26 | 4,808.64 |
+| Heading erased / raw | 365.41 | 4,879.42 |
+| Heading erased / reference mean | 398.76 | 4,891.05 |
+
+Threshold decisions use the unrounded values. The unchanged cached-MegaLoc raw
+controls reproduce 173.095194 m for Night exact-simple and 208.529452 m for
+Detroit heading-erased. Their historical encoding identity remains unverified.
+No QAA variant is adopted, and this comparison establishes no fleet gain.
+The paired master is
+`c69c2b75a6fb690e558572c3a822f8295d8996df7d0cea301a8176d23bbd95b3`;
+complete audit
+`10c9ac68cc3c501b07de61940e602810401c0e9ca23d59bf3ecd94afed25d5d4`;
+all-sixteen score
+`d06ca22fe75f3e727a93d61be3949b6e9caa68f89878f1a389504bd77e88b9b8`;
+root score acceptance
+`e1550bbafab8670bb8d231e958c8f761685cef2d128e5e284a177674262a83e9`.
+The family is `E:/monocular-osm-qaa-gallery-proof/run1`, with scores in sibling
+`run1_paired16_score`. MutualVPR has separately finished Night and is processing
+Detroit; its paired accuracy result is pending.
 
 D2-VPR has author-linked weights,
 but the anonymous checkpoint payload was not verified. UniPR-3D's released
