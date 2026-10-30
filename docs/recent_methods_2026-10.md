@@ -9,6 +9,8 @@ A fresh, serial all-fifteen run of the fixed opt-in v3 policy is now running
 at clean source `f72fdaf`. Its complete prepared-input audit passed before
 inference. Every terminal attempt, including a missing answer or failure,
 will remain in the denominator; no new fleet accuracy is available yet.
+The first three clips (Ulm4k, Ulm2 and Berlin) have terminal successful
+processes; London is active. These execution counts are not accuracy passes.
 
 ## What was searched
 
@@ -73,10 +75,37 @@ its official demo supports CPU, and the author-linked
 is public. Its 366,461,972-byte payload now matches the publisher's SHA256
 `1bb5f47ccc9f00abffc337c00e3611c9836b8bf24f1ed2f1b92d424bd6eff977`.
 Independent safetensors SDK metadata agrees with all 200 saved float32 tensor
-entries, including the unused dust-bin scalar. This is a static file check;
-exact architecture loading, neural runtime and geographic accuracy remain
-untested. The official source/preprocessing contract passed 26 synthetic tests
-and independent review. D2-VPR has author-linked weights,
+entries, including the unused dust-bin scalar. Released QAA1024 then completed
+strict loading of all 200 tensors and all 44 CPU forwards in **28.422 s**, using
+CPU2/inter-op1, batch one. Construction took 4.171 s; mean query/reference
+forward times were 0.4309167/0.4615 s. The internal sampled peak RSS was
+1,073,102,848 bytes. The complete checkpoint/loaded-state digest is
+`0e7dba5fc25f44fccee023dbe8d7bee180bcd13f771912946a0dbb1d7e5a083d`.
+
+Independent model-free audit
+`d3387d80050b6454a192e1a82bdd30b6df3aafa5cd3181144a648fb27346b4b1`,
+using verifier
+`56806b8aaad8262d0de211037e1284e846d395a77907d240e1f64e9270259ea0`,
+passed before root rehashed all 510 protected files and confirmed every owned
+process birth had exited. It checked the input, preprocessing, full-state and
+runtime receipts without replaying neural output values. This establishes
+runtime compatibility, **not localization accuracy**.
+
+Model-free preparation of the paired Night/Detroit full galleries also
+completed in 26.359 s: 30 frozen members, including ten positive input copies
+totalling 760,654,338 bytes. The prepared master is
+`b6d390b0a29197446cd6db64a17a9bf5fe7da49e08f84639a52c6d7fcb57709b`.
+The independent full-input check passed in 105.156 s; root rehashed its 338
+protected files. Report is
+`c16ff8e5edabfcef5d8a5339df6bcfd838ff83ba61751a0925a9592cf4bd7318`.
+The serial Night then Detroit comparison is now running on CPU2/inter-op1,
+batch one, with a fixed three-hour internal budget per case. Its first actual
+reference forward binds the expected complete model state and canonical input
+tensor. All sixteen declared QAA/cached-MegaLoc outputs must freeze before new
+QAA scoring; no method is selected or adopted. MutualVPR has separately finished
+the Night case and started Detroit, with no new accuracy result yet.
+
+D2-VPR has author-linked weights,
 but the anonymous checkpoint payload was not verified. UniPR-3D's released
 checkpoints exceed the present 3 GiB process budget individually. The inspected
 [TF-VPR source](https://github.com/ddfs430/TF-VPR) has a syntax error and its
