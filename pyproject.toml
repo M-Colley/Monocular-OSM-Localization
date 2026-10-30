@@ -58,6 +58,7 @@ dependencies = [
     "tenacity>=8.2",
     "mercantile>=1.2",
     "protobuf>=4.22",
+    "psutil>=7.2.2",
 ]
 
 [project.optional-dependencies]
