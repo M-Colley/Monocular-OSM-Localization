@@ -1,6 +1,6 @@
 # Recent methods: research and controlled tests
 
-Checked 28 October 2026. The complete cold development baseline remains
+Checked 30 October 2026. The complete cold development baseline remains
 **9/15 within 200 m symmetric mean route error**. The experiments below do
 not establish a new complete fleet result. All use development clips; the
 held-out clips have not been used for method or parameter selection.
@@ -51,6 +51,16 @@ aggregation are relevant to appearance changes. The project page's Code text
 has no repository link and no checkpoint was verified. No local inference or
 NeurIPS acceptance claim is made. The supplemental record is
 `output/new_methods_20261028/supplemental_primary_recheck.json`.
+
+The 30 October follow-up also inspected the September preprint
+[AdaptVPR](https://arxiv.org/abs/2609.04369) and its
+[official release](https://github.com/chenshunpeng/AdaptVPR). It constructs
+training positives through appearance editing, geometry/diversity checks and
+limited regeneration. The release supplies generation code and metadata;
+generator implementations/weights and original images require separate setup.
+It is a training-data approach, not a verified pretrained retrieval replacement
+for this CPU experiment. No local inference or accuracy result is claimed.
+The inspected README is saved at `output/new_methods_20261030/AdaptVPR_README.md`.
 
 Other screened NeurIPS methods require inputs this project does not currently
 have, such as LiDAR, a maintained posed scene map, floor plans or georeferenced
@@ -729,8 +739,9 @@ Artifacts under `E:/monocular-osm-metadata-union-proof`: all-output master
 `6c01acce3651629f047396a6ef9520e98c0871a1f753e7292e705436b5c60d69`, all-ten score
 `858e98dca49c0419dd6a0816a3135c8f5ed18599928a87b086a3b5d073b824c6`.
 This is a successful posthoc DEV replay. It is integrated into the ordinary CLI
-as explicit `--assisted-profile v3` at `f72fdaf`; fresh normal-CLI evaluation is
-pending. It is not adopted as a default or a complete fifteen-clip result.
+as explicit `--assisted-profile v3` at `f72fdaf`. A fresh normal-CLI run now
+independently verifies the same 27.87 m selected-answer result, as detailed
+below. It is not adopted as a default or a complete fifteen-clip result.
 
 V3 preserves v1's earlier-stage precedence and exact original metadata gate.
 Only a complete legacy decline can request the new full-support decode before
@@ -757,7 +768,25 @@ test networking disabled. See
 `output/tests-assisted-v3-20261028.{xml,log,source.json,review.json}`. The clean
 normal Phoenix v3 preparation contains all six public pools/8,700 reference
 rows, original video and pinned model/runtime assets; no old query descriptors,
-OCR, VO or routes are copied. Inference and separate accuracy scoring are pending.
+OCR, VO or routes are copied. This fresh normal run completed in 1,688.33 s.
+The complete-output audit passed before scoring: all reached children, original
+requests, native video clocks/pixels, OCR/VO input lineage and strict v3
+union/admission checks passed, with 1,351 protected files unchanged. It did not
+rerun neural forwards or claim a second full-DP optimum. Ordinary unchanged
+benchmark aggregation then scored `result.answer` at **27.87 m**, versus the
+old 18,644.08 m baseline. There were no provenance leaks or aggregate warnings.
+Root rehashed all 1,357 scoring inputs after completion. This proves the normal
+Phoenix path; it does not add Phoenix to the old fleet as a new pooled result.
+
+Phoenix parent freeze:
+`673c554c3125dcbe8ba920ddd6414bcc1a5b5767da5005126243f4f27743bf11`;
+independent audit:
+`18aef39b03f34957059f258bf3c041111b078c4ab5401142cce21fa3c6d8f56a`;
+score receipt:
+`7666083a726d53625f48720fff4312fd50e855c4f262705cb26853c33d78caf4`.
+The family is `E:/monocular-osm-assisted-phoenix-v3-proof/run1`; separate scores
+are in its sibling `run1_score`. The latest complete fixed-policy fleet remains
+9/15; fresh all-fifteen v3 evaluation is still required.
 
 ## Physical-road projection: all twelve variants fail the target
 

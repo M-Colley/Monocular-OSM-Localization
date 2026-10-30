@@ -577,8 +577,9 @@ python main.py --video drive.mp4 --city "City, Country" --assisted-only --assist
 admission. If complete metadata retrieval is declined, it tries one full-support
 reference-mean decode across all acquired metadata pools before the municipality
 fallback. Raw-cosine and coordinate-collapse gates remain unchanged; the raw
-decoder output is retained only as a diagnostic. Its Phoenix replay reached
-27.87 m, but fresh normal-CLI and complete fleet evaluation remain pending.
+decoder output is retained only as a diagnostic. Its Phoenix replay and a fresh,
+independently audited normal-CLI run both reached 27.87 m. Complete fifteen-clip
+evaluation remains pending; the last complete fixed-policy result is 9/15.
 This is an opt-in experiment; v1 remains the assisted default. See
 [the controlled comparison](docs/recent_methods_2026-10.md).
 
