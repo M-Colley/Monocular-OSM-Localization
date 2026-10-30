@@ -1171,3 +1171,22 @@ without a new decode, neural forward or ground-truth coordinate access.
 Root independently checked all bin differences and rehashed the 14 consumed
 files. Count proof: `924ae6aa70a1f51634ceed0b0b1127e6bdeee9294baee4f4a1a1d59164c58da3`;
 root acceptance: `b3fec860151949b9f363978a36414435c4b708696ec2f7efffeac8cc53b19d15`.
+
+## Fresh fifteen-clip evaluation and comparison clock fix
+
+The fixed `a8add7a` pipeline is running all fifteen clips with the same v3
+policy, 7,200-second pipeline budget, 7,800-second outer guard and no retries.
+Before inference, preparation copied 488 files, a separate input audit passed,
+and root rehashed all 973 protected inputs. The accepted input receipt is
+`abf12cdb6f40070da81a7d5c15fa51c3747b0ad75c12dd84f952df1624176478`.
+No new overall accuracy result is available; the last complete result is 9/15.
+
+Review found that configuration fingerprints included the absolute monotonic
+deadline. Identical policies naturally start at different clock values. Commit
+`32c2079` excludes only `runtime_deadline_monotonic_s` from method comparisons,
+including comparisons between repeats. Raw configuration snapshots, relative
+budgets, both reserves and runtime receipt checks remain unchanged. Independent
+compatibility checks passed 285 tests with one skip; root reran the nine new
+regressions successfully. The live inference checkouts and outputs were not
+changed. Their eventual evaluation needs the separately reviewed comparison
+adapter, with its source recorded explicitly.
