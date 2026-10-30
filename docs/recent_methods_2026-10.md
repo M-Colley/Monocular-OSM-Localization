@@ -70,8 +70,13 @@ this remains a bounded relevance search. The most practical newly identified
 released candidate is [QAA, ICRA 2026](https://github.com/arplaboratory/QAA):
 its official demo supports CPU, and the author-linked
 [1024-dimensional safetensors checkpoint](https://huggingface.co/xjh19972/QAA-1024)
-is public. Local source and preprocessing readiness are being checked; it
-has no local runtime or accuracy result. D2-VPR has author-linked weights,
+is public. Its 366,461,972-byte payload now matches the publisher's SHA256
+`1bb5f47ccc9f00abffc337c00e3611c9836b8bf24f1ed2f1b92d424bd6eff977`.
+Independent safetensors SDK metadata agrees with all 200 saved float32 tensor
+entries, including the unused dust-bin scalar. This is a static file check;
+exact architecture loading, neural runtime and geographic accuracy remain
+untested. The official source/preprocessing contract passed 26 synthetic tests
+and independent review. D2-VPR has author-linked weights,
 but the anonymous checkpoint payload was not verified. UniPR-3D's released
 checkpoints exceed the present 3 GiB process budget individually. The inspected
 [TF-VPR source](https://github.com/ddfs430/TF-VPR) has a syntax error and its
