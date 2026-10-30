@@ -246,6 +246,12 @@ class PipelineConfig:
     answer: str = "track"
     # Explicitly versioned experimental assisted policy; ordinary answer is unchanged.
     assisted_profile: str = "v1"
+    # Shared wall budget; None inherits the benchmark deadline, if supplied.
+    runtime_budget_s: float | None = None
+    # Internal absolute bound captured by CLI before metadata/setup work.
+    runtime_deadline_monotonic_s: float | None = None
+    runtime_finalization_reserve_s: float = 120.0
+    runtime_cleanup_reserve_s: float = 10.0
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.
@@ -355,6 +361,13 @@ class PipelineConfig:
 
     def __post_init__(self):
         import math
+        from .runtime_budget import positive
+        for name in ("runtime_finalization_reserve_s", "runtime_cleanup_reserve_s"):
+            positive(getattr(self, name), name)
+        if self.runtime_budget_s is not None:
+            positive(self.runtime_budget_s, "runtime_budget_s")
+        if self.runtime_deadline_monotonic_s is not None:
+            positive(self.runtime_deadline_monotonic_s, "runtime_deadline_monotonic_s")
         if not math.isfinite(self.frame_memory_mb) or self.frame_memory_mb <= 0:
             raise ValueError("frame_memory_mb must be positive and finite")
         if self.frame_max_width is not None and self.frame_max_width <= 0:
@@ -588,9 +601,14 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     produced and extends it. An optional channel that fails or finds nothing
     records that in ``result["channels"]`` instead of raising.
     """
+    # Start before acquisition/setup; the benchmark's absolute deadline also
+    # includes interpreter/CLI startup and cannot be reset by a later child.
+    from .runtime_budget import RuntimeBudget
+    budget = RuntimeBudget.from_config(cfg) if cfg.answer == "assisted" else None
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     ctx = RunContext.create(cfg)
+    ctx.runtime_budget = budget
     try:
         return _run_pipeline_stages(ctx)
     finally:
@@ -615,7 +633,10 @@ def _run_poi_only(ctx: RunContext) -> dict:
 def _run_assisted(ctx: RunContext) -> dict:
     from .stages.assisted import run_assisted
 
-    return run_assisted(ctx, finalize=finalize_result)
+    def finalize(parent):
+        # Optional plotting must never consume a reserved publication interval.
+        finalize_result(parent, render_answer=getattr(parent, "runtime_budget", None) is None)
+    return run_assisted(ctx, finalize=finalize)
 
 
 def _run_pipeline_stages(ctx: RunContext) -> dict:

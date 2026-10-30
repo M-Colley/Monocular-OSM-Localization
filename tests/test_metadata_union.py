@@ -58,6 +58,7 @@ def case():
     gallery = make_region("other", raw, coords([0, 100, 200, 300, 5000]), ["a0", "a1", "a2", "a3", "hub"])
     baseline = comparison(np.full(q, .1), np.repeat(seed["arrays"]["ref_latlon"], q, axis=0), ["mapillary:base"]*q)
     metadata = comparison(np.full(q, .95), np.repeat(gallery["arrays"]["ref_latlon"][-1:], q, axis=0), ["mapillary:hub"]*q)
+    metadata["selected_audit_rows"] = [[1, i] for i in range(q)]
     return [seed, gallery], baseline, summary(baseline), metadata, summary(metadata, True), [seed]
 
 
@@ -169,6 +170,7 @@ def test_no_smoothing_loophole_and_gate_constants_are_unchanged():
 
 def test_independent_baseline_gallery_is_proved_without_union_membership():
     args = list(case()); args[0] = args[0][1:]
+    args[3]["selected_audit_rows"] = [[0, i] for i in range(4)]
     result = m.replay_metadata_union(*args)
     assert "mapillary:base" not in result["union"]["ref_ids"].tolist()
     assert all(r["ref_id"] == "mapillary:base" and r["region"] == "seed"
@@ -214,3 +216,90 @@ def test_bad_unused_baseline_pool_is_not_silently_filtered():
     args=list(case());bad=deepcopy(args[-1][0]);bad["key"]="unused";bad["audit"]["status"]="partial"
     args[-1].append(bad)
     with pytest.raises(ValueError,match="complete"):m.replay_metadata_union(*args)
+
+
+def duplicate_occurrence_case(q=4, changed_rows=None):
+    seed = make_region("seed", np.full((q, 1), .1, np.float32), coords([-4000]), ["base"], chosen=np.zeros(q, int))
+    baseline = comparison(np.full(q, .1), seed["arrays"]["ref_latlon"][[0]*q], ["mapillary:base"]*q)
+    canonical = make_region("a_canonical", np.full((q, 1), .2, np.float32), coords([0]), ["duplicate"], chosen=np.zeros(q, int))
+    selected = deepcopy(canonical); selected["key"] = "b_selected"
+    matrix = selected["arrays"]["raw_similarities"]
+    rows = np.arange(q) if changed_rows is None else np.asarray(changed_rows)
+    matrix[rows] = np.nextafter(matrix[rows], np.float32(np.inf))
+    selected["arrays"]["decoded_cosines"] = matrix[:, 0].copy()
+    selected["arrays"]["returned_cosines"] = matrix[:, 0].astype(np.float64)
+    for region in (canonical, selected):region["descriptor_rows"] = np.ones((1, 8448), np.float32)
+    original = comparison(matrix[:, 0], selected["arrays"]["ref_latlon"][[0]*q], ["mapillary:duplicate"]*q)
+    original["selected_audit_rows"] = [[1, i] for i in range(q)]
+    return [[canonical, selected], baseline, summary(baseline), original, summary(original, True), [seed]]
+
+
+def test_duplicate_float32_rounding_keeps_exact_original_and_canonical_proofs_separate():
+    args = duplicate_occurrence_case(); before = deepcopy(args)
+    result = m.replay_metadata_union(*args)
+    canonical, selected = args[0]
+    assert result["status"] == "complete"
+    np.testing.assert_array_equal(result["union"]["raw_similarities"], canonical["arrays"]["raw_similarities"])
+    assert not np.array_equal(canonical["arrays"]["raw_similarities"], selected["arrays"]["raw_similarities"])
+    for q, row in enumerate(result["admission"]["original_selected_sources"]["metadata"]):
+        assert row["audit_index"] == 1 and row["audit_query_row"] == q and row["region"] == "b_selected"
+        assert row["raw_cosine"] == args[3]["decoded_reference_cosines"][q] == float(selected["arrays"]["raw_similarities"][q, 0])
+        assert row["canonical_union_source"] == {"region": "a_canonical", "region_column": 0,
+            "raw_cosine": float(canonical["arrays"]["raw_similarities"][q, 0])}
+        assert row["canonical_union_source"]["raw_cosine"] != row["raw_cosine"]
+    assert args[3] == before[3] and args[4] == before[4]
+    for actual, old in zip(args[0], before[0]):
+        for name in actual["arrays"]:np.testing.assert_array_equal(actual["arrays"][name], old["arrays"][name])
+
+
+def test_duplicate_union_canonical_order_does_not_follow_selected_pool_order():
+    args = duplicate_occurrence_case(); first = m.replay_metadata_union(*args)
+    args[0].reverse(); args[3]["selected_audit_rows"] = [[0, i] for i in range(4)]
+    second = m.replay_metadata_union(*args)
+    np.testing.assert_array_equal(first["union"]["raw_similarities"], second["union"]["raw_similarities"])
+    assert first["outputs"] == second["outputs"]
+    assert all(r["audit_index"] == 0 and r["region"] == "b_selected" for r in second["admission"]["original_selected_sources"]["metadata"])
+
+
+def test_full80_control_with22_ULP_different_duplicate_rows_matches_runtime_failure_pattern():
+    changed = np.linspace(0, 79, 22).astype(int)
+    args = duplicate_occurrence_case(q=80, changed_rows=changed)
+    canonical, selected = args[0]
+    assert np.count_nonzero(canonical["arrays"]["raw_similarities"] != selected["arrays"]["raw_similarities"]) == 22
+    assert np.max(abs(canonical["arrays"]["raw_similarities"]-selected["arrays"]["raw_similarities"])) < 1e-6
+    result = m.replay_metadata_union(*args)
+    proof = result["admission"]["original_selected_sources"]["metadata"]
+    assert result["status"] == "complete" and len(proof) == 80
+    assert [q for q, row in enumerate(proof) if row["raw_cosine"] != row["canonical_union_source"]["raw_cosine"]] == changed.tolist()
+    assert all(row["raw_cosine"] == args[3]["decoded_reference_cosines"][q] for q, row in enumerate(proof))
+    np.testing.assert_array_equal(result["union"]["raw_similarities"], canonical["arrays"]["raw_similarities"])
+
+
+def test_full80_duplicate_ULP_pattern_does_not_tolerate_a_false_original_scalar(monkeypatch):
+    args = duplicate_occurrence_case(q=80, changed_rows=np.linspace(0, 79, 22).astype(int))
+    args[3]["decoded_reference_cosines"][3] += 1e-12
+    args[4] = summary(args[3], True)
+    monkeypatch.setattr(m.full, "decode_full_tracks", lambda *_: pytest.fail("false original scalar must refuse before DP"))
+    with pytest.raises(ValueError, match="selected raw evidence differs"):
+        m.replay_metadata_union(*args)
+
+
+@pytest.mark.parametrize("bad", ["original_cosine", "coordinate", "wrong_pool", "wrong_query", "missing_mapping",
+                                "missing_descriptors", "descriptor_conflict", "score_envelope"])
+def test_duplicate_occurrence_fix_keeps_exact_source_and_compatibility_guards(monkeypatch, bad):
+    args = duplicate_occurrence_case(); canonical, selected = args[0]
+    if bad == "original_cosine":args[3]["decoded_reference_cosines"][0] += 1e-12; args[4] = summary(args[3], True)
+    elif bad == "coordinate":args[3]["decoded_reference_latlon"][0][0] += 1e-12
+    elif bad == "wrong_pool":args[3]["selected_audit_rows"][0] = [0, 0]
+    elif bad == "wrong_query":args[3]["selected_audit_rows"][1] = [1, 0]
+    elif bad == "missing_mapping":args[3].pop("selected_audit_rows")
+    elif bad == "missing_descriptors":selected.pop("descriptor_rows")
+    elif bad == "descriptor_conflict":selected["descriptor_rows"][0, 0] += 1
+    else:
+        selected["arrays"]["raw_similarities"] += np.float32(2e-6)
+        selected["arrays"]["decoded_cosines"] = selected["arrays"]["raw_similarities"][:, 0].copy()
+        selected["arrays"]["returned_cosines"] = selected["arrays"]["decoded_cosines"].astype(np.float64)
+        args[3]["decoded_reference_cosines"] = selected["arrays"]["decoded_cosines"].astype(np.float64).tolist()
+        args[4] = summary(args[3], True)
+    monkeypatch.setattr(m.full, "decode_full_tracks", lambda *_: pytest.fail("invalid exact original/duplicate evidence must refuse before DP"))
+    with pytest.raises(ValueError):m.replay_metadata_union(*args)

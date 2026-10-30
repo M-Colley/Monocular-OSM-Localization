@@ -555,6 +555,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--assisted-profile", choices=["v1", "v2", "v3"], default="v1",
                    help="Versioned assisted experiment: v2 uses all OCR regions in one weak-motion image decode; "
                         "v3 preserves v1 stages and adds an experimental full-support metadata reference-mean decode.")
+    p.add_argument("--runtime-budget-s", type=float, default=None,
+                   help="Overall assisted wall budget; inherits the benchmark deadline when present.")
+    p.add_argument("--runtime-finalization-reserve-s", type=float, default=120.,
+                   help="Assisted budget reserved for mandatory Answer/audit/freeze publication (default120s).")
+    p.add_argument("--runtime-cleanup-reserve-s", type=float, default=10.,
+                   help="Assisted budget reserved for stopping owned child processes (default10s).")
     p.add_argument("--poi-radius-m", type=float, default=1000.0,
                    help="EXPERIMENTAL POI neighborhood radius for every literal branch (default 1000 m).")
     p.add_argument("--poi-ref-cap", type=int, default=500,
@@ -713,6 +719,11 @@ def main() -> None:
     _reconfigure_stdio()
     p = build_arg_parser()
     args = p.parse_args()
+    from .runtime_budget import RuntimeBudget
+    try:
+        runtime_budget = RuntimeBudget.from_config(args) if args.answer == "assisted" else None
+    except ValueError as error:
+        p.error(str(error))
     try:
         _validate_input_args(args.video, args.url, args.city)
     except ValueError as e:
@@ -933,6 +944,10 @@ def main() -> None:
             video_description=effective_description,
             answer=args.answer,
             assisted_profile=args.assisted_profile,
+            runtime_budget_s=args.runtime_budget_s,
+            runtime_deadline_monotonic_s=runtime_budget.deadline if runtime_budget is not None else None,
+            runtime_finalization_reserve_s=args.runtime_finalization_reserve_s,
+            runtime_cleanup_reserve_s=args.runtime_cleanup_reserve_s,
             use_sun_heading=args.use_sun_heading,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,

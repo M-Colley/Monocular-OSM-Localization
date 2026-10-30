@@ -529,14 +529,21 @@ def run_one(argv: list[str], log_path: Path, env: dict, timeout: float) -> dict:
     """Run one pipeline child; returns rc / wall time / timeout flag."""
     t0 = time.time()
     started = _now()
+    from monocular_osm.runtime_budget import DEADLINE_ENV, positive
+    deadline = time.monotonic() + positive(timeout, "timeout")
+    child_env = dict(env)
+    # A nested caller may shorten this deadline, never extend it.
+    if DEADLINE_ENV in child_env:
+        deadline = min(deadline, positive(float(child_env[DEADLINE_ENV]), DEADLINE_ENV))
+    child_env[DEADLINE_ENV] = repr(deadline)
     kw: dict = {}
     if os.name != "nt":
         kw["start_new_session"] = True
     with open(log_path, "wb") as fh:
         proc = subprocess.Popen(argv, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT,
-                                env=env, **kw)
+                                env=child_env, **kw)
         try:
-            rc = proc.wait(timeout=timeout)
+            rc = proc.wait(timeout=max(0., deadline - time.monotonic()))
             timed_out = False
         except subprocess.TimeoutExpired:
             _kill_tree(proc)

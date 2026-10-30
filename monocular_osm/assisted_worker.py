@@ -94,6 +94,23 @@ def _stop_owned_child(child):
     child.wait()
 
 
+def _checked_cleanup(callback, *args, **kwargs):
+    """A failed ownership check is never ordinary unavailable evidence."""
+    from .runtime_budget import CleanupFailed
+    try:
+        return callback(*args, **kwargs)
+    except CleanupFailed:
+        raise
+    except Exception as error:
+        raise CleanupFailed(f"owned child cleanup could not be verified ({type(error).__name__})") from error
+
+
+def _stop_root_handle(child, timeout):
+    if child.poll() is None:
+        child.kill()
+    child.wait(timeout=timeout)
+
+
 def _metadata_baseline_binding(parent, request):
     """V3-only transport of this execution's actual saved baseline child."""
     from . import assisted_metadata_union as component, assisted_comparison as comparison
@@ -144,6 +161,10 @@ def _metadata_baseline_binding(parent, request):
 
 
 def run_child(kind, parent):
+    from .runtime_budget import OwnedProcessTree, DeadlineExpired, CleanupFailed
+    budget = getattr(parent, "runtime_budget", None)
+    if budget is not None:
+        budget.require_work(kind)
     headroom = _commit_headroom()
     if headroom is not None and headroom < 8 * 1024**3:
         raise RuntimeError("assisted child unavailable: less than 8 GiB actual Windows commit headroom")
@@ -158,6 +179,8 @@ def run_child(kind, parent):
         "cues_artifact": str((parent.assisted_child_root / "cues/candidate.json").resolve())}
     execution_id = parent.result["assisted_inputs"].get("execution_id", parent.assisted_child_root.name)
     request["execution_id"] = execution_id
+    if budget is not None:
+        request["runtime_budget"] = budget.snapshot()
     if kind == "expanded":
         from .public_reference_cache import prepare_reuse
         request["public_reference_reuse"] = prepare_reuse(
@@ -177,13 +200,61 @@ def run_child(kind, parent):
     paths = [str(source), *env.get("PYTHONPATH", "").split(os.pathsep)]
     env["PYTHONPATH"] = os.pathsep.join(path for path in paths if path)
     print(f"[assisted] Running {kind.replace('_', ' ')}", flush=True)
+    if budget is not None:
+        # Cache-copy/source binding above also consumes the shared budget.
+        budget.require_work(kind)
     with (cfg.output_dir / "worker.log").open("w", encoding="utf-8") as log:
         child = subprocess.Popen([sys.executable, "-m", "monocular_osm.assisted_worker", "--request", str(path)],
                                   env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=os.name != "nt")
+        owned = None
         try:
-            returncode = child.wait()
-        except BaseException:
-            _stop_owned_child(child)
+            if budget is not None:
+                owned = OwnedProcessTree(child, clock=budget.clock)
+            returncode = owned.wait(budget.work_deadline) if owned is not None else child.wait()
+            if owned is not None:
+                # A root can exit while a captured worker remains alive. Do not
+                # accept even an rc0 response before those births are stopped.
+                cleanup = _checked_cleanup(owned.stop, min(budget.cleanup_reserve_s, max(0., budget.deadline - budget.clock())))
+                budget.events.append({"kind": kind, "status": "process_complete", "monotonic_s": budget.clock(),
+                                      "worker_returncode": returncode, **cleanup})
+        except subprocess.TimeoutExpired as error:
+            if owned is None:
+                if budget is not None:
+                    _checked_cleanup(_stop_root_handle, child,
+                        max(.001, min(budget.cleanup_reserve_s, budget.deadline - budget.clock())))
+                else:
+                    _checked_cleanup(_stop_owned_child, child)
+                raise CleanupFailed("child timeout occurred before ownership was bound") from error
+            cleanup = _checked_cleanup(owned.stop, min(budget.cleanup_reserve_s, max(0., budget.deadline - budget.clock())))
+            event = {"kind": kind, "reason": "child_work_deadline_expired", "status": "timed_out",
+                     "monotonic_s": budget.clock(), "worker_returncode": child.returncode,
+                     "request_sha256": file_sha256(path), "partial_output": str(cfg.output_dir.resolve()),
+                     "partial_output_is_selected_or_complete": False, **cleanup}
+            budget.events.append(event)
+            _write_result_json(cfg.output_dir / "deadline.json", event)
+            raise DeadlineExpired(event)
+        except CleanupFailed:
+            if owned is None and budget is not None:
+                # The constructor can itself reject an unverifiable root birth.
+                # Assignment has not happened, but the original handle is ours.
+                _checked_cleanup(_stop_root_handle, child,
+                    max(.001, min(budget.cleanup_reserve_s, budget.deadline - budget.clock())))
+            raise
+        except BaseException as error:
+            if owned is not None:
+                _checked_cleanup(owned.stop, min(budget.cleanup_reserve_s, max(0., budget.deadline - budget.clock())))
+            elif budget is not None:
+                # Ownership setup itself failed. The Popen handle still safely
+                # identifies our root, but no descendant-completion claim is possible.
+                _checked_cleanup(_stop_root_handle, child,
+                    max(.001, min(budget.cleanup_reserve_s, budget.deadline - budget.clock())))
+                if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                    raise
+                raise CleanupFailed("owned child setup failed; original root stopped, descendants unverified") from error
+            else:
+                _checked_cleanup(_stop_owned_child, child)
+            if owned is not None and not isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise CleanupFailed("owned child observation failed; tracked cleanup completed") from error
             raise
     log_path = cfg.output_dir / "worker.log"
     log_path.write_text(_safe(log_path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")

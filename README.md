@@ -552,6 +552,14 @@ and the similarity cutoff is not a calibrated confidence score.
 python main.py --video drive.mp4 --city "City, Country" --assisted-only --frame-memory-mb 128
 ```
 
+Assisted benchmark runs share the benchmark's overall deadline. Optional work
+stops with time reserved for cleanup and publication of an already completed,
+admissible answer. If no candidate qualifies, the run explicitly declines;
+partial child outputs are never promoted. Standalone runs can use
+`--runtime-budget-s 7200`. Budgeted runs reserve 120 seconds for publication and
+10 seconds for cleanup, and skip optional map rendering. Cleanup failures remain
+run failures. These operational safeguards do not establish an accuracy gain.
+
 The first normal assisted CLI proof at clean source `300a82f` ran only the
 baseline child on Ulm 4K. Its route and timestamps exactly reproduce the ordinary
 answer, with **16.37 m symmetric error** after a strict frozen-input audit and

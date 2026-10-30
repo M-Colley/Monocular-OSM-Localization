@@ -14,6 +14,9 @@ from pathlib import Path
 import re
 import zipfile
 
+RUNTIME_CONFIG_FIELDS = ("runtime_budget_s", "runtime_deadline_monotonic_s",
+                         "runtime_finalization_reserve_s", "runtime_cleanup_reserve_s")
+
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
@@ -328,6 +331,11 @@ def verify_child(files, record, inputs, before):
     # field means v1 only; an explicitly declared parent must retain the field.
     if "assisted_profile" not in parent_cfg and "assisted_profile" not in cfg:
         expected_snapshot.pop("assisted_profile", None)
+    # Historical snapshots predate these operational fields. Explicit fields
+    # still participate in the exact parent/child configuration comparison.
+    for field in RUNTIME_CONFIG_FIELDS:
+        if field not in parent_cfg and field not in cfg:
+            expected_snapshot.pop(field, None)
     require(expected_snapshot == cfg, "child changed its component/baseline configuration")
     result = load_json(base / "result.json")
     new_union = is_metadata_union(child.get("comparison"))
@@ -347,6 +355,74 @@ def verify_child(files, record, inputs, before):
     if kind in {"baseline", "expanded"} and child.get("status") == "complete" and not (child.get("comparison") or {}).get("unavailable_reason") and not new_union:
         retrieval_route(candidate, result)
     return child, ledger
+
+
+def runtime_evidence(files, cfg, inputs, audit, ledger):
+    """Bind an operational deadline receipt without changing policy evidence."""
+    path = files.root / "assisted_runtime.json"
+    record = audit.get("runtime_budget")
+    budgeted = (cfg.get("runtime_budget_s") is not None or cfg.get("runtime_deadline_monotonic_s") is not None
+                or record is not None or path in ledger)
+    if not budgeted:
+        return
+    declared = {str(k).replace("\\", "/"): v for k, v in inputs["source_sha256"].items()}
+    require("monocular_osm/runtime_budget.py" in declared and sha_string(declared["monocular_osm/runtime_budget.py"]),
+            "budgeted parent omits its runtime implementation source")
+    require(file_sha(files.root / "source_snapshot/monocular_osm/runtime_budget.py") == declared["monocular_osm/runtime_budget.py"],
+            "budgeted runtime implementation snapshot changed")
+    require(all(field in cfg for field in RUNTIME_CONFIG_FIELDS), "budgeted parent omits an explicit runtime configuration field")
+    require(path in ledger and file_sha(path) == ledger[path] and isinstance(record, dict) and digest(load_json(path)) == digest(record),
+            "budgeted parent lacks its frozen/equal runtime receipt")
+    fields = {"schema", "origin", "deadline_monotonic_s", "started_monotonic_s", "work_deadline_monotonic_s",
+              "finalization_reserve_s", "cleanup_reserve_s", "events"}
+    require(set(record) == fields and record["schema"] == "assisted-runtime-budget-v1"
+            and record["origin"] in {"benchmark", "config"}, "runtime receipt schema/origin differs")
+    for name in fields - {"schema", "origin", "events"}:
+        require(finite(record[name]) and record[name] >= 0, "runtime receipt has a nonfinite/negative clock")
+    require(record["deadline_monotonic_s"] > 0 and record["finalization_reserve_s"] > 0 and record["cleanup_reserve_s"] > 0
+            and record["work_deadline_monotonic_s"] == record["deadline_monotonic_s"] - record["finalization_reserve_s"] - record["cleanup_reserve_s"],
+            "runtime receipt changed its reserved work deadline")
+    for field, name in (("runtime_finalization_reserve_s", "finalization_reserve_s"), ("runtime_cleanup_reserve_s", "cleanup_reserve_s")):
+        require(finite(cfg[field]) and cfg[field] > 0 and cfg[field] == record[name], "runtime receipt/config reserve differs")
+    if cfg["runtime_deadline_monotonic_s"] is not None:
+        require(finite(cfg["runtime_deadline_monotonic_s"]) and cfg["runtime_deadline_monotonic_s"] > 0
+                and record["deadline_monotonic_s"] <= cfg["runtime_deadline_monotonic_s"], "runtime receipt extends its configured absolute deadline")
+    if cfg["runtime_budget_s"] is not None:
+        require(finite(cfg["runtime_budget_s"]) and cfg["runtime_budget_s"] > 0
+                and record["deadline_monotonic_s"] <= record["started_monotonic_s"] + cfg["runtime_budget_s"],
+                "runtime receipt extends its configured relative budget")
+    records = {r["kind"]: r for r in audit["reached_stages"]}
+    require(isinstance(record["events"], list) and len(record["events"]) <= 16, "runtime event inventory exceeds fixed stage bound")
+    previous = record["started_monotonic_s"]; seen = set(); completed = set()
+    for event in record["events"]:
+        kind, status = event["kind"], event["status"]
+        require(kind in records and kind not in seen and status in {"not_started", "process_complete", "timed_out"}
+                and finite(event["monotonic_s"]) and previous <= event["monotonic_s"] <= record["deadline_monotonic_s"],
+                "runtime event kind/clock differs")
+        previous = event["monotonic_s"]; seen.add(kind)
+        if status in {"not_started", "timed_out"}:
+            require(records[kind]["status"] == "failed" and not records[kind].get("artifacts"),
+                    "deadline partial/not-started child was promoted")
+        if status == "timed_out":
+            require(event.get("partial_output_is_selected_or_complete") is False and sha_string(event.get("request_sha256"))
+                    and files.config_path(event["partial_output"]) == files.root / "children" / inputs["execution_id"] / kind,
+                    "timed-out child identifies another execution or a selected partial")
+        if status in {"process_complete", "timed_out"}:
+            require(type(event.get("worker_returncode")) is int and event.get("all_tracked_owned_births_gone") is True
+                    and event.get("ownership_scope") == "observed_pid_births_only; unobserved_orphans_not_certified",
+                    "runtime child lacks its observed-birth cleanup receipt")
+            births = event.get("owned_births")
+            require(isinstance(births, list) and len(births) <= 4096, "runtime ownership inventory is missing or unbounded")
+            pids = set()
+            for birth in births:
+                require(type(birth.get("pid")) is int and birth["pid"] > 0 and birth["pid"] not in pids
+                        and finite(birth.get("create_time")) and birth["create_time"] > 0, "runtime ownership birth is invalid or duplicated")
+                pids.add(birth["pid"])
+            if status == "process_complete" and records[kind]["status"] == "complete":
+                require(event["worker_returncode"] == records[kind].get("worker_returncode") == 0, "runtime completed child exit differs")
+                completed.add(kind)
+    require(all(r["status"] != "complete" or r["kind"] in completed for r in audit["reached_stages"]),
+            "budgeted complete child omits its process completion receipt")
 
 
 def is_metadata_union(value):
@@ -621,6 +697,51 @@ def metadata_actual_plan(files, child, ledger, inputs, gate, control_ledger, val
     return plan, plan_path
 
 
+def metadata_selected_mappings(regions, value, union):
+    """Independently bind original own-row evidence and canonical union rows."""
+    rows = value.get("selected_audit_rows"); q_count = len(value["query"]["indices"])
+    require(isinstance(rows, list) and len(rows) == q_count and len(value["decoded_reference_ids"]) == q_count,
+            "original metadata source-row mapping is incomplete")
+    by_id = {v: i for i, v in enumerate(union["ref_ids"].tolist())}
+    rich, compact, canonical_exact = [], [], True
+    for q, pair in enumerate(rows):
+        require(isinstance(pair, list) and len(pair) == 2 and all(type(v) is int and v >= 0 for v in pair),
+                "original metadata source-row mapping is invalid")
+        number, row = pair
+        require(number < len(regions), "original metadata selected pool is outside complete evidence")
+        region = regions[number]; z = region["arrays"]
+        require(row < len(z["query_indices"]) and int(z["query_indices"][row]) == value["query"]["indices"][q]
+                and float(z["query_times"][row]) == value["query"]["times"][q], "original metadata selected query differs")
+        selected = int(z["decoded_ref_indices"][row]); identifier = value["decoded_reference_ids"][q]
+        require(0 <= selected < len(z["ref_ids"]) and identifier == str(z["ref_ids"][selected])
+                and z["ref_latlon"][selected].tolist() == value["decoded_reference_latlon"][q]
+                and float(z["raw_similarities"][row, selected]) == value["decoded_reference_cosines"][q],
+                "original metadata own selected coordinate/cosine differs")
+        require(identifier in by_id, "original metadata selected reference omitted from full union")
+        col = by_id[identifier]; entry = union["mapping"][col]
+        require(union["ref_latlon"][col].tolist() == value["decoded_reference_latlon"][q]
+                and any(r["region"] == region["key"] and r["column"] == selected for r in entry["occurrences"]),
+                "original metadata selected occurrence absent from full union")
+        canonical = float(union["raw_similarities"][q, col])
+        rich.append({"query_row": q, "audit_index": number, "audit_query_row": row, "region": region["key"],
+            "region_column": selected, "ref_id": identifier, "raw_cosine": float(z["raw_similarities"][row, selected]),
+            "global_column": col, "canonical_union_source": {"region": entry["canonical_region"],
+                "region_column": entry["canonical_column"], "raw_cosine": canonical}})
+        compact.append({"query_row": q, "global_column": col, "ref_id": identifier})
+        canonical_exact = canonical_exact and canonical == value["decoded_reference_cosines"][q]
+    return rich, compact if canonical_exact else None
+
+
+def metadata_admission_matches(actual, expected, legacy_mapping):
+    if digest(actual) == digest(expected):
+        return True
+    if legacy_mapping is None:
+        return False
+    historical = deepcopy(expected)
+    historical["original_selected_sources"]["metadata"] = legacy_mapping
+    return digest(actual) == digest(historical)
+
+
 def metadata_union_component(files, child, ledger, inputs, before, gate, baseline_child):
     """Verify the frozen research bundle using independent union/path arithmetic.
 
@@ -734,13 +855,7 @@ def metadata_union_component(files, child, ledger, inputs, before, gate, baselin
         baseline_mapping.append({"query_row": q, "audit_index": number, "audit_query_row": row,
             "region": f"audit_{number:04d}", "region_column": col, "ref_id": str(audit["ref_ids"][col]),
             "raw_cosine": float(audit["raw_similarities"][row, col])})
-    by_id = {v: i for i, v in enumerate(saved["ref_ids"].tolist())}; metadata_mapping = []
-    for q, identifier in enumerate(old_comparison["decoded_reference_ids"]):
-        require(identifier in by_id, "original metadata selected reference omitted from full union")
-        col = by_id[identifier]
-        require(saved["ref_latlon"][col].tolist() == old_comparison["decoded_reference_latlon"][q]
-                and float(saved["raw_similarities"][q, col]) == old_comparison["decoded_reference_cosines"][q], "original metadata raw selection changed")
-        metadata_mapping.append({"query_row": q, "global_column": col, "ref_id": identifier})
+    metadata_mapping, legacy_mapping = metadata_selected_mappings(regions, old_comparison, rebuilt)
     original_base, _, _, _ = core.legacy_summary(baseline_child["comparison"], baseline_summary)
     new_base = {**original_base, "score_identity": digest(identity)}
     sole = {"status": "complete", "route_valid": True, "point_count": 80, "score_kind": "raw_cosine",
@@ -750,7 +865,8 @@ def metadata_union_component(files, child, ledger, inputs, before, gate, baselin
         "metadata_original": old_summary, "legacy_gate": legacy_gate, "sole_primary_summary": sole,
         "sole_primary": "reference_mean", "decision": core.legacy_gate(new_base, sole), "decoder_identity_not_forged": True,
         "original_selected_sources": {"baseline": baseline_mapping, "metadata": metadata_mapping}}
-    require(controls["standalone_admission"] == expected_standalone, "standalone raw admissions/control mappings are stale")
+    require(metadata_admission_matches(controls["standalone_admission"], expected_standalone, legacy_mapping),
+            "standalone raw admissions/control mappings are stale")
     new = load_json(directory / "candidate.json")
     require(new == {"status": "complete", "route_latlon": outputs["reference_mean"]["route_latlon"],
                     "route_timestamps": saved["query_times"].tolist(), "comparison": expected_new}, "new sole-primary actual median5 answer differs")
@@ -1368,6 +1484,7 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
         require(frozen["inputs"] == inputs and frozen.get("prediction_available") is True, "parent freeze lacks its selected prediction/inputs")
         for name in ("result.json", "assisted_inputs.json", "assisted_audit.json"):
             require(files.root / name in parent_ledger, "parent freeze omits its result/input/audit")
+        runtime_evidence(files, cfg, inputs, audit, parent_ledger)
         records, trace, trace_inputs = audit["reached_stages"], audit["decision_trace"], audit["decision_inputs"]
         require(0 < len(records) == len(trace) == len(trace_inputs) <= 6, "requested stage/decision transcript is incomplete")
         evidence, children, ledgers = {}, {}, {}

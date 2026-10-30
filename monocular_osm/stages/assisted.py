@@ -236,6 +236,8 @@ def begin(ctx):
 def freeze(ctx):
     output = ctx.cfg.output_dir
     files = [output / name for name in ("result.json", "answer.png", "assisted_inputs.json", "assisted_audit.json")]
+    if getattr(ctx, "runtime_budget", None) is not None:
+        files.append(output / "assisted_runtime.json")
     files += [Path(item["path"]) for record in ctx.result["assisted_audit"]["reached_stages"] for item in record["artifacts"]]
     _write_result_json(output / "frozen_prediction.json", {
         "frozen_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "experimental": True,
@@ -249,6 +251,10 @@ def run_assisted(ctx, *, finalize, run_child=None):
     """Execute only reached requests; incomplete assistance never replaces baseline."""
     if run_child is None:
         from ..assisted_worker import run_child
+    from ..runtime_budget import RuntimeBudget, CleanupFailed
+    if not hasattr(ctx, "runtime_budget"):
+        ctx.runtime_budget = RuntimeBudget.from_config(ctx.cfg)
+    budget = ctx.runtime_budget
     begin(ctx)
     profile = getattr(ctx.cfg, "assisted_profile", "v1")
     policy = resolve_policy(profile)
@@ -259,11 +265,17 @@ def run_assisted(ctx, *, finalize, run_child=None):
     evidence, children, trace, trace_inputs, reached = {}, {}, [], [], []
     def execute(kind):
         try:
+            if budget is not None:
+                budget.require_work(kind)
             ctx.assisted_evidence = deepcopy(evidence)
             if profile == "v3" and kind == "expanded":
                 ctx.assisted_baseline_child = deepcopy(children.get("baseline", {}))
             child = _safe(run_child(kind, ctx))
             record = child_record(kind, child, ctx.cfg.output_dir, ctx.result["assisted_inputs"], profile=profile)
+        except CleanupFailed:
+            # Failure to stop owned work is an operational failure, not an
+            # ordinary unavailable component or a safely finalized parent.
+            raise
         except Exception as error:
             child = {"status": "failed", "error": f"{type(error).__name__}: {_safe(str(error))}"}
             record = child_record(kind, child, ctx.cfg.output_dir, profile=profile)
@@ -300,6 +312,9 @@ def run_assisted(ctx, *, finalize, run_child=None):
              "selected_route_sha256": digest(children[selected]["route_latlon"]) if selected else None,
              "policy_version": policy.POLICY_VERSION, "config_sha256": policy.CONFIG_SHA256,
              "comparison_limit": "fixed expanded pool selection can inflate raw cosine; unvalidated dev heuristic"}
+    if budget is not None:
+        audit["runtime_budget"] = budget.snapshot()
+        _write_result_json(ctx.cfg.output_dir / "assisted_runtime.json", audit["runtime_budget"])
     audit["selected_child_artifact_sha256"] = next((item["sha256"] for record in reached
         if record["kind"] == selected for item in record["artifacts"]
         if item["role"] == "candidate_artifact"), None)
@@ -308,6 +323,14 @@ def run_assisted(ctx, *, finalize, run_child=None):
     _record_channel(ctx.channel_status, "assisted", "ok" if selected else "inactive",
                     selected_candidate=selected, validation_status="posthoc_dev_unvalidated")
     ctx.result["execution"].update(stage="complete", answer_available=selected is not None)
+    if budget is not None:
+        ctx.result["execution"]["outcome"] = "selected" if selected is not None else "declined"
+        budget.require_publication_time()
     finalize(ctx)
+    if budget is not None:
+        budget.require_publication_time()
     freeze(ctx)
+    if budget is not None:
+        # A slow filesystem cannot be advertised as a successful in-budget run.
+        budget.require_publication_time()
     return ctx.result

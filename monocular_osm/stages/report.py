@@ -59,7 +59,7 @@ def _summarize_channels(status: dict, cfg: "PipelineConfig", *, produced: dict,
     return status
 
 
-def finalize_result(ctx: RunContext) -> None:
+def finalize_result(ctx: RunContext, *, render_answer: bool = True) -> None:
     """Attach diagnostics, the channel summary and provenance; write result.json.
 
     Diagnostics are attached UNCONDITIONALLY: failed runs (no candidates, unusable
@@ -204,8 +204,12 @@ def finalize_result(ctx: RunContext) -> None:
                 result["answer"]["route_t_sec"] = result["assisted_position"]["route_t_sec"]
         _answer_map = cfg.output_dir / "answer.png"
         try:
-            plot_answer(result["answer"], _answer_map, road=road)
-            result["answer"]["map_artifact"] = _answer_map.name
+            if render_answer:
+                plot_answer(result["answer"], _answer_map, road=road)
+                result["answer"]["map_artifact"] = _answer_map.name
+            else:
+                _answer_map.unlink(missing_ok=True)
+                result["answer"]["map_skipped"] = "runtime_budget_preserves_mandatory_publication"
         except Exception as e:
             # An image-writing failure must not discard a successfully selected
             # route, or leave an older run's map looking like the current answer.

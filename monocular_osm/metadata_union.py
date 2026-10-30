@@ -171,7 +171,7 @@ def build_union(regions, baseline_comparison):
 
 
 def prove_baseline_selection(baseline_regions, comparison):
-    """Validate every original baseline pool, then its explicit per-query rows."""
+    """Validate every original control pool, then its explicit per-query rows."""
     identity, indices, times = appearance(comparison)
     require(isinstance(baseline_regions, list) and 1 <= len(baseline_regions) <= PROFILE["maximum_baseline_audits"]
         and all(isinstance(r, dict) for r in baseline_regions)
@@ -212,18 +212,26 @@ def replay_metadata_union(regions, baseline_comparison, baseline_summary, metada
     by_id = {value: i for i, value in enumerate(union["ref_ids"].tolist())}
     original_mappings = {"baseline": baseline_mapping}
     for label, comparison in (("metadata", metadata_comparison),):
-        chosen_ids = comparison.get("decoded_reference_ids")
-        require(isinstance(chosen_ids, list) and len(chosen_ids) == len(indices), "original selected reference IDs required")
+        # A legacy winner belongs to its explicitly recorded regional matrix.
+        # Duplicate IDs use one deterministic column in the new union, but
+        # otherwise identical descriptor rows can have pool-dependent float32
+        # GEMM rounding within the already-validated duplicate score envelope.
+        # Prove the original scalar EXACTLY against its source occurrence;
+        # never replace it with, or demand bit equality to, another occurrence.
+        original_rows = prove_baseline_selection(regions, comparison)
         mapped = []
-        for q, identifier in enumerate(chosen_ids):
+        for q, source in enumerate(original_rows):
+            identifier = source["ref_id"]
             require(identifier in by_id, "original selected reference missing from complete metadata union")
             col = by_id[identifier]
-            require(union["ref_latlon"][col].tolist() == comparison["decoded_reference_latlon"][q]
-                and float(union["raw_similarities"][q, col]) == comparison["decoded_reference_cosines"][q],
-                "original selected raw coordinate/cosine differs from full evidence")
-            require(any(str(r["arrays"]["ref_ids"][int(r["arrays"]["decoded_ref_indices"][q])]) == identifier for r in regions),
-                "legacy metadata control is not a regional winner")
-            mapped.append({"query_row": q, "global_column": col, "ref_id": identifier})
+            entry = union["mapping"][col]
+            require(union["ref_latlon"][col].tolist() == comparison["decoded_reference_latlon"][q],
+                    "original selected coordinate differs from full evidence")
+            require(any(r["region"] == source["region"] and r["column"] == source["region_column"]
+                        for r in entry["occurrences"]), "original selected occurrence missing from complete metadata union")
+            mapped.append({**source, "global_column": col, "canonical_union_source": {
+                "region": entry["canonical_region"], "region_column": entry["canonical_column"],
+                "raw_cosine": float(union["raw_similarities"][q, col])}})
         original_mappings[label] = mapped
     result = full.decode_full_tracks(union["raw_similarities"], union["ref_ids"], union["ref_latlon"], times)
     require(result["profile_sha256"] == full.PROFILE_SHA256 and set(result["outputs"]) == {"raw", "reference_mean"}, "both unchanged full-DP outputs required")
