@@ -1305,3 +1305,25 @@ Pair family: `E:/monocular-osm-metric-depth-pair-proof/run1`; master:
 `4720f479972318bbaae5eab3251531a64c0d29a71189cd778f6b1477d9958883`;
 root runtime acceptance:
 `2718324bbcd773e7688c7e6e85ca047348366f3cfe54ddcd1977511b9a4733d4`.
+
+A second, model-free experiment fitted depth-assisted EPNP poses on the same
+saved inputs. Original match-row IDs fixed the fit/check split before depth
+validity filtering. Each direction used its own source depth, and check
+matches never entered RANSAC. The fixed profile passed 62 synthetic checks;
+four additional independent synthetic scenarios verified known motion,
+isolation of check matches, partition stability and global depth-scale
+ambiguity.
+
+All 16 pairs were retained in a 4.062-second run: 13 had independently fitted
+forward and reverse poses, while three empty-match pairs remained unknown.
+Normalized translation-cycle errors ranged from 0.118 to 0.883 on Night and
+0.044 to 1.836 on Detroit. The first five Detroit pairs were relatively
+consistent (0.044-0.094); its final three were substantially less consistent
+(0.376, 0.929, 1.836). Reprojection tails on check matches remained large.
+These observations do not justify a general motion-quality or absolute-scale
+claim. No pose, confidence, route or localization policy was changed.
+
+PnP family: `E:/monocular-osm-depth-pnp-proof/run1`; master:
+`f2d5414e75a62a1af0a72841e1d387f651aacc4ec250ee61b563c27b60bf8c2c`;
+root acceptance after independently checking the saved projections and cycles:
+`42f63965c23808dc9fed3e3199e79190a3ff12e9a31f5e45de39087be045a1a2`.
