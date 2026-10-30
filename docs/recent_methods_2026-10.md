@@ -1327,3 +1327,36 @@ PnP family: `E:/monocular-osm-depth-pnp-proof/run1`; master:
 `f2d5414e75a62a1af0a72841e1d387f651aacc4ec250ee61b563c27b60bf8c2c`;
 root acceptance after independently checking the saved projections and cycles:
 `42f63965c23808dc9fed3e3199e79190a3ff12e9a31f5e45de39087be045a1a2`.
+
+An essential-matrix control then used exactly the same frozen masked matches
+and original fit/check partition. All 16 pairs were retained in 3.047 seconds:
+13 bidirectional fits and three empty-match UNKNOWNs. Root independently
+checked the native-pixel Sampson distances through the fundamental matrix,
+unit-pose and cheirality arrays, and 562 declared paths.
+
+The follow-up comparison evaluates all three pose families with the same
+native-pixel Sampson residual on identical odd-ID matches. Entries below are
+medians of per-pair medians, in pixels; they are not localization scores.
+
+| Common pair cohort | Cached poses | Depth PnP | Essential control |
+| --- | ---: | ---: | ---: |
+| Night, four pairs with all three poses | 0.437 | 0.541 | 0.466 |
+| Detroit G5, all eight pairs | 0.403 | 0.403 | 0.386 |
+
+This provides no consistent depth-specific pose gain or metric-scale
+validation. The cached estimator may already have used some check points;
+masking alone is also not isolated from changed features, refitting and the
+partition. Forward/reverse essential agreement uses the same 2D measurements
+and is not independent pose truth. No motion or localization policy is adopted.
+
+Essential family: `E:/monocular-osm-essential-control-proof/run1`; master:
+`bad081e11687460703312edd8e9688010626af2b94d9f0032715dd0ccfc57b72`;
+common-metric findings:
+`7a35d822c3938c75ae1e7670193fabb255837b5c6b71f3af2f59c6812e0301f7`.
+
+[UniDepthV2](https://arxiv.org/abs/2502.20110) is the next candidate under
+static review because it predicts camera parameters and metric 3D geometry
+from RGB alone. Its official ViT-S checkpoint contains 34,184,323 float32
+elements. Source and model metadata are pinned; CPU dependency closure,
+checkpoint loading, runtime and project accuracy remain to be tested. This
+research does not change the last complete fixed-policy result of **9/15**.
