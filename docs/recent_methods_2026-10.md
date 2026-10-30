@@ -1472,5 +1472,32 @@ fifteen-clip denominator. A further evidence audit must establish the exact
 consumed descriptor rows and immutable payloads before those cases can enter
 the comparison; the existing requirement has not been bypassed.
 
+All 48 frozen receipt payloads for those six clips were subsequently recovered
+and matched their recorded hashes. A separate byte audit copied the descriptor
+archives before checking their consumed tensor hashes. Root independently
+verified all 48 payloads and twelve tensor hashes; the original audits and
+unavailable attempts remain unchanged.
+
+The exact descriptor test then rejected Ulm2: three of 959 shared reference
+vectors differ numerically, with maximum L2 distance 1.57008e-7. All shared
+coordinates are exactly equal, and the largest raw-cosine difference is
+2.98023e-8. This is an
+observed numeric difference; it does not establish historical encoder identity.
+A new experiment was registered over all fifteen clips before reading any new
+accuracy labels. It permits descriptor L2 distance at most 1e-6 from the lexical
+canonical row, computed in float64. Exact per-pool tensor hashes, receipts,
+query/model/clock/coordinate checks and the existing 1e-6 raw-score envelope
+remain required. Its algorithm profile is separate from the original data
+authority; the earlier exact-equality experiment is preserved.
+
+The first actual assembly under the new rule retained both Ulm2 pools as 2,040
+unique references over 80 frames. Root independently checked every canonical
+raw value, coordinate, ID and timestamp. A diagnostic replay through the
+unchanged raw/erased decoder completed in 144.313 seconds. An independent check
+verified all 80 physical rows and 79 transition terms; its recomputed objective
+differs by 3.41e-13. No neural re-encoding or localization scoring occurred.
+These are input and execution checks, not a complete all-fifteen accuracy result
+or a production-policy adoption.
+
 This comparison cannot borrow a favourable research gallery or choose a
 decoder per clip. The last complete fixed-policy result remains **9/15**.
