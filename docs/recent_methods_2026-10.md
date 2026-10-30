@@ -1070,7 +1070,7 @@ checked all staged inputs, native reconstruction, 44 canonical PIL tensors,
 all descriptor hashes/norms and the complete weights-only state digest against
 the frozen runtime attestation. All 1,207 protected files remained unchanged.
 It performed no model constructor or forward replay and does not independently
-prove neural output values. There is still no MutualVPR localization result.
+prove neural output values. The later full-gallery results are reported below.
 
 The runtime family is
 `E:/monocular-osm-mutualvpr-runtime-proof/run2_guardfix1`, master
@@ -1078,8 +1078,8 @@ The runtime family is
 independent audit
 `59ec8164de2cbc3600ef31400ede6d7fc2f23bff83627048c2982b136056e129`.
 The measured cost suggests roughly 3.4 and 10.5 CPU hours for the Night and G5
-neural work alone, before decoding and audit. The full-gallery comparison is
-now running serially, Night then G5, with a uniform 18-hour internal limit per
+neural work alone, before decoding and audit. The full-gallery comparison ran
+serially, Night then G5, with a uniform 18-hour internal limit per
 case. Before inference, a separate equivalence audit bound all 2,998 and 9,735
 reference rows and the two sets of 80 native queries/240 RGB crops to previously
 audited inputs, and confirmed the same released model/dependencies as the
@@ -1188,8 +1188,9 @@ including comparisons between repeats. Raw configuration snapshots, relative
 budgets, both reserves and runtime receipt checks remain unchanged. Independent
 compatibility checks passed 285 tests with one skip; root reran the nine new
 regressions successfully. The live inference checkouts and outputs were not
-changed. Their eventual evaluation needs the separately reviewed comparison
-adapter, with its source recorded explicitly.
+changed. Their eventual evaluation uses the separately pinned and reviewed
+comparison adapter for both benchmark module dependencies, with its source
+recorded explicitly.
 
 ## MutualVPR full-gallery comparison: no failed clip repaired
 
@@ -1225,3 +1226,32 @@ independent audit:
 scores: `715fb62b700000325dfbebdb648b23719103521279c8bf0947c2c47e47a074ed`;
 root score acceptance:
 `22cea4d36cfee4333529ec241a0ec3a58631147c97d7de40241e631743dcc73e`.
+
+## Metric depth: bounded CPU feasibility verified
+
+Depth Anything V2 Metric VKITTI Small completed exactly four fixed synthetic
+720x1280 images on CPU, with two Torch threads, one inter-op thread and batch
+one. Official RGB/255, cubic lower-bound 518/multiple-14 and ImageNet
+preprocessing produced the exact admitted tensors. The complete 239-tensor,
+24,785,089-element float32 checkpoint loaded strictly. Root independently
+recomputed its numerical state hash and confirmed it matched both the loaded
+and final model state.
+
+Initialization took 4.563 seconds. The four forward times were 2.172, 1.812,
+2.468 and 2.391 seconds; the outer run took 15.266 seconds. Sampled peak process
+RSS was 823,910,400 bytes, within the 3 GiB limit. All four saved native-sized
+float32 depth maps are finite and bounded by 0-80 m; root rehashed all eight
+runtime files, nine prepared files and their declared dependencies. Resource
+guards and observed process termination passed.
+
+This establishes CPU feasibility only. Synthetic depth values do not establish
+metric scale, pose quality or localization accuracy. No native video, GPS,
+ground-truth coordinates or routes entered this experiment. Native-frame
+masking and scale-consistency checks remain separate pending work.
+
+Family: `E:/monocular-osm-metric-depth-runtime-proof/synthetic_run1`; runtime:
+`1443e04c476bd0f97385c16b26adb5b04455838dd7a60cf5802c2d1e3d095052`;
+whole checkpoint state:
+`ebb6e31f96aa52a747d836d6557da0dd67146a21afaf8ac9a524f22251da5181`;
+root runtime acceptance:
+`8d9988453fc1cb70f77fe4148a8b7e0f009f1c04c634742c1598bf0bc8751174`.
