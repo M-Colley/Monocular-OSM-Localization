@@ -1354,9 +1354,98 @@ Essential family: `E:/monocular-osm-essential-control-proof/run1`; master:
 common-metric findings:
 `7a35d822c3938c75ae1e7670193fabb255837b5c6b71f3af2f59c6812e0301f7`.
 
-[UniDepthV2](https://arxiv.org/abs/2502.20110) is the next candidate under
-static review because it predicts camera parameters and metric 3D geometry
-from RGB alone. Its official ViT-S checkpoint contains 34,184,323 float32
-elements. Source and model metadata are pinned; CPU dependency closure,
-checkpoint loading, runtime and project accuracy remain to be tested. This
-research does not change the last complete fixed-policy result of **9/15**.
+[UniDepthV2](https://arxiv.org/abs/2502.20110) is the next candidate because it
+predicts camera parameters and metric 3D geometry from RGB alone. Its official
+ViT-S checkpoint contains 34,184,323 float32 elements. Pinned source,
+safetensors and isolated dependencies passed review. The unmodified released
+model then completed four synthetic CPU forwards in a 29.516-second outer run,
+with sampled peak RSS 1,116,958,720 bytes. All 352 state tensors matched the
+checkpoint digest before and after inference; actual encoder inputs matched
+the independently prepared tensors. All six raw outputs were retained.
+
+This establishes CPU feasibility, not calibration, metric scale, pose quality
+or localization accuracy. Preparation of the same 32 masked native frames
+retains all 16 pairs, including unknown cached poses. The source convention
+review also identified a required pixel-center and resize conversion for
+future geometric tests; each target frame needs its own learned intrinsics.
+Resampled XYZ need not project exactly onto its array coordinates, so this
+conversion alone does not validate the predicted camera or geometry.
+
+Synthetic family: `E:/monocular-osm-unidepth-runtime-proof/synthetic_run1`;
+runtime: `7e2ea4dcf42c3317df547490d53a1a5ff4831c04c46122c80ea0c82035ce4ea1`;
+root acceptance:
+`dfc4862faa67fc2dd2128b123194be9a981e0751af56739044927ebb2d8cbefd`.
+
+The same checkpoint subsequently completed all 32 masked native frames in
+127.015 seconds, with sampled peak RSS 1,211,863,040 bytes. Root independently
+checked all 192 raw arrays, their actual encoder-input hashes, camera-Z and
+radius arithmetic, unit rays, complete pair retention and unchanged state
+receipts, then rehashed 1,765 declared paths. This preserves all 16 fixed
+pairs, including unknown cached poses. No pose fitting or accuracy evaluation
+was part of this runtime check.
+
+Native family: `E:/monocular-osm-unidepth-runtime-proof/native32_run1`;
+runtime: `ede75b7f07e8b9ac62894e914598319db13b79f0ff50e04d6077c0318ab0c138`;
+root acceptance:
+`15c241e350ed8c1f466c4a5b8cb4f381e06d40c4b491940f99831788eeec005b`.
+
+A subsequent model-free PnP trial sampled the raw source XYZ and used the
+target frame's own converted camera matrix. It preserved the original BF
+match IDs and fit/check split. All 32 self-projection diagnostics were frozen
+before the first pose fit. The 11.187-second trial retained all 16 pairs:
+13 had bidirectional fits, and three empty-match pairs remained unknown. Root
+independently checked the samples, camera conversions, projections and cycles,
+and rehashed 1,885 declared paths. Six additional synthetic scenarios checked
+known motion with different cameras, split isolation and scale ambiguity.
+
+On G5, normalized translation-cycle errors ranged from 0.0065 to 0.3337,
+lower on several pairs than the earlier depth-assisted trial. However,
+held-out reprojection tails remained large; two reverse directions also
+contained nonfinite projected check points. Several fitted steps imply
+14-17 nominal metres over approximately 0.134 seconds. The learned focal
+lengths themselves vary between adjacent G5 frames by 8.46% and 9.09% at
+the median across the eight fixed pairs. These are prediction diagnostics,
+not measured vehicle speed or known calibration error.
+
+This does not validate metric motion or justify policy admission. A lower
+cycle error cannot establish absolute scale, and comparing learned cameras
+against the earlier generic 70-degree camera does not isolate depth's effect.
+All raw predictions remain unchanged; no pose, scale or route was adopted.
+
+PnP family: `E:/monocular-osm-unidepth-pnp-proof/run1`;
+master: `4a3281aef37b173d30038cc6b2a806b7f6c7c3280e061d410d466781950d417c`;
+root acceptance:
+`30ea86e35e38498d9a7729a8fb391787fca5c4553950434ddac44f9676174359`.
+
+The final comparison used exactly the earlier common odd-ID matches, with
+each new pose's source and target cameras in the fundamental matrix. Root
+independently verified all 26 fitted directions through camera-ray pixel
+gradients, all held-out and 128 self-projection statistics, unchanged legacy
+cohorts and 97 consumed paths. Forward-direction medians of per-pair median
+Sampson distances are below, in native pixels.
+
+| Common pair cohort | Cached poses | Earlier depth PnP | Essential control | UniDepth PnP |
+| --- | ---: | ---: | ---: | ---: |
+| Night, four pairs | 0.437 | 0.541 | 0.466 | 0.588 |
+| Detroit G5, eight pairs | 0.403 | 0.403 | 0.386 | 0.510 |
+
+UniDepth provides no median improvement on these cohorts. All eight pairs per
+clip remain in the study, including unknowns. G5 reverse projections retain
+12 nonfinite check points out of 1,158, rather than excluding them from the
+reported denominator. These are geometric diagnostics, not localization
+scores or a depth-only causal comparison.
+
+Findings: `E:/monocular-osm-unidepth-pnp-proof/run1_findings/findings.json`;
+SHA: `1bd6721b8ea0e96187286089d56d6dd7c7de85fdd7050d71c6a9eab4b24df877`;
+root acceptance:
+`49ae4229df2ad7cc5213b18bbf90d0fc7536772313b2d69f4c08570f6aa6b865`.
+
+A separate source review found that the strongest historical component
+routes use different query views, reference scope or objectives from the
+ordinary pipeline. Night's 124 m experiment used one OCR branch; the normal
+two-branch union failed, so retrospectively choosing the successful branch
+would be an oracle. G5's best 208.53 m control still exceeds 200 m. The next
+planned experiment will test one fixed full-support sequence decoder on all 15
+ordinary runs' own matched inputs, after the complete A8 run and output audit.
+It cannot borrow a favourable research gallery or choose a decoder per clip.
+The last complete fixed-policy result remains **9/15**.
