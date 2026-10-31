@@ -54,6 +54,11 @@ All notable changes to this project are documented here. This project adheres to
 
 ### Retrieval output and benchmark reliability
 
+- Assisted baseline and expanded children persist each returned retrieval
+  call before starting the next one. Atomic array/metadata publication and
+  verified array reuse preserve completed calls if a later call times out.
+  Incomplete pairs remain diagnostics; child completion and selection rules
+  retain their existing requirements.
 - The selected `result.answer` now drives the console position, map links and
   `answer.png`; the fitted `position` stays available as a diagnostic.
 - Retrieval tracks are checkpointed atomically before geometry. The new

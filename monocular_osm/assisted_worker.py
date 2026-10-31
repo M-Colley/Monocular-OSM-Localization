@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import numpy as np
 from .provenance import config_snapshot, file_sha256, snapshot_sources
 from .stages.poi_only import _safe
@@ -713,6 +714,8 @@ def _pipeline_child(cfg, kind, request=None):
     from . import pipeline, baselines
     ctx = pipeline.RunContext.create(cfg)
     ctx.capture_retrieval_audit = kind in {"baseline", "expanded"}
+    if ctx.capture_retrieval_audit:
+        ctx.retrieval_audit_sink = lambda ordinal, audit: _save_audit(audit, cfg.output_dir, ordinal)
     ctx.require_retrieval_track = kind == "expanded"
     if kind == "expanded":
         ctx.assisted_city_admission = lambda: _metadata_admission(ctx, request or {})
@@ -1008,27 +1011,51 @@ def main(argv=None):
     execute_request(json.loads(args.request.read_text(encoding="utf-8")))
 
 
-def _save_audits(audits, output):
+def _save_audit(audit, output, index):
+    """Checkpoint one finished call; metadata commits its complete array file."""
     directory = output / "retrieval_audit"
     directory.mkdir(exist_ok=True)
+    arrays = {key: value for key, value in audit.items() if isinstance(value, np.ndarray)}
+    arrays.update({"returned_" + key: value for key, value in audit.get("returned_track", {}).items()})
+    path = directory / f"{index:04d}.npz"
+    meta = path.with_suffix(".json")
+    headers = {key: {"sha256": _array_sha(value), "shape": list(np.shape(value)),
+                     "dtype": np.asarray(value).dtype.str} for key, value in arrays.items()}
+    if meta.is_file():
+        # Final export can add cache receipts, but must not replace a completed
+        # call's array payload. An interruption must leave that pair usable.
+        previous = json.loads(meta.read_text(encoding="utf-8"))["array_artifact"]
+        if (previous["path"] != str(path.resolve()) or previous["arrays"] != headers
+                or not path.is_file() or file_sha256(path) != previous["sha256"]):
+            raise ValueError("persisted retrieval call arrays changed before final export")
+    else:
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=directory, prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
+                temporary = Path(stream.name)
+                np.savez_compressed(stream, **arrays)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    metadata = {key: value for key, value in audit.items()
+                if key not in arrays and key != "returned_track"}
+    # KV cache hits can clear the acquisition payload, including call_index.
+    # This is a separate writer-owned identity; never fabricate acquisition.
+    metadata["persisted_writer"] = {"schema": "retrieval-audit-writer-v1", "ordinal": index,
+        "scope": str(directory.resolve()), "array_path": str(path.resolve())}
+    metadata["array_artifact"] = {"path": str(path.resolve()), "sha256": file_sha256(path),
+        "arrays": headers}
+    _write_result_json(meta, _safe(metadata))
+    return [{"path": str(p.resolve()), "sha256": file_sha256(p)} for p in (path, meta)]
+
+
+def _save_audits(audits, output):
     artifacts = []
     for index, audit in enumerate(audits):
-        arrays = {key: value for key, value in audit.items() if isinstance(value, np.ndarray)}
-        arrays.update({"returned_" + key: value for key, value in audit.get("returned_track", {}).items()})
-        path = directory / f"{index:04d}.npz"
-        np.savez_compressed(path, **arrays)
-        metadata = {key: value for key, value in audit.items()
-                    if key not in arrays and key != "returned_track"}
-        # KV cache hits can clear the acquisition payload, including call_index.
-        # This is a separate writer-owned identity; never fabricate acquisition.
-        metadata["persisted_writer"] = {"schema": "retrieval-audit-writer-v1", "ordinal": index,
-            "scope": str(directory.resolve()), "array_path": str(path.resolve())}
-        meta = path.with_suffix(".json")
-        metadata["array_artifact"] = {"path": str(path.resolve()), "sha256": file_sha256(path),
-            "arrays": {key: {"sha256": _array_sha(value), "shape": list(np.shape(value)),
-                              "dtype": np.asarray(value).dtype.str} for key, value in arrays.items()}}
-        _write_result_json(meta, _safe(metadata))
-        artifacts.extend({"path": str(p.resolve()), "sha256": file_sha256(p)} for p in (path, meta))
+        artifacts.extend(_save_audit(audit, output, index))
     return artifacts
 
 

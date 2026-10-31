@@ -421,6 +421,20 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
         return baseline_track, diagnostics, listing
 
 
+def _append_retrieval_audit(ctx, audit):
+    ordinal = len(ctx.retrieval_audits)
+    ctx.retrieval_audits.append(audit)
+    sink = getattr(ctx, "retrieval_audit_sink", None)
+    if callable(sink):
+        try:
+            sink(ordinal, audit)
+        except Exception as error:
+            # Optional evidence I/O must not turn a completed retrieval into a
+            # failed prior or change the ordinary candidate-selection rules.
+            ctx.result.setdefault("retrieval_audit_persistence_errors", []).append({
+                "ordinal": ordinal, "error": f"{type(error).__name__}: {error}"})
+
+
 def vpr_coarse_prior(ctx: RunContext) -> None:
     """Blind VPR coarse prior (street-photo retrieval) + optional coarse-to-fine.
 
@@ -472,7 +486,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                         track = _ordinary_track(*args, **kwargs)
                     except Exception as error:
                         audit["provider_error"] = f"{type(error).__name__}: {error}"
-                        ctx.retrieval_audits.append(audit)
+                        _append_retrieval_audit(ctx, audit)
                         raise
                     if track is not None:
                         audit["returned_track"] = {"indices": np.asarray(track[0]),
@@ -486,7 +500,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                                 _kv.LAST_TRACK_STATS["terminal_search"] = deepcopy(terminal)
                         except (OSError, ValueError, KeyError, TypeError) as error:
                             audit["terminal_proof_error"] = f"{type(error).__name__}: {error}"
-                    ctx.retrieval_audits.append(audit)
+                    _append_retrieval_audit(ctx, audit)
                     return track
             # Prefer an explicit --osm-around centre (robust to Nominatim
             # geocode failures / ambiguous small-town names); else geocode.

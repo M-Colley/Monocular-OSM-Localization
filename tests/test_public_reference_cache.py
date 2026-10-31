@@ -156,6 +156,63 @@ def test_replay_all_served_snapshot_with_fresh_queries_identical_route(case,monk
     assert kv.kartaview_vpr_track is original and kv._fetch_refs_for is fetch
 
 
+def test_assisted_per_call_checkpoint_keeps_genuine_reuse_hit_before_final_export(case,monkeypatch):
+    from functools import wraps
+    import sys
+    from monocular_osm import assisted_worker as worker, pipeline
+    from monocular_osm.stages import prior
+    signature = kv.kartaview_vpr_track
+    p = prepared(case)
+    calls, encoder, _ = install_fake_encoder(case, monkeypatch)
+
+    @wraps(signature)
+    def track(frames, center, **kwargs):
+        audit = kwargs['audit']
+        encoder(frames, center, **{k: v for k, v in kwargs.items()
+            if k in {'radius_m', 'cache_dir', 'device', 'source', 'token', 'cap',
+                     'query_mode', 'query_batch_size', 'audit'}})
+        audit.update(query_indices=np.array([0, 1]), query_times=np.array([0., 1.]),
+            raw_similarities=np.array([[.1, .2], [.3, .4]], np.float32))
+        return audit['query_indices'], audit['ref_latlon'].copy(), np.array([.1, .4])
+
+    monkeypatch.setattr(kv, 'kartaview_vpr_track', track)
+    monkeypatch.setitem(sys.modules, 'osmnx', SimpleNamespace())
+    monkeypatch.setattr(prior, 'select_retrieval_device', lambda: 'cpu')
+    cfg = pipeline.PipelineConfig(url='', city='Synthetic', data_dir=p.target.data_dir,
+        output_dir=p.target.output_dir, vpr_source='mapillary', vpr_multi_region=True,
+        vpr_coarse_to_fine=False, vpr_city_cover=False, assisted_profile='v1')
+    observed = []
+
+    def regions(cfg, frames, center, radius, cap, source, token, device, dt, call, **kwargs):
+        for ordinal in range(2):
+            result = call(frames.frames, center, radius_m=radius, cap=cap, source=source,
+                device=device, cache_dir=str(cfg.data_dir/'mapillary'), query_batch_size=4)
+            # These checks run before the pipeline or its final comparison returns.
+            meta = json.loads((cfg.output_dir/f'retrieval_audit/{ordinal:04d}.json').read_text())
+            assert meta['public_cache_reuse']['status'] == 'hit'
+            assert meta['public_cache_request']['cache_dir'] == str((cfg.data_dir/'mapillary').resolve())
+            assert meta['persisted_writer']['ordinal'] == ordinal and 'call_index' not in meta
+            observed.append(meta['array_artifact']['sha256'])
+        return result, {'n_usable_regions': 2}, {}
+
+    monkeypatch.setattr(prior, '_multi_region_vpr', regions)
+
+    def stages(ctx):
+        ctx.frames = SimpleNamespace(frames=[None, None], timestamps=np.array([0., 1.]), close=lambda: None)
+        ctx.osm_around = (*case.request['center'], 3000.)
+        ctx.estimated_length_m = 100.
+        prior.vpr_coarse_prior(ctx)
+        return ctx.result
+
+    monkeypatch.setattr(pipeline, '_run_pipeline_stages', stages)
+    worker._pipeline_child(cfg, 'expanded', {**p.expected, 'public_reference_reuse': p.artifact})
+    assert len(observed) == 2 and calls['queries'] == 2 and calls['fetch'] == 0
+    for ordinal, before in enumerate(observed):
+        meta = json.loads((cfg.output_dir/f'retrieval_audit/{ordinal:04d}.json').read_text())
+        assert meta['array_artifact']['sha256'] == before
+        assert meta['public_cache_reuse']['status'] == 'hit'
+
+
 def test_legacy_encoding_claim_is_bound_to_pool_identity(case):
     pool=deepcopy(case.pool);pool['reference_encoding_identity']='VERIFIED current encoder'
     with pytest.raises(ValueError,match='identity changed'):

@@ -955,3 +955,27 @@ six smoke pairs are low-parallax unknown, so no pose-quality claim follows.
 The full 2,950-frame paired input experiment is running without localization,
 GT or policy changes. New focused tests pass; the latest full regression
 remains the separately recorded 3,490-pass suite at `a25445e`.
+
+### 31 October: completed-call persistence and pending fleet comparison
+
+The terminal retrieval catalog exposed a missing integration step: completed
+retrieval calls could remain in RAM until a later batch export. A timeout in
+the next call could therefore discard those observations. Assisted baseline
+and expanded children now checkpoint each returned call, publishing its NPZ
+before its metadata. Final export verifies and reuses the committed array
+bytes while adding later metadata. Failed persistence is recorded separately
+from retrieval outcomes, and the existing child deadlines remain in force.
+
+A real subprocess regression completes the first fake retrieval, blocks the
+second, and exercises owned-process timeout cleanup. The first pair survives
+into the parent freeze with the original Answer preserved. Cache-hit tests
+also cover request/reuse receipts and writer ordinals. The focused Root
+regression passes **255 tests**, with one capability skip, in 68.72 seconds;
+this is assisted-pipeline coverage, not a new full-suite or accuracy result.
+
+Both terminal-persisted occurrence variants have completed on 13 of the 15
+development clips. Their physical routes differ on all 13 clips while using
+the same query clocks. Two original clips remain pending before the fixed
+all-15 comparison and selected-Answer scoring. These candidate checks do not
+measure localization accuracy. The last scored baseline remains **9/15**
+within 200 m, with **135.10 m** median symmetric route error.
