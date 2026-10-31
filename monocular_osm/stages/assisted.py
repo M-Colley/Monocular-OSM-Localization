@@ -28,6 +28,7 @@ V3_REQUIRED_SOURCES = {
     "monocular_osm/full_sequence.py", "monocular_osm/sparse_sequence.py",
     "monocular_osm/geo.py", "monocular_osm/assisted_profiles.py",
     "monocular_osm/assisted_worker.py", "monocular_osm/stages/assisted.py",
+    "monocular_osm/retrieval_catalog.py",
 }
 
 
@@ -233,18 +234,79 @@ def begin(ctx):
     _write_result_json(ctx.cfg.output_dir / "assisted_inputs.json", _safe(inputs))
 
 
+def _catalog_bindings(ctx):
+    """Persisted evidence is distinct from child completeness and policy input."""
+    from .. import retrieval_catalog
+    output = ctx.cfg.output_dir.resolve()
+    inputs = ctx.result["assisted_inputs"]
+    bindings, changed = {}, False
+    for kind, record in ctx.result["assisted_audit"].get("persisted_retrieval_catalogs", {}).items():
+        artifact = record.get("artifact")
+        if artifact is None:
+            continue  # Explicit persistence error retained in assisted_audit.
+        try:
+            with retrieval_catalog.limit_for(ctx).phase() as check:
+                path = retrieval_catalog.safe(artifact["path"], output)
+                expected = output / "retrieval_catalogs" / inputs["execution_id"] / (kind + ".json")
+                if kind not in {"baseline", "expanded"} or path != expected:
+                    raise ValueError("terminal retrieval catalog changed or escaped execution")
+                catalog = retrieval_catalog.read(path, check, artifact["sha256"])
+                if (catalog["kind"] != kind or catalog["execution_id"] != inputs["execution_id"]
+                        or catalog["video_sha256"] != inputs["video"]["sha256"]
+                        or catalog["source_sha256"] != inputs["source_sha256"]
+                        or catalog["window"] != inputs["registered_window"]
+                        or Path(catalog["child_output"]) != ctx.assisted_child_root.resolve() / kind
+                        or catalog["status"] != record["status"]
+                        or catalog["terminal_authoritative"] is not record["terminal_authoritative"]):
+                    raise ValueError("terminal retrieval catalog input/closure identity differs")
+                complete = {path: artifact["sha256"]}
+                if catalog["terminal_authoritative"] is True:
+                    for member, digest in retrieval_catalog.verify(catalog, check).items():
+                        if not member.is_relative_to(output):
+                            raise ValueError("catalog member escaped parent output")
+                        if member in bindings and bindings[member] != digest:
+                            raise ValueError("conflicting terminal catalog file identity")
+                        complete[member] = digest
+        except retrieval_catalog.Unavailable as error:
+            # Optional persistence must never consume mandatory Answer time.
+            # Retain the attempted snapshot as non-authoritative diagnostics.
+            record.update(status="unavailable", artifact=None, terminal_authoritative=False,
+                          attempted_artifact=artifact, error=str(error))
+            changed = True
+        else:
+            bindings.update(complete)  # Never expose a partially checked catalog.
+    return bindings, changed
+
+
 def freeze(ctx):
     output = ctx.cfg.output_dir
     files = [output / name for name in ("result.json", "answer.png", "assisted_inputs.json", "assisted_audit.json")]
     if getattr(ctx, "runtime_budget", None) is not None:
         files.append(output / "assisted_runtime.json")
     files += [Path(item["path"]) for record in ctx.result["assisted_audit"]["reached_stages"] for item in record["artifacts"]]
+    records = ctx.result["assisted_audit"].get("persisted_retrieval_catalogs", {})
+    # Each retry removes at least one optional catalog. Mandatory hashes run
+    # before the final bounded evidence check, including after a downgrade.
+    for _ in range(1 + sum(row.get("artifact") is not None for row in records.values())):
+        artifacts = {str(path.resolve().relative_to(output.resolve())): file_sha256(path)
+                     for path in files if path.is_file()}
+        bindings, changed = _catalog_bindings(ctx)
+        if not changed:
+            artifacts.update({str(path.relative_to(output.resolve())): digest for path, digest in bindings.items()})
+            break
+        provenance = ctx.result.get("provenance")
+        if isinstance(provenance, dict):
+            provenance["assisted_audit"] = deepcopy(ctx.result["assisted_audit"])
+        _write_result_json(output / "assisted_audit.json", ctx.result["assisted_audit"])
+        if (output / "result.json").is_file():
+            _write_result_json(output / "result.json", ctx.result)
+    else:
+        raise RuntimeError("optional catalog downgrade did not converge")
     _write_result_json(output / "frozen_prediction.json", {
         "frozen_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "experimental": True,
         "scoring_has_not_run": True, "prediction_available": "answer" in ctx.result,
         "inputs": _safe(ctx.result["assisted_inputs"]),
-        "artifacts": {str(path.resolve().relative_to(output.resolve())): file_sha256(path)
-                      for path in files if path.is_file()}})
+        "artifacts": artifacts})
 
 
 def run_assisted(ctx, *, finalize, run_child=None):
@@ -312,6 +374,7 @@ def run_assisted(ctx, *, finalize, run_child=None):
              "selected_route_sha256": digest(children[selected]["route_latlon"]) if selected else None,
              "policy_version": policy.POLICY_VERSION, "config_sha256": policy.CONFIG_SHA256,
              "comparison_limit": "fixed expanded pool selection can inflate raw cosine; unvalidated dev heuristic"}
+    audit["persisted_retrieval_catalogs"] = deepcopy(getattr(ctx, "assisted_retrieval_catalogs", {}))
     if budget is not None:
         audit["runtime_budget"] = budget.snapshot()
         _write_result_json(ctx.cfg.output_dir / "assisted_runtime.json", audit["runtime_budget"])

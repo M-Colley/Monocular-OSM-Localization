@@ -160,6 +160,26 @@ def _metadata_baseline_binding(parent, request):
             "reason":f"{type(error).__name__}: {_safe(str(error))}"}
 
 
+def _record_terminal_retrieval_catalog(parent, cfg, request, closure):
+    """Persistence diagnostics never promote/downgrade a child or policy input."""
+    if request["kind"] not in {"baseline", "expanded"}:
+        return
+    from . import retrieval_catalog
+    record = {"kind": request["kind"], "status": "unavailable", "artifact": None,
+              "terminal_authoritative": False, "actor_closure": deepcopy(closure)}
+    try:
+        with retrieval_catalog.limit_for(parent).phase() as check:
+            catalog = retrieval_catalog.collect(cfg.output_dir, request, closure, check)
+            path = parent.cfg.output_dir / "retrieval_catalogs" / request["execution_id"] / (request["kind"] + ".json")
+            artifact = retrieval_catalog.write(path, catalog, check)
+        record.update(status=catalog["status"], terminal_authoritative=catalog["terminal_authoritative"], artifact=artifact)
+    except Exception as error:
+        record["error"] = f"{type(error).__name__}: {_safe(str(error))}"
+    catalogs = getattr(parent, "assisted_retrieval_catalogs", {})
+    catalogs[request["kind"]] = record
+    parent.assisted_retrieval_catalogs = catalogs
+
+
 def run_child(kind, parent):
     from .runtime_budget import OwnedProcessTree, DeadlineExpired, CleanupFailed
     budget = getattr(parent, "runtime_budget", None)
@@ -207,6 +227,7 @@ def run_child(kind, parent):
         child = subprocess.Popen([sys.executable, "-m", "monocular_osm.assisted_worker", "--request", str(path)],
                                   env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=os.name != "nt")
         owned = None
+        catalog_closure = None
         try:
             if budget is not None:
                 owned = OwnedProcessTree(child, clock=budget.clock)
@@ -215,8 +236,12 @@ def run_child(kind, parent):
                 # A root can exit while a captured worker remains alive. Do not
                 # accept even an rc0 response before those births are stopped.
                 cleanup = _checked_cleanup(owned.stop, min(budget.cleanup_reserve_s, max(0., budget.deadline - budget.clock())))
+                catalog_closure = cleanup
                 budget.events.append({"kind": kind, "status": "process_complete", "monotonic_s": budget.clock(),
                                       "worker_returncode": returncode, **cleanup})
+            else:
+                catalog_closure = {"all_tracked_owned_births_gone": False,
+                    "root_exit_observed": True, "ownership_scope": "unbudgeted_root_wait_only; descendants_unverified"}
         except subprocess.TimeoutExpired as error:
             if owned is None:
                 if budget is not None:
@@ -226,6 +251,7 @@ def run_child(kind, parent):
                     _checked_cleanup(_stop_owned_child, child)
                 raise CleanupFailed("child timeout occurred before ownership was bound") from error
             cleanup = _checked_cleanup(owned.stop, min(budget.cleanup_reserve_s, max(0., budget.deadline - budget.clock())))
+            catalog_closure = cleanup
             event = {"kind": kind, "reason": "child_work_deadline_expired", "status": "timed_out",
                      "monotonic_s": budget.clock(), "worker_returncode": child.returncode,
                      "request_sha256": file_sha256(path), "partial_output": str(cfg.output_dir.resolve()),
@@ -242,7 +268,7 @@ def run_child(kind, parent):
             raise
         except BaseException as error:
             if owned is not None:
-                _checked_cleanup(owned.stop, min(budget.cleanup_reserve_s, max(0., budget.deadline - budget.clock())))
+                catalog_closure = _checked_cleanup(owned.stop, min(budget.cleanup_reserve_s, max(0., budget.deadline - budget.clock())))
             elif budget is not None:
                 # Ownership setup itself failed. The Popen handle still safely
                 # identifies our root, but no descendant-completion claim is possible.
@@ -256,6 +282,9 @@ def run_child(kind, parent):
             if owned is not None and not isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise CleanupFailed("owned child observation failed; tracked cleanup completed") from error
             raise
+        finally:
+            if catalog_closure is not None:
+                _record_terminal_retrieval_catalog(parent, cfg, request, catalog_closure)
     log_path = cfg.output_dir / "worker.log"
     log_path.write_text(_safe(log_path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
     response = cfg.output_dir / "response.json"
@@ -990,6 +1019,10 @@ def _save_audits(audits, output):
         np.savez_compressed(path, **arrays)
         metadata = {key: value for key, value in audit.items()
                     if key not in arrays and key != "returned_track"}
+        # KV cache hits can clear the acquisition payload, including call_index.
+        # This is a separate writer-owned identity; never fabricate acquisition.
+        metadata["persisted_writer"] = {"schema": "retrieval-audit-writer-v1", "ordinal": index,
+            "scope": str(directory.resolve()), "array_path": str(path.resolve())}
         meta = path.with_suffix(".json")
         metadata["array_artifact"] = {"path": str(path.resolve()), "sha256": file_sha256(path),
             "arrays": {key: {"sha256": _array_sha(value), "shape": list(np.shape(value)),

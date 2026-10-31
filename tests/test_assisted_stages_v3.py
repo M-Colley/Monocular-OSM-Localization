@@ -156,11 +156,12 @@ def test_strong_baseline_stops_without_future_child_or_transport_state(tmp_path,
     assert result["answer"]["route_t_sec"]==baseline["route_timestamps"]
 
 
-def test_v3_refuses_incomplete_source_snapshot_before_any_child(tmp_path,monkeypatch):
+@pytest.mark.parametrize('missing',["monocular_osm/full_sequence.py","monocular_osm/retrieval_catalog.py"])
+def test_v3_refuses_incomplete_source_snapshot_before_any_child(tmp_path,monkeypatch,missing):
     original=stage.snapshot_sources
     def incomplete(*args,**kwargs):
         values=original(*args,**kwargs)
-        return {k:v for k,v in values.items() if k.replace('\\','/')!="monocular_osm/full_sequence.py"}
+        return {k:v for k,v in values.items() if k.replace('\\','/')!=missing}
     monkeypatch.setattr(stage,"snapshot_sources",incomplete)
     with pytest.raises(ValueError,match="source snapshot omits"):
         run(tmp_path,{"baseline":legacy_candidate(.21)})

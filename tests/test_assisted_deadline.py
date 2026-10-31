@@ -9,6 +9,7 @@ import time
 from types import SimpleNamespace
 
 import psutil
+import numpy as np
 import pytest
 
 from monocular_osm import assisted_worker as worker
@@ -271,7 +272,7 @@ def test_cli_exposes_budget_without_changing_default(tmp_path):
     assert cfg.runtime_budget_s is None
 
 
-def run_transport(tmp_path, monkeypatch, *, cleanup_error=None, expanded_timeout=True):
+def run_transport(tmp_path, monkeypatch, *, cleanup_error=None, expanded_timeout=True, persisted_expanded=False):
     """Real request/freeze/response transport and policy, with no inference backend."""
     import monocular_osm.runtime_budget as module
     clock=Clock();video=tmp_path/'video.mp4';video.write_bytes(b'synthetic')
@@ -305,6 +306,13 @@ def run_transport(tmp_path, monkeypatch, *, cleanup_error=None, expanded_timeout
     def popen(argv,**kwargs):
         request=json.loads(Path(argv[-1]).read_text())
         kind=request['kind'];calls.append(kind)
+        if kind=='expanded' and persisted_expanded:
+            # A real interrupted child can persist observations before emitting
+            # response.json or child_frozen.json. No inference runs in this toy.
+            worker._save_audits([{'call_index':0,'status':'complete',
+                'ref_ids':np.array(['private:1']), 'ref_latlon':np.array([[1.,2.]]),
+                'raw_similarities':np.array([[.1],[.2]],np.float32),
+                'query_indices':np.array([0,1]),'query_times':np.array([0.,1.])}], Path(argv[-1]).parent)
         if kind!='expanded':
             child_cfg=worker._from_snapshot(request['config'])
             payload=deepcopy(original) if kind=='baseline' else {'status':'failed','error':'synthetic no cues'}
@@ -328,6 +336,72 @@ def test_actual_controller_worker_transport_finalizes_after_fake_backend_timeout
     assert result['assisted_audit']['evidence']['expanded']['status']=='failed'
     assert json.loads((cfg.output_dir/'frozen_prediction.json').read_text())['prediction_available']
     assert clock()<110.
+
+
+@pytest.mark.parametrize('expanded_timeout',[True,False])
+def test_closed_timeout_or_missing_response_catalog_is_bound_without_promoting_child(tmp_path,monkeypatch,expanded_timeout):
+    from monocular_osm import retrieval_catalog
+    observed=[]
+    original_record=worker._record_terminal_retrieval_catalog
+    def record(parent,cfg,request,closure):
+        assert closure['all_tracked_owned_births_gone'] is True
+        observed.append(request['kind'])
+        original_record(parent,cfg,request,closure)
+    monkeypatch.setattr(worker,'_record_terminal_retrieval_catalog',record)
+    result,calls,original,cfg,clock=run_transport(tmp_path,monkeypatch,
+        expanded_timeout=expanded_timeout,persisted_expanded=True)
+    assert calls==['baseline','cues','expanded'] and observed==calls
+    assert result['answer']['route_latlon']==original['route_latlon']
+    assert result['answer']['route_t_sec']==original['route_timestamps']
+    assert result['assisted_audit']['evidence']['expanded']['status']=='failed'
+    row=result['assisted_audit']['persisted_retrieval_catalogs']['expanded']
+    assert row['status']=='closure_verified' and row['terminal_authoritative'] is True
+    catalog=retrieval_catalog.read(row['artifact']['path'])
+    assert catalog['child_seal']['status']=='absent'
+    assert catalog['pairs'][0]['status']=='complete_pair'
+    child=Path(catalog['child_output'])
+    assert not (child/'response.json').exists() and not (child/'child_frozen.json').exists()
+    frozen=json.loads((cfg.output_dir/'frozen_prediction.json').read_text())
+    actual={k.replace('\\','/') for k in frozen['artifacts']}
+    assert str((child/'request.json').relative_to(cfg.output_dir)).replace('\\','/') in actual
+    assert str((child/'retrieval_audit/0000.npz').relative_to(cfg.output_dir)).replace('\\','/') in actual
+    assert str(Path(row['artifact']['path']).relative_to(cfg.output_dir)).replace('\\','/') in actual
+
+
+@pytest.mark.parametrize('where',['collect','freeze'])
+def test_slow_optional_catalog_yields_to_complete_baseline_publication(tmp_path,monkeypatch,where):
+    from monocular_osm import retrieval_catalog as catalog
+    active={};delayed=[];original_sha=catalog.sha
+    original_record=worker._record_terminal_retrieval_catalog
+    original_bindings=stage._catalog_bindings
+    def record(parent,cfg,request,closure):
+        if where=='collect' and request['kind']=='expanded':active['budget']=parent.runtime_budget
+        return original_record(parent,cfg,request,closure)
+    def bindings(parent):
+        if where=='freeze':active['budget']=parent.runtime_budget
+        return original_bindings(parent)
+    def slow(path,check=catalog._check):
+        def poll(amount=0):
+            if amount and active.get('budget') is not None and str(path).endswith('0000.npz'):
+                delayed.append(str(path));active['budget'].clock.now+=(.3 if where=='collect' else .6)
+            check(amount)
+        return original_sha(path,poll)
+    monkeypatch.setattr(worker,'_record_terminal_retrieval_catalog',record)
+    monkeypatch.setattr(stage,'_catalog_bindings',bindings)
+    monkeypatch.setattr(catalog,'sha',slow)
+    result,_,original,cfg,clock=run_transport(tmp_path,monkeypatch,persisted_expanded=True)
+    assert delayed and clock()<110.
+    assert result['answer']['route_latlon']==original['route_latlon']
+    assert result['assisted_audit']['evidence']['expanded']['status']=='failed'
+    row=result['assisted_audit']['persisted_retrieval_catalogs']['expanded']
+    assert row['status']=='unavailable' and row['artifact'] is None and not row['terminal_authoritative']
+    frozen=json.loads((cfg.output_dir/'frozen_prediction.json').read_text())
+    assert frozen['prediction_available']
+    assert not any('/expanded/retrieval_audit/' in k.replace('\\','/') for k in frozen['artifacts'])
+    assert not any(k.replace('\\','/').startswith('retrieval_catalogs/') and k.endswith('expanded.json') for k in frozen['artifacts'])
+    saved=json.loads((cfg.output_dir/'result.json').read_text())
+    assert saved['assisted_audit']['persisted_retrieval_catalogs']['expanded']['status']=='unavailable'
+    assert frozen['artifacts']['result.json']==catalog.sha(cfg.output_dir/'result.json')
 
 
 @pytest.mark.parametrize('expanded_timeout',[True,False])
