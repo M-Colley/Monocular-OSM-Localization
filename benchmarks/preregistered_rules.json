@@ -220,6 +220,28 @@
         },
         "decision": "T selected: the method answers with the retrieval track (--answer track is the default from the commit recording this)"
       }
+    },
+    "assisted_v3_test1_replay": {
+      "registered": "2026-11-05",
+      "description": "Does the assisted policy v3 generalize beyond the dev clips it was built on? A secondary held-out check on the seven test1 clips, which no assisted development step processed.",
+      "method": "commit a8add7a, --assisted-only --assisted-profile=v3, CPU retrieval, one rep per clip, scored with the a8add7a + deadline-fingerprint aggregator (5bdae79) and its check_dev_goal.py audit",
+      "budget_rule": "14,400 s per clip if the dev rerun budget14400 (the five clips whose expanded stage timed out at 7,200 s) brings at least one of Atlanta kxEDNj5L_yQ, Atlanta y66ZkRpUh4k, Detroit g5lnpYCk1Ec within 200 m without taking Chicago LmIHvLMLqFk or Newcastle Wrn4_uCxRCQ above 200 m; otherwise 7,200 s, as in the dev fleet run",
+      "inputs": "fresh copies of the test clips' input.mp4 and YouTube metadata only (no retrieval, VO or graph caches)",
+      "clips": [
+        "overlay_nsONSyk9wtc",
+        "overlay_bF5IfC2ZHjQ",
+        "overlay_5b-tgjtwb2U",
+        "overlay_zt8rHvHKBUU",
+        "overlay_4LvkBo69jZo",
+        "overlay_iJ2JvNk4Rmk",
+        "overlay_-1xwoetuoOg"
+      ],
+      "outcome": "symmetric_mean_m of the selected answer per clip",
+      "hypotheses": {
+        "R1": "The assisted answer is within 200 m on at least as many test1 clips as the frozen track method was (5 of 7), i.e. the extra stages do not break retrieval-located clips.",
+        "R2": "The assisted answer beats the frozen track answer of test1 (ccd0bbe) on more clips than it loses (changes under 10 % are ties; sign test reported, no significance level registered)."
+      },
+      "disclosure": "Not a clean held-out test: the test1 results of the earlier frozen method (which clips failed and why: Ottawa's route outside the city disc, Bern's wrong district) were public in docs/heldout_test_2026-10.md from 2026-10-27, before the assisted policy was built. No commit after that record references a test clip id (git log -S / git grep checked 2026-11-05), so no test clip was processed during development. The policy's constants were fixed before its dev fleet run; this replay changes none of them. A clean generalization test needs new held-out clips."
     }
   }
 }
