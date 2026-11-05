@@ -85,7 +85,7 @@ def select_clips(manifest: dict, *, fleet: str = "core", clips: Iterable[str] | 
             continue
         if split != "all" and c["split"] != split:
             continue
-        if split == "all" and c["split"] == "test":
+        if split == "all" and c["split"] in ("test", "test2"):
             continue  # never by accident
         if not c.get("available_locally", True) and not include_unavailable:
             log(f"SKIP {c['id']}: available_locally=false "
@@ -2209,7 +2209,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--manifest", default=MANIFEST_PATH.as_posix())
     r.add_argument("--fleet", choices=("core", "overlay", "all"), default="core")
     r.add_argument("--clips", nargs="+", default=None, metavar="ID")
-    r.add_argument("--split", choices=("dev", "test", "all"), default="dev")
+    r.add_argument("--split", choices=("dev", "test", "test2", "all"), default="dev")
     r.add_argument("--repeats", type=int, default=1)
     r.add_argument("--city-variant", type=int, default=None, metavar="I",
                    help="use city_alternatives[I] instead of the manifest city "

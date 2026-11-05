@@ -260,10 +260,12 @@ def test_cmd_run_retrieval_only_skips_overpass_preflight(tmp_path, monkeypatch, 
 
 
 def test_split_test_is_opt_in() -> None:
-    manifest = {"clips": [_entry(id="d"), _entry(id="t", split="test")]}
+    manifest = {"clips": [_entry(id="d"), _entry(id="t", split="test"),
+                          _entry(id="t2", split="test2")]}
     assert [c["id"] for c in M.select_clips(manifest, split="dev")] == ["d"]
     assert [c["id"] for c in M.select_clips(manifest, split="all")] == ["d"]
     assert [c["id"] for c in M.select_clips(manifest, split="test")] == ["t"]
+    assert [c["id"] for c in M.select_clips(manifest, split="test2")] == ["t2"]
 
 
 # ---------------------------------------------------------------------------

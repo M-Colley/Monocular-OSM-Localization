@@ -20,7 +20,8 @@
   },
   "splits": {
     "dev": "Every clip that existed before this benchmark: all were used to tune the pipeline, so dev numbers are optimistic by construction.",
-    "test": "Reserved for FRESH clips added after the method is frozen. Empty today. `run` skips split=test unless --split test is given explicitly."
+    "test": "Reserved for FRESH clips added after the method is frozen. Empty today. `run` skips split=test unless --split test is given explicitly.",
+    "test2": "A second held-out set (added 2026-11-05) for methods built after test was scored: no development step has processed these clips. `run` skips split=test2 unless --split test2 is given explicitly."
   },
   "clips": [
     {

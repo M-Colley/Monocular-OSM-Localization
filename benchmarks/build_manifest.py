@@ -59,6 +59,9 @@ SPLITS = {
            "pipeline, so dev numbers are optimistic by construction.",
     "test": "Reserved for FRESH clips added after the method is frozen. Empty today. "
             "`run` skips split=test unless --split test is given explicitly.",
+    "test2": "A second held-out set (added 2026-11-05) for methods built after test "
+             "was scored: no development step has processed these clips. `run` skips "
+             "split=test2 unless --split test2 is given explicitly.",
 }
 
 #: The core fleet. Strings only — no coordinates are maintained here; the
