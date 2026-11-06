@@ -128,3 +128,23 @@ Centring the city-wide first pass is therefore unsafe, and on the local
 second pass it trades clip against clip without changing the 200 m count;
 consistent with the policy's use of it only inside its `expanded` stage. Not
 adopted. In-sample analysis; GT used for scoring only.
+
+## Would a multi-area second pass help? (offline diagnostic)
+
+`scripts/pass1_hypothesis_rank.py` pools each query's top-5 first-pass
+references (the same saved matrices) into 2 km areas ranked by summed
+similarity and finds the rank of the true area (an area centre within 1 km of
+the route). Data: `docs/pass1_hypothesis_rank_2026-11.json`.
+
+| True area rank | Clips |
+|---|---|
+| 1 | London, Ulm 4K, Ulm #2, Newcastle, Detroit `1nF` and `ZhGb`, Chicago `LmIH` |
+| 2 | Berlin, Chicago `vCSE` (both already within 200 m), **Detroit `g5l`** |
+| 8 / 12 | **Atlanta `y66` (night)**, **KITTI 0009 (2011 footage)** |
+| not in the disc | KITTI 0033, Atlanta `kxED`, Phoenix (reached by the policy's wider searches) |
+
+Running the second pass over the top two or three areas instead of one could
+reach at most one remaining failure (Detroit `g5l`, whose route lies mostly
+outside the city disc). The night and historical clips rank their true area
+8th and 12th: what they need is retrieval that recognises those conditions,
+not more hypotheses. Not implemented.
