@@ -100,3 +100,31 @@ per stage.
 By the pre-registered `budget_rule` (one of kxED, y66, g5l crosses to within
 200 m and neither LmIH nor Newcastle leaves it), the held-out assisted runs,
 the test1 replay and test2, use 14,400 s.
+
+## Reference-mean centring of the retrieval track (offline replay, not adopted)
+
+Codex's night-clip study found that subtracting each reference's mean
+similarity over the query frames before the exact sequence decode
+("reference-mean", a hubness correction) helps on a local pool. The baseline
+children of `assisted_v3_fleet_fixed` saved both retrieval passes in full
+(`retrieval_audit/*.npz`: the 80 x ~1,500 similarity matrix, reference
+positions, query times, decoded path), so `scripts/replay_track_centering.py`
+replays the pipeline's own `_viterbi_decode` with and without centring on all
+fifteen dev clips, without new embedding (the replay reproduces the saved path
+on most passes, and the official error where it does: Berlin 135.1, Ulm #2
+42.7, London 62.5 m).
+
+* **Pass 2 (same reference pool), track route error:** better on Berlin
+  135 -> 94, Detroit `1nF` 77 -> 57, `ZhGb` 55 -> 31, Ulm #2 43 -> 25 m;
+  worse on London 62 -> 76, Chicago `LmIH` 133 -> 143, Newcastle 35 -> 37,
+  Chicago `vCSE` 169 -> 190 m. No clip crosses 200 m either way.
+* **Pass 1, distance from the robust centre to the route** (the area pass 2
+  then searches): rescues some failures (Detroit `g5l` 206 -> 32 m, Atlanta
+  `y66` 6.4 -> 1.9 km, KITTI 0009 3.7 -> 1.0 km) but breaks two working
+  clips catastrophically (Detroit `ZhGb` 182 m -> 7.4 km, Chicago `vCSE`
+  52 m -> 1.5 km).
+
+Centring the city-wide first pass is therefore unsafe, and on the local
+second pass it trades clip against clip without changing the 200 m count;
+consistent with the policy's use of it only inside its `expanded` stage. Not
+adopted. In-sample analysis; GT used for scoring only.
