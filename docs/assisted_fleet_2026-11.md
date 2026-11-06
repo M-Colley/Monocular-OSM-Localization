@@ -148,3 +148,27 @@ reach at most one remaining failure (Detroit `g5l`, whose route lies mostly
 outside the city disc). The night and historical clips rank their true area
 8th and 12th: what they need is retrieval that recognises those conditions,
 not more hypotheses. Not implemented.
+
+## ImAge on the city-wide first pass (pilot, not adopted)
+
+`scripts/pilot_image_pass1.py` re-scores six clips' saved first-pass
+reference sets with ImAge (NeurIPS 2025, the official GSV checkpoint Codex
+verified; whole frame and best of three square crops) against MegaLoc's saved
+matrix, through the same decoder and the area diagnostic above. Data:
+`docs/image_pass1_pilot_2026-11.json`.
+
+| Clip | MegaLoc centre to route (true-area rank) | ImAge whole | ImAge crops |
+|---|---|---|---|
+| London | 100 m (1) | 100 m (1) | 46 m (1) |
+| Detroit `1nF` | 262 m (1) | 128 m (1) | 94 m (1) |
+| Ulm #2 | 109 m (1) | 89 m (1) | 94 m (1) |
+| Chicago `vCSE` | 52 m (2) | **2,227 m** (2) | **2,227 m** (2) |
+| Atlanta `y66` (night) | 6.4 km (8) | 6.4 km (6) | 6.4 km (**2**) |
+| KITTI 0009 (2011) | 3.7 km (12) | 6.1 km (4) | 9.0 km (10) |
+
+ImAge sharpens the centre on three working clips but breaks Chicago `vCSE`,
+and on the night clip it lifts the true area to second place without moving
+the decoded centre (still 6.4 km off); KITTI is not helped. As a drop-in
+first-pass encoder it is not an improvement. The night result is the one
+lead: a second pass over the top two areas with ImAge crops could reach it,
+which is two untested changes and only one clip. Not adopted.
