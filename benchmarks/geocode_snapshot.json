@@ -1,4 +1,11 @@
 {
+  "Amsterdam, Netherlands": {
+    "lat": 52.3730796,
+    "lon": 4.8924534,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T01:22:51+00:00"
+  },
   "Atlanta, Georgia, USA": {
     "lat": 33.7544657,
     "lon": -84.3898151,
@@ -48,6 +55,13 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-24T18:52:42+00:00"
   },
+  "Montreal, Canada": {
+    "lat": 45.5031824,
+    "lon": -73.5698065,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T01:22:52+00:00"
+  },
   "NYC, New York, USA": {
     "lat": 40.7127281,
     "lon": -74.0060152,
@@ -75,6 +89,13 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-24T18:52:46+00:00"
+  },
+  "Paris, France": {
+    "lat": 48.8588897,
+    "lon": 2.320041,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T01:22:54+00:00"
   },
   "Phoenix, Arizona, USA": {
     "lat": 33.4484367,
@@ -124,5 +145,12 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:01:03+00:00"
+  },
+  "Warsaw, Poland": {
+    "lat": 52.2333742,
+    "lon": 21.0711489,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T01:22:55+00:00"
   }
 }

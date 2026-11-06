@@ -179,6 +179,72 @@ CLIPS: tuple[OverlayClip, ...] = (
         note="Sydney western suburbs: the only southern/eastern-hemisphere "
              "clip, and a route far from the city centre.",
     ),
+    # ---- SECOND HELD-OUT SET (added 2026-11-05, split="test2") --------------
+    # For methods built after "test" was scored (the assisted policy). Found by
+    # a fixed YouTube screen (city named in the title, not used before, >= 7
+    # min, real-time forward-facing footage) whose stamps were read off three
+    # full-resolution frames before anything else was looked at; first two
+    # passing clips per city in search order. Never tune on their results.
+    OverlayClip(
+        video_id="2sS6glBBm8g", region="bottom", window=_W, split="test2",
+        city_override="Amsterdam, Netherlands",
+        overlay="14KM/H N52.365137 E4.891943   (VIOFO A119 Mini 2, bottom left)",
+        note="Amsterdam canal ring, November 2025; titled as a traffic-moments "
+             "video, so it may be cut (the GT window is the longest continuous run).",
+    ),
+    OverlayClip(
+        video_id="GnXsgpVPvww", region="bottom", window=_W, split="test2",
+        city_override="Warsaw, Poland",
+        overlay="decimal lat/lon (bottom)",
+        note="Warsaw city centre, skyscraper district.",
+    ),
+    OverlayClip(
+        video_id="lCm2a3kOEmE", region="bottom", window=_W, split="test2",
+        city_override="Warsaw, Poland",
+        overlay="decimal lat/lon (bottom)",
+        note="Warsaw, south to north along the skyline.",
+    ),
+    OverlayClip(
+        video_id="y2om3vbdcKc", region="bottom", window=_W, split="test2",
+        city_override="Montreal, Canada",
+        overlay="decimal lat/lon (bottom)",
+        note="Montreal north, a 'daily dashcam observations' episode. Ground truth "
+             "FAILED (too few readable fixes) before any run; replaced by the next "
+             "passing Montreal candidate in search order, jur2mWIr9IY.",
+    ),
+    OverlayClip(
+        video_id="jur2mWIr9IY", region="bottom", window=_W, split="test2",
+        city_override="Montreal, Canada",
+        overlay="decimal lat/lon (bottom)",
+        note="Montreal north, another 'daily dashcam observations' episode "
+             "(replaces y2om3vbdcKc; may be cut).",
+    ),
+    OverlayClip(
+        video_id="0jJbdTcDseI", region="bottom", window=_W, split="test2",
+        city_override="Montreal, Canada",
+        overlay="decimal lat/lon (bottom)",
+        note="Titled Montreal; the stamps put the drive on the A440 in Laval, "
+             "a separate municipality north of the island (like Phoenix).",
+    ),
+    OverlayClip(
+        video_id="HpBfjRA60ws", region="bottom", window=_W, split="test2",
+        city_override="Paris, France",
+        overlay="decimal lat/lon (bottom)",
+        note="Rush-hour crossing of Paris on the A1, A3 and the Peripherique.",
+    ),
+    OverlayClip(
+        video_id="1bGf8OD9Fqo", region="bottom", window=_W, split="test2",
+        city_override="Budapest, Hungary",
+        overlay="decimal lat/lon (bottom)",
+        note="Budapest 2020, north along the Danube (screen round 3).",
+    ),
+    OverlayClip(
+        video_id="XO6H3mGMKYg", region="bottom", window=_W, split="test2",
+        city_override="Munich, Germany",
+        overlay="VIOFO A329s decimal lat/lon (bottom)",
+        note="Titled Munich; the drive leaves the city for Germering on the "
+             "Autobahn, so part of it lies outside the named city.",
+    ),
 )
 
 BY_ID = {c.video_id: c for c in CLIPS}

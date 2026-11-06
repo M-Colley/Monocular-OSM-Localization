@@ -225,6 +225,16 @@ OVERLAY_TITLE_CITY: dict[str, str] = {
     "iJ2JvNk4Rmk": "Frankfurt am Main, Germany",
     "SjnUeNH-Kno": "Dublin, Ireland",
     "-1xwoetuoOg": "Sydney, Australia",
+    # held-out set 2 (split="test2", added 2026-11-05)
+    "2sS6glBBm8g": "Amsterdam, Netherlands",
+    "GnXsgpVPvww": "Warsaw, Poland",
+    "lCm2a3kOEmE": "Warsaw, Poland",
+    "y2om3vbdcKc": "Montreal, Canada",
+    "0jJbdTcDseI": "Montreal, Canada",
+    "jur2mWIr9IY": "Montreal, Canada",
+    "HpBfjRA60ws": "Paris, France",
+    "1bGf8OD9Fqo": "Budapest, Hungary",
+    "XO6H3mGMKYg": "Munich, Germany",
 }
 
 

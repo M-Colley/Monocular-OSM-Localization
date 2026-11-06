@@ -637,6 +637,126 @@
       "city_alternatives_notes": {},
       "legacy_city": "Sydney, Australia",
       "available_locally": true
+    },
+    {
+      "id": "overlay_2sS6glBBm8g",
+      "name": "Amsterdam (2sS6glBBm8g)",
+      "fleet": "overlay",
+      "split": "test2",
+      "gt": "ground_truth/overlay_2sS6glBBm8g.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "7fb4eca74f9097cbf79b946600c44a9b4fdeb1f4ba59131f18550f2cc4c8ce93",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=2sS6glBBm8g"
+      },
+      "title": "Amsterdam Dashcam Chaos - Wild Traffic Moments 4K. 🚲😳",
+      "vo_segment": "20:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (3 fixes dropped to edit cuts).",
+      "city": "Amsterdam, Netherlands",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Amsterdam, Netherlands",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_GnXsgpVPvww",
+      "name": "Warsaw (GnXsgpVPvww)",
+      "fleet": "overlay",
+      "split": "test2",
+      "gt": "ground_truth/overlay_GnXsgpVPvww.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "34da04b8d085674921e29cd04677ab998f09db2e345b78f82fb877277982b4b7",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=GnXsgpVPvww"
+      },
+      "title": "WARSAW DRIVING TOUR 2K | Skyscrapers, Downtown |  Driving in Warsaw | Driving in Poland | Dash cam",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Warsaw, Poland",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Warsaw, Poland",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_lCm2a3kOEmE",
+      "name": "Warsaw (lCm2a3kOEmE)",
+      "fleet": "overlay",
+      "split": "test2",
+      "gt": "ground_truth/overlay_lCm2a3kOEmE.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "1a902d9cd0af8d614aa7f61dbe076138534e2e69af877fb6f9bf316ef53544dc",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=lCm2a3kOEmE"
+      },
+      "title": "WARSAW SKYLINE DRIVE 2K | WARSCHAU SKYLINE FAHRT | CONDUCIR POR VARSOVIA | DRIVING IN POLAND",
+      "vo_segment": "0:515",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Warsaw, Poland",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Warsaw, Poland",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_0jJbdTcDseI",
+      "name": "Montreal (0jJbdTcDseI)",
+      "fleet": "overlay",
+      "split": "test2",
+      "gt": "ground_truth/overlay_0jJbdTcDseI.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "6aede3ff754e0711580428454b363cf91c2987d57fd74c37b5eb5a570a6faa35",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=0jJbdTcDseI"
+      },
+      "title": "Driving in Montreal on a Cloudy Day - A440 O",
+      "vo_segment": "5:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Montreal, Canada",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Montreal, Canada",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_HpBfjRA60ws",
+      "name": "Paris (HpBfjRA60ws)",
+      "fleet": "overlay",
+      "split": "test2",
+      "gt": "ground_truth/overlay_HpBfjRA60ws.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "4d07913196516af76cbb95a4544f91f4040bc012f45e2db7ca91d7debf0e41fb",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=HpBfjRA60ws"
+      },
+      "title": "Dashcam: Crossing Paris at Rush Hour - A1, A3, the Peripherique and out on the A10",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Paris, France",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Paris, France",
+      "available_locally": true
     }
   ]
 }
