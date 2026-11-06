@@ -241,7 +241,38 @@
         "R1": "The assisted answer is within 200 m on at least as many test1 clips as the frozen track method was (5 of 7), i.e. the extra stages do not break retrieval-located clips.",
         "R2": "The assisted answer beats the frozen track answer of test1 (ccd0bbe) on more clips than it loses (changes under 10 % are ties; sign test reported, no significance level registered)."
       },
-      "disclosure": "Not a clean held-out test: the test1 results of the earlier frozen method (which clips failed and why: Ottawa's route outside the city disc, Bern's wrong district) were public in docs/heldout_test_2026-10.md from 2026-10-27, before the assisted policy was built. No commit after that record references a test clip id (git log -S / git grep checked 2026-11-05), so no test clip was processed during development. The policy's constants were fixed before its dev fleet run; this replay changes none of them. A clean generalization test needs new held-out clips."
+      "disclosure": "Not a clean held-out test: the test1 results of the earlier frozen method (which clips failed and why: Ottawa's route outside the city disc, Bern's wrong district) were public in docs/heldout_test_2026-10.md from 2026-10-27, before the assisted policy was built. No commit after that record references a test clip id (git log -S / git grep checked 2026-11-05), so no test clip was processed during development. The policy's constants were fixed before its dev fleet run; this replay changes none of them. A clean generalization test needs new held-out clips.",
+      "budget_decision_recorded": {
+        "date": "2026-11-06",
+        "run": "budget14400 (a8add7a, 14,400 s, five clips, warm caches from assisted_v3_fleet_fixed), scored by 5bdae79, no warnings",
+        "symmetric_m_7200_vs_14400": {
+          "overlay_LmIHvLMLqFk": [
+            132.6,
+            132.6
+          ],
+          "overlay_Wrn4_uCxRCQ": [
+            34.6,
+            34.6
+          ],
+          "overlay_g5lnpYCk1Ec": [
+            1387.2,
+            1387.2
+          ],
+          "overlay_kxEDNj5L_yQ": [
+            6024.4,
+            32.8
+          ],
+          "overlay_y66ZkRpUh4k": [
+            6589.6,
+            6589.6
+          ]
+        },
+        "decision": "14,400 s: Atlanta kxEDNj5L_yQ crosses to within 200 m and neither LmIHvLMLqFk nor Wrn4_uCxRCQ leaves it",
+        "applies_to": [
+          "assisted_v3_test1_replay",
+          "test2_2026_11 (assisted)"
+        ]
+      }
     },
     "test2_2026_11": {
       "registered": "2026-11-06",

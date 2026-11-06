@@ -72,3 +72,31 @@ the three failures are compute-limited is measured next: the five timed-out
 clips rerun at `a8add7a` with a 14,400 s budget and nothing else changed
 (run `budget14400`, from copies of the run's prepared inputs, which now hold
 the first run's caches, so its runtimes are warm).
+
+## The 14,400 s rerun (`budget14400`)
+
+The five clips whose `expanded` stage timed out reran at `a8add7a` with a
+14,400 s budget and nothing else changed (scored by `5bdae79`, no warnings).
+Their inputs were copies of the first run's, including its caches, so stages
+that reuse references ran warm (baselines 77-1,902 s instead of ~2,000 s).
+
+| Clip | 7,200 s | 14,400 s | `expanded` at 14,400 s | Selected |
+|---|---|---|---|---|
+| Atlanta `kxEDNj5L_yQ` | 6,024 | **33** | complete, 998 s (metadata regions) | expanded |
+| Atlanta `y66ZkRpUh4k` (night) | 6,590 | 6,590 | complete, 4,122 s | baseline |
+| Newcastle `Wrn4_uCxRCQ` | 35 | 35 | complete, 2,885 s | baseline |
+| Chicago `LmIHvLMLqFk` | 133 | 133 | timed out after 13,552 s (city grid) | baseline |
+| Detroit `g5lnpYCk1Ec` | 1,387 | 1,387 | timed out after 13,220 s (city grid) | baseline |
+
+With the longer budget the assisted policy is **within 200 m on 13 of the 15
+dev clips** (in-sample, with the warm-cache caveat). The two that remain are a
+night drive whose completed expanded search was rightly not selected, and a
+drive mostly outside the city disc whose fallback search, a grid of 27
+municipal cells at 250 then 1,500 references each, does not finish in four
+hours of CPU (Chicago's 47-cell grid neither). That fallback is the policy's
+compute ceiling on a CPU: thousands of reference images to download and embed
+per stage.
+
+By the pre-registered `budget_rule` (one of kxED, y66, g5l crosses to within
+200 m and neither LmIH nor Newcastle leaves it), the held-out assisted runs,
+the test1 replay and test2, use 14,400 s.
