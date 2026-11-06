@@ -201,3 +201,13 @@ def test_stale_or_inconsistent_actual_audit_is_declined(monkeypatch, tmp_path, f
         b["decoded_ref_indices"][1] = 1
     result = worker._comparison(context([a, b], mixed=True), tmp_path)
     assert "unavailable_reason" in result
+
+
+def test_child_env_follows_the_configured_cpu_threads(monkeypatch, tmp_path):
+    _, calls, _ = fake_process(monkeypatch, tmp_path)
+    ctx = parent(tmp_path)
+    ctx.cfg.assisted_cpu_threads = 12
+    worker.run_child("baseline", ctx)
+    env = calls[0][1]["env"]
+    assert {env[k] for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                             "NUMEXPR_NUM_THREADS")} == {"12"}

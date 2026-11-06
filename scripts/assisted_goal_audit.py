@@ -31,6 +31,14 @@ def file_sha(path):
     return value.hexdigest()
 
 
+def expected_cpu_threads(config):
+    """The torch/BLAS threads a run's assisted children were configured with
+    (runs before the option existed recorded none and ran with 4)."""
+    value = (config or {}).get("assisted_cpu_threads", 4)
+    require(type(value) is int and 1 <= value <= 64, "assisted CPU thread setting is invalid")
+    return value
+
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -1130,7 +1138,7 @@ def image_child(files, child, ledger, inputs, cue):
     require(child["provenance"] == _provenance(plan, inputs["video"]["sha256"], indices, times, refs, scores, ids,
                                              evidence["provenance"]), "image full-matrix/input provenance is stale")
     cpu = evidence["provenance"].get("cpu_runtime") or {}
-    require(cpu.get("device") == "cpu" and cpu.get("intra_op_threads") == 4
+    require(cpu.get("device") == "cpu" and cpu.get("intra_op_threads") == expected_cpu_threads(inputs.get("config"))
             and type(cpu.get("inter_op_threads")) is int and cpu["inter_op_threads"] > 0,
             "image acquisition lacks bounded actual CPU runtime proof")
 
@@ -1508,7 +1516,7 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
             if child.get("status") == "complete":
                 if kind in {"baseline", "expanded", "poi_joint", "poi_image_track", "poi_image_union"}:
                     runtime = child["cpu_runtime"]
-                    require(runtime.get("device") == "cpu" and runtime.get("intra_op_threads") == 4
+                    require(runtime.get("device") == "cpu" and runtime.get("intra_op_threads") == expected_cpu_threads(cfg)
                             and type(runtime.get("inter_op_threads")) is int and runtime["inter_op_threads"] > 0
                             and isinstance(runtime.get("torch_version"), str) and bool(runtime["torch_version"])
                             and child.get("model_downloads_disabled") is True, "visual child lacks actual bounded CPU/model runtime proof")

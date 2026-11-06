@@ -6,6 +6,23 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Assisted policy: complete result, budget and CPU threads (November 2026)
+
+- The complete fifteen-clip assisted v3 run (`a8add7a`) is scored with its
+  reviewed comparison adapter (`5bdae79`): 12/15 dev clips within 200 m,
+  median 62 m; all three failures had an `expanded` stage cut off by the
+  7,200 s CPU budget. At 14,400 s Atlanta `kxEDNj5L_yQ` goes from 6,024 to
+  33 m (13/15, in-sample). See `docs/assisted_fleet_2026-11.md`.
+- `--assisted-cpu-threads N` (default 4, as every assisted result so far):
+  the torch/BLAS threads of each assisted visual child. MegaLoc descriptors
+  are unchanged by it (max abs difference 8.7e-7, identical top-5 neighbours
+  on 48 real references) and it is faster: 0.75 s/image at 4 threads, 0.42
+  at 16 on a 20-core CPU. The audit now checks the recorded value (4 for runs
+  that predate the option) instead of a fixed 4.
+- A second held-out split, `test2` (seven clips, six new cities, chosen by a
+  fixed YouTube screen recorded in `benchmarks/test2_screen/`), and the
+  pre-registered comparison `test2_2026_11`.
+
 ### Experimental all-branch POI component
 
 - Added opt-in `--answer poi` / `--poi-only`, using full-window native video

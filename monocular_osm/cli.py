@@ -552,6 +552,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Alias for --answer poi; EXPERIMENTAL video OCR + city POIs + neighborhood imagery.")
     p.add_argument("--assisted-only", action="store_const", const="assisted", dest="answer",
                    help="EXPERIMENTAL fixed input-only assisted policy with isolated component runs.")
+    p.add_argument("--assisted-cpu-threads", type=int, default=4,
+                   help="CPU threads per assisted visual child for torch/BLAS (default 4, as every "
+                        "assisted result so far). More threads give the same retrieval descriptors "
+                        "faster (0.75 s/image at 4, 0.42 at 16 on a 20-core CPU).")
     p.add_argument("--assisted-profile", choices=["v1", "v2", "v3"], default="v1",
                    help="Versioned assisted experiment: v2 uses all OCR regions in one weak-motion image decode; "
                         "v3 preserves v1 stages and adds an experimental full-support metadata reference-mean decode.")
@@ -944,6 +948,7 @@ def main() -> None:
             video_description=effective_description,
             answer=args.answer,
             assisted_profile=args.assisted_profile,
+            assisted_cpu_threads=args.assisted_cpu_threads,
             runtime_budget_s=args.runtime_budget_s,
             runtime_deadline_monotonic_s=runtime_budget.deadline if runtime_budget is not None else None,
             runtime_finalization_reserve_s=args.runtime_finalization_reserve_s,

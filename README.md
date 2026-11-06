@@ -23,9 +23,19 @@ so this is not held-out accuracy. The older `v6` retrieval run also passed
 9/15; its trajectory fit passed 6/15. See
 [the experiment record](docs/experiments_2026-10.md#completed-reliability-baseline-and-coverage-candidates).
 The target of 15/15 within 200 m is not yet achieved. Older tables below are
-historical measurements with their stated code/configuration. The frozen
-seven-clip `test1` evaluation is separate and must finish before its final
-results are reported.
+historical measurements with their stated code/configuration.
+
+**Held-out (`test1`, seven clips from cities never used in development):** the
+retrieval track frozen at `ccd0bbe` is within 200 m on **5/7** (median 84 m;
+city-centre guess 0/7). See [the held-out record](docs/heldout_test_2026-10.md).
+
+**Experimental assisted policy** (`--answer assisted --assisted-profile v3`;
+OCR/POI cues, a road-graph particle filter and wider metadata searches after
+a weak retrieval): **12/15** dev clips within 200 m at a 7,200 s CPU budget
+and **13/15** at 14,400 s (median 62 m). This is in-sample: the policy was
+developed on these clips. Its clean held-out test on seven new clips
+(`split=test2`, pre-registered as `test2_2026_11`) is running. See
+[the assisted fleet record](docs/assisted_fleet_2026-11.md).
 
 The [October research and method tests](docs/recent_methods_2026-10.md) cover
 recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled

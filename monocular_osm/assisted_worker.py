@@ -213,8 +213,9 @@ def run_child(kind, parent):
     path = cfg.output_dir / "request.json"
     _write_result_json(path, _safe(request))
     env = os.environ.copy()
+    threads = str(int(getattr(parent.cfg, "assisted_cpu_threads", 4)))
     for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
-        env[name] = "4"
+        env[name] = threads
     env.update(CUDA_VISIBLE_DEVICES="-1", HF_HUB_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1",
                PYTHONDONTWRITEBYTECODE="1", PROJ_NETWORK="OFF")
     source = Path(__file__).resolve().parents[1]
@@ -945,7 +946,7 @@ def _visual_child(cfg, video, kind, request):
         raise RuntimeError("assisted component requires cached model assets; downloads are disabled")
     torch.hub.download_url_to_file = refuse_download
     try:
-        with torch_cpu_threads(4) as runtime:
+        with torch_cpu_threads(int(getattr(cfg, "assisted_cpu_threads", 4))) as runtime:
             if kind == "poi_image_union":
                 from .assisted_image_union import run_image_union_child
                 candidate = run_image_union_child(cfg, video, request)

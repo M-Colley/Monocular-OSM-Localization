@@ -246,6 +246,13 @@ class PipelineConfig:
     answer: str = "track"
     # Explicitly versioned experimental assisted policy; ordinary answer is unchanged.
     assisted_profile: str = "v1"
+    # CPU threads each assisted visual child gives torch and the BLAS/OpenMP
+    # pools. 4 is what every assisted result so far ran with. More threads
+    # give the same descriptors (MegaLoc on 48 real references: max abs
+    # difference 8.7e-7, identical top-5 neighbours) faster: 0.75 s/image at
+    # 4, 0.59 at 8, 0.49 at 12, 0.42 at 16 on a 20-core CPU, so more search
+    # stages finish inside a fixed wall budget.
+    assisted_cpu_threads: int = 4
     # Shared wall budget; None inherits the benchmark deadline, if supplied.
     runtime_budget_s: float | None = None
     # Internal absolute bound captured by CLI before metadata/setup work.
@@ -379,6 +386,9 @@ class PipelineConfig:
         assisted = self.answer == "assisted"
         if self.assisted_profile not in {"v1", "v2", "v3"}:
             raise ValueError("assisted_profile must be v1, v2 or v3")
+        if (isinstance(self.assisted_cpu_threads, bool) or not isinstance(self.assisted_cpu_threads, int)
+                or not 1 <= self.assisted_cpu_threads <= 64):
+            raise ValueError("assisted_cpu_threads must be an integer from 1 to 64")
         if self.frame_stride is None and not (filter_only or poi_only or assisted):
             self.frame_stride = 6
         if self.frame_stride is not None and self.frame_stride <= 0:
