@@ -13,12 +13,13 @@ would hand to pass 2). Dev clips, in-sample; GT used for scoring only.
 import glob
 import json
 import sys
+from pathlib import Path
 
 import numpy as np
 import psutil
 
 psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
-ROOT = r"C:\Users\markc\Desktop\Monocular-OSM-Localization"
+ROOT = str(Path(__file__).resolve().parents[1])
 sys.path.insert(0, ROOT)
 from monocular_osm.geo import geodesic_distance_m  # noqa: E402
 from monocular_osm.kartaview_vpr import _robust_center, _viterbi_decode  # noqa: E402
