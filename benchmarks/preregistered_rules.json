@@ -242,6 +242,24 @@
         "R2": "The assisted answer beats the frozen track answer of test1 (ccd0bbe) on more clips than it loses (changes under 10 % are ties; sign test reported, no significance level registered)."
       },
       "disclosure": "Not a clean held-out test: the test1 results of the earlier frozen method (which clips failed and why: Ottawa's route outside the city disc, Bern's wrong district) were public in docs/heldout_test_2026-10.md from 2026-10-27, before the assisted policy was built. No commit after that record references a test clip id (git log -S / git grep checked 2026-11-05), so no test clip was processed during development. The policy's constants were fixed before its dev fleet run; this replay changes none of them. A clean generalization test needs new held-out clips."
+    },
+    "test2_2026_11": {
+      "registered": "2026-11-06",
+      "description": "Clean held-out test of the assisted policy v3 (built after test was scored) against the frozen retrieval-track method, on the second held-out split.",
+      "clips": "every manifest clip with split=test2 at the time the runs start (selection: benchmarks/test2_screen/README.md; at registration Amsterdam 2sS6glBBm8g, Warsaw GnXsgpVPvww and lCm2a3kOEmE, Montreal 0jJbdTcDseI, Paris HpBfjRA60ws, with Montreal jur2mWIr9IY, Budapest 1bGf8OD9Fqo and Munich XO6H3mGMKYg pending ground truth). Clips are added only by the screen's fixed rules, never after any test2 result is seen.",
+      "methods": {
+        "track": "commit ccd0bbe defaults (--answer track), the method frozen for test1",
+        "assisted": "commit a8add7a, --assisted-only --assisted-profile=v3, budget chosen by the budget_rule of assisted_v3_test1_replay"
+      },
+      "run": "one cold rep per clip and method, CPU retrieval (the GPU is the user's), --skip-download from the ground-truth builder's own 0-600 s download of each video (the analysis window lies inside it), identical inputs for both methods; scored by each method's own aggregator with the ground truth applied offline",
+      "outcome": "symmetric_mean_m of each method's answer per clip",
+      "hypotheses": {
+        "H1": "The assisted answer is within 200 m on at least as many test2 clips as the track answer.",
+        "H2": "The assisted answer beats the track answer on more clips than it loses (changes under 10 % are ties; one-sided sign test reported, no significance level registered).",
+        "H3": "Each method beats the city-centre guess on more clips than it loses."
+      },
+      "report": "every clip and method, with the share within 200 m and its Wilson 95 % interval, whichever way it comes out; clips whose run fails on infrastructure are rerun at the same commit before any score is looked at",
+      "disclosure": "No development step of either method processed a test2 clip; the clips were chosen from titles, durations and coordinate stamps only. With 5-8 clips only large effects are detectable."
     }
   }
 }
