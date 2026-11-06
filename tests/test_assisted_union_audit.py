@@ -172,7 +172,7 @@ def test_unknown_assisted_profile_declines_before_artifact_access():
     result = audit.audit_assisted({"provenance": {"config": {"assisted_profile": "foreign"},
         "assisted_inputs": {}, "assisted_audit": {}}}, {}, "city", "0:1",
         poi_issues=None, filter_issues=None, reader_issues=None, ocr_identity=None)
-    assert "assisted_profile must be v1, v2 or v3" in str(result["issues"])
+    assert "assisted_profile must be v1, v2, v3 or v4" in str(result["issues"])
 
 
 def test_historical_v1_freeze_without_profile_field_remains_auditable(tmp_path, monkeypatch):

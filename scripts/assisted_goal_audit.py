@@ -18,6 +18,8 @@ RUNTIME_CONFIG_FIELDS = ("runtime_budget_s", "runtime_deadline_monotonic_s",
                          "runtime_finalization_reserve_s", "runtime_cleanup_reserve_s")
 
 
+from monocular_osm.assisted_profiles import V3_FAMILY
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
                                      ensure_ascii=False, allow_nan=False).encode()).hexdigest()
@@ -284,6 +286,42 @@ def comparison(files, value, ledger, window, *, require_all=False):
     return audits
 
 
+def site_child(files, child, ledger, inputs, cue):
+    """Replay sign-site verification from its saved matrices: plan, every
+    site's score, the chosen site, the merged pools and the decoded route."""
+    import numpy as np
+    from monocular_osm.poi_site_verify import (PROFILE, PROFILE_SHA256, decode, merge_pools, plan_sites,
+                                               select_site, sign_rows, site_score)
+    plan = child["site_plan"]
+    require(plan == plan_sites(cue["clues"], cue["ocr_provenance"]), "site plan differs from the native clue branches")
+    require(plan["profile"] == dict(PROFILE) and plan["profile_sha256"] == PROFILE_SHA256 == child["profile_sha256"]
+            and child["uses_rigid_vo"] is False and child["candidate_pruning"] is False
+            and child["retained_branch_count"] == child["successful_branch_count"] == len(plan["sites"])
+            and child["radius_m"] == PROFILE["route_radius_m"] and child["cap"] == PROFILE["route_cap"]
+            and child["query_mode"] == "warp" and child["score_normalization"] == "reference_mean",
+            "sign-site component changed its fixed profile")
+    records = child["evidence_artifacts"]
+    require(len(records) == len(plan["sites"]) + 1, "sign-site component lacks a site or its route pool")
+    base = Path(child["candidate_artifact"]["path"]).parent
+    pools = [load_npz(files.record({**r, "path": base / relative(r["path"])}, ledger)) for r in records]
+    times = np.asarray(pools[-1]["query_times"], float)
+    for pool in pools:
+        require(np.array_equal(pool["query_indices"], pools[-1]["query_indices"])
+                and np.array_equal(np.asarray(pool["query_times"], float), times), "site pools use different query rows")
+    scores = [site_score(pools[k]["similarities"], sign_rows(times, site["sign_times"], plan["sign_margin_s"]))
+              for k, site in enumerate(plan["sites"])]
+    best = select_site(scores)
+    require(np.allclose(scores, child["site_scores"], rtol=0, atol=1e-12) and best == child["chosen_site"],
+            "site scores or the chosen site differ from their saved evidence")
+    ids, latlon, sims = merge_pools(*[([str(i) for i in pools[k]["ref_ids"]], pools[k]["ref_latlon"],
+                                       pools[k]["similarities"]) for k in (best, len(pools) - 1)])
+    decoded = decode(sims, latlon, times)
+    require(ids.tolist() == child["decode_reference_ids"]
+            and decoded["chosen_ref_indices"] == child["chosen_ref_indices"]
+            and np.allclose(decoded["route_latlon"], child["route_latlon"], rtol=0, atol=1e-10)
+            and decoded["route_timestamps"] == child["route_timestamps"], "site route is not its fixed decode")
+
+
 def verify_child(files, record, inputs, before):
     """Bind transport, nested files, source/video/window and selected route."""
     from monocular_osm.assisted_worker import _from_snapshot, child_config
@@ -293,12 +331,14 @@ def verify_child(files, record, inputs, before):
     profile = inputs["config"].get("assisted_profile", "v1")
     allowed = {"baseline", "cues", "poi_joint", "metric_pf", "expanded"}
     allowed.add("poi_image_union" if profile == "v2" else "poi_image_track")
+    if profile == "v4":
+        allowed.add("poi_site")
     require(kind in allowed, "unknown or incompatible reached stage for assisted profile")
     roles = {item["role"]: item for item in record.get("artifacts") or []}
     if not roles:
         require(record.get("status") == "failed" and bool(record.get("error")), "unfrozen child lacks a terminal failure")
         child = {"status": "failed", "error": record["error"]}
-        rebuilt = (child_record(kind, child, files.root, expected=inputs, profile="v3") if profile == "v3"
+        rebuilt = (child_record(kind, child, files.root, expected=inputs, profile=profile) if profile in V3_FAMILY
                    else child_record(kind, child, files.root, expected=inputs))
         require(rebuilt == record, "failed child summary is stale")
         return child, {}
@@ -311,7 +351,7 @@ def verify_child(files, record, inputs, before):
     child = {**candidate, **roles, "worker_returncode": record.get("worker_returncode"), "status": record.get("status")}
     if record.get("reported_status") is not None:
         child.update(reported_status=record["reported_status"], transport_error=record.get("error"))
-    rebuilt = (child_record(kind, child, files.root, expected=inputs, profile="v3") if profile == "v3"
+    rebuilt = (child_record(kind, child, files.root, expected=inputs, profile=profile) if profile in V3_FAMILY
                else child_record(kind, child, files.root, expected=inputs))
     require(rebuilt == record, "child record differs from frozen evidence")
     _, ledger = files.child(base).freeze(base / "child_frozen.json")
@@ -359,7 +399,7 @@ def verify_child(files, record, inputs, before):
                 and answer.get("route_t_sec") == child["route_timestamps"]
                 and (result.get("assisted_metadata_union") or {}).get("artifacts") == child["comparison"]["metadata_union_artifacts"],
                 "new full child answer has ordinary smoothing or stale route/decoder provenance")
-    require(not new_union or profile == "v3" and kind == "expanded", "full metadata comparison outside its explicit v3 expanded stage")
+    require(not new_union or profile in V3_FAMILY and kind == "expanded", "full metadata comparison outside its explicit v3 expanded stage")
     if kind in {"baseline", "expanded"} and child.get("status") == "complete" and not (child.get("comparison") or {}).get("unavailable_reason") and not new_union:
         retrieval_route(candidate, result)
     return child, ledger
@@ -1351,7 +1391,7 @@ def expansion_v3(files, child, ledger, inputs, before, baseline_child):
 
 
 def expansion(files, child, ledger, inputs, before, *, baseline_child=None):
-    if inputs["config"].get("assisted_profile", "v1") == "v3":
+    if inputs["config"].get("assisted_profile", "v1") in V3_FAMILY:
         return expansion_v3(files, child, ledger, inputs, before, baseline_child)
     from monocular_osm.assisted_profiles import resolve_policy
     from monocular_osm.stages.assisted import summary
@@ -1476,10 +1516,12 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
             required_sources |= {"monocular_osm/" + name for name in (
                 "assisted_profiles.py", "assisted_policy_v2.py", "assisted_image_union.py",
                 "poi_image_union.py", "full_sequence.py", "sparse_sequence.py", "geo.py")}
-        elif profile == "v3":
-            policy_source = "monocular_osm/assisted_policy_v3.py"
-            from monocular_osm.stages.assisted import V3_REQUIRED_SOURCES
+        elif profile in V3_FAMILY:
+            policy_source = f"monocular_osm/assisted_policy_{profile}.py"
+            from monocular_osm.stages.assisted import V3_REQUIRED_SOURCES, V4_REQUIRED_SOURCES
             required_sources |= V3_REQUIRED_SOURCES | {"monocular_osm/public_reference_cache.py"}
+            if profile == "v4":
+                required_sources |= V4_REQUIRED_SOURCES
         require(required_sources <= set(declared), "assisted source snapshot omits a required component")
         require(policy["source_sha256"] == declared[policy_source], "policy source is not bound to the parent snapshot")
         files = parent_files(cfg, inputs, audit)
@@ -1506,15 +1548,15 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
             child, ledger = verify_child(files, record, inputs, before)
             children[kind], ledgers[kind] = child, ledger
             new_comparison = is_metadata_union(child.get("comparison"))
-            require(not new_comparison or profile == "v3" and kind == "expanded", "new full comparison reached an incompatible stage/profile")
-            expanded_v3 = profile == "v3" and kind == "expanded" and child.get("status") in {"complete", "partial"}
+            require(not new_comparison or profile in V3_FAMILY and kind == "expanded", "new full comparison reached an incompatible stage/profile")
+            expanded_v3 = profile in V3_FAMILY and kind == "expanded" and child.get("status") in {"complete", "partial"}
             if expanded_v3:
                 expansion(files, child, ledger, inputs, before, baseline_child=children.get("baseline"))
             if child.get("comparison") is not None and not new_comparison and not expanded_v3:
                 comparison(files, child["comparison"], ledger, window,
                            require_all=kind == "expanded" and child.get("status") == "complete")
             if child.get("status") == "complete":
-                if kind in {"baseline", "expanded", "poi_joint", "poi_image_track", "poi_image_union"}:
+                if kind in {"baseline", "expanded", "poi_joint", "poi_image_track", "poi_image_union", "poi_site"}:
                     runtime = child["cpu_runtime"]
                     require(runtime.get("device") == "cpu" and runtime.get("intra_op_threads") == expected_cpu_threads(cfg)
                             and type(runtime.get("inter_op_threads")) is int and runtime["inter_op_threads"] > 0
@@ -1536,7 +1578,7 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                     if child["cues"]["ocr"]["status"] == "complete":
                         result["ocr_models"].append(ocr_identity(child["ocr_provenance"]))
                 elif kind == "expanded":
-                    if profile != "v3":
+                    if profile not in V3_FAMILY:
                         expansion(files, child, ledger, inputs, before)
                 elif kind == "poi_joint":
                     issues = poi_issues({"provenance": {"config": child["config"], "poi_inputs": child["poi_inputs"],
@@ -1548,6 +1590,8 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                     image_child(files, child, ledger, inputs, children["cues"])
                 elif kind == "poi_image_union":
                     image_union_child(files, child, ledger, inputs, children["cues"])
+                elif kind == "poi_site":
+                    site_child(files, child, ledger, inputs, children["cues"])
                 elif kind == "metric_pf":
                     require(child["metric_preflight"] == children["cues"]["metric_preflight"], "PF child replaced its native preflight")
                     measured = metric_package(files, child["metric_preflight"], ledgers["cues"], inputs, children["cues"]["auto_quality"])
@@ -1565,7 +1609,7 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
                     require(not issues, "; ".join(issues))
                     graph = child["filter_inputs"]["map"]
                     require(file_sha(graph["cache_path"]) == graph["sha256"], "PF whole-city map database changed")
-            derived = summary(kind, child, profile="v3") if profile == "v3" else summary(kind, child)
+            derived = summary(kind, child, profile=profile) if profile in V3_FAMILY else summary(kind, child)
             require(record["summary"] == derived, "reached stage scalars are not derived from its frozen candidate")
             evidence[kind] = derived
             require(trace_inputs[index] == evidence and trace[index] == decide_assisted_policy(evidence), "assisted decision replay differs")

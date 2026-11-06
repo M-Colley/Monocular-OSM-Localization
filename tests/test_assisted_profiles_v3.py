@@ -26,7 +26,7 @@ def test_old_default_and_constants_stay_v1(tmp_path):
     assert v3.policy_config()["metadata_union_primary"] == "reference_mean"
 
 
-@pytest.mark.parametrize("profile", ["latest", "V3", "v4", "", None])
+@pytest.mark.parametrize("profile", ["latest", "V3", "v5", "", None])
 def test_unknown_profiles_refuse_without_fallback(tmp_path, profile):
     with pytest.raises(ValueError):
         resolve_policy(profile)

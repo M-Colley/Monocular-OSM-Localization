@@ -18,11 +18,13 @@ from .provenance import config_snapshot, file_sha256, snapshot_sources
 from .stages.poi_only import _safe
 from .stages.report import _write_result_json
 
-KINDS = {"baseline", "cues", "poi_joint", "poi_image_track", "poi_image_union", "metric_pf", "expanded"}
+KINDS = {"baseline", "cues", "poi_joint", "poi_image_track", "poi_image_union", "poi_site", "metric_pf", "expanded"}
 PATH_FIELDS = {"data_dir", "output_dir", "video_path", "poi_map_path", "poi_inventory_dir",
                "graph_filter_map_path", "ground_truth_waypoints", "openvo_trajectory_path",
                "vggt_long_trajectory_path", "ocr_video_path", "vpr_region_cache_dir"}
 
+
+from .assisted_profiles import V3_FAMILY
 
 def _array_sha(value):
     array = np.ascontiguousarray(value)
@@ -47,7 +49,7 @@ def child_config(cfg, kind, video_path):
         raise ValueError(f"unknown assisted child {kind}")
     output = cfg.output_dir / "children" / kind
     data = cfg.data_dir if kind == "baseline" else cfg.data_dir / "assisted" / (
-        "native" if kind in {"cues", "poi_joint", "poi_image_track", "poi_image_union"} else kind) / cfg.data_dir.name
+        "native" if kind in {"cues", "poi_joint", "poi_image_track", "poi_image_union", "poi_site"} else kind) / cfg.data_dir.name
     changes = dict(answer="track", retrieval_only=False, output_dir=output, data_dir=data,
                    video_path=Path(video_path), skip_download=False,
                    ground_truth_waypoints=None, ground_truth_streets=())
@@ -62,6 +64,8 @@ def child_config(cfg, kind, video_path):
             use_ipm_scale=False, use_ground_flow_scale=False)
         if kind in {"poi_image_track", "poi_image_union"}:
             changes.update(vpr_query_mode="crops", poi_radius_m=3000., poi_ref_cap=1500)
+        if kind == "poi_site":
+            changes.update(vpr_query_mode="warp")
         if kind == "metric_pf":
             changes.update(answer="filter", frame_stride=None, graph_filter=True,
                 graph_filter_particles=600_000, graph_filter_seed=0, graph_filter_target_hz=10.,
@@ -208,7 +212,7 @@ def run_child(kind, parent):
             getattr(parent, "assisted_worker_outcomes", {}).get("baseline"), cfg,
             execution_id=execution_id, video_sha256=request["video_sha256"],
             source_sha256=request["source_sha256"], child_root=parent.assisted_child_root)
-        if getattr(parent.cfg,"assisted_profile","v1") == "v3":
+        if getattr(parent.cfg,"assisted_profile","v1") in V3_FAMILY:
             request["metadata_union_baseline"] = _metadata_baseline_binding(parent,request)
     path = cfg.output_dir / "request.json"
     _write_result_json(path, _safe(request))
@@ -684,7 +688,7 @@ def _metadata_admission_v3(ctx,request):
 
 
 def _metadata_admission(ctx, request):
-    if getattr(ctx.cfg,"assisted_profile","v1") == "v3":
+    if getattr(ctx.cfg,"assisted_profile","v1") in V3_FAMILY:
         return _metadata_admission_v3(ctx,request)
     from .assisted_profiles import resolve_policy
     decide_assisted_policy = resolve_policy(getattr(ctx.cfg, "assisted_profile", "v1")).decide_assisted_policy
@@ -724,7 +728,7 @@ def _pipeline_child(cfg, kind, request=None):
         if kind in {"baseline", "expanded"}:
             from .public_reference_cache import track_scope, seal_pool_audits
             with track_scope(cfg, kind, (request or {}).get("public_reference_reuse"), expected=request) as calls:
-                if kind == "expanded" and getattr(cfg,"assisted_profile","v1") == "v3":
+                if kind == "expanded" and getattr(cfg,"assisted_profile","v1") in V3_FAMILY:
                     ctx.assisted_public_reference_calls = calls
                 result = pipeline._run_pipeline_stages(ctx)
             audits = getattr(ctx, "retrieval_audits", [])
@@ -736,7 +740,7 @@ def _pipeline_child(cfg, kind, request=None):
                 seal_pool_audits(audits, cfg)
         else:
             result = pipeline._run_pipeline_stages(ctx)
-        if kind == "expanded" and getattr(cfg,"assisted_profile","v1") == "v3" and getattr(ctx,"assisted_metadata_union_selected",None) is not None:
+        if kind == "expanded" and getattr(cfg,"assisted_profile","v1") in V3_FAMILY and getattr(ctx,"assisted_metadata_union_selected",None) is not None:
             selected = ctx.assisted_metadata_union_selected
             _verify_metadata_union_artifacts(selected["artifacts"])
             from .position import build_answer_report,plot_answer
@@ -844,6 +848,82 @@ def _image_child(cfg, video, request):
             ctx.frames.close()
 
 
+
+def _site_child(cfg, video, request):
+    """Sign-site verification (:mod:`monocular_osm.poi_site_verify`): dense
+    pools around every literal branch's shops, the site whose imagery the
+    sign-read frames match best, then the route decode over that site's dense
+    pool plus its route-scale pool. Same native grid as the cues stage."""
+    from .poi_site_verify import (PROFILE, PROFILE_SHA256, decode, merge_pools, plan_sites, select_site,
+                                  sign_rows, site_score)
+    from .stages.context import RunContext
+    from .stages.acquire import extract_video_frames
+    from .stages.poi_only import _retrieval
+    cue = _load_cues(request)
+    plan = plan_sites(cue["clues"], cue["ocr_provenance"])
+    _write_result_json(cfg.output_dir / "site_plan.json", _safe(plan))
+    ctx = RunContext.create(cfg)
+    ctx.video_path = video
+    query_cache = {}
+    try:
+        extract_video_frames(ctx)
+        if list(ctx.frames.frames[0].shape[:2]) != cue["ocr_provenance"]["frame_shape_hw"]:
+            raise ValueError("site query pixels and native OCR boxes use different grids")
+        auto = cue["auto_quality"]
+        window = [cfg.vo_start_sec, cfg.vo_end_sec]
+        if (cue.get("window") != window or auto.get("window") != window
+                or auto.get("stride") != cfg.frame_stride or auto.get("fps") != float(ctx.frames.fps)
+                or auto.get("n_frames") != len(ctx.frames.frames)
+                or auto.get("timestamps_sha256") != _array_sha(np.asarray(ctx.frames.timestamps, float))):
+            raise ValueError("site acquisition differs from its frozen native cue grid/window")
+        inputs = {"inventory": cue["inventory"], "evidence_artifacts": []}
+        retrieve = _retrieval(ctx, inputs)
+
+        def evidence_at(center, radius_m, cap):
+            ev = retrieve(ctx.frames.frames, ctx.frames.timestamps, tuple(center), radius_m=float(radius_m),
+                          cap=int(cap), n_query=PROFILE["queries"], query_cache=query_cache)
+            indices = np.asarray(ev["query_indices"], int)
+            if not np.array_equal(np.asarray(ev["query_times"]), np.asarray(ctx.frames.timestamps)[indices]):
+                raise ValueError("site evidence query rows differ from actual native video times")
+            return ev
+
+        sites, scores = [], []
+        for site in plan["sites"]:
+            ev = evidence_at(site["center"], PROFILE["site_radius_m"], PROFILE["site_cap"])
+            rows = sign_rows(ev["query_times"], site["sign_times"], plan["sign_margin_s"])
+            scores.append(site_score(ev["similarities"], rows))
+            sites.append({"index": site["index"], "evidence": ev, "sign_rows": rows.tolist(),
+                          "reference_count": len(ev["ref_ids"])})
+        best = select_site(scores)
+        dense = sites[best]["evidence"]
+        route = evidence_at(plan["sites"][best]["center"], PROFILE["route_radius_m"], PROFILE["route_cap"])
+        if not np.array_equal(np.asarray(dense["query_indices"]), np.asarray(route["query_indices"])):
+            raise ValueError("dense and route pools describe different query frames")
+        ids, latlon, similarities = merge_pools(
+            ([str(i) for i in dense["ref_ids"]], dense["ref_latlon"], dense["similarities"]),
+            ([str(i) for i in route["ref_ids"]], route["ref_latlon"], route["similarities"]))
+        decoded = decode(similarities, latlon, np.asarray(route["query_times"], float))
+        candidate = {"status": "complete", "experimental": True, "validation_status": "posthoc_dev_unvalidated",
+            "confidence_calibrated": False, "uses_rigid_vo": False, "candidate_pruning": False,
+            "retained_branch_count": len(plan["sites"]), "successful_branch_count": len(sites),
+            "profile_sha256": PROFILE_SHA256, "radius_m": PROFILE["route_radius_m"], "cap": PROFILE["route_cap"],
+            "query_mode": PROFILE["query_mode"], "score_normalization": PROFILE["score_normalization"],
+            "point_count": len(decoded["route_timestamps"]), "route_valid": True,
+            "query_indices": np.asarray(route["query_indices"], int).tolist(),
+            "site_plan": plan, "site_scores": scores, "chosen_site": best,
+            "site_reference_counts": [s["reference_count"] for s in sites],
+            "site_sign_rows": [s["sign_rows"] for s in sites],
+            "decode_reference_ids": ids.tolist(), **decoded,
+            "evidence_artifacts": inputs["evidence_artifacts"],
+            "acquisition": {"stride": cfg.frame_stride, "n_frames": len(ctx.frames.frames),
+                            "timestamps_sha256": _array_sha(np.asarray(ctx.frames.timestamps, float))}}
+        _write_result_json(cfg.output_dir / "site_prediction.json", _safe(candidate))
+        return candidate
+    finally:
+        query_cache.clear()
+        if ctx.frames is not None:
+            ctx.frames.close()
+
 def _metric_child(cfg, video, request):
     from types import SimpleNamespace
     from .assisted_motion import load_metric_inputs
@@ -950,6 +1030,8 @@ def _visual_child(cfg, video, kind, request):
             if kind == "poi_image_union":
                 from .assisted_image_union import run_image_union_child
                 candidate = run_image_union_child(cfg, video, request)
+            elif kind == "poi_site":
+                candidate = _site_child(cfg, video, request)
             else:
                 candidate = (_image_child(cfg, video, request) if kind == "poi_image_track"
                              else _pipeline_child(cfg, kind, request))
@@ -1101,7 +1183,7 @@ def _valid_audit(audit, timestamps=None):
 
 def _comparison(ctx, output):
     selected = getattr(ctx,"assisted_metadata_union_selected",None)
-    if getattr(getattr(ctx,"cfg",None),"assisted_profile","v1") == "v3" and selected is not None:
+    if getattr(getattr(ctx,"cfg",None),"assisted_profile","v1") in V3_FAMILY and selected is not None:
         from .assisted_comparison import union_summary
         _verify_metadata_union_artifacts(selected["artifacts"])
         c = deepcopy(selected["comparison"])

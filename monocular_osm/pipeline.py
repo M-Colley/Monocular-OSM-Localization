@@ -384,8 +384,8 @@ class PipelineConfig:
         filter_only = self.answer == "filter"
         poi_only = self.answer == "poi"
         assisted = self.answer == "assisted"
-        if self.assisted_profile not in {"v1", "v2", "v3"}:
-            raise ValueError("assisted_profile must be v1, v2 or v3")
+        if self.assisted_profile not in {"v1", "v2", "v3", "v4"}:
+            raise ValueError("assisted_profile must be v1, v2, v3 or v4")
         if (isinstance(self.assisted_cpu_threads, bool) or not isinstance(self.assisted_cpu_threads, int)
                 or not 1 <= self.assisted_cpu_threads <= 64):
             raise ValueError("assisted_cpu_threads must be an integer from 1 to 64")

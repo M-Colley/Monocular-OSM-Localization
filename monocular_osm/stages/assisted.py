@@ -10,7 +10,7 @@ import re
 import uuid
 import numpy as np
 from ..assisted_policy import CONFIG_SHA256, POLICY_VERSION, decide_assisted_policy, policy_config
-from ..assisted_profiles import resolve_policy
+from ..assisted_profiles import V3_FAMILY, resolve_policy
 from ..provenance import config_snapshot, file_sha256, snapshot_sources
 from .context import _record_channel
 from .poi_only import _safe
@@ -19,8 +19,10 @@ from .report import _write_result_json
 REQUESTS = {"request_ocr_vo": "cues", "request_poi_joint": "poi_joint",
             "request_poi_image_track": "poi_image_track", "request_metric_pf": "metric_pf",
             "request_poi_image_union": "poi_image_union",
+            "request_poi_site": "poi_site",
             "request_expanded_retrieval": "expanded"}
 HASH = re.compile(r"[a-f0-9]{64}")
+V4_REQUIRED_SOURCES = {"monocular_osm/assisted_policy_v4.py", "monocular_osm/poi_site_verify.py"}
 STATISTIC = "raw_cosine_at_decoded_reference"
 V3_REQUIRED_SOURCES = {
     "monocular_osm/assisted_policy_v3.py", "monocular_osm/assisted_comparison.py",
@@ -80,7 +82,7 @@ def score_identity(comparison):
 
 def summary(kind, child, *, profile="v1"):
     """Derive scalar inputs from actual decoded evidence, never rounded confidence."""
-    if profile == "v3":
+    if profile in V3_FAMILY:
         return summary_v3(kind, child)
     status = child.get("status", "failed")
     if status not in {"complete", "partial", "failed", "unavailable"}:
@@ -204,7 +206,7 @@ def child_record(kind, child, output, expected=None, *, profile="v1"):
     return {"kind": kind, "status": child.get("status", "failed"), "artifacts": artifacts,
             "source_sha256": deepcopy(child.get("source_sha256") or {}),
             "route_sha256": digest(child["route_latlon"]) if route is not None else None,
-            "summary": (summary(kind, child, profile="v3") if profile == "v3" else summary(kind, child)),
+            "summary": (summary(kind, child, profile=profile) if profile in V3_FAMILY else summary(kind, child)),
             "error": child.get("error") or child.get("transport_error"),
             "worker_returncode": child.get("worker_returncode"), "reported_status": child.get("reported_status"),
             "comparison": deepcopy(child.get("comparison")) if kind in {"baseline", "expanded"} else None}
@@ -226,9 +228,10 @@ def begin(ctx):
         "policy": {"version": policy.POLICY_VERSION, "config": policy.policy_config(), "config_sha256": policy.CONFIG_SHA256,
                    "source_sha256": file_sha256(Path(policy.__file__))},
         "source_sha256": snapshot_sources(sources, ctx.cfg.output_dir), "config": config_snapshot(ctx.cfg)}
-    if getattr(ctx.cfg, "assisted_profile", "v1") == "v3":
+    if getattr(ctx.cfg, "assisted_profile", "v1") in V3_FAMILY:
         declared = {name.replace("\\", "/") for name in inputs["source_sha256"]}
-        if not V3_REQUIRED_SOURCES <= declared:
+        required = V3_REQUIRED_SOURCES | (V4_REQUIRED_SOURCES if ctx.cfg.assisted_profile == "v4" else set())
+        if not required <= declared:
             raise ValueError("v3 source snapshot omits an executed comparison/metadata component")
     ctx.result["assisted_inputs"] = inputs
     _write_result_json(ctx.cfg.output_dir / "assisted_inputs.json", _safe(inputs))
@@ -330,7 +333,7 @@ def run_assisted(ctx, *, finalize, run_child=None):
             if budget is not None:
                 budget.require_work(kind)
             ctx.assisted_evidence = deepcopy(evidence)
-            if profile == "v3" and kind == "expanded":
+            if profile in V3_FAMILY and kind == "expanded":
                 ctx.assisted_baseline_child = deepcopy(children.get("baseline", {}))
             child = _safe(run_child(kind, ctx))
             record = child_record(kind, child, ctx.cfg.output_dir, ctx.result["assisted_inputs"], profile=profile)

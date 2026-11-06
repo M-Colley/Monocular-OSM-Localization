@@ -556,7 +556,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="CPU threads per assisted visual child for torch/BLAS (default 4, as every "
                         "assisted result so far). More threads give the same retrieval descriptors "
                         "faster (0.75 s/image at 4, 0.42 at 16 on a 20-core CPU).")
-    p.add_argument("--assisted-profile", choices=["v1", "v2", "v3"], default="v1",
+    p.add_argument("--assisted-profile", choices=["v1", "v2", "v3", "v4"], default="v1",
                    help="Versioned assisted experiment: v2 uses all OCR regions in one weak-motion image decode; "
                         "v3 preserves v1 stages and adds an experimental full-support metadata reference-mean decode.")
     p.add_argument("--runtime-budget-s", type=float, default=None,
