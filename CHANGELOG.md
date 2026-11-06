@@ -21,7 +21,13 @@ All notable changes to this project are documented here. This project adheres to
   that predate the option) instead of a fixed 4.
 - A second held-out split, `test2` (seven clips, six new cities, chosen by a
   fixed YouTube screen recorded in `benchmarks/test2_screen/`), and the
-  pre-registered comparison `test2_2026_11`.
+  pre-registered comparison `test2_2026_11`. Assisted v3 (`a8add7a`, 14,400 s)
+  is within 200 m on 2/7 test2 clips (dev 13/15); the track run is pending.
+  See `docs/heldout_test2_2026-11.md`.
+- Audit fix: descriptor receipts in the metadata-union research bundle are
+  compared with the declared `kartaview_vpr.py` hash under POSIX and Windows
+  path keys alike. Before, Windows runs with receipts failed the check, and runs
+  without receipts passed it without comparing anything.
 
 ### Experimental all-branch POI component
 

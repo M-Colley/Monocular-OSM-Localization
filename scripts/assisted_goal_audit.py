@@ -50,6 +50,18 @@ def sha_string(value):
     return isinstance(value, str) and re.fullmatch(r"[a-fA-F0-9]{64}", value) is not None
 
 
+def posix_sources(declared):
+    """Source-hash map keyed by POSIX paths (Windows runs record ``monocular_osm\\x.py``)."""
+    return {str(key).replace("\\", "/"): value for key, value in declared.items()}
+
+
+def descriptor_receipts_match_source(receipts, declared):
+    """Every descriptor receipt names the run's own declared ``kartaview_vpr.py``
+    (vacuous when there are no receipts; never satisfied by two missing hashes)."""
+    source = posix_sources(declared).get("monocular_osm/kartaview_vpr.py")
+    return not receipts or sha_string(source) and all(r["receipt"].get("kv_source_sha256") == source for r in receipts)
+
+
 def finite(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
@@ -854,8 +866,8 @@ def metadata_union_component(files, child, ledger, inputs, before, gate, baselin
     require(file_sha(directory / "union_plan.json") == file_sha(plan_path), "new research replaced the frozen original all-call plan")
     controls = load_json(directory / "controls.json")
     require(controls["reference_encoding_identity"] == "UNVERIFIED legacy reference fingerprints retained", "historical encoding identity upgraded")
-    require(all(r["receipt"].get("kv_source_sha256") == inputs["source_sha256"].get("monocular_osm/kartaview_vpr.py")
-                for r in controls["descriptor_evidence"]), "descriptor receipt source is not the actual frozen retrieval implementation")
+    require(descriptor_receipts_match_source(controls["descriptor_evidence"], inputs["source_sha256"]),
+            "descriptor receipt source is not the actual frozen retrieval implementation")
     def control_source(freeze, candidate_path, request_path, comp, expected):
         return {"freeze": str(freeze), "freeze_sha256": file_sha(freeze), "candidate": str(candidate_path),
                 "candidate_sha256": file_sha(candidate_path), "identity": expected, "request": str(request_path),

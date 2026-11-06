@@ -33,9 +33,12 @@ city-centre guess 0/7). See [the held-out record](docs/heldout_test_2026-10.md).
 OCR/POI cues, a road-graph particle filter and wider metadata searches after
 a weak retrieval): **12/15** dev clips within 200 m at a 7,200 s CPU budget
 and **13/15** at 14,400 s (median 62 m). This is in-sample: the policy was
-developed on these clips. Its clean held-out test on seven new clips
-(`split=test2`, pre-registered as `test2_2026_11`) is running. See
-[the assisted fleet record](docs/assisted_fleet_2026-11.md).
+developed on these clips. On its clean held-out test, seven new clips from six
+new cities (`split=test2`, pre-registered as `test2_2026_11`), it reaches only
+**2/7** within 200 m (median 518 m; city-centre guess 0/7): the dev result
+does not carry over. The frozen track's run on the same clips is pending. See
+[the assisted fleet record](docs/assisted_fleet_2026-11.md) and
+[the test2 record](docs/heldout_test2_2026-11.md).
 
 The [October research and method tests](docs/recent_methods_2026-10.md) cover
 recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled
