@@ -27,3 +27,17 @@ Ground truth is built by `scripts/build_overlay_fleet.py` from the stamps; a
 clip whose build fails (Montreal `y2om3vbdcKc`: too few readable fixes) is
 dropped and replaced by the next passing clip of the same city
 (`jur2mWIr9IY`), a rule that uses no localization result.
+
+**Round 4 (2026-11-06, after YouTube answered again; throttled to one request
+per 15 s):** `screen4.py` / `screen4.json` screened the six cities round 3 did
+not reach (14 eligible videos, no stamp) and re-checked the four round-3
+videos with a thumbnail stamp but no verified frame: Rotterdam and Calgary are
+unavailable, the Budapest one (a Budapest-to-Sofia trip) has no readable
+stamp at full resolution, the Munich one reads stamps far from Munich. None
+passes. The replacement Montreal clip `jur2mWIr9IY` also failed its ground
+truth build (too few readable fixes) and no passing Montreal clip remains.
+
+**Final test2 set: 7 clips in 6 cities** - Amsterdam `2sS6glBBm8g`, Warsaw
+`GnXsgpVPvww` and `lCm2a3kOEmE`, Montreal `0jJbdTcDseI` (drives in Laval),
+Paris `HpBfjRA60ws`, Budapest `1bGf8OD9Fqo`, Munich `XO6H3mGMKYg` (drives
+toward Germering). Selection closed before any run on any of them.
