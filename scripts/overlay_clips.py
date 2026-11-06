@@ -217,7 +217,8 @@ CLIPS: tuple[OverlayClip, ...] = (
         city_override="Montreal, Canada",
         overlay="decimal lat/lon (bottom)",
         note="Montreal north, another 'daily dashcam observations' episode "
-             "(replaces y2om3vbdcKc; may be cut).",
+             "(replaces y2om3vbdcKc). Ground truth FAILED too (too few readable "
+             "fixes); no passing Montreal candidate remains.",
     ),
     OverlayClip(
         video_id="0jJbdTcDseI", region="bottom", window=_W, split="test2",

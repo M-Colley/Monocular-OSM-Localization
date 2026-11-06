@@ -27,6 +27,13 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-24T18:52:38+00:00"
   },
+  "Budapest, Hungary": {
+    "lat": 47.4978789,
+    "lon": 19.0402383,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T03:53:02+00:00"
+  },
   "Chicago, Illinois, USA": {
     "lat": 41.8755616,
     "lon": -87.6244212,
@@ -61,6 +68,13 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-11-06T01:22:52+00:00"
+  },
+  "Munich, Germany": {
+    "lat": 48.1371079,
+    "lon": 11.5753822,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T03:53:03+00:00"
   },
   "NYC, New York, USA": {
     "lat": 40.7127281,

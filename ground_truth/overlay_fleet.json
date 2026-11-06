@@ -315,6 +315,36 @@
       "n_fixes": 117,
       "span_km": 14.852,
       "note": "Rush-hour crossing of Paris on the A1, A3 and the Peripherique."
+    },
+    {
+      "video_id": "1bGf8OD9Fqo",
+      "name": "Budapest (1bGf8OD9Fqo)",
+      "slug": "1bgf8od9fqo-budapest-2020-with-dash-cam-vol-1",
+      "title": "Budapest 2020 with Dash Cam Vol. 1",
+      "city": "Budapest, Hungary",
+      "video": "data/1bgf8od9fqo-budapest-2020-with-dash-cam-vol-1/input_0-600.mp4",
+      "ground_truth": "ground_truth/overlay_1bGf8OD9Fqo.json",
+      "osm_around": "47.501510,19.049271,3234",
+      "vo_segment": "4:597",
+      "n_dropped_to_cuts": 0,
+      "n_fixes": 119,
+      "span_km": 5.474,
+      "note": "Budapest 2020, north along the Danube (screen round 3)."
+    },
+    {
+      "video_id": "XO6H3mGMKYg",
+      "name": "Munich (XO6H3mGMKYg)",
+      "slug": "xo6h3mgmkyg-driving-to-germering-via-autobahn-munich-germany-viofo-a329s-dashcam",
+      "title": "Driving to Germering via Autobahn 🇩🇪 | Munich, Germany | VIOFO A329s Dashcam 4K",
+      "city": "Munich, Germany",
+      "video": "data/xo6h3mgmkyg-driving-to-germering-via-autobahn-munich-germany-viofo-a329s-dashcam/input_0-600.mp4",
+      "ground_truth": "ground_truth/overlay_XO6H3mGMKYg.json",
+      "osm_around": "48.028650,11.596800,1495",
+      "vo_segment": "75:250",
+      "n_dropped_to_cuts": 69,
+      "n_fixes": 36,
+      "span_km": 2.201,
+      "note": "Titled Munich; the drive leaves the city for Germering on the Autobahn, so part of it lies outside the named city."
     }
   ]
 }

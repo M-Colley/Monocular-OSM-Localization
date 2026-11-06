@@ -1,0 +1,110 @@
+{
+  "video_id": "1bGf8OD9Fqo",
+  "video_url": "https://www.youtube.com/watch?v=1bGf8OD9Fqo",
+  "city": "Budapest, Hungary",
+  "vo_segment": "4:596",
+  "description": "Budapest 2020, north along the Danube (screen round 3). Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 119 OCR fixes over 5-597 s (5.47 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": 47.478931,
+      "lon": 19.059851
+    },
+    {
+      "t_sec": 34.8,
+      "lat": 47.480282,
+      "lon": 19.058596
+    },
+    {
+      "t_sec": 64.6,
+      "lat": 47.482406,
+      "lon": 19.056055
+    },
+    {
+      "t_sec": 104.4,
+      "lat": 47.485278,
+      "lon": 19.052722
+    },
+    {
+      "t_sec": 134.2,
+      "lat": 47.487061,
+      "lon": 19.050791
+    },
+    {
+      "t_sec": 164.1,
+      "lat": 47.489071,
+      "lon": 19.048653
+    },
+    {
+      "t_sec": 193.9,
+      "lat": 47.490389,
+      "lon": 19.047327
+    },
+    {
+      "t_sec": 223.7,
+      "lat": 47.491895,
+      "lon": 19.045793
+    },
+    {
+      "t_sec": 258.5,
+      "lat": 47.494946,
+      "lon": 19.043321
+    },
+    {
+      "t_sec": 288.4,
+      "lat": 47.498161,
+      "lon": 19.041547
+    },
+    {
+      "t_sec": 318.2,
+      "lat": 47.50144,
+      "lon": 19.040424
+    },
+    {
+      "t_sec": 348.0,
+      "lat": 47.503833,
+      "lon": 19.039923
+    },
+    {
+      "t_sec": 382.8,
+      "lat": 47.507479,
+      "lon": 19.03963
+    },
+    {
+      "t_sec": 412.6,
+      "lat": 47.510262,
+      "lon": 19.039594
+    },
+    {
+      "t_sec": 442.5,
+      "lat": 47.51062,
+      "lon": 19.039616
+    },
+    {
+      "t_sec": 472.3,
+      "lat": 47.512492,
+      "lon": 19.039718
+    },
+    {
+      "t_sec": 502.1,
+      "lat": 47.515096,
+      "lon": 19.0401
+    },
+    {
+      "t_sec": 536.9,
+      "lat": 47.517578,
+      "lon": 19.039459
+    },
+    {
+      "t_sec": 566.8,
+      "lat": 47.520158,
+      "lon": 19.038784
+    },
+    {
+      "t_sec": 596.6,
+      "lat": 47.524089,
+      "lon": 19.039221
+    }
+  ]
+}

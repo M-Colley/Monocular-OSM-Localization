@@ -757,6 +757,54 @@
       "city_alternatives_notes": {},
       "legacy_city": "Paris, France",
       "available_locally": true
+    },
+    {
+      "id": "overlay_1bGf8OD9Fqo",
+      "name": "Budapest (1bGf8OD9Fqo)",
+      "fleet": "overlay",
+      "split": "test2",
+      "gt": "ground_truth/overlay_1bGf8OD9Fqo.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "762d30c93f4ca4a57ed3629949bc748d082852c48608d5aa9f0a5ac4a424e57c",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=1bGf8OD9Fqo"
+      },
+      "title": "Budapest 2020 with Dash Cam Vol. 1",
+      "vo_segment": "4:597",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Budapest, Hungary",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Budapest, Hungary",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_XO6H3mGMKYg",
+      "name": "Munich (XO6H3mGMKYg)",
+      "fleet": "overlay",
+      "split": "test2",
+      "gt": "ground_truth/overlay_XO6H3mGMKYg.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "2785ea9c7c3e42c89f223e0968c092f1acb3fcb4d9d6219fa0a1b65bd05a1bed",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=XO6H3mGMKYg"
+      },
+      "title": "Driving to Germering via Autobahn 🇩🇪 | Munich, Germany | VIOFO A329s Dashcam 4K",
+      "vo_segment": "75:250",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (69 fixes dropped to edit cuts).",
+      "city": "Munich, Germany",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Munich, Germany",
+      "available_locally": true
     }
   ]
 }
