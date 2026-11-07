@@ -216,6 +216,44 @@ built from this clip). Detroit is not, and the reasons are now known:
   is right, the freeway imagery cannot place the 8.5 km route. An exit-number
   cue would need VO or road-graph alignment, not image decoding; not built.
 
-The complete fifteen-clip v4 run (`assisted_v4_fleet`, HEAD after `409a959`,
-16 threads, 14,400 s, warm copies of the v3 fleet inputs) runs after the
-held-out track run; v4 is in-sample on dev and untested on held-out data.
+## Policy v4: the complete fifteen-clip run
+
+`assisted_v4_fleet`: clean worktree at `409a959`, `--assisted-only
+--assisted-profile=v4 --assisted-cpu-threads=16`, 14,400 s budget, one rep,
+warm copies of the v3 fleet inputs (`E:/claude-scoring/v4fleet/data`), every
+clip `rc=0`. Scored offline by the HEAD aggregator; the strict artifact audit
+(`scripts/check_dev_goal.py`) passes every clip's evidence, and its only
+failing reason is Detroit's 200 m outcome.
+
+| Clip | Answer, symmetric (m) | Selected stage | Wall (s) |
+|---|---|---|---|
+| Ulm 4K (`ULl8s4qydrk`), 0-300 s | 16 | baseline | 772 |
+| Ulm #2 (`LC9Sa--u5KE`) | 43 | baseline | 89 |
+| Berlin (`lBlKR2ek0w4`), 0-420 s | 135 | baseline | 209 |
+| London (`T4wTL3LpLqU`) | 62 | baseline | 89 |
+| KITTI 2011_09_26 drive 0009 | 13 | poi_joint | 3,164 |
+| KITTI 2011_09_30 drive 0033 | 5 | metric_pf | 1,835 |
+| Chicago (`vCSEG6KaFng`) | 169 | baseline | 170 |
+| Chicago (`LmIHvLMLqFk`) | 133 | baseline | 6,599 |
+| Phoenix (`wJsEQTCAg1c`) | 28 | expanded | 576 |
+| Detroit (`ZhGb8q1kliY`) | 55 | baseline | 128 |
+| Detroit (`1nF_7l07i-E`) | 78 | baseline | 162 |
+| Detroit (`g5lnpYCk1Ec`) | **1,387** | baseline | 7,823 |
+| Atlanta (`y66ZkRpUh4k`, night) | 43 | poi_site | 2,840 |
+| Atlanta (`kxEDNj5L_yQ`) | 33 | expanded | 1,516 |
+| Newcastle (`Wrn4_uCxRCQ`) | 35 | baseline | 14,276 |
+
+**14 of 15 within 200 m** (93 %, Wilson 95 % 70-99 %), median 43 m, against
+13/15 for v3 at the same budget: the night clip Atlanta `y66` is the one
+change, as in the pilot. Detroit `g5lnpYCk1Ec` is the remaining failure, for
+the reasons above. This is in-sample: v4's new stage was built from `y66`,
+and the policy's thresholds from these clips. v4 is untested on held-out
+data; on test2, v3 matched the plain retrieval track (2/7,
+`docs/heldout_test2_2026-11.md`).
+
+Newcastle ran while other CPU-heavy work shared the machine (from about
+11:45 to 12:40 UTC this session's YouTube screen for test3 and two
+ground-truth builds, and other projects' simulations throughout), and used
+14,276 s of its 14,400 s budget (2,885 s in the v3 rerun). It kept its baseline (35 m), the same
+answer as v3, so the contention did not change its outcome; on a budget-bound
+clip it could have.

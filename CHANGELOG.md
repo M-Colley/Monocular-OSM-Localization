@@ -13,6 +13,11 @@ All notable changes to this project are documented here. This project adheres to
   median 62 m; all three failures had an `expanded` stage cut off by the
   7,200 s CPU budget. At 14,400 s Atlanta `kxEDNj5L_yQ` goes from 6,024 to
   33 m (13/15, in-sample). See `docs/assisted_fleet_2026-11.md`.
+- The complete fifteen-clip assisted v4 run (`409a959`, 16 threads, 14,400 s)
+  is within 200 m on 14/15 dev clips (median 43 m; in-sample): the shop-sign
+  site check fixes Atlanta `y66ZkRpUh4k` (6,590 to 43 m), and Detroit
+  `g5lnpYCk1Ec` still fails (1,387 m). The strict artifact audit passes every
+  clip's evidence. See `docs/assisted_fleet_2026-11.md`.
 - `--assisted-cpu-threads N` (default 4, as every assisted result so far):
   the torch/BLAS threads of each assisted visual child. MegaLoc descriptors
   are unchanged by it (max abs difference 8.7e-7, identical top-5 neighbours

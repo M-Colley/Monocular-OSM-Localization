@@ -32,8 +32,10 @@ city-centre guess 0/7). See [the held-out record](docs/heldout_test_2026-10.md).
 **Experimental assisted policy** (`--answer assisted --assisted-profile v3`;
 OCR/POI cues, a road-graph particle filter and wider metadata searches after
 a weak retrieval): **12/15** dev clips within 200 m at a 7,200 s CPU budget
-and **13/15** at 14,400 s (median 62 m). This is in-sample: the policy was
-developed on these clips. On its clean held-out test, seven new clips from six
+and **13/15** at 14,400 s (median 62 m); profile v4, which adds a
+shop-sign site check, reaches **14/15** (median 43 m; Detroit `g5lnpYCk1Ec`
+still fails at 1,387 m). This is in-sample: the policy was developed on these
+clips, and v4 is untested on held-out data. On its clean held-out test, seven new clips from six
 new cities (`split=test2`, pre-registered as `test2_2026_11`), it reaches only
 **2/7** within 200 m (median 518 m; city-centre guess 0/7): the dev result
 does not carry over. The frozen track method also reaches 2/7 on these clips;
