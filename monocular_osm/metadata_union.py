@@ -10,7 +10,7 @@ import hashlib
 import json
 from types import MappingProxyType
 import numpy as np
-from . import full_sequence as full, assisted_policy as policy
+from . import full_sequence as full, assisted_policy as policy, reference_inventory as inventory
 
 
 def json_sha(value):
@@ -120,9 +120,11 @@ def validate_region(region, identity, indices, times):
         and np.array_equal(z["returned_indices"], indices) and np.array_equal(z["returned_latlon"], refs[chosen])
         and np.array_equal(z["returned_cosines"], score[np.arange(len(indices)), chosen]), "original regional raw controls differ")
     pool = a["reference_pool"]; fetch = pool["fetch"]
+    # Served rows must be the whole capped snapshot, except a bounded number of
+    # members the fetch recorded as having no thumbnail URL (reference_inventory).
     require(pool.get("source") == "mapillary" and pool.get("count") == n and fetch.get("listing") == "tiles"
         and fetch.get("listing_stats_known") is True and type(fetch.get("lost")) is int and fetch["lost"] == 0
-        and fetch.get("snapshot", {}).get("n_refs") == n, "complete capped served tile inventory required")
+        and inventory.served_inventory(fetch, ids, refs) is not None, "complete capped served tile inventory required")
     row_hashes = a.get("reference_row_embeddings_sha256")
     require(row_hashes is None or (isinstance(row_hashes, list) and len(row_hashes) == n and all(digest(v) for v in row_hashes)),
             "invalid per-reference descriptor evidence")

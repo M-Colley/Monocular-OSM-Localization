@@ -307,6 +307,53 @@ def test_partial_or_stale_empty_region_proof_cannot_hide_a_failure(fault):
     with pytest.raises(ValueError): audit.terminal_search(record)
 
 
+def metadata_pool(tmp_path, monkeypatch, missing=2, *, recorded=True):
+    """One frozen regional control whose capped snapshot had URL-less members."""
+    listed = [{"id": str(100 + i), "lat": 49. + i * 1e-4, "lon": 8.4} for i in range(40)]
+    served = listed[missing:]
+    fetch = {"listing": "tiles", "listing_stats_known": True, "lost": 0, "url_lookups": 40,
+             "url_missing": missing, "snapshot": kv._reference_snapshot(listed)}
+    if recorded:
+        fetch["url_missing_refs"] = deepcopy(listed[:missing])
+    np.savez(tmp_path / "0000.npz", query_indices=np.arange(80),
+             ref_ids=np.array(["mapillary:" + r["id"] for r in served]),
+             ref_latlon=np.array([[r["lat"], r["lon"]] for r in served]))
+    record = {"status": "complete", "issues": [], "reference_pool": {"source": "mapillary", "count": len(served), "fetch": fetch}}
+    monkeypatch.setattr(audit, "comparison", lambda *args, **kwargs: [record])
+    files = SimpleNamespace(record=lambda row, ledger: Path(row["path"]))
+    value = {"audit_artifacts": [{"path": str(tmp_path / "0000.json")}, {"path": str(tmp_path / "0000.npz")}]}
+    return files, value, record
+
+
+@pytest.mark.parametrize("missing,recorded", [(0, True), (2, True), (2, False), (5, True)])
+def test_metadata_pool_accepts_recorded_bounded_url_less_shortfall(tmp_path, monkeypatch, missing, recorded):
+    files, value, record = metadata_pool(tmp_path, monkeypatch, missing, recorded=recorded)
+    regions = audit.metadata_regions(files, value, {}, [0., 300.])
+    assert len(regions) == 1 and len(regions[0]["arrays"]["ref_ids"]) == 40 - missing
+
+
+@pytest.mark.parametrize("fault", ["over_bound", "uncounted", "count_mismatch", "substituted_id", "served_id", "truncated"])
+def test_metadata_pool_refuses_unaccounted_url_less_shortfall(tmp_path, monkeypatch, fault):
+    files, value, record = metadata_pool(tmp_path, monkeypatch, 6 if fault == "over_bound" else 2)
+    fetch = record["reference_pool"]["fetch"]
+    if fault == "uncounted": fetch.pop("url_missing"); fetch.pop("url_missing_refs")
+    elif fault == "count_mismatch": fetch["url_missing"] = 3
+    elif fault == "substituted_id": fetch["url_missing_refs"][0]["id"] = "999"
+    elif fault == "served_id": fetch["url_missing_refs"][0]["id"] = "139"
+    elif fault == "truncated": fetch["truncated"] = True
+    with pytest.raises(ValueError, match="incomplete capped served imagery"):
+        audit.metadata_regions(files, value, {}, [0., 300.])
+
+
+def test_sparse_listing_proof_counts_listed_members_so_url_less_ones_change_nothing():
+    """Terminal proofs compare LISTED rows; URL-less members are listed, not a shortfall."""
+    record = sparse_record(3)
+    listing = record["track_decoding"]["terminal_search"]["listing"]
+    refs = record["track_decoding"]["terminal_search"]["reference_inventory"]
+    listing.update(url_lookups=3, url_missing=2, url_missing_refs=deepcopy(refs[:2]))
+    assert audit.terminal_search(record)
+
+
 def image_case(tmp_path):
     from tests.test_poi_image_track import _plan, _evidence, VIDEO
     from monocular_osm.poi_image_track import decode_single_branch_image_track

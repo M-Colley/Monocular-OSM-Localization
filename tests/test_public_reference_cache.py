@@ -236,6 +236,33 @@ def test_metadata_only_requires_complete_tiles_without_encoding_claim(case,listi
         assert len(pool['files'])==1 and pool['files'][0]['role']=='metadata'
 
 
+def test_metadata_only_proof_counts_listed_members_including_url_less(case):
+    """A sparse proof binds LISTED rows; members without a thumbnail URL stay listed."""
+    snapshot=kv._reference_snapshot(case.refs)
+    listing={'listing':'tiles','listing_stats_known':True,'lost':0,'snapshot':snapshot,
+        'url_lookups':3,'url_missing':2,'url_missing_refs':deepcopy(case.refs[1:])}
+    terminal={'count':3,'reference_inventory':deepcopy(case.refs),'status':'complete_sparse','source':'mapillary',
+        'fetch_signature':case.sig,'snapshot':snapshot,'listing':listing}
+    pool=cache.describe_pool({'public_cache_request':case.request,'terminal_search':terminal},case.cfg)
+    assert pool['payload_mode']=='metadata_only' and pool['count']==pool['listed_count']==3
+    assert pool['listing']['url_missing_refs']==case.refs[1:]
+
+
+def test_url_less_listing_evidence_survives_within_run_reuse(case,monkeypatch):
+    """The copied pool restores the fetch's URL-less rows for the receiver's served-pool check."""
+    from monocular_osm.reference_inventory import served_inventory
+    monkeypatch.setattr(kv,'LAST_FETCH_STATS',{})
+    case.audit['reference_pool']['fetch'].update(url_lookups=3,url_missing=1,url_missing_refs=[deepcopy(case.refs[2])])
+    case.pool=cache.describe_pool(case.audit,case.cfg)
+    assert served_inventory(case.pool['listing'],case.ids,case.xy)['evidence']=='url_missing_refs'
+    p=prepared(case);install_fake_encoder(case,monkeypatch)
+    with cache.track_scope(p.target,'expanded',p.artifact,expected=p.expected):
+        _,audit=invoke(case,p)
+    assert audit['public_cache_reuse']['status']=='hit'
+    record=served_inventory(kv.LAST_FETCH_STATS,case.ids,case.xy)
+    assert record['evidence']=='url_missing_refs' and record['url_missing_ids']==['mapillary:3']
+
+
 def test_copy_is_atomic_identical_and_never_overwrites(case):
     destination=case.root/'new'/'mapillary'
     before={x['name']:digest(case.directory/x['name']) for x in case.pool['files']}

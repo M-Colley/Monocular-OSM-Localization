@@ -144,6 +144,24 @@ def test_unserved_reference_partition_is_explicit_without_inventing_download_rea
         kv._evidence_acquisition(identity, ["mapillary:3"], "mapillary", 1500, fetch)
 
 
+def test_unserved_reference_cause_is_known_only_from_this_snapshots_recorded_url_miss():
+    identity = {"listed_ref_ids": ["mapillary:1", "mapillary:2", "mapillary:3"],
+        "listed_ref_latlon": [[50., 8.], [51., 9.], [52., 9.]],
+        "listing_snapshot": {"n_refs": 3, "refs_sha256": "a"*64}}
+    fetch = {"listing": "tiles", "lost": 0, "listing_stats_known": True, "url_lookups": 3, "url_missing": 1,
+             "url_missing_refs": [{"id": "2", "lat": 51., "lon": 9.}],
+             "snapshot": {"n_refs": 3, "refs_sha256": "a"*64}}
+    result = kv._evidence_acquisition(identity, ["mapillary:1"], "mapillary", 1500, fetch)
+    assert result["status"] == "complete"
+    assert result["unserved_references"] == [
+        {"ref_id": "mapillary:2", "reason": "thumbnail_url_unavailable"},
+        {"ref_id": "mapillary:3", "reason": "not_in_embedded_reference_snapshot"}]
+    for other in ({**fetch, "snapshot": {"n_refs": 3, "refs_sha256": "b"*64}},   # another snapshot's record
+                  {**fetch, "url_missing_refs": [{"id": "2"}]}):                 # malformed record
+        rows = kv._evidence_acquisition(identity, ["mapillary:1"], "mapillary", 1500, other)["unserved_references"]
+        assert {row["reason"] for row in rows} == {"not_in_embedded_reference_snapshot"}
+
+
 def test_legacy_graph_listing_zero_loss_is_not_a_pagination_completeness_proof(inputs, monkeypatch):
     frames, _, _ = inputs
     original = kv._fetch_refs_for

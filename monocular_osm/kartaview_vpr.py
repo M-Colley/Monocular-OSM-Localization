@@ -32,6 +32,7 @@ from copy import deepcopy
 import numpy as np
 
 from .geo import LocalFrame, degree_half_extent
+from .reference_inventory import recorded_url_missing_refs, snapshot_sha256
 
 _MEAN = None
 _STD = None
@@ -113,9 +114,7 @@ def _refs_fingerprint(refs) -> str:
 
 def _reference_snapshot(refs, *, created_utc=None) -> dict:
     """Identity of the exact ordered metadata set, without expiring URLs."""
-    content = [[str(r["id"]), float(r["lat"]), float(r["lon"])] for r in refs]
-    digest = hashlib.sha256(json.dumps(content, separators=(",", ":")).encode()).hexdigest()
-    return {"refs_sha256": digest, "n_refs": len(refs), "created_utc": created_utc}
+    return {"refs_sha256": snapshot_sha256(refs), "n_refs": len(refs), "created_utc": created_utc}
 
 
 def _restore_mapillary_fetch_stats(blob: dict, refs) -> None:
@@ -360,7 +359,14 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
     need = [i for i in ids if i not in urls]
     if need:
         found = _mly_lookup_urls(need, token, sess)
-        stats["url_lookups"], stats["url_missing"] = len(need), len(need) - len(found)
+        absent = [i for i in need if i not in found]
+        stats["url_lookups"], stats["url_missing"] = len(need), len(absent)
+        # WHICH sampled ids have no URL, with their listed coordinates: the
+        # served pool plus exactly these rows must rebuild the snapshot
+        # (reference_inventory.served_inventory), so audits check ids, not
+        # only a count. Persisted in listing_stats, so warm hits keep them.
+        stats["url_missing_refs"] = [{"id": i, "lat": union[i][0], "lon": union[i][1]}
+                                     for i in absent]
         urls.update(found)
     out = [{"id": i, "lat": union[i][0], "lon": union[i][1],
             **({"url": urls[i]} if i in urls else {})} for i in ids]
@@ -1460,16 +1466,24 @@ def _evidence_acquisition(identity, embedded_ids, source, cap, fetch):
         and type(fetch.get("lost")) is int and fetch["lost"] == 0
         and fetch.get("snapshot", {}).get("refs_sha256") == snapshot["refs_sha256"]
         and fetch.get("snapshot", {}).get("n_refs") == len(listed))
+    # An absent row's cause is known only when THIS snapshot's fetch recorded
+    # that the Graph API returned no thumbnail URL for it; otherwise unknown.
+    url_less = set()
+    if (fetch.get("snapshot") or {}).get("refs_sha256") == snapshot["refs_sha256"]:
+        try:
+            url_less = {f"{source}:{row['id']}" for row in recorded_url_missing_refs(fetch) or ()}
+        except ValueError:
+            url_less = set()
     return {"status": "complete" if known_complete else "unknown", "listing_complete": bool(known_complete),
         "cap": int(cap), "listed_ref_ids": list(listed),
         "listed_ref_latlon": deepcopy(identity["listed_ref_latlon"]),
         "listed_references": [{"id": value.removeprefix(source + ":"),
             "lat": float(point[0]), "lon": float(point[1])}
             for value, point in zip(listed, identity["listed_ref_latlon"])],
-        "unserved_references": [{"ref_id": value, "reason": "not_in_embedded_reference_snapshot"}
-            for value in listed if value not in used],
+        "unserved_references": [{"ref_id": value, "reason": "thumbnail_url_unavailable" if value in url_less
+            else "not_in_embedded_reference_snapshot"} for value in listed if value not in used],
         "listing_snapshot_sha256": snapshot["refs_sha256"],
-        "scope": "capped public metadata set; only zero-loss tile listings prove completeness; absent embedded rows have unknown acquisition cause"}
+        "scope": "capped public metadata set; only zero-loss tile listings prove completeness; absent embedded rows have unknown acquisition cause unless the fetch recorded no thumbnail URL for them"}
 
 
 def kartaview_vpr_prior(frames_bgr, center, radius_m=3000.0, *,

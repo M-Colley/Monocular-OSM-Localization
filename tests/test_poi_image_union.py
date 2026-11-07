@@ -329,6 +329,42 @@ def test_acquisition_complete_is_not_inferred_from_valid_matrix_or_query_hash(fa
     assert result["regions"][1]["reported_status"]=="complete"
 
 
+def url_less_listing(raw):
+    """One listed photo was not served because Mapillary returned no thumbnail URL."""
+    row={"id":"urlless","lat":50.,"lon":10.}
+    set_listing(raw,[row])
+    raw["provenance"]["fetch"].update(url_lookups=2,url_missing=1,url_missing_refs=[dict(row)])
+    raw["provenance"]["acquisition"]["unserved_references"]=[{"ref_id":"mapillary:urlless","reason":"thumbnail_url_unavailable"}]
+
+
+@pytest.mark.parametrize("recorded",[True,False])
+def test_recorded_url_less_photo_is_an_accounted_unserved_outcome(recorded):
+    def callback(region, **kw):
+        raw=evidence(region);url_less_listing(raw)
+        if not recorded:raw["provenance"]["fetch"].pop("url_missing_refs")  # older fetch records name no IDs
+        return raw
+    result=run(callback)
+    assert result["status"]=="complete"
+    for row in result["regions"]:
+        assert row["provenance"]["acquisition"]["unserved_references"]==[{"ref_id":"mapillary:urlless","reason":"thumbnail_url_unavailable"}]
+
+
+@pytest.mark.parametrize("fault",["unrecorded_id","outside_listing","malformed"])
+def test_url_unavailable_outcome_must_be_a_recorded_url_less_listing_member(fault):
+    calls=[]
+    def callback(region, **kw):
+        raw=evidence(region);calls.append(1)
+        if len(calls)==1:return raw
+        url_less_listing(raw);rows=raw["provenance"]["fetch"]["url_missing_refs"]
+        if fault=="unrecorded_id":rows.clear()
+        elif fault=="outside_listing":rows.append({"id":"elsewhere","lat":50.,"lon":10.})
+        else:rows[0]["url"]="expiring"
+        return raw
+    result=run(callback)
+    assert len(calls)==2 and result["status"]=="inactive" and result["successful_branch_count"]==1
+    assert "URL-less" in result["regions"][1]["reason"]
+
+
 def test_supplied_matrices_and_caller_plan_remain_unchanged():
     plan=union.plan_image_union(*inputs());before=deepcopy(plan);returned=[]
     def callback(region,**kw):

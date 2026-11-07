@@ -669,6 +669,7 @@ def metadata_descriptor_rows(files, records, regions, ledger):
 def metadata_regions(files, value, ledger, window):
     """Load complete frozen regional controls; each remains its own Viterbi proof."""
     import numpy as np
+    from monocular_osm.reference_inventory import served_inventory
     audits = comparison(files, value, ledger, window, require_all=True)
     require(1 <= len(audits) <= 6, "full metadata candidate requires1..6 complete pools")
     paths = sorted((files.record(r, ledger) for r in value["audit_artifacts"] if Path(r["path"]).suffix == ".npz"), key=lambda p: int(p.stem))
@@ -679,7 +680,9 @@ def metadata_regions(files, value, ledger, window):
                 and np.array_equal(z["query_indices"], np.arange(80)) and pool.get("source") == "mapillary"
                 and pool.get("count") == n and fetch.get("listing") == "tiles" and fetch.get("listing_stats_known") is True
                 and not fetch.get("truncated") and type(fetch.get("lost")) is int and fetch["lost"] == 0
-                and fetch.get("snapshot", {}).get("n_refs") == n, "full metadata pool has incomplete capped served imagery")
+                # Whole capped snapshot served, except bounded recorded URL-less members.
+                and served_inventory(fetch, z["ref_ids"], z["ref_latlon"]) is not None,
+                "full metadata pool has incomplete capped served imagery")
         regions.append({"key": f"audit_{i:04d}", "audit": audit, "arrays": z})
     return regions
 

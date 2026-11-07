@@ -3,7 +3,7 @@ from copy import deepcopy
 from collections import Counter
 import numpy as np
 import pytest
-from monocular_osm import metadata_union as m
+from monocular_osm import metadata_union as m, reference_inventory as inventory
 
 
 def comparison(values, coords, ids, q=None):
@@ -127,6 +127,46 @@ def test_incomplete_incomparable_or_conflicting_regions_refuse_without_filtering
     if bad == "unserved": region["audit"]["reference_pool"]["fetch"]["lost"] = 1
     if bad == "winner": region["arrays"]["returned_cosines"][0] = 0
     with pytest.raises(ValueError): m.build_union(regions, baseline)
+
+
+def url_less(region, *rows, recorded=True):
+    """Sample ``rows`` beside the served pool; Mapillary returned no thumbnail URL for them."""
+    z = region["arrays"]; fetch = region["audit"]["reference_pool"]["fetch"]
+    served = [{"id": key.split(":", 1)[1], "lat": float(p[0]), "lon": float(p[1])}
+              for key, p in zip(z["ref_ids"].tolist(), z["ref_latlon"])]
+    listed = sorted(served + [dict(r) for r in rows], key=lambda r: r["id"])
+    fetch.update(url_missing=len(rows), snapshot={"n_refs": len(listed), "refs_sha256": inventory.snapshot_sha256(listed)})
+    if recorded: fetch["url_missing_refs"] = [dict(r) for r in rows]
+    return fetch
+
+
+def gone(i):
+    return {"id": f"gone{i}", "lat": 40.0, "lon": -79.9 + i * 1e-4}
+
+
+@pytest.mark.parametrize("recorded", [True, False])
+def test_recorded_url_less_sample_members_bind_baseline_and_union_unchanged(recorded):
+    """The test2 XO6H3 refusal: 6 of 1,500 sampled IDs had no thumbnail URL."""
+    regions, *rest = case(); expected = m.replay_metadata_union(regions, *rest)
+    regions, *rest = case()
+    url_less(rest[-1][0], gone(0), recorded=recorded)          # the baseline control pool
+    url_less(regions[1], gone(1), gone(2), recorded=recorded)  # a metadata pool
+    result = m.replay_metadata_union(regions, *rest)
+    assert result["status"] == "complete" and result["selection"] == expected["selection"]
+    assert np.array_equal(result["union"]["ref_ids"], expected["union"]["ref_ids"])
+    for variant in ("raw", "reference_mean"):
+        assert result["outputs"][variant]["chosen_ref_ids"] == expected["outputs"][variant]["chosen_ref_ids"]
+
+
+@pytest.mark.parametrize("fault", ["over_bound", "count_mismatch", "uncounted", "served_id", "lost_tile"])
+def test_unaccounted_url_less_shortfall_still_refuses(fault):
+    regions, baseline, *_ = case(); region = regions[1]
+    fetch = url_less(region, *map(gone, range(6 if fault == "over_bound" else 1)))  # bound is 5 here
+    if fault == "count_mismatch": fetch["url_missing"] = 2
+    if fault == "uncounted": fetch.pop("url_missing"); fetch.pop("url_missing_refs")
+    if fault == "served_id": fetch["url_missing_refs"][0]["id"] = "a0"
+    if fault == "lost_tile": fetch["lost"] = 1
+    with pytest.raises(ValueError, match="served tile inventory"): m.build_union(regions, baseline)
 
 
 def test_overlaps_need_actual_identical_descriptors_not_hash_claims():

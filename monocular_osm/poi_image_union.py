@@ -19,6 +19,7 @@ import numpy as np
 
 from .geo import LocalFrame, degree_half_extent
 from .full_sequence import PROFILE_SHA256 as FULL_PROFILE_SHA256, decode_full_tracks
+from .reference_inventory import recorded_url_missing_refs
 
 
 def _json_sha(value):
@@ -231,6 +232,17 @@ def _acquisition(provenance, ids, refs, region):
     absent = [row["ref_id"] for row in unserved]
     if len(set(absent)) != len(absent) or set(ids) & set(absent) or set(ids) | set(absent) != set(prefixed):
         raise _Invalid("embedded and unserved IDs do not exactly partition the complete listing")
+    # When the fetch recorded which listed IDs had no thumbnail URL, that
+    # outcome is claimed only for them (older fetch records name no IDs).
+    try:
+        url_less = recorded_url_missing_refs(fetch)
+    except ValueError as error:
+        raise _Invalid("recorded URL-less references are malformed") from error
+    if url_less is not None:
+        url_less = {"mapillary:" + row["id"] for row in url_less}
+        if (not url_less <= set(prefixed) or any(row["reason"] == "thumbnail_url_unavailable"
+                and row["ref_id"] not in url_less for row in unserved)):
+            raise _Invalid("URL-unavailable outcome is not a recorded URL-less listing member")
     dlat, dlon = degree_half_extent(*region["center"], PROFILE["radius_m"] + PROFILE["radius_tolerance_m"])
     lon_offset = (coordinates[:, 1] - region["center"][1] + 180) % 360 - 180
     if (np.any(np.abs(coordinates[:, 0] - region["center"][0]) > dlat+1e-12)

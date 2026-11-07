@@ -108,3 +108,22 @@ def test_completed_sparse_listing_retains_plan_and_uncertain_none_declines(tmp_p
         assert not worker._valid_terminal(stale, record)
     assert _terminal_sparse_search(center, request, {**stats, "lost": 1}, reason) is None
     assert not worker._completed_region({**record, "track_decoding": {}})
+
+
+def test_sparse_listing_proof_counts_listed_members_so_url_less_ones_change_nothing(tmp_path):
+    """The terminal proof binds LISTED rows (the decoder minimum is on listed refs);
+    members without a thumbnail URL are listed, so they never create a shortfall."""
+    from monocular_osm import kartaview_vpr as kv
+    from monocular_osm.stages.prior import _terminal_sparse_search
+    center, radius, cap = [49., 8.], 1000., 500
+    refs = [{"id": f"photo{i}", "lat": 49., "lon": 8. + i * 1e-4} for i in range(3)]
+    signature = kv._fetch_signature(center, radius, cap)
+    (tmp_path / f"mly_ref_meta_{kv._sig_tag(signature)}.json").write_text(json.dumps({"signature": signature, "refs": refs}))
+    request = {"source": "mapillary", "radius_m": radius, "cap": cap, "cache_dir": str(tmp_path)}
+    stats = {"listing": "tiles", "listing_stats_known": True, "lost": 0, "snapshot": kv._reference_snapshot(refs),
+             "url_lookups": 3, "url_missing": 2, "url_missing_refs": refs[1:]}
+    proof = _terminal_sparse_search(center, request, stats, "only 3 mapillary reference images within 1000 m (need 30)")
+    record = {"status": "unavailable", "center": center, "radius_m": radius, "ref_cap": cap,
+              "track_decoding": {"terminal_search": proof}}
+    assert proof["count"] == 3 and proof["listing"]["url_missing"] == 2
+    assert worker._valid_terminal(proof, record) and worker._completed_region(record)

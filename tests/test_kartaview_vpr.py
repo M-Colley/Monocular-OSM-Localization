@@ -1052,6 +1052,32 @@ def test_tile_listing_keeps_cap_and_reports_ids_without_url(tmp_path: Path, monk
     assert sum("url" not in r for r in kept) == 3 and kv.LAST_FETCH_STATS["url_missing"] == 3
 
 
+def test_url_less_sampled_ids_are_recorded_and_rebuild_the_snapshot(tmp_path: Path, monkeypatch) -> None:
+    """The served pool plus exactly the recorded URL-less rows is the capped sample."""
+    from monocular_osm.reference_inventory import served_inventory
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    monkeypatch.setitem(sys.modules, "requests", _FakeTilesAPI())
+    sample = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "a"), cap=20, token="t")
+    no_url = sorted(r["id"] for r in sample)[:2]
+    monkeypatch.setitem(sys.modules, "requests", _FakeTilesAPI(no_url=set(no_url)))
+    kept = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "b"), cap=20, token="t")
+    stats = kv.LAST_FETCH_STATS
+    assert [r["id"] for r in kept] == [r["id"] for r in sample]    # sampling unchanged
+    assert stats["url_missing"] == 2 and stats["snapshot"]["n_refs"] == 20
+    assert stats["url_missing_refs"] == [{k: r[k] for k in ("id", "lat", "lon")} for r in kept if "url" not in r]
+    assert [r["id"] for r in stats["url_missing_refs"]] == no_url
+    served = [r for r in kept if "url" in r]
+    record = served_inventory(stats, [f"mapillary:{r['id']}" for r in served],
+                              np.array([[r["lat"], r["lon"]] for r in served]))
+    assert record["evidence"] == "url_missing_refs" and record["url_missing_ids"] == [f"mapillary:{i}" for i in no_url]
+    # Persisted beside the snapshot, so an offline warm hit restores the same rows.
+    blob = json.loads(next((tmp_path / "b").glob("mly_ref_meta_*.json")).read_text(encoding="utf-8"))
+    assert blob["listing_stats"]["url_missing_refs"] == stats["url_missing_refs"]
+    kv._restore_mapillary_fetch_stats(blob, blob["refs"])
+    assert kv.LAST_FETCH_STATS["url_missing_refs"] == stats["url_missing_refs"]
+    assert kv.LAST_FETCH_STATS["snapshot"]["refs_sha256"] == stats["snapshot"]["refs_sha256"]
+
+
 def test_tiles_down_falls_back_to_the_graph_bbox_search(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(kv.time, "sleep", lambda s: None)
     item = {"id": "g1", "geometry": {"coordinates": [ULM[1], ULM[0]]},
