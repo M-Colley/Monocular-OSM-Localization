@@ -408,6 +408,9 @@ def _sample_frames(
         if sample_count is not None:
             if not math.isfinite(end):
                 raise ValueError("fixed OCR sampling needs a known duration or end time")
+            # Fixed-count callers pass a VO frame time (index / fps); flooring
+            # its float product can land one frame before it (118.99999 -> 118).
+            start = int(math.floor(start_sec * fps + 1e-6))
             stop = min(int(end), total) if total > 0 else int(end)
             indices = np.linspace(start, stop - 1, min(sample_count, max(0, stop - start))).astype(int)
         else:

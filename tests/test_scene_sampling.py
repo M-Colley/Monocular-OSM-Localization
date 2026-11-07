@@ -97,3 +97,21 @@ def test_fixed_sample_count_invalidates_ocr_cache(tmp_path):
 def test_invalid_fixed_count_is_refused_before_video_access(count):
     with pytest.raises(ValueError, match="sample count"):
         extract_scene_text("missing.mp4", sample_count=count)
+
+
+def test_fixed_count_starts_on_the_vo_frame_it_was_given(monkeypatch):
+    # Detroit g5lnpYCk1Ec: the recorded VO horizon starts at frame 119, stamped
+    # 3.986065518858444 s (one ulp below 119 / 29.854); int(that * 29.854) is
+    # 118, one frame before the horizon, so every assisted run of the clip
+    # refused its OCR cue.
+    class Capture29(Capture):
+        def get(self, key):
+            return {cv2.CAP_PROP_FPS: 29.854, cv2.CAP_PROP_FRAME_COUNT: self.total,
+                    cv2.CAP_PROP_POS_MSEC: self.position / 29.854 * 1000}.get(key, 0)
+
+    capture = Capture29(total=18000)
+    monkeypatch.setattr(cv2, "VideoCapture", lambda _: capture)
+    start = 3.986065518858444
+    assert int(start * 29.854) == 118                       # the float artefact itself
+    frames = list(_sample_frames("video.mp4", start, 17879 / 29.854, 26, sample_count=24))
+    assert capture.read_indices[0] == 119 and frames[0][0] >= start

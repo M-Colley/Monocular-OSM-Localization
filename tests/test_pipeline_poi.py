@@ -227,7 +227,7 @@ def test_road_sampling_is_bounded_without_cropping(monkeypatch):
         stage._road_samples(road)
 
 
-@pytest.mark.parametrize("fault", [None, "boundary", "shape", "time"])
+@pytest.mark.parametrize("fault", [None, "shape", "time"])
 def test_native_ocr_sampling_binds_pixels_and_vo_horizon(tmp_path, monkeypatch, fault):
     _fake_runtimes(tmp_path, monkeypatch)
     from monocular_osm import scene_text
@@ -239,13 +239,12 @@ def test_native_ocr_sampling_binds_pixels_and_vo_horizon(tmp_path, monkeypatch, 
     video = tmp_path / "video.mp4"
     video.write_bytes(b"native video")
     ctx = RunContext(cfg=cfg, fusion_w=None, video_path=video,
-                     frames=SimpleNamespace(timestamps=[3., 3.5, 4.], fps=30.))
+                     frames=SimpleNamespace(timestamps=[3., 3.5, 4.]))
     seen = []
     def samples(path, start, end, interval, *, sample_count):
         seen.append((start, end, sample_count))
         image = np.zeros((8, 8, 3) if fault == "shape" else (12, 16, 3), np.uint8)
-        # "boundary": the last VO frame on the container's millisecond clock
-        yield {"time": 4.1, "boundary": 4.0004}.get(fault, 3.5), image
+        yield (4.1 if fault == "time" else 3.5), image
     monkeypatch.setattr(scene_text, "_sample_frames", samples)
     def extract(path, **kwargs):
         assert kwargs["sample_count"] == 24 and kwargs["min_len"] == 2
@@ -253,7 +252,7 @@ def test_native_ocr_sampling_binds_pixels_and_vo_horizon(tmp_path, monkeypatch, 
         Path(kwargs["cache_path"]).write_text("{}")
         return []
     monkeypatch.setattr(scene_text, "extract_scene_text", extract)
-    if fault in ("shape", "time"):
+    if fault:
         with pytest.raises(ValueError, match="pixels/times"):
             stage._ocr(ctx, np.eye(3), file_sha256(video), (12, 16))
     else:

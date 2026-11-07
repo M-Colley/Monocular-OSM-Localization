@@ -97,20 +97,6 @@ def _road_samples(road):
     return samples
 
 
-def _snap_to_horizon(timestamp, first, last, fps):
-    """The VO grid stamps a frame as index/fps, the fixed OCR sampler by the
-    container's (millisecond) PTS, so the same boundary frame can fall a
-    fraction of a millisecond outside ``[first, last]``. Within half a frame it
-    is that boundary frame: return the VO time. Anything further is returned
-    unchanged for the caller to refuse."""
-    timestamp, half = float(timestamp), 0.5 / float(fps)
-    if first - half <= timestamp < first:
-        return float(first)
-    if last < timestamp <= last + half:
-        return float(last)
-    return timestamp
-
-
 def _inventory(ctx):
     from ..poi_clues import fetch_city_retail
 
@@ -161,7 +147,6 @@ def _ocr(ctx, K, video_sha, shape):
             cache.unlink()
     def native_frames(path, start, end, interval):
         for timestamp, image in scene_text._sample_frames(path, start, end, interval, sample_count=OCR_SAMPLES):
-            timestamp = _snap_to_horizon(timestamp, first, last, ctx.frames.fps)
             if image.shape[:2] != tuple(shape) or not first <= timestamp <= last:
                 raise ValueError("native OCR pixels/times differ from the supplied VO camera grid")
             yield timestamp, image
