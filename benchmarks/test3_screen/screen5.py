@@ -16,9 +16,16 @@ Zealand). Three queries per city, in this order. YouTube calls are throttled
 to one per 15 s; a bot check pauses the screen (it is not recorded as "no
 result"), and the output is resumable.
 
-    python screen5.py screen5.json
+    python screen5.py screen5.json [--workers N]
+
+The thumbnail OCR of each query's eligible videos runs in N worker processes
+(default 6; added after Düsseldorf, Dortmund and part of Essen had been screened
+sequentially, which took ~13 min per city). Only the speed changes: the same
+searches, filters, frames and pass rule.
 """
+from concurrent.futures import ProcessPoolExecutor
 import json
+import os
 import re
 import subprocess
 import sys
@@ -222,7 +229,8 @@ def section_fixes(vid, dur):
     return out
 
 
-def main(out_path):
+def main(out_path, workers=6):
+    pool = ProcessPoolExecutor(workers) if workers > 1 else None
     out = Path(out_path)
     rows = json.loads(out.read_text(encoding="utf-8")) if out.exists() else []
     done = {(r["city"], r["query"]) for r in rows if r.get("id") is None}   # marker rows = finished queries
@@ -238,6 +246,7 @@ def main(out_path):
                                      or "{}").get("entries", [])
             except ValueError:
                 entries = []
+            eligible = []
             for rank, e in enumerate(entries):
                 vid, title, dur = e.get("id"), e.get("title") or "", e.get("duration") or 0
                 if not vid or vid in seen:
@@ -247,7 +256,10 @@ def main(out_path):
                 if dur < MIN_S or EXCLUDE.search(title) or not any(
                         re.search(rf"(?<!\w){re.escape(k)}(?!\w)", low) for k in keys):
                     continue
-                tf = thumb_fixes(vid)
+                eligible.append((rank, vid, title, dur))
+            vids = [v for _, v, _, _ in eligible]
+            thumbs = list(pool.map(thumb_fixes, vids)) if pool else [thumb_fixes(v) for v in vids]
+            for (rank, vid, title, dur), tf in zip(eligible, thumbs):
                 row = {"city": city, "id": vid, "title": title, "duration_s": dur, "query": q, "rank": rank,
                        "thumb_fixes": [list(x[1]) for x in tf], "section_fixes": [], "n_near": 0, "ok": False}
                 if tf:
@@ -266,4 +278,4 @@ def main(out_path):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], int(sys.argv[sys.argv.index("--workers") + 1]) if "--workers" in sys.argv else 6)

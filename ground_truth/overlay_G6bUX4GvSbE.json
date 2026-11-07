@@ -1,0 +1,110 @@
+{
+  "video_id": "G6bUX4GvSbE",
+  "video_url": "https://www.youtube.com/watch?v=G6bUX4GvSbE",
+  "city": "Bristol, UK",
+  "vo_segment": "333:432",
+  "description": "Bristol, a dealership mechanic's drive in a customer's car (442 s upload). Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 21 OCR fixes over 333-433 s (1.45 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 333.1,
+      "lat": 51.525569,
+      "lon": -2.603447
+    },
+    {
+      "t_sec": 338.1,
+      "lat": 51.52505,
+      "lon": -2.603264
+    },
+    {
+      "t_sec": 343.0,
+      "lat": 51.524381,
+      "lon": -2.601883
+    },
+    {
+      "t_sec": 348.0,
+      "lat": 51.523667,
+      "lon": -2.600419
+    },
+    {
+      "t_sec": 353.0,
+      "lat": 51.523361,
+      "lon": -2.599494
+    },
+    {
+      "t_sec": 358.0,
+      "lat": 51.523103,
+      "lon": -2.599108
+    },
+    {
+      "t_sec": 362.9,
+      "lat": 51.523419,
+      "lon": -2.599919
+    },
+    {
+      "t_sec": 367.9,
+      "lat": 51.523611,
+      "lon": -2.600864
+    },
+    {
+      "t_sec": 372.9,
+      "lat": 51.524356,
+      "lon": -2.601667
+    },
+    {
+      "t_sec": 377.8,
+      "lat": 51.524692,
+      "lon": -2.602753
+    },
+    {
+      "t_sec": 387.8,
+      "lat": 51.524569,
+      "lon": -2.604194
+    },
+    {
+      "t_sec": 392.8,
+      "lat": 51.524336,
+      "lon": -2.605111
+    },
+    {
+      "t_sec": 397.7,
+      "lat": 51.524153,
+      "lon": -2.606308
+    },
+    {
+      "t_sec": 402.7,
+      "lat": 51.524117,
+      "lon": -2.607481
+    },
+    {
+      "t_sec": 407.7,
+      "lat": 51.524072,
+      "lon": -2.608661
+    },
+    {
+      "t_sec": 412.6,
+      "lat": 51.524056,
+      "lon": -2.60975
+    },
+    {
+      "t_sec": 417.6,
+      "lat": 51.524031,
+      "lon": -2.610633
+    },
+    {
+      "t_sec": 422.6,
+      "lat": 51.523575,
+      "lon": -2.610728
+    },
+    {
+      "t_sec": 427.6,
+      "lat": 51.522861,
+      "lon": -2.610689
+    },
+    {
+      "t_sec": 432.5,
+      "lat": 51.522706,
+      "lon": -2.610886
+    }
+  ]
+}

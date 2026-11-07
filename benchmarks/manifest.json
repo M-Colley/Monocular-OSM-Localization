@@ -806,6 +806,126 @@
       "city_alternatives_notes": {},
       "legacy_city": "Munich, Germany",
       "available_locally": true
+    },
+    {
+      "id": "overlay_8BUtb7TKUFA",
+      "name": "Düsseldorf (8BUtb7TKUFA)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_8BUtb7TKUFA.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "e946df0bde3b117150d20f6bbdbf12849a073f4cee63208b0914c4f223b0f98a",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=8BUtb7TKUFA"
+      },
+      "title": "DC Multikorso Düsseldorf 09.10.2021",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Düsseldorf, Germany",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Düsseldorf, Germany",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_HfK2LuXQtfA",
+      "name": "Düsseldorf (HfK2LuXQtfA)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_HfK2LuXQtfA.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "d24adc63362d3d67efc4c1c43e8b510dc834c5cc22077f78fe4adcd1f8aa21bd",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=HfK2LuXQtfA"
+      },
+      "title": "DC KombiKorso Düsseldorf 22.08.2021",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Düsseldorf, Germany",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Düsseldorf, Germany",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_6GciDYJ1FUc",
+      "name": "Eindhoven (6GciDYJ1FUc)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_6GciDYJ1FUc.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "4e4d1c9e837691321183459d474b28edd0b5fe24784e745298968b7ec38f6c37",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=6GciDYJ1FUc"
+      },
+      "title": "2016-02-09  From Eindhoven to Maasbree",
+      "vo_segment": "125:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Eindhoven, Netherlands",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Eindhoven, Netherlands",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_G6bUX4GvSbE",
+      "name": "Bristol (G6bUX4GvSbE)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_G6bUX4GvSbE.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "31b30c080bacddf1284790ad4ce30c9813c165980c21183aa031fd557e3c1a48",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=G6bUX4GvSbE"
+      },
+      "title": "Mercedes Bristol Dealership mechanic takes customer car for joyride Sytner",
+      "vo_segment": "333:433",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (32 fixes dropped to edit cuts).",
+      "city": "Bristol, UK",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Bristol, UK",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_vp_D8mxgEkA",
+      "name": "Cork (vp_D8mxgEkA)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_vp_D8mxgEkA.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "effa6afe0549f7499a1880d820d2657ded46b1aa5f013481dadb3d43a35a6cda",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=vp_D8mxgEkA"
+      },
+      "title": "Cork city at dusk - Viofo A129 dashcam test (2019.09.06)",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Cork, Ireland",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Cork, Ireland",
+      "available_locally": true
     }
   ]
 }

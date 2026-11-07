@@ -247,6 +247,83 @@ CLIPS: tuple[OverlayClip, ...] = (
         note="Titled Munich; the drive leaves the city for Germering on the "
              "Autobahn, so part of it lies outside the named city.",
     ),
+    # ---- THIRD HELD-OUT SET (added 2026-11-07, split="test3") ---------------
+    # For the metro-ring search (rule test3_2026_11). Found by the fixed screen
+    # benchmarks/test3_screen/screen5.py; first two passing clips per city in
+    # search order, the first ten whose ground truth builds with >= 500 m of
+    # route. Never tune on their results.
+    OverlayClip(
+        video_id="8BUtb7TKUFA", region="bottom", window=_W, split="test3",
+        city_override="Düsseldorf, Germany",
+        overlay="decimal lat/lon (bottom)",
+        note="Düsseldorf, a slow car convoy through the city (3 h upload).",
+    ),
+    OverlayClip(
+        video_id="HfK2LuXQtfA", region="bottom", window=_W, split="test3",
+        city_override="Düsseldorf, Germany",
+        overlay="decimal lat/lon (bottom)",
+        note="Düsseldorf, a slow car convoy through the city (1 h 45 min upload).",
+    ),
+    OverlayClip(
+        video_id="6GciDYJ1FUc", region="bottom", window=_W, split="test3",
+        city_override="Eindhoven, Netherlands",
+        overlay="decimal lat/lon (bottom)",
+        note="Titled 'From Eindhoven to Maasbree' (2016): leaves Eindhoven for Limburg.",
+    ),
+    OverlayClip(
+        video_id="G6bUX4GvSbE", region="bottom", window=_W, split="test3",
+        city_override="Bristol, UK",
+        overlay="decimal lat/lon (bottom)",
+        note="Bristol, a dealership mechanic's drive in a customer's car (442 s upload).",
+    ),
+    OverlayClip(
+        video_id="dsQZSk-dWGo", region="bottom", window=_W, split="test3",
+        city_override="Belfast, UK",
+        overlay="decimal lat/lon (bottom)",
+        note="Belfast, a 'driving and daily observations' upload. Ground truth FAILED (edited: 10 fixes in the longest cut-free run) before any run; replaced under the rule by the next passing clip in city order.",
+    ),
+    OverlayClip(
+        video_id="BrM-LdwP2vA", region="bottom", window=_W, split="test3",
+        city_override="Belfast, UK",
+        overlay="decimal lat/lon (bottom)",
+        note="Belfast, a 'stupid drivers and daily observations' upload. Ground truth FAILED (edited: 8 fixes in the longest cut-free run) before any run; replaced under the rule by the next passing clip in city order.",
+    ),
+    OverlayClip(
+        video_id="vp_D8mxgEkA", region="bottom", window=_W, split="test3",
+        city_override="Cork, Ireland",
+        overlay="decimal lat/lon (bottom)",
+        note="Cork city at dusk, a VIOFO A129 test drive (2019).",
+    ),
+    OverlayClip(
+        video_id="Gw-mFsRIHEA", region="bottom", window=_W, split="test3",
+        city_override="Aarhus, Denmark",
+        overlay="decimal lat/lon (bottom)",
+        note="Titled 'Grenaa to Billund via Aarhus' at sunset: the window may lie outside Aarhus.",
+    ),
+    OverlayClip(
+        video_id="K_54XHyzRn8", region="bottom", window=_W, split="test3",
+        city_override="Riga, Latvia",
+        overlay="decimal lat/lon (bottom)",
+        note="Riga, a Garmin nuvicam test drive.",
+    ),
+    OverlayClip(
+        video_id="5koGsNdaVvE", region="bottom", window=_W, split="test3",
+        city_override="Bratislava, Slovakia",
+        overlay="decimal lat/lon (bottom)",
+        note="Bratislava, a 4K drive (screen round 3: downloaded sections).",
+    ),
+    OverlayClip(
+        video_id="MMKAehhi-tA", region="bottom", window=_W, split="test3",
+        city_override="Katowice, Poland",
+        overlay="decimal lat/lon (bottom)",
+        note="Titled 'Podzamcze - Katowice' (screen round 3); replaces a failed Belfast clip.",
+    ),
+    OverlayClip(
+        video_id="5ewPAw_gIeI", region="bottom", window=_W, split="test3",
+        city_override="Katowice, Poland",
+        overlay="decimal lat/lon (bottom)",
+        note="Titled 'Katowice - Balice [DK79]' (screen round 3); replaces a failed Belfast clip.",
+    ),
 )
 
 BY_ID = {c.video_id: c for c in CLIPS}

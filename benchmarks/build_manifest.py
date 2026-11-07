@@ -238,6 +238,19 @@ OVERLAY_TITLE_CITY: dict[str, str] = {
     "HpBfjRA60ws": "Paris, France",
     "1bGf8OD9Fqo": "Budapest, Hungary",
     "XO6H3mGMKYg": "Munich, Germany",
+    # held-out set 3 (split="test3", added 2026-11-07)
+    "8BUtb7TKUFA": "Düsseldorf, Germany",
+    "HfK2LuXQtfA": "Düsseldorf, Germany",
+    "6GciDYJ1FUc": "Eindhoven, Netherlands",
+    "G6bUX4GvSbE": "Bristol, UK",
+    "dsQZSk-dWGo": "Belfast, UK",
+    "BrM-LdwP2vA": "Belfast, UK",
+    "vp_D8mxgEkA": "Cork, Ireland",
+    "Gw-mFsRIHEA": "Aarhus, Denmark",
+    "K_54XHyzRn8": "Riga, Latvia",
+    "5koGsNdaVvE": "Bratislava, Slovakia",
+    "MMKAehhi-tA": "Katowice, Poland",
+    "5ewPAw_gIeI": "Katowice, Poland",
 }
 
 
