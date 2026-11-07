@@ -50,6 +50,18 @@ normalised (`posix_sources`, now in `scripts/assisted_goal_audit.py` with a
 regression test) all seven runs pass the audit; the only remaining reason on
 five clips is the 200 m outcome itself.
 
+Two runs were degraded by infrastructure without failing: on Montreal
+`0jJbdTcDseI` and Warsaw `lCm2a3kOEmE` the cues stage's retail-inventory
+request to Overpass returned 504/502 twice, 2-3 s apart, so their OCR cue is
+`failed` while the run went on to an answer. The pre-registered rerun rule
+covers runs that fail on infrastructure; the harness saw these as complete,
+so they were scored as they are. The request now retries with the road-graph
+backoff (commit 1eedf8e), which applies only to later runs. Separately, on
+Munich and Warsaw `lCm2a3kOEmE` the metadata-union step was refused because
+one to six sampled Mapillary images had no URL ("complete capped served tile
+inventory required"; Detroit `g5lnpYCk1Ec` on dev has the same), which left
+those expansions to the slower municipality grid that ran out of budget.
+
 Two operator errors during the run, both before any score was looked at
 (a misread wall clock made a finished run look stalled): the completed
 Warsaw `lCm2a3kOEmE` result directory was moved aside and its per-run
