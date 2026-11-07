@@ -56,7 +56,10 @@ def fetch_city_retail(city, directory, *, offline=False, endpoint_override=None,
              f'nwr["amenity"~"^({RETAIL_AMENITIES})$"]({bbox}););out center tags;')
     endpoint = endpoint_override or ox.settings.overpass_url.rstrip("/") + "/interpreter"
 
-    @transient_retry(attempts=2, first_wait_s=2, max_wait_s=3)
+    # Same patience as the road-graph fetch (osm_data): a busy Overpass
+    # (502/504) usually recovers within minutes; two quick tries lost the
+    # whole OCR cue on runs that otherwise completed.
+    @transient_retry()
     def request():
         original_dns = socket.getaddrinfo
         try:
