@@ -36,7 +36,9 @@ and **13/15** at 14,400 s (median 62 m). This is in-sample: the policy was
 developed on these clips. On its clean held-out test, seven new clips from six
 new cities (`split=test2`, pre-registered as `test2_2026_11`), it reaches only
 **2/7** within 200 m (median 518 m; city-centre guess 0/7): the dev result
-does not carry over. The frozen track's run on the same clips is pending. See
+does not carry over. The frozen track method also reaches 2/7 on these clips;
+the policy returned the track's answer on six of them and improved one
+(Paris, 24 km to 832 m), so it adds nothing within 200 m on new footage. See
 [the assisted fleet record](docs/assisted_fleet_2026-11.md) and
 [the test2 record](docs/heldout_test2_2026-11.md).
 

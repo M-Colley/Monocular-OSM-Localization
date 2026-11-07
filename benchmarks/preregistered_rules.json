@@ -290,7 +290,42 @@
         "H3": "Each method beats the city-centre guess on more clips than it loses."
       },
       "report": "every clip and method, with the share within 200 m and its Wilson 95 % interval, whichever way it comes out; clips whose run fails on infrastructure are rerun at the same commit before any score is looked at",
-      "disclosure": "No development step of either method processed a test2 clip; the clips were chosen from titles, durations and coordinate stamps only. With 5-8 clips only large effects are detectable."
+      "disclosure": "No development step of either method processed a test2 clip; the clips were chosen from titles, durations and coordinate stamps only. With 5-8 clips only large effects are detectable.",
+      "outcome_recorded": {
+        "date": "2026-11-07",
+        "run": "assisted_test2 at a8add7a (14,400 s, scored by its reviewed comparison adapter 5bdae79) and track_test2 at ccd0bbe (clean worktree, --cold-vpr, scored by ccd0bbe's aggregator); separate data copies of the same downloads; seven clips; no infrastructure rerun was needed by either method's harness (operator errors and Overpass-degraded OCR cues are disclosed in the report)",
+        "track_answer_symmetric_m": {
+          "overlay_GnXsgpVPvww": 89.5,
+          "overlay_2sS6glBBm8g": 171.8,
+          "overlay_lCm2a3kOEmE": 334.7,
+          "overlay_1bGf8OD9Fqo": 517.5,
+          "overlay_HpBfjRA60ws": 24364.3,
+          "overlay_0jJbdTcDseI": 3004.1,
+          "overlay_XO6H3mGMKYg": 8130.3
+        },
+        "assisted_answer_symmetric_m": {
+          "overlay_GnXsgpVPvww": 89.5,
+          "overlay_2sS6glBBm8g": 171.8,
+          "overlay_lCm2a3kOEmE": 334.7,
+          "overlay_1bGf8OD9Fqo": 517.5,
+          "overlay_HpBfjRA60ws": 831.5,
+          "overlay_0jJbdTcDseI": 3004.1,
+          "overlay_XO6H3mGMKYg": 8130.3
+        },
+        "city_centre_symmetric_m": {
+          "overlay_GnXsgpVPvww": 4772.7,
+          "overlay_2sS6glBBm8g": 571.1,
+          "overlay_lCm2a3kOEmE": 5286.3,
+          "overlay_1bGf8OD9Fqo": 793.8,
+          "overlay_HpBfjRA60ws": 15258.8,
+          "overlay_0jJbdTcDseI": 11049.9,
+          "overlay_XO6H3mGMKYg": 12061.2
+        },
+        "H1": "holds: assisted 2/7 within 200 m, track 2/7 (both Wilson 95 % [8 %, 64 %])",
+        "H2": "holds: 1 win (Paris), 0 losses, 6 ties (identical answers); one-sided sign test p = 0.5",
+        "H3": "holds for both: track 6 wins, 1 loss (Paris), p = 0.0625; assisted 7 wins, 0 losses, p = 0.0078",
+        "report": "docs/heldout_test2_2026-11.md"
+      }
     }
   }
 }
