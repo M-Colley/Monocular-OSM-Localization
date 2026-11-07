@@ -203,7 +203,10 @@ built from this clip). Detroit is not, and the reasons are now known:
   4th-7th. No rule is adopted on one clip.
 * The metadata regions (Roseville and the named corridor) lie 10-21 km from
   the recorded part of the drive, and the metadata union was refused anyway
-  (one of 1,200 sampled images had no URL).
+  (one of 1,200 sampled images had no URL). Later runs no longer refuse it
+  (commit 8ca1bcd; the v4 fleet at `409a959` predates the fix), but these
+  regions do not cover the drive, so the union is not expected to change
+  this clip.
 * OCR failed on every run of this clip: the fixed-count sampler read the frame
   before the VO horizon (`int(118.99999...)`; fixed in `1498923`). Fixed,
   it reads generic shops (no literal branch) and the exit numbers 186B and

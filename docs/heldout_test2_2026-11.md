@@ -66,6 +66,12 @@ Munich and Warsaw `lCm2a3kOEmE` the metadata-union step was refused because
 one to six sampled Mapillary images had no URL ("complete capped served tile
 inventory required"; Detroit `g5lnpYCk1Ec` on dev has the same), which left
 those expansions to the slower municipality grid that ran out of budget.
+Commit 8ca1bcd later accepts a pool whose only shortfall is a bounded number
+of sampled IDs recorded as URL-less (at most max(5, 1 %) of the sample; new
+fetches also record which IDs, and the served rows plus those must rebuild the
+sample's hash). It applies only to later runs: these scores stand, and a rerun
+of Munich or `lCm2a3kOEmE` under it would be post-hoc. Replayed offline on the
+frozen baseline audits, the new rule accepts all six pools of the three clips.
 
 Two operator errors during the run, both before any score was looked at
 (a misread wall clock made a finished run look stalled): the completed
