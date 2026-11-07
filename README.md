@@ -42,6 +42,14 @@ the policy returned the track's answer on six of them and improved one
 [the assisted fleet record](docs/assisted_fleet_2026-11.md) and
 [the test2 record](docs/heldout_test2_2026-11.md).
 
+**Where the track fails** ([diagnostic over all 29 scored clips](docs/failure_taxonomy_2026-11.md)):
+every clip whose route lay mostly inside the 2 km fine search disc is within
+200 m (14/14). Six of the seven held-out misses are search-coverage misses:
+the route lies outside the 8 km first-pass disc (Ottawa, Montreal, Paris,
+Munich) or is longer than the fine disc covers (Budapest, Warsaw). Most dev
+misses instead come from appearance, with the route inside the disc, and
+that is the failure the assisted policy was built for.
+
 The [October research and method tests](docs/recent_methods_2026-10.md) cover
 recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled
 ImAge test passes the night clip. Full-gallery SelaVPR++, camera-heading and

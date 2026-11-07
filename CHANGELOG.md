@@ -26,6 +26,13 @@ All notable changes to this project are documented here. This project adheres to
   (`ccd0bbe`) is also 2/7: the policy returned the track's answer on six
   clips and improved Paris from 24,364 to 832 m (H1-H3 hold; no gain within
   200 m). See `docs/heldout_test2_2026-11.md`.
+- `scripts/failure_taxonomy.py` and `docs/failure_taxonomy_2026-11.md`: how
+  much of each ground-truth route lay inside the discs the track searched,
+  over the 29 scored dev/test1/test2 clips. Every clip with at least 75 % of
+  its route inside the 2 km fine disc is within 200 m (14/14); six of the
+  seven held-out misses are coverage misses (route outside the 8 km pass-1
+  disc, or longer than the fine disc), while four of six dev misses are
+  appearance misses inside the disc. Diagnostic only; no method changed.
 - Audit fix: descriptor receipts in the metadata-union research bundle are
   compared with the declared `kartaview_vpr.py` hash under POSIX and Windows
   path keys alike. Before, Windows runs with receipts failed the check, and runs
