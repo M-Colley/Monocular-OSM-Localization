@@ -106,6 +106,22 @@ The exit numbers read by OCR (186B, 188) mark the right freeway section
 (`docs/assisted_fleet_2026-11.md`), but an exit-centred dense search still
 scored 809-909 m, consistent with this.
 
+## A cheap fix for mode C that does not work
+
+If the pass-1 track traced the route, 2 km pass-2 discs centred on it at
+several times would cover a long route that one disc misses. Replayed offline
+on the frozen pass-1 audits of the assisted runs' baseline children (the
+track method; 15 dev and 7 test2 clips), splitting the 80 query frames into
+2-4 time chunks and centring a disc on each chunk's robust centre, the chunk
+centres fall within 1.5 km of each other on 18 of the 22 clips (the
+exceptions are Berlin, Newcastle, Warsaw `GnXsgpVPvww` and Detroit
+`g5lnpYCk1Ec`). Coverage does not change on the mode-C clips: Budapest stays
+at 0.50 and Warsaw `lCm2a3kOEmE` at 0.55. Detroit drops from 0.25 to 0.20.
+The gains are on clips that already succeed (Berlin 0.75 to 0.88, Warsaw
+`GnXsgpVPvww` 0.85 to 1.00, Newcastle 0.95 to 1.00). The sparse pass-1 track
+gathers where its matches are strong instead of following the drive, so
+covering a long route needs some other estimate of its extent.
+
 ## Two observations for later work
 
 - On Munich `XO6H3mGMKYg` (test2), the title prior resolved "Oberhaching,
