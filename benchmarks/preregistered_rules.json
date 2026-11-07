@@ -340,7 +340,30 @@
         "M2": "At least two clips above 200 m with the ordinary track are within 200 m with the ring, and the ring improves more clips than it worsens (changes under 10 % are ties)."
       },
       "decision": "If M1 and M2 hold, the method is frozen at that commit and compared with the frozen track method on test3 under a separate rule registered before any test3 run; otherwise it is not taken to test3 as is, and the result is reported either way.",
-      "disclosure": "In-sample by construction (the outer radius used these clips' ground truth). One rep per clip; earlier repeated cold runs of the same clip differed by tens to hundreds of metres, and a rerun may land on the other side of tau."
+      "disclosure": "In-sample by construction (the outer radius used these clips' ground truth). One rep per clip; earlier repeated cold runs of the same clip differed by tens to hundreds of metres, and a rerun may land on the other side of tau.",
+      "amendments": [
+        {
+          "date": "2026-11-07",
+          "change": "the decision clause no longer gates test3: at the user's request the frozen method is tested on ten new videos (rule test3_2026_11) whatever the development check shows; the development check still runs and is reported in full",
+          "reason": "user request; registered before any metro-ring run and before any test3 clip was downloaded or built"
+        }
+      ]
+    },
+    "test3_2026_11": {
+      "registered": "2026-11-07",
+      "description": "Held-out test of the metro-ring search on ten new videos, registered before any test3 clip was downloaded beyond the screen's three frames, before any ground truth was built and before any run of the method.",
+      "clips": "The first ten clips, in the fixed city order of benchmarks/test3_screen/screen5.py (search order within a city, at most two per city), that pass its stamp screen and whose ground truth builds: scripts/build_overlay_fleet.py on the 0-600 s download, scripts/check_overlay_gt.py plausible, and at least 500 m of ground-truth route inside the analysis window. A clip that fails is replaced by the next passing clip of the same city, then the next city. If the screen ends with fewer than ten, test3 is every clip that passes. Selection reads titles, durations and coordinate stamps only.",
+      "method": "commit f582928, --vpr-metro-ring --retrieval-only: the method of metro_ring_dev_2026_11, frozen; nothing is changed after it is registered here",
+      "comparison": "the same run's ordinary track (metro_ring_retrieval.baseline_track, scored by scripts/metro_ring_paired.py and the benchmark aggregator exactly like the answer) and the city-centre guess",
+      "run": "one rep per clip, CPU retrieval, --skip-download from the ground-truth builder's own download, a clean worktree at f582928, --timeout 28800; runs that fail on infrastructure are rerun at the same commit before any score is looked at",
+      "outcome": "symmetric_mean_m per clip of the ring answer, the ordinary track and the city centre; whether the gate fired; wall-clock time",
+      "hypotheses": {
+        "T1": "The ring answer is within 200 m on more test3 clips than the ordinary track.",
+        "T2": "No clip within 200 m with the ordinary track is above 200 m with the ring.",
+        "T3": "The ring improves more clips than it worsens (changes under 10 % are ties; one-sided sign test reported, no significance level registered)."
+      },
+      "report": "every clip, whichever way it comes out, with the share within 200 m and its Wilson 95 % interval for both answers, the failure mode of each miss (scripts/failure_taxonomy.py definitions) and the run time",
+      "disclosure": "The ring acts only on clips whose confidence is below 0.162, so it can change at most those; with ten clips only large effects are detectable. Its 20 km outer radius was chosen on the used splits' ground truth. The dev check (metro_ring_dev_2026_11) runs in parallel and does not gate this test."
     }
   }
 }

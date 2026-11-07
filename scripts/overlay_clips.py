@@ -45,7 +45,8 @@ class OverlayClip:
     #: "dev". A clip added AFTER the method is frozen is "test": add it with
     #: split="test" BEFORE running anything on it, and never tune on its result.
     #: "test2" is the second held-out set, for methods built after "test" was
-    #: scored (added 2026-11-05).
+    #: scored (added 2026-11-05); "test3" the third, for methods built after
+    #: "test2" was scored (added 2026-11-07).
     split: str = "dev"
 
     @property

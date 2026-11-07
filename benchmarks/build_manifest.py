@@ -62,6 +62,9 @@ SPLITS = {
     "test2": "A second held-out set (added 2026-11-05) for methods built after test "
              "was scored: no development step has processed these clips. `run` skips "
              "split=test2 unless --split test2 is given explicitly.",
+    "test3": "A third held-out set (added 2026-11-07) for the metro-ring search, built "
+             "after test2 was scored: no development step has processed these clips. "
+             "`run` skips split=test3 unless --split test3 is given explicitly.",
 }
 
 #: The core fleet. Strings only — no coordinates are maintained here; the
