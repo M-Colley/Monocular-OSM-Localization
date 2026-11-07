@@ -172,3 +172,47 @@ the decoded centre (still 6.4 km off); KITTI is not helped. As a drop-in
 first-pass encoder it is not an improvement. The night result is the one
 lead: a second pass over the top two areas with ImAge crops could reach it,
 which is two untested changes and only one clip. Not adopted.
+
+## Policy v4 pilot: sign-site verification (`ee38432`)
+
+Policy v4 is v3 plus one stage: when the cues read one to six literal
+shop-sign branches but native VO is too weak for the joint POI attempt
+(valid fraction below 0.80), each branch's site gets a dense local pool
+(300 m, 600 images); the site whose imagery the sign-read frames match best
+is kept, and the whole window is decoded over that pool plus a 3 km /
+1,500-image route pool (`monocular_osm/poi_site_verify.py`). Built from the
+Atlanta `y66` diagnosis above (the true site had 1 sampled image within
+200 m, the false one 25). Pilot on the two remaining v3 failures, 16 CPU
+threads (`--assisted-cpu-threads 16`), 14,400 s budget, from `wt-head`:
+
+| Clip | v3 (`a8add7a`, 14,400 s) | v4 pilot | Path |
+|---|---|---|---|
+| Atlanta `y66ZkRpUh4k` (night) | 6,590 m | **43 m** | `poi_site` selected (2 branches, VO 0.49), 2,325 s |
+| Detroit `g5lnpYCk1Ec` | 1,387 m | 1,387 m | baseline kept; expanded complete, not admitted, 7,429 s |
+
+Atlanta is solved by the new stage as designed (in-sample: the stage was
+built from this clip). Detroit is not, and the reasons are now known:
+
+* At 16 threads the municipality grid finishes (27 coarse cells at 250
+  images, 3 fine cells at 1,500), but its route is 2.5 km off. The drive's
+  cells (9, 10, 13) got no frame at the coarse level, so they were never
+  densified; only cell 5 (the first 150 s) was, and that part is right
+  (78 m). Offline, other GT-free shortlist rules computed from the saved
+  matrices reach the true cells only with raw-matrix maxima that the grid
+  code does not have; with its per-frame decoded cosines, voting puts them
+  4th-7th. No rule is adopted on one clip.
+* The metadata regions (Roseville and the named corridor) lie 10-21 km from
+  the recorded part of the drive, and the metadata union was refused anyway
+  (one of 1,200 sampled images had no URL).
+* OCR failed on every run of this clip: the fixed-count sampler read the frame
+  before the VO horizon (`int(118.99999...)`; fixed in `1498923`). Fixed,
+  it reads generic shops (no literal branch) and the exit numbers 186B and
+  188; the OSM junctions with those refs lie 159-234 m and 196 m from the
+  true position at the read times. A prototype decode centred on them
+  (dense pool plus 3 km route pool, image-only) reaches 909 m: the location
+  is right, the freeway imagery cannot place the 8.5 km route. An exit-number
+  cue would need VO or road-graph alignment, not image decoding; not built.
+
+The complete fifteen-clip v4 run (`assisted_v4_fleet`, HEAD after `409a959`,
+16 threads, 14,400 s, warm copies of the v3 fleet inputs) runs after the
+held-out track run; v4 is in-sample on dev and untested on held-out data.
