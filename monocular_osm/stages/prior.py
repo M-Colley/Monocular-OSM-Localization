@@ -328,8 +328,15 @@ def _city_cache_directories(cfg, source):
 
 
 def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token, device,
-                    query_dt_s, track_fn, *, query_cache=None):
-    """Optional full-city hierarchy; a failed experiment retains ordinary VPR."""
+                    query_dt_s, track_fn, *, query_cache=None, plan=None, kind="city",
+                    coarse_cap=None):
+    """Optional full-city hierarchy; a failed experiment retains ordinary VPR.
+
+    ``plan`` (a callable returning ``(regions, audit)``) replaces the
+    municipality cell plan, ``kind`` names the cache directories and
+    ``coarse_cap`` overrides ``cfg.vpr_city_coarse_cap``; the metro-ring search
+    uses all three. The defaults keep the municipality search unchanged.
+    """
     from .. import kartaview_vpr as kv
     from ..city_retrieval import (CityBoundaryTypeError, CityCoverageLimitError,
                                   plan_city_regions, select_city_tracks)
@@ -346,9 +353,12 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
                                 "track_decoding": baseline_region.get("track_decoding", dict(kv.LAST_TRACK_STATS))},
                    "selected_city_frames": 0}
     try:
-        regions, plan = plan_city_regions(
-            cfg.city, shared_root / "_city_boundaries", radius_m=cfg.vpr_search_radius_m)
-        diagnostics["plan"] = plan
+        if plan is None:
+            regions, plan_audit = plan_city_regions(
+                cfg.city, shared_root / "_city_boundaries", radius_m=cfg.vpr_search_radius_m)
+        else:
+            regions, plan_audit = plan()
+        diagnostics["plan"] = plan_audit
     except Exception as exc:
         diagnostics.update(status="failed", reason="city_plan_refused",
                            error=f"{type(exc).__name__}: {exc}")
@@ -366,10 +376,10 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
         identity = f"{cfg.city}:{region['center']}:{region['radius_m']}"
         tag = hashlib.sha256(identity.encode()).hexdigest()[:12]
         if external is not None:
-            directory = Path(external) / cfg.data_dir.name / f"{source}_city_{phase}_{tag}"
+            directory = Path(external) / cfg.data_dir.name / f"{source}_{kind}_{phase}_{tag}"
         else:
-            directory = cfg.data_dir / f"{source}_city" / f"{phase}_{tag}"
-        print(f"      -> city {phase} cell {index + 1}/{len(regions)} "
+            directory = cfg.data_dir / f"{source}_{kind}" / f"{phase}_{tag}"
+        print(f"      -> {kind} {phase} cell {index + 1}/{len(regions)} "
               f"r={region['radius_m']:.0f} m, cap={cap}")
         kv.LAST_FETCH_STATS = {}
         kv.LAST_FAILURE = None
@@ -405,7 +415,8 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
     try:
         merged, selection = select_city_tracks(
             regions, baseline_track, frames.timestamps, retrieve,
-            coarse_cap=getattr(cfg, "vpr_city_coarse_cap", 250),
+            coarse_cap=(coarse_cap if coarse_cap is not None
+                        else getattr(cfg, "vpr_city_coarse_cap", 250)),
             fine_regions=getattr(cfg, "vpr_city_fine_regions", 3), fine_cap=cfg.vpr_ref_cap)
         diagnostics.update(selection)
         multiplier = 3 if source == "union" else 1
@@ -419,6 +430,135 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
                            error=f"{type(exc).__name__}: {exc}")
         print(f"      -> city retrieval failed ({exc}); keeping ordinary retrieval")
         return baseline_track, diagnostics, listing
+
+
+# Metro-ring search (opt-in --vpr-metro-ring). Gate: the pre-registered
+# selective rule's threshold (benchmarks/preregistered_rules.json,
+# pipeline_selective.tau), reused unchanged: a track below it is the one the
+# rule already treats as unreliable. Cells: hex discs of this radius, each with
+# the pass-1 city disc's reference density (so 300 refs with a token).
+_METRO_RING_GATE = 0.162
+_METRO_CELL_M = 4000.0
+
+
+def metro_ring_confidence(c2f_info, vpr_track):
+    """The selective rule's confidence signal, read at runtime: the coarse-to-fine
+    pass-2 median cosine when pass 2 ran, else the kept track's median cosine."""
+    sim = (c2f_info or {}).get("pass2_sim")
+    if sim is not None and np.isfinite(float(sim)):
+        return float(sim), "vpr_coarse_to_fine.pass2_sim"
+    if vpr_track is not None and len(vpr_track[2]):
+        return float(np.median(vpr_track[2])), "vpr_prior.track_sim_median"
+    return None, None
+
+
+def metro_ring_coarse_cap(token_present: bool) -> int:
+    """References per ring cell at the pass-1 city disc's density."""
+    city_cap = _PASS1_TOKEN_CAP if token_present else _PASS1_COVER_CAP
+    return max(1, round(city_cap * (_METRO_CELL_M / _PASS1_COVER_MAX_M) ** 2))
+
+
+def _metro_ring_vpr(ctx, *, center, searched_radius_m, estimated_length_m, source, token,
+                    device, query_dt_s, track_fn, query_cache):
+    """When the ordinary track is weak, search the city's surroundings.
+
+    The drive may lie outside the disc pass 1 searched (failure mode A in
+    docs/failure_taxonomy_2026-11.md). Below the gate this covers the disc of
+    ``cfg.vpr_metro_radius_m`` around the city's geocode, minus the searched
+    disc, with the municipality search's cell hierarchy (coarse cells, densify
+    the supported ones, final continuity merge in which the ordinary track
+    stays a candidate). If ring evidence is selected, the centre moves there
+    and a coarse-to-fine pass refines it under the ordinary pass-2 rule.
+    """
+    from .. import kartaview_vpr as kv
+    from ..city_retrieval import metro_ring_regions
+    from ..kartaview_vpr import _robust_center
+
+    cfg = ctx.cfg
+    conf, signal = metro_ring_confidence(ctx.c2f_info, ctx.vpr_track)
+    record = {"experimental": True,
+              "gate": {"confidence": conf, "signal": signal, "tau": _METRO_RING_GATE}}
+    ctx.result["metro_ring_retrieval"] = record
+    if conf is not None and conf >= _METRO_RING_GATE:
+        record.update(status="not_triggered", kept="baseline")
+        print(f"      -> metro ring not needed (confidence {conf:.3f} >= {_METRO_RING_GATE})")
+        return
+    if ctx.vpr_track is not None and len(ctx.vpr_track[0]):
+        # The ordinary track in result["vpr_prior"]["track"]'s format, so the
+        # same run can be scored with and without the ring (paired comparison).
+        times = np.asarray(ctx.frames.timestamps, float)
+        record["baseline_track"] = [
+            [round(float(times[int(i)]), 2), round(float(ll[0]), 6), round(float(ll[1]), 6),
+             round(float(s), 4)] for i, ll, s in zip(*ctx.vpr_track)]
+    try:
+        import osmnx as ox
+        city_centre = tuple(map(float, ox.geocode(cfg.city)))
+    except Exception as exc:
+        record.update(status="failed", reason="city_geocode_failed", kept="baseline",
+                      error=f"{type(exc).__name__}: {exc}")
+        print(f"      -> metro ring: geocode failed ({exc}); keeping the ordinary track")
+        return
+    coarse_cap = metro_ring_coarse_cap(bool(token))
+    outer = float(cfg.vpr_metro_radius_m)
+    print(f"      -> metro ring: confidence {conf if conf is None else round(conf, 3)} < "
+          f"{_METRO_RING_GATE}; searching {searched_radius_m:.0f}-{outer:.0f} m around the city "
+          f"({_METRO_CELL_M:.0f} m cells, cap {coarse_cap})")
+
+    def plan():
+        return metro_ring_regions(cfg.city, city_centre, outer_radius_m=outer,
+                                  searched_centre=center, searched_radius_m=searched_radius_m,
+                                  cell_radius_m=_METRO_CELL_M)
+
+    baseline_region = {"center": list(map(float, center)), "radius_m": float(searched_radius_m),
+                       "source": source, "coarse_to_fine": ctx.c2f_info}
+    track, diagnostics, listing = _city_cover_vpr(
+        cfg, ctx.frames, ctx.vpr_track, baseline_region, source, token, device, query_dt_s,
+        track_fn, query_cache=query_cache, plan=plan, kind="metro", coarse_cap=coarse_cap)
+    record.update(diagnostics)
+    record["coarse_cap"] = coarse_cap
+    ctx.vpr_listing = {**(ctx.vpr_listing or {}), **listing} or None
+    if track is None or not diagnostics.get("selected_city_frames", 0):
+        record["kept"] = "baseline"
+        print("      -> metro ring: no ring evidence selected; keeping the ordinary track")
+        return
+    ring_sim = float(np.median(track[2]))
+    centre = _robust_center(track[1], track[2])
+    tight = max(float(cfg.vpr_c2f_radius_m), 0.6 * float(estimated_length_m))
+    grid = 0.0001
+    slat = round(float(centre[0]) / grid) * grid
+    slon = round(float(centre[1]) / grid) * grid
+    refine = {"center": [slat, slon], "radius_m": tight, "ring_sim": ring_sim}
+    kept = "ring"
+    try:
+        kv.LAST_TRACK_STATS = {}
+        refined = track_fn(
+            ctx.frames.frames, (slat, slon), radius_m=tight,
+            cache_dir=str(cfg.data_dir / f"{source}_metro_c2f"), device=device, source=source,
+            token=token, cap=cfg.vpr_ref_cap,
+            query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+            query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+            query_cache=query_cache, sequence_decode=cfg.vpr_viterbi, query_dt_s=query_dt_s)
+        refine["track_decoding"] = dict(kv.LAST_TRACK_STATS)
+    except Exception as exc:
+        refined = None
+        refine["error"] = f"{type(exc).__name__}: {exc}"
+    if refined is not None:
+        refine["refined_sim"] = float(np.median(refined[2]))
+        # The ordinary pass-2 rule: keep the refinement unless it loses match quality.
+        if refine["refined_sim"] >= ring_sim - _C2F_SIM_MARGIN:
+            track, centre, kept = refined, _robust_center(refined[1], refined[2]), "ring+refine"
+    ctx.vpr_track, ctx.vpr_center = track, centre
+    ctx.anchor_origin, ctx.vpr_source_used = "vpr", source
+    ctx.channel_status.pop("vpr", None)       # Recover an empty ordinary search.
+    distances = geodesic_distance_m(centre[0], centre[1], track[1][:, 0], track[1][:, 1])
+    required = max(tight, float(np.max(distances))) + _C2F_SNAP_TOL_M
+    radius = min(required, _PASS1_COVER_MAX_M)
+    ctx.osm_around = (float(centre[0]), float(centre[1]), radius)
+    record.update(kept=kept, refine=refine, selected_center=[float(centre[0]), float(centre[1])],
+                  selected_sim=float(np.median(track[2])), graph_radius_m=radius,
+                  graph_radius_capped=required > radius)
+    print(f"      -> metro ring: kept {kept} (sim {record['selected_sim']:.3f}); "
+          f"centre {centre[0]:.5f}, {centre[1]:.5f}")
 
 
 def _append_retrieval_audit(ctx, audit):
@@ -837,6 +977,12 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     ctx.osm_around = (*map(float, ctx.vpr_center), radius)
                     _city.update(graph_radius_m=radius, graph_radius_capped=required > radius)
                     print("      -> city track selected against the completed ordinary baseline")
+            if getattr(cfg, "vpr_metro_ring", False):
+                _metro_ring_vpr(
+                    ctx, center=center, searched_radius_m=max(float(_vpr_radius), float(_vpr_outer or 0.0)),
+                    estimated_length_m=estimated_length_m, source=_vpr_src, token=_vpr_token,
+                    device=_vpr_device, query_dt_s=_qdt, track_fn=kartaview_vpr_track,
+                    query_cache=_query_cache)
         except Exception as e:
             print(f"      -> VPR prior failed ({e}); keeping full-city graph")
             _record_channel(channel_status, 'vpr', "failed", error=e)

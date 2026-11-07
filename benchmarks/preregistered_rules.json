@@ -326,6 +326,21 @@
         "H3": "holds for both: track 6 wins, 1 loss (Paris), p = 0.0625; assisted 7 wins, 0 losses, p = 0.0078",
         "report": "docs/heldout_test2_2026-11.md"
       }
+    },
+    "metro_ring_dev_2026_11": {
+      "registered": "2026-11-07",
+      "description": "Development check, before any run of it: does searching the city's surroundings when the retrieval track is weak (--vpr-metro-ring) recover routes that lie outside the searched disc, without breaking clips that already work? All three used splits serve as development data here; a held-out claim needs the third split (test3), registered separately once the method is frozen.",
+      "method": "--vpr-metro-ring --retrieval-only (answer: the retrieval track) at the commit that adds it. When the selective rule's confidence (vpr_coarse_to_fine.pass2_sim, else the track's median cosine) is below its pre-registered tau 0.162, the run covers the disc of 20 km around the city's geocode minus the disc pass 1 searched with 4 km hex cells, each with the pass-1 city disc's reference density (300 refs with a token), densifies up to 3 supported cells (1,500 refs), lets the existing regional continuity merge choose between them and the ordinary track, and, if ring evidence is selected, refines with a coarse-to-fine pass at the new centre under the ordinary pass-2 margin (0.02). Above tau nothing changes.",
+      "constants": "tau, the cell hierarchy, its fine budget and the pass-2 margin are reused unchanged; the 4 km cell radius and 300-ref cap follow from the pass-1 density (1,200 refs per 8 km disc). The 20 km outer radius was chosen after seeing the used splits' ground truth: the six mode-A failures lie 10.8-16.8 km (median route point) from the city geocode (docs/failure_taxonomy_2026-11.md); it is not tuned on any metro-ring result.",
+      "clips": "all 29 scored clips of the used splits: dev (15), test (7), test2 (7). The gate is decided by each run itself; 15 clips were below tau in their frozen runs.",
+      "run": "one rep per clip, CPU retrieval, --skip-download, a clean worktree at the method commit, data copies holding the frozen runs' inputs and warm ordinary-retrieval caches (ring caches start cold)",
+      "outcome": "per clip, the symmetric_mean_m of the answer with the ring against the same run's ordinary track (recorded before the ring step as metro_ring_retrieval.baseline_track and scored identically: running median of 5, monocular_osm.metrics.score_route); wall-clock time per clip",
+      "hypotheses": {
+        "M1": "No clip whose ordinary track is within 200 m is above 200 m with the ring (no harm).",
+        "M2": "At least two clips above 200 m with the ordinary track are within 200 m with the ring, and the ring improves more clips than it worsens (changes under 10 % are ties)."
+      },
+      "decision": "If M1 and M2 hold, the method is frozen at that commit and compared with the frozen track method on test3 under a separate rule registered before any test3 run; otherwise it is not taken to test3 as is, and the result is reported either way.",
+      "disclosure": "In-sample by construction (the outer radius used these clips' ground truth). One rep per clip; earlier repeated cold runs of the same clip differed by tens to hundreds of metres, and a rerun may land on the other side of tau."
     }
   }
 }

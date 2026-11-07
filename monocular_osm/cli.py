@@ -203,6 +203,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Reference budget per coarse municipality cell (default 250).")
     p.add_argument("--vpr-city-fine-regions", type=int, default=3,
                    help="Maximum coarse cells to densify (default 3).")
+    p.add_argument("--vpr-metro-ring", action=argparse.BooleanOptionalAction, default=False,
+                   help="Experimental: when the retrieval track's confidence is below the "
+                        "pre-registered selective threshold (0.162), also search the city's "
+                        "surroundings in cells, out to --vpr-metro-radius around its geocode.")
+    p.add_argument("--vpr-metro-radius", type=float, default=20000.0,
+                   help="Outer radius of the metro-ring search in metres (default 20000).")
     p.add_argument("--vpr-region-cap", type=int, default=6,
                    help="Maximum retrieval regions including the original search "
                         "region (default 6).")
@@ -944,6 +950,8 @@ def main() -> None:
             vpr_city_cover=args.vpr_city_cover,
             vpr_city_coarse_cap=args.vpr_city_coarse_cap,
             vpr_city_fine_regions=args.vpr_city_fine_regions,
+            vpr_metro_ring=args.vpr_metro_ring,
+            vpr_metro_radius_m=args.vpr_metro_radius,
             video_title=effective_title,
             video_description=effective_description,
             answer=args.answer,

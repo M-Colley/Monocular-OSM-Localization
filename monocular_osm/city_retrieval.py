@@ -138,6 +138,43 @@ def municipality_regions(geometry, city, *, radius_m=3000.0, max_cells=MAX_CITY_
     }
 
 
+def metro_ring_regions(city, city_centre, *, outer_radius_m, searched_centre, searched_radius_m,
+                       cell_radius_m, max_cells=MAX_CITY_CELLS):
+    """Cover a disc around the city's geocode, minus the disc already searched.
+
+    The area is ``disc(city_centre, outer_radius_m)`` without
+    ``disc(searched_centre, searched_radius_m)``: for an ordinary run the
+    pass-1 city disc (so an annulus), for a title- or plate-seeded run the seed
+    disc. It reuses the municipality hex cover and its coverage audit, so cells
+    near the inner edge may reach inside the searched disc. No GT is accepted.
+    """
+    from pyproj import CRS, Transformer
+    from shapely import transform
+    from shapely.geometry import Point
+
+    outer_radius_m, searched_radius_m = float(outer_radius_m), float(searched_radius_m)
+    if not (np.isfinite(outer_radius_m) and np.isfinite(searched_radius_m)) or outer_radius_m <= 0:
+        raise ValueError("metro ring radii must be finite and positive")
+    lat0, lon0 = map(float, city_centre)
+    crs = CRS.from_proj4(f"+proj=aeqd +lat_0={lat0} +lon_0={lon0} +datum=WGS84 +units=m")
+    forward = Transformer.from_crs(4326, crs, always_xy=True)
+    inverse = Transformer.from_crs(crs, 4326, always_xy=True)
+    sx, sy = forward.transform(float(searched_centre[1]), float(searched_centre[0]))
+    area = Point(0.0, 0.0).buffer(outer_radius_m, quad_segs=96).difference(
+        Point(sx, sy).buffer(max(searched_radius_m, 0.0), quad_segs=96))
+    if area.is_empty:
+        raise ValueError("the searched disc already covers the metro disc")
+    geometry = transform(area, inverse.transform, interleaved=False)
+    regions, audit = municipality_regions(geometry, city, radius_m=cell_radius_m, max_cells=max_cells)
+    for region in regions:
+        region.update(origin="metro_ring", name=region["name"].replace(" cell ", " metro cell "))
+    return regions, {**audit, "plan": "metro_ring", "city_centre": [lat0, lon0],
+                     "outer_radius_m": outer_radius_m,
+                     "searched_centre": [float(searched_centre[0]), float(searched_centre[1])],
+                     "searched_radius_m": searched_radius_m,
+                     "ring_area_km2": float(area.area / 1e6)}
+
+
 def _city_boundary(city):
     import osmnx as ox
 
