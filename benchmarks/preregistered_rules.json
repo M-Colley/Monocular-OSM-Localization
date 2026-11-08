@@ -363,7 +363,15 @@
         "T3": "The ring improves more clips than it worsens (changes under 10 % are ties; one-sided sign test reported, no significance level registered)."
       },
       "report": "every clip, whichever way it comes out, with the share within 200 m and its Wilson 95 % interval for both answers, the failure mode of each miss (scripts/failure_taxonomy.py definitions) and the run time",
-      "disclosure": "The ring acts only on clips whose confidence is below 0.162, so it can change at most those; with ten clips only large effects are detectable. Its 20 km outer radius was chosen on the used splits' ground truth. The dev check (metro_ring_dev_2026_11) runs in parallel and does not gate this test."
+      "disclosure": "The ring acts only on clips whose confidence is below 0.162, so it can change at most those; with ten clips only large effects are detectable. Its 20 km outer radius was chosen on the used splits' ground truth. The dev check (metro_ring_dev_2026_11) runs in parallel and does not gate this test.",
+      "amendments": [
+        {
+          "date": "2026-11-08",
+          "change": "the clean worktree is at d1e9ea0 instead of f582928; it runs with --min-free-vram-gb 0, --infra-retries 2 and --infra-wait 600, on E:/claude-scoring/test3/data (the ground-truth builder's own downloads)",
+          "reason": "f582928 predates the test3 split, so its benchmark runner cannot list test3 clips. d1e9ea0 adds only the test3 selection, ground truth, manifest, centroid snapshot, runner split support and scoring script on top of f582928; git diff f582928 d1e9ea0 -- monocular_osm/ main.py is empty, so the method is the registered one. The VRAM flag only stops the CPU-only run waiting for free GPU memory it never uses. Recorded after the ten clips were fixed and before any test3 run.",
+          "disclosure": "The run shares the 28-thread CPU with the metro_ring_dev_2026_11 check, so its wall-clock times include that contention."
+        }
+      ]
     }
   }
 }
