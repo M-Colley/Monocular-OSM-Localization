@@ -185,7 +185,8 @@ def test_final_source_digest_mismatch_is_refused(monkeypatch):
     monkeypatch.setattr(runner.subprocess, "check_output", lambda args, **kwargs: "f"*40 if "rev-parse" in args else "")
     with pytest.raises(ValueError, match="source changed"):
         runner.source_hashes("f"*40, {})
-    outside = SimpleNamespace(__file__="E:/outside/fake.py")
+    # Absolute and outside the checkout on every OS ("E:/..." is relative on Linux).
+    outside = SimpleNamespace(__file__=str(Path(runner.ROOT.anchor) / "outside-the-checkout" / "fake.py"))
     monkeypatch.setitem(sys.modules, "monocular_osm._test_escape", outside)
     with pytest.raises(ValueError, match="escaped"):
         runner.source_hashes("f"*40)
