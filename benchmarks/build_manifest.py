@@ -251,6 +251,7 @@ OVERLAY_TITLE_CITY: dict[str, str] = {
     "5koGsNdaVvE": "Bratislava, Slovakia",
     "MMKAehhi-tA": "Katowice, Poland",
     "5ewPAw_gIeI": "Katowice, Poland",
+    "7n4XQUBEH5Y": "Zagreb, Croatia",
 }
 
 

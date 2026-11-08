@@ -40,12 +40,30 @@ the next city.
 | - | Belfast | `dsQZSk-dWGo` | failed: edited, 10 fixes in the longest cut-free run |
 | - | Belfast | `BrM-LdwP2vA` | failed: edited, 8 fixes in the longest cut-free run |
 | 5 | Cork | `vp_D8mxgEkA` | 9.4 km, plausible |
-| 6 | Aarhus | `Gw-mFsRIHEA` | pending (download refused by a bot check) |
-| 7 | Riga | `K_54XHyzRn8` | pending (download refused by a bot check) |
-| 8 | Bratislava | `5koGsNdaVvE` | pending (download refused by a bot check) |
-| 9 | Katowice | `MMKAehhi-tA` | pending (replaces a Belfast clip) |
-| 10 | Katowice | `5ewPAw_gIeI` | pending (replaces a Belfast clip) |
+| - | Aarhus | `Gw-mFsRIHEA` | failed: edited, 8 fixes in the longest cut-free run (Aarhus has no second passing clip) |
+| 6 | Riga | `K_54XHyzRn8` | 4.1 km (418 s cut-free), plausible after review (see below) |
+| 7 | Bratislava | `5koGsNdaVvE` | 4.7 km, plausible |
+| 8 | Katowice | `MMKAehhi-tA` | 8.4 km, plausible; replaces a Belfast clip |
+| 9 | Katowice | `5ewPAw_gIeI` | 9.6 km, plausible; replaces a Belfast clip |
+| 10 | Zagreb | `7n4XQUBEH5Y` | 5.3 km, plausible; replaces the Aarhus clip |
 
-Next in line if a pending build fails: Zagreb `7n4XQUBEH5Y`, Bucharest
-`tK7bHJXAJX8` and `yd5g7jsWiEM`, Sofia `jkkl1QgsPSo`, Kansas City
-`oPbnvEIRm3A` and `ZLmQWroXthY`.
+Selection complete on 2026-11-08, before any test3 run. Passing clips left
+unused: Bucharest `tK7bHJXAJX8` and `yd5g7jsWiEM`, Sofia `jkkl1QgsPSo`,
+Kansas City `oPbnvEIRm3A` and `ZLmQWroXthY`, New Orleans `hrbPCnxiQeQ`,
+Albuquerque `jz6o-_Y6r2E`.
+
+YouTube refused the Aarhus, Riga and Bratislava downloads with bot checks
+on 2026-11-07; they were retried unchanged after 30 min waits (no cookies,
+no change of source) and Aarhus downloaded on the fourth attempt.
+
+**Riga review.** `check_overlay_gt.py` flags waypoint 4 (t = 114 s, a 420 m
+detour for 55 m of progress). The cached raw fixes show a turn-around, not a
+misread: latitude 56.97424 (104 s), 56.97407 (109 s), 56.97433 (114 s),
+56.97493 (119 s), then a steady northbound run at 15-19 m/s, with longitude
+moving smoothly throughout. The ground truth is kept unedited.
+
+**Disclosure, not exclusion.** The first Katowice clip ('Podzamcze -
+Katowice') is driven at the Podzamcze end in its first ten minutes, 40-47 km
+from the Katowice geocode and so outside even the ring's 20 km outer
+radius. The rule selects on the screen and on whether the ground truth
+builds, not on where the route lies, so it stays in.

@@ -298,7 +298,7 @@ CLIPS: tuple[OverlayClip, ...] = (
         video_id="Gw-mFsRIHEA", region="bottom", window=_W, split="test3",
         city_override="Aarhus, Denmark",
         overlay="decimal lat/lon (bottom)",
-        note="Titled 'Grenaa to Billund via Aarhus' at sunset: the window may lie outside Aarhus.",
+        note="Titled 'Grenaa to Billund via Aarhus' at sunset. Ground truth FAILED (edited: 8 fixes in the longest cut-free run) before any run; replaced under the rule by the next passing clip in city order (Aarhus had no second).",
     ),
     OverlayClip(
         video_id="K_54XHyzRn8", region="bottom", window=_W, split="test3",
@@ -323,6 +323,12 @@ CLIPS: tuple[OverlayClip, ...] = (
         city_override="Katowice, Poland",
         overlay="decimal lat/lon (bottom)",
         note="Titled 'Katowice - Balice [DK79]' (screen round 3); replaces a failed Belfast clip.",
+    ),
+    OverlayClip(
+        video_id="7n4XQUBEH5Y", region="bottom", window=_W, split="test3",
+        city_override="Zagreb, Croatia",
+        overlay="decimal lat/lon (bottom)",
+        note="Titled 'Zagreb at night ~ 4K Dashcam' (screen round 3); replaces the failed Aarhus clip.",
     ),
 )
 

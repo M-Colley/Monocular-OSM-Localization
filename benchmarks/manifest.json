@@ -926,6 +926,126 @@
       "city_alternatives_notes": {},
       "legacy_city": "Cork, Ireland",
       "available_locally": true
+    },
+    {
+      "id": "overlay_K_54XHyzRn8",
+      "name": "Riga (K_54XHyzRn8)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_K_54XHyzRn8.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "69a31e97bf5ca868e62fa2752ea477ca1d49fbe358fc71dc2c0d652907af7847",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=K_54XHyzRn8"
+      },
+      "title": "Garmin nuvicam LMT Test #1 / Riga / Latvia",
+      "vo_segment": "0:418",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (32 fixes dropped to edit cuts).",
+      "city": "Riga, Latvia",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Riga, Latvia",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_5koGsNdaVvE",
+      "name": "Bratislava (5koGsNdaVvE)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_5koGsNdaVvE.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "8ac4f1377de7b2e22cacf99fd3de3a760c8326453f2747a9aa0deda8065079ca",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=5koGsNdaVvE"
+      },
+      "title": "Bratislava - Slovakia (4k)",
+      "vo_segment": "9:542",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Bratislava, Slovakia",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Bratislava, Slovakia",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_MMKAehhi-tA",
+      "name": "Katowice (MMKAehhi-tA)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_MMKAehhi-tA.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "8cee76b45f174d16176c76e0d89905b2c7d5829afd41c6e191642d3807801262",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=MMKAehhi-tA"
+      },
+      "title": "Podzamcze - Katowice",
+      "vo_segment": "20:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Katowice, Poland",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Katowice, Poland",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_5ewPAw_gIeI",
+      "name": "Katowice (5ewPAw_gIeI)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_5ewPAw_gIeI.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "4466dfedb0b36600f372eb3fe60ca3485c955df1373cbdc3d8afe4e9a9cf8a06",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=5ewPAw_gIeI"
+      },
+      "title": "Katowice - Balice [DK79]",
+      "vo_segment": "95:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Katowice, Poland",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Katowice, Poland",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_7n4XQUBEH5Y",
+      "name": "Zagreb (7n4XQUBEH5Y)",
+      "fleet": "overlay",
+      "split": "test3",
+      "gt": "ground_truth/overlay_7n4XQUBEH5Y.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "85c59ea78cdb77446e78c063910126e61e838ac0d65a51aa3d975b1773e39d26",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=7n4XQUBEH5Y"
+      },
+      "title": "Zagreb at night ~ 4K Dashcam ~ relaxing music",
+      "vo_segment": "5:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Zagreb, Croatia",
+      "city_basis": "the first place the upload title names",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Zagreb, Croatia",
+      "available_locally": true
     }
   ]
 }

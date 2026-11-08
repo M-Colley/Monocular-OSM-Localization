@@ -27,6 +27,20 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-24T18:52:38+00:00"
   },
+  "Bratislava, Slovakia": {
+    "lat": 48.1435026,
+    "lon": 17.1082867,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:33+00:00"
+  },
+  "Bristol, UK": {
+    "lat": 51.4538022,
+    "lon": -2.5972985,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:35+00:00"
+  },
   "Budapest, Hungary": {
     "lat": 47.4978789,
     "lon": 19.0402383,
@@ -41,6 +55,13 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:52+00:00"
   },
+  "Cork, Ireland": {
+    "lat": 51.8985136,
+    "lon": -8.4726423,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:36+00:00"
+  },
   "Detroit, Michigan, USA": {
     "lat": 42.3315509,
     "lon": -83.0466403,
@@ -48,12 +69,33 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:53+00:00"
   },
+  "Düsseldorf, Germany": {
+    "lat": 51.2254018,
+    "lon": 6.7763137,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:36+00:00"
+  },
+  "Eindhoven, Netherlands": {
+    "lat": 51.4485569,
+    "lon": 5.4501225,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:38+00:00"
+  },
   "Frankfurt am Main, Germany": {
     "lat": 50.1106444,
     "lon": 8.6820917,
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-24T18:52:39+00:00"
+  },
+  "Katowice, Poland": {
+    "lat": 50.2137315,
+    "lon": 19.0058848,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:39+00:00"
   },
   "Manchester, UK": {
     "lat": 53.4794892,
@@ -118,6 +160,13 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:56+00:00"
   },
+  "Riga, Latvia": {
+    "lat": 56.9493977,
+    "lon": 24.1051846,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:41+00:00"
+  },
   "San Francisco Peninsula, California, USA": {
     "lat": 37.5338023,
     "lon": -122.3970102,
@@ -166,5 +215,12 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-11-06T01:22:55+00:00"
+  },
+  "Zagreb, Croatia": {
+    "lat": 45.8130967,
+    "lon": 15.9772795,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:40:49+00:00"
   }
 }

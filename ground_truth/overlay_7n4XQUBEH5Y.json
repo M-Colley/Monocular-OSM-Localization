@@ -1,0 +1,110 @@
+{
+  "video_id": "7n4XQUBEH5Y",
+  "video_url": "https://www.youtube.com/watch?v=7n4XQUBEH5Y",
+  "city": "Zagreb, Croatia",
+  "vo_segment": "5:595",
+  "description": "Titled 'Zagreb at night ~ 4K Dashcam' (screen round 3); replaces the failed Aarhus clip. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 119 OCR fixes over 5-595 s (5.47 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": 45.82122,
+      "lon": 16.02331
+    },
+    {
+      "t_sec": 35.0,
+      "lat": 45.81992,
+      "lon": 16.01753
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 45.81831,
+      "lon": 16.01286
+    },
+    {
+      "t_sec": 100.0,
+      "lat": 45.81589,
+      "lon": 16.00997
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 45.81486,
+      "lon": 16.00805
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 45.81281,
+      "lon": 16.00311
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 45.812,
+      "lon": 16.00067
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 45.81125,
+      "lon": 15.99794
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 45.8107,
+      "lon": 15.99508
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 45.81031,
+      "lon": 15.99231
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 45.81008,
+      "lon": 15.988
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 45.80994,
+      "lon": 15.98614
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 45.80975,
+      "lon": 15.98264
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 45.80939,
+      "lon": 15.9785
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 45.80903,
+      "lon": 15.97467
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 45.80892,
+      "lon": 15.97069
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 45.80772,
+      "lon": 15.96786
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 45.80667,
+      "lon": 15.96714
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 45.80367,
+      "lon": 15.96506
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 45.80342,
+      "lon": 15.96361
+    }
+  ]
+}

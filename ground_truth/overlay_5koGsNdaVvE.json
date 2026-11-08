@@ -1,0 +1,110 @@
+{
+  "video_id": "5koGsNdaVvE",
+  "video_url": "https://www.youtube.com/watch?v=5koGsNdaVvE",
+  "city": "Bratislava, Slovakia",
+  "vo_segment": "9:541",
+  "description": "Bratislava, a 4K drive (screen round 3: downloaded sections). Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 108 OCR fixes over 10-542 s (4.80 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 9.9,
+      "lat": 48.1638,
+      "lon": 17.0875
+    },
+    {
+      "t_sec": 39.8,
+      "lat": 48.163,
+      "lon": 17.0949
+    },
+    {
+      "t_sec": 64.6,
+      "lat": 48.1615,
+      "lon": 17.1006
+    },
+    {
+      "t_sec": 94.5,
+      "lat": 48.1594,
+      "lon": 17.1041
+    },
+    {
+      "t_sec": 124.3,
+      "lat": 48.1583,
+      "lon": 17.1046
+    },
+    {
+      "t_sec": 149.1,
+      "lat": 48.1559,
+      "lon": 17.1056
+    },
+    {
+      "t_sec": 179.0,
+      "lat": 48.1557,
+      "lon": 17.1057
+    },
+    {
+      "t_sec": 203.8,
+      "lat": 48.1557,
+      "lon": 17.1057
+    },
+    {
+      "t_sec": 233.7,
+      "lat": 48.1556,
+      "lon": 17.1085
+    },
+    {
+      "t_sec": 263.5,
+      "lat": 48.1563,
+      "lon": 17.1119
+    },
+    {
+      "t_sec": 288.4,
+      "lat": 48.1566,
+      "lon": 17.1136
+    },
+    {
+      "t_sec": 318.2,
+      "lat": 48.1574,
+      "lon": 17.1175
+    },
+    {
+      "t_sec": 348.0,
+      "lat": 48.1576,
+      "lon": 17.1186
+    },
+    {
+      "t_sec": 372.9,
+      "lat": 48.1578,
+      "lon": 17.1214
+    },
+    {
+      "t_sec": 402.7,
+      "lat": 48.1581,
+      "lon": 17.1261
+    },
+    {
+      "t_sec": 427.6,
+      "lat": 48.1582,
+      "lon": 17.1308
+    },
+    {
+      "t_sec": 457.4,
+      "lat": 48.1588,
+      "lon": 17.1346
+    },
+    {
+      "t_sec": 487.2,
+      "lat": 48.1602,
+      "lon": 17.138
+    },
+    {
+      "t_sec": 512.1,
+      "lat": 48.1611,
+      "lon": 17.1407
+    },
+    {
+      "t_sec": 541.9,
+      "lat": 48.1594,
+      "lon": 17.1422
+    }
+  ]
+}
