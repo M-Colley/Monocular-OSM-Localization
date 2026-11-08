@@ -214,7 +214,7 @@ def test_query_adapter_uses_one_fresh_three_crop_cache_and_actual_cpu_bounds(tmp
 
 
 def test_standalone_adapter_initializes_real_prep_before_any_model_forward(monkeypatch):
-    import torch
+    torch = pytest.importorskip("torch")
     from monocular_osm import kartaview_vpr as kv
     monkeypatch.setattr(kv, "_MEAN", None)
     monkeypatch.setattr(kv, "_STD", None)

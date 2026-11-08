@@ -119,6 +119,7 @@ def test_audit_failure_is_explicit_and_preserves_numeric_answer(monkeypatch):
 
 
 def test_argmax_memory_fallback_is_recorded_truthfully_before_comparison(monkeypatch):
+    pytest.importorskip("torch")  # kartaview_vpr_track returns None without torch
     scores = np.zeros((3, 6001), np.float32)
     scores[:, 2] = 1
     monkeypatch.setattr(kv, "_prepare_refs_and_query", lambda *a, **k: (

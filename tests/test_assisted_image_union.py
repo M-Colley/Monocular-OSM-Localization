@@ -112,6 +112,7 @@ def test_worker_kind_uses_native_data_scope_and_fixed_crop_profile(tmp_path):
 
 
 def test_visual_worker_dispatches_union_adapter_without_legacy_pipeline(setup, monkeypatch):
+    pytest.importorskip("torch")  # _visual_child guards model downloads through torch.hub
     s = setup
     monkeypatch.setattr(worker, "_pipeline_child", lambda *a: pytest.fail("legacy child dispatched"))
     monkeypatch.setattr(worker, "_image_child", lambda *a: pytest.fail("single-branch child dispatched"))
