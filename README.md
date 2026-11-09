@@ -44,13 +44,29 @@ the policy returned the track's answer on six of them and improved one
 [the assisted fleet record](docs/assisted_fleet_2026-11.md) and
 [the test2 record](docs/heldout_test2_2026-11.md).
 
-**Where the track fails** ([diagnostic over all 29 scored clips](docs/failure_taxonomy_2026-11.md)):
-every clip whose route lay mostly inside the 2 km fine search disc is within
-200 m (14/14). Six of the seven held-out misses are search-coverage misses:
-the route lies outside the 8 km first-pass disc (Ottawa, Montreal, Paris,
-Munich) or is longer than the fine disc covers (Budapest, Warsaw). Most dev
-misses instead come from appearance, with the route inside the disc, and
-that is the failure the assisted policy was built for.
+**Experimental metro-ring search** (`--vpr-metro-ring`, off by default):
+after a weak retrieval it searches a 20 km disc around the city, minus the
+disc already searched. On a third pre-registered held-out set, ten new clips
+from nine new cities (`split=test3`, rule `test3_2026_11`), it puts **5/10**
+within 200 m, the same as the run's ordinary track (5/10, median 229 m;
+city-centre guess 0/10). It improves one clip, worsens two and costs about
+3 CPU hours on each clip where it runs, so it is not adopted. No test3 route
+lay where it searches. See [the test3 record](docs/heldout_test3_2026-11.md).
+
+**Where the track fails** ([diagnostic](docs/failure_taxonomy_2026-11.md)):
+a clip whose route lay mostly inside the 2 km fine search disc is within
+200 m on 19 of 20 such clips over 39 scored clips (Düsseldorf
+`8BUtb7TKUFA`, 260 m, is the exception). The 12 held-out misses across
+test1-test3 split into three kinds:
+- route outside the 8 km first-pass disc: 5 (Ottawa, Montreal, Paris,
+  Munich, Katowice);
+- wrong district inside it: 4 (Bern, Katowice, Düsseldorf, Cork);
+- route longer than the fine disc covers: 2 (Budapest, Warsaw);
+- plus the one fine-disc miss above.
+
+Over 24 held-out clips the retrieval track (`ccd0bbe` on test1-test2,
+`f582928` on test3) is within 200 m on 12 (Wilson
+95 % 31-69 %).
 
 The [October research and method tests](docs/recent_methods_2026-10.md) cover
 recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled

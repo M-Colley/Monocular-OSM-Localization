@@ -371,7 +371,68 @@
           "reason": "f582928 predates the test3 split, so its benchmark runner cannot list test3 clips. d1e9ea0 adds only the test3 selection, ground truth, manifest, centroid snapshot, runner split support and scoring script on top of f582928; git diff f582928 d1e9ea0 -- monocular_osm/ main.py is empty, so the method is the registered one. The VRAM flag only stops the CPU-only run waiting for free GPU memory it never uses. Recorded after the ten clips were fixed and before any test3 run.",
           "disclosure": "The run shares the 28-thread CPU with the metro_ring_dev_2026_11 check, so its wall-clock times include that contention."
         }
-      ]
+      ],
+      "outcome_recorded": {
+        "date": "2026-11-09",
+        "run": "metro_test3 at d1e9ea0 (worktree E:/claude-scoring/wt-test3), second attempt; the first failed on all ten clips before localization (no staged input video) and was rerun at the same commit before any score existed. No infrastructure retries in the second attempt; provenance consistent. Scored offline by d1e9ea0's aggregator; the ordinary track by scripts/metro_ring_paired.py shadow + the same aggregator.",
+        "gate_fired": [
+          "overlay_7n4XQUBEH5Y",
+          "overlay_G6bUX4GvSbE",
+          "overlay_5ewPAw_gIeI",
+          "overlay_HfK2LuXQtfA",
+          "overlay_vp_D8mxgEkA",
+          "overlay_MMKAehhi-tA"
+        ],
+        "ring_answer_symmetric_m": {
+          "overlay_6GciDYJ1FUc": 21.0,
+          "overlay_5koGsNdaVvE": 24.2,
+          "overlay_K_54XHyzRn8": 31.0,
+          "overlay_7n4XQUBEH5Y": 84.9,
+          "overlay_G6bUX4GvSbE": 197.9,
+          "overlay_8BUtb7TKUFA": 260.2,
+          "overlay_5ewPAw_gIeI": 15261.4,
+          "overlay_HfK2LuXQtfA": 4852.5,
+          "overlay_vp_D8mxgEkA": 4768.3,
+          "overlay_MMKAehhi-tA": 37762.7
+        },
+        "ordinary_track_symmetric_m": {
+          "overlay_6GciDYJ1FUc": 21.0,
+          "overlay_5koGsNdaVvE": 24.2,
+          "overlay_K_54XHyzRn8": 31.0,
+          "overlay_7n4XQUBEH5Y": 111.0,
+          "overlay_G6bUX4GvSbE": 198.1,
+          "overlay_8BUtb7TKUFA": 260.2,
+          "overlay_5ewPAw_gIeI": 2690.2,
+          "overlay_HfK2LuXQtfA": 4126.8,
+          "overlay_vp_D8mxgEkA": 4679.0,
+          "overlay_MMKAehhi-tA": 37762.5
+        },
+        "city_centre_symmetric_m": {
+          "overlay_6GciDYJ1FUc": 856.5,
+          "overlay_5koGsNdaVvE": 1685.3,
+          "overlay_K_54XHyzRn8": 4115.6,
+          "overlay_7n4XQUBEH5Y": 998.8,
+          "overlay_G6bUX4GvSbE": 7771.2,
+          "overlay_8BUtb7TKUFA": 2608.0,
+          "overlay_5ewPAw_gIeI": 6178.3,
+          "overlay_HfK2LuXQtfA": 3287.1,
+          "overlay_vp_D8mxgEkA": 2756.5,
+          "overlay_MMKAehhi-tA": 42105.0
+        },
+        "T1": "does not hold: ring 5/10 within 200 m, ordinary track 5/10 (both Wilson 95 % [24 %, 76 %]); city centre 0/10",
+        "T2": "holds: no clip within 200 m with the ordinary track is above it with the ring (Bristol 198.1 -> 197.9 m)",
+        "T3": "does not hold: 1 better (Zagreb), 2 worse (Katowice 5ewPAw_gIeI, Dusseldorf HfK2LuXQtfA), 7 ties; one-sided sign test p = 0.875",
+        "failure_modes_of_misses": {
+          "overlay_8BUtb7TKUFA": "D",
+          "overlay_5ewPAw_gIeI": "B",
+          "overlay_HfK2LuXQtfA": "B",
+          "overlay_vp_D8mxgEkA": "B",
+          "overlay_MMKAehhi-tA": "A"
+        },
+        "wall_clock": "median 3.7 h per triggered clip, 36 min per untriggered clip, 23.9 h in total, on a CPU shared with metro_ring_dev_2026_11",
+        "decision": "the metro ring is not adopted; --vpr-metro-ring stays opt-in and off by default",
+        "report": "docs/heldout_test3_2026-11.md"
+      }
     }
   }
 }

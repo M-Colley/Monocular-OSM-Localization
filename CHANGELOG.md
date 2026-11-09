@@ -6,6 +6,22 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Metro-ring search and the third held-out set (November 2026)
+
+- `--vpr-metro-ring` (opt-in, off by default): when the retrieval track's
+  confidence is below 0.162 it searches a 20 km disc around the city geocode,
+  minus the disc already searched, in 4 km cells, and records the ordinary
+  track (`metro_ring_retrieval.baseline_track`).
+  `scripts/metro_ring_paired.py` scores both answers from one run.
+- Held-out `test3` (ten clips, nine new cities; `benchmarks/test3_screen/`,
+  rule `test3_2026_11`): the ring and the ordinary track are both within
+  200 m on 5/10 (city centre 0/10).
+  - The ring improves one clip and worsens two (T1 and T3 fail, T2 holds).
+  - It costs about 3 CPU hours per clip where it runs.
+  - It is not adopted. See `docs/heldout_test3_2026-11.md`.
+- CI: install open3d's system libraries on Linux; skip torch-only tests when
+  torch is absent; make the escape-path test OS-independent.
+
 ### Assisted policy: complete result, budget and CPU threads (November 2026)
 
 - The complete fifteen-clip assisted v3 run (`a8add7a`) is scored with its
