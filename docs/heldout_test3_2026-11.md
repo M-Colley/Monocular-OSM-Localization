@@ -220,6 +220,47 @@ Düsseldorf `8BUtb7TKUFA` (260 m) is the first scored clip whose route lies
 entirely inside the fine disc but misses 200 m. The fine-disc rule now stands
 at 19/20 over 39 clips, not 14/14 over 29.
 
+## Would re-checking the top few first-pass areas fix the wrong-district misses? (offline diagnostic)
+
+No: at most one of the three test3 wrong-district misses could be reached this way.
+
+**Method.** `scripts/pass1_hypothesis_rank.py --plain` pools each query's
+top-5 first-pass references into 2 km areas, ranked by summed similarity,
+and finds the rank of the true area (an area centre within 1 km of the
+route). Ground truth is used only for that last step. The pass-1 similarity
+matrices were not saved by the test3 run, so the ordinary
+`--retrieval-only` path was rerun on the same warm caches with audit capture
+on (`E:/claude-scoring/pass1rank/`). Fresh CPU query embedding made the
+rerun differ slightly: on Katowice `5ewPAw_gIeI`, 21 of 80 track frames
+changed and the pass-2 centre moved about 60 m. The 2 km area ranking is
+insensitive to that.
+
+Data: `docs/pass1_hypothesis_rank_test3_2026-11.json`.
+
+| Clip | Outcome | True area rank | True / top area score |
+|---|---|---|---|
+| Katowice `5ewPAw_gIeI` | miss (B) | 2 | 0.54 |
+| Düsseldorf `HfK2LuXQtfA` | miss (B) | not among the 13 areas | - |
+| Cork `vp_D8mxgEkA` | miss (B) | 14 | 0.30 |
+| Bern `zt8rHvHKBUU` | within 200 m at `f582928` (140 m) | 1 | 1.00 |
+| Bristol, Riga | within 200 m | 2 | 0.75, 0.88 |
+| Eindhoven, Bratislava, Zagreb, Düsseldorf `8BUtb7TKUFA` | within 200 m (Düsseldorf 260 m) | 1 | 1.00 |
+
+**Results.**
+- **The only reachable miss is Katowice.** A second pass over the top two
+  or three areas could reach it, and on dev only Detroit `g5lnpYCk1Ec`.
+- **The other two are retrieval failures, not near-ties.** Düsseldorf
+  `HfK2LuXQtfA` and Cork lie inside the searched disc, but first-pass
+  retrieval never puts their true area near the top.
+- **Such a rule would endanger working clips.** Bristol and Riga already
+  succeed with their true area ranked second, and the score ratios do not
+  separate them from Katowice.
+
+Raising the held-out share therefore needs retrieval that recognises the
+right place in the first place, not more hypotheses. That was also the
+conclusion for the dev night and historical clips. Nothing here was turned
+into a method.
+
 ## Disclosures
 
 - **First attempt.** It failed on all ten clips within seconds, before any

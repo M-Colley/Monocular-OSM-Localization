@@ -9,6 +9,12 @@ the second pass over several areas; one ranked far down could not. Dev clips,
 in-sample; GT is used only to find the true area.
 
     python scripts/pass1_hypothesis_rank.py <assisted_run_dir> [out.json]
+    python scripts/pass1_hypothesis_rank.py --plain <audit_out_dir> [out.json]
+
+``--plain`` reads ``<dir>/<video id>/<slug>/retrieval_audit/0000.npz`` as
+written by a plain ``--retrieval-only`` run with audit capture on. Each row
+also reports the GT-free score ratio of the second to the first area and of
+the true area to the first (what a multi-area rule would have to threshold).
 """
 
 from __future__ import annotations
@@ -44,12 +50,17 @@ def area_ranking(sims: np.ndarray, ref_latlon: np.ndarray, frame: LocalFrame):
 
 
 def main(argv=None) -> int:
-    argv = argv or sys.argv[1:]
+    argv = list(argv or sys.argv[1:])
+    plain = "--plain" in argv
+    if plain:
+        argv.remove("--plain")
     run = argv[0]
     man = {c["id"]: c for c in json.loads((ROOT / "benchmarks/manifest.json").read_text(encoding="utf-8"))["clips"]}
     rows = []
     for cid in sorted(man):
-        f = sorted(glob.glob(f"{run}/{cid}/rep0/pipeline_out/*/children/*/baseline/retrieval_audit/0000.npz"))
+        pattern = (f"{run}/{cid.removeprefix('overlay_')}/*/retrieval_audit/0000.npz" if plain
+                   else f"{run}/{cid}/rep0/pipeline_out/*/children/*/baseline/retrieval_audit/0000.npz")
+        f = sorted(glob.glob(pattern))
         if not f:
             continue
         z = np.load(f[0], allow_pickle=False)
@@ -61,10 +72,15 @@ def main(argv=None) -> int:
         areas = area_ranking(z["raw_similarities"], z["ref_latlon"], frame)
         dist = [float(np.min(np.hypot(*(route - c).T))) for c, _ in areas]
         true_rank = next((i + 1 for i, d in enumerate(dist) if d <= TRUE_M), None)
+        second = areas[1][1] / areas[0][1] if len(areas) > 1 else None
+        true_ratio = areas[true_rank - 1][1] / areas[0][1] if true_rank else None
         rows.append({"clip": cid, "n_areas": len(areas), "true_area_rank": true_rank,
-                     "top1_area_to_route_m": round(dist[0], 1)})
+                     "top1_area_to_route_m": round(dist[0], 1),
+                     "second_to_first_score": None if second is None else round(second, 3),
+                     "true_to_first_score": None if true_ratio is None else round(true_ratio, 3)})
         print(f"{cid:22s} areas {len(areas):3d}  true area rank {true_rank!s:>4}  "
-              f"top-1 area {dist[0]:7.0f} m from route", flush=True)
+              f"top-1 area {dist[0]:7.0f} m from route  2nd/1st {second if second is None else round(second, 2)!s:>5}  "
+              f"true/1st {true_ratio if true_ratio is None else round(true_ratio, 2)!s:>5}", flush=True)
     if len(argv) > 1:
         Path(argv[1]).write_text(json.dumps(rows, indent=1), encoding="utf-8")
     return 0
