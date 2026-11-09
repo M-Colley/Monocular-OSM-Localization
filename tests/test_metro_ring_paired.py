@@ -1,3 +1,4 @@
+import json
 import importlib.util
 from pathlib import Path
 
@@ -26,3 +27,19 @@ def test_shadow_restores_the_ordinary_track_and_answer():
 def test_shadow_leaves_untouched_runs_alone():
     result = _result("baseline")
     assert mp.ordinary_result(result) is result
+
+
+def test_compare_lists_a_clip_that_never_ran(tmp_path, capsys):
+    summary = {"clips": {"ran": {"name": "Ran", "methods": {"answer": {"symmetric_mean_m": {"median": 50.0}}}},
+                         "unrun": {"name": "Unrun", "methods": {}}}}
+    for run in ("ring", "ordinary"):
+        (tmp_path / run).mkdir()
+        (tmp_path / run / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    rep = tmp_path / "ring" / "ran" / "rep0"
+    rep.mkdir(parents=True)
+    (rep / "status.json").write_text(json.dumps({"wall_s": 12.0}), encoding="utf-8")
+    (tmp_path / "ring" / "unrun" / "rep0").mkdir(parents=True)  # argv.json only, no status
+    mp.compare(tmp_path / "ring", tmp_path / "ordinary")
+    out = capsys.readouterr().out
+    assert "| Ran |" in out and "| Unrun | - | not run |" in out
+

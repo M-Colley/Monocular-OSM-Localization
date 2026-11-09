@@ -69,6 +69,10 @@ def compare(ring_dir: Path, ordinary_dir: Path, threshold_m: float = 200.0) -> N
     print("|---|---|---|---|---|---|---|---|")
     for cid, clip in ring.items():
         rep = ring_dir / cid / "rep0"
+        if not (rep / "status.json").exists():
+            # listed by the manifest but never started (e.g. the runner's disk guard refused it)
+            print(f"| {clip['name']} | - | not run | - | - | - | - | - |")
+            continue
         result = json.loads((rep / "result.json").read_text(encoding="utf-8")) if (rep / "result.json").exists() else {}
         status = json.loads((rep / "status.json").read_text(encoding="utf-8"))
         metro = result.get("metro_ring_retrieval") or {}
