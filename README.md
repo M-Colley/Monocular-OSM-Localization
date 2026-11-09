@@ -50,8 +50,10 @@ disc already searched. On a third pre-registered held-out set, ten new clips
 from nine new cities (`split=test3`, rule `test3_2026_11`), it puts **5/10**
 within 200 m, the same as the run's ordinary track (5/10, median 229 m;
 city-centre guess 0/10). It improves one clip, worsens two and costs about
-3 CPU hours on each clip where it runs, so it is not adopted. No test3 route
-lay where it searches. See [the test3 record](docs/heldout_test3_2026-11.md).
+3 CPU hours on each clip where it runs. No test3 route lay where it
+searches. On the 29 clips it was developed on, it reaches 20/29 against 16/29
+with no losses, but that is in-sample, so it stays off by default. See
+[the test3 record](docs/heldout_test3_2026-11.md).
 
 **Where the track fails** ([diagnostic](docs/failure_taxonomy_2026-11.md)):
 a clip whose route lay mostly inside the 2 km fine search disc is within

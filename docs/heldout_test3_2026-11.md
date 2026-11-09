@@ -29,11 +29,12 @@ under the rule: Belfast ×2 and Aarhus, all edited uploads.
 
 Nothing was changed between seeing a test3 result and reporting all of them.
 
-**Result in one line:** the ring answer and the ordinary track both put
-5 of 10 clips within 200 m. The ring improved one clip (Zagreb, 111 to 85 m)
+**Result in one line:** on test3 the ring answer and the ordinary track both
+put 5 of 10 clips within 200 m. The ring improved one clip (Zagreb, 111 to 85 m)
 and made two worse (Katowice `5ewPAw_gIeI`, 2.7 to 15.3 km; Düsseldorf
-`HfK2LuXQtfA`, 4.1 to 4.9 km). T1 and T3 do not hold; T2 holds. The ring is
-not adopted.
+`HfK2LuXQtfA`, 4.1 to 4.9 km). T1 and T3 do not hold; T2 holds. On the 29 clips it was developed on, the
+ring reaches 20/29 against 16/29, with no losses (M1 and M2 hold, in-sample).
+It stays opt-in and is not made the default.
 
 ## Per clip
 
@@ -104,9 +105,93 @@ to describe it. Nothing was changed because of them.
 - **Cost.** Each triggered clip took about 3 more CPU hours: a median of 3.7 h
   against 36 min for untriggered clips, under contention.
 
-The development check of the same method (`metro_ring_dev_2026_11`, all 29
-used clips) is still running and will be reported in full. It does not change
-this result.
+The development check of the same method (below) does show gains, on the
+clips whose failures shaped it.
+
+## Development check (`metro_ring_dev_2026_11`, in-sample)
+
+All 29 clips of the used splits were run at `f582928`, worktree
+`C:/Users/markc/metro-eval/wt-f582928`, with the same arguments. The data
+were copies holding the frozen runs' inputs and warm ordinary-retrieval
+caches; the ring caches started cold. One rep per clip. This is in-sample by
+construction: the 20 km outer radius was chosen on these clips' ground truth.
+
+| Split | Clip | Gate | Ring ran | Kept | **Ordinary track** | **With ring** | Change | Wall |
+|---|---|---|---|---|---|---|---|---|
+| test2 | Warsaw (GnXsgpVPvww) | 0.193 | no | baseline | 90 | 90 | tie | 56 min |
+| test2 | Amsterdam (2sS6glBBm8g) | 0.213 | no | baseline | 172 | 172 | tie | 54 min |
+| test2 | Warsaw (lCm2a3kOEmE) | 0.147 | yes | ring+refine | 335 | 178 | better (gain) | 2.9 h |
+| test2 | Budapest (1bGf8OD9Fqo) | 0.179 | no | baseline | 408 | 408 | tie | 33 min |
+| test2 | Montreal (0jJbdTcDseI) | 0.152 | yes | ring+refine | 3,004 | 5,235 | worse | 3.3 h |
+| test2 | Munich (XO6H3mGMKYg) | 0.124 | yes | ring+refine | 8,130 | 5,338 | better | 4.7 h |
+| test2 | Paris (HpBfjRA60ws) | 0.141 | yes | ring+refine | 16,150 | 1,116 | better | 3.1 h |
+| test | Strasbourg (4LvkBo69jZo) | 0.232 | no | baseline | 34 | 34 | tie | 41 min |
+| test | Manchester (5b-tgjtwb2U) | 0.182 | no | baseline | 56 | 56 | tie | 38 min |
+| test | Frankfurt am Main (iJ2JvNk4Rmk) | 0.187 | no | baseline | 84 | 84 | tie | 38 min |
+| test | Bern (zt8rHvHKBUU) | 0.163 | no | baseline | 140 | 140 | tie | 36 min |
+| test | Sydney (-1xwoetuoOg) | 0.150 | yes | ring+refine | 187 | 189 | tie | 3.4 h |
+| test | Ottawa (bF5IfC2ZHjQ) | 0.131 | yes | baseline | 1,380 | 1,380 | tie | 4.2 h |
+| test | NYC (nsONSyk9wtc) | 0.152 | yes | ring+refine | 3,029 | 141 | better (gain) | 4.1 h |
+| dev | Ulm 4K (ULl8s4qydrk), 0-300 s | 0.268 | no | baseline | 16 | 16 | tie | 1 min |
+| dev | Newcastle upon Tyne (Wrn4_uCxRCQ) | 0.159 | yes | ring+refine | 35 | 35 | tie | 1.8 h |
+| dev | Ulm #2 (LC9Sa--u5KE) | 0.201 | no | baseline | 43 | 43 | tie | 1 min |
+| dev | Detroit (ZhGb8q1kliY) | 0.167 | no | baseline | 55 | 55 | tie | 2 min |
+| dev | London (T4wTL3LpLqU) | 0.193 | no | baseline | 62 | 62 | tie | 1 min |
+| dev | Detroit (1nF_7l07i-E) | 0.163 | no | baseline | 78 | 78 | tie | 2 min |
+| dev | Chicago (LmIHvLMLqFk) | 0.162 | yes | baseline | 133 | 133 | tie | 1.5 h |
+| dev | Berlin (lBlKR2ek0w4), 0-420 s | 0.189 | no | baseline | 135 | 135 | tie | 3 min |
+| dev | Chicago (vCSEG6KaFng) | 0.186 | no | baseline | 169 | 169 | tie | 3 min |
+| dev | Detroit (g5lnpYCk1Ec) | 0.158 | yes | ring+refine | 1,387 | 13,882 | worse | 1.8 h |
+| dev | KITTI 2011_09_26 drive 0009 | 0.117 | yes | ring+refine | 3,735 | 18,228 | worse | 2.4 h |
+| dev | Atlanta (kxEDNj5L_yQ) | 0.148 | yes | ring | 6,024 | 24 | better (gain) | 2.1 h |
+| dev | Atlanta (y66ZkRpUh4k) | 0.143 | yes | ring | 6,590 | 3,469 | better | 1.8 h |
+| dev | KITTI 2011_09_30 drive 0033 | 0.105 | yes | ring+refine | 7,004 | 5,751 | better | 2.3 h |
+| dev | Phoenix (wJsEQTCAg1c) | 0.132 | yes | ring+refine | 18,644 | 19 | better (gain) | 2.0 h |
+
+| | Ordinary track | With ring |
+|---|---|---|
+| Within 200 m | 16 / 29 (Wilson 38-72 %) | **20 / 29** (51-83 %) |
+| test2 / test1 / dev | 2/7, 5/7, 9/15 | 3/7, 6/7, 11/15 |
+| Median | 172 m | 140 m |
+
+- **M1, no harm: holds.** No clip within 200 m with the ordinary track is
+  above it with the ring.
+- **M2: holds.** Four clips cross into 200 m: Warsaw `lCm2a3kOEmE`, NYC,
+  Atlanta `kxEDNj5L_yQ` (6,024 to 24 m) and Phoenix (18.6 km to 19 m). The
+  ring improves 8 clips and worsens 3 (Montreal, KITTI 0009, Detroit
+  `g5lnpYCk1Ec`), with 18 ties; one-sided sign test p = 0.113.
+
+**Reading the two results together.** The ring does what it was designed
+for on the clips that motivated it: routes 8-20 km from the city geocode.
+It did nothing on test3, because no test3 route lay there. That is evidence
+about how often new footage needs this search, not proof that the
+mechanism fails.
+
+Two things keep it opt-in:
+- the only held-out estimate shows no gain, at about 3 CPU hours per clip
+  where it runs;
+- when it is wrong it can move a nearby answer far away. That happened here
+  on KITTI 0009 (3.7 to 18.2 km) and Detroit `g5lnpYCk1Ec` (1.4 to 13.9 km),
+  and on test3 Katowice (2.7 to 15.3 km).
+
+Single reps are noisy. This run's ordinary track differs from the frozen
+`ccd0bbe` track on test1:
+- NYC: 3,029 m here, 53 m there;
+- Bern: 140 m here, 3,437 m there.
+
+These differences come from repeated cold retrieval and the changed Mapillary
+listing, so individual gains and losses here are weak evidence.
+
+**Run conditions.**
+- The first launch stalled for about 7 h on the runner's default 8 GB VRAM
+  wait and was relaunched with `--min-free-vram-gb 0`. Completed reps were
+  kept.
+- The disk guard (40 GB) refused Atlanta `kxEDNj5L_yQ` and Newcastle after
+  13 triggered clips had filled C: with about 12 GB of ring cache each.
+  With the user's approval the finished clips' ring caches were deleted and
+  the two clips were run at the same commit.
+- No run hit an infrastructure retry, a timeout or a traceback. In total the
+  check took 46.6 h of wall-clock time.
 
 ## What test3 adds about the track itself
 

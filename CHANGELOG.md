@@ -19,6 +19,9 @@ All notable changes to this project are documented here. This project adheres to
   - The ring improves one clip and worsens two (T1 and T3 fail, T2 holds).
   - It costs about 3 CPU hours per clip where it runs.
   - It is not adopted. See `docs/heldout_test3_2026-11.md`.
+- Development check (`metro_ring_dev_2026_11`, in-sample, all 29 used
+  clips): ring 20/29 within 200 m against 16/29, no losses, four gains
+  (M1 and M2 hold). It no longer gates anything; the ring stays opt-in.
 - CI: install open3d's system libraries on Linux; skip torch-only tests when
   torch is absent; make the escape-path test OS-independent.
 

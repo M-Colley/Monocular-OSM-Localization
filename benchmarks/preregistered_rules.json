@@ -347,7 +347,135 @@
           "change": "the decision clause no longer gates test3: at the user's request the frozen method is tested on ten new videos (rule test3_2026_11) whatever the development check shows; the development check still runs and is reported in full",
           "reason": "user request; registered before any metro-ring run and before any test3 clip was downloaded or built"
         }
-      ]
+      ],
+      "outcome_recorded": {
+        "date": "2026-11-09",
+        "run": "metro_test2, metro_test, metro_dev at f582928 (worktree C:/Users/markc/metro-eval/wt-f582928, data C:/Users/markc/metro-eval/data); ordinary track by scripts/metro_ring_paired.py shadow, all scored offline by f582928's aggregator. Atlanta kxEDNj5L_yQ and Newcastle Wrn4_uCxRCQ were first refused by the runner's 40 GB disk guard and run at the same commit after the finished clips' ring caches were deleted (user-approved). No infrastructure retries, timeouts or tracebacks.",
+        "ordinary_vs_ring_symmetric_m": {
+          "overlay_0jJbdTcDseI": [
+            3004.1,
+            5235.1
+          ],
+          "overlay_1bGf8OD9Fqo": [
+            408.5,
+            408.5
+          ],
+          "overlay_2sS6glBBm8g": [
+            171.8,
+            171.8
+          ],
+          "overlay_GnXsgpVPvww": [
+            89.5,
+            89.5
+          ],
+          "overlay_HpBfjRA60ws": [
+            16149.5,
+            1116.1
+          ],
+          "overlay_XO6H3mGMKYg": [
+            8130.3,
+            5338.1
+          ],
+          "overlay_lCm2a3kOEmE": [
+            334.7,
+            177.6
+          ],
+          "overlay_-1xwoetuoOg": [
+            186.7,
+            188.9
+          ],
+          "overlay_4LvkBo69jZo": [
+            34.4,
+            34.4
+          ],
+          "overlay_5b-tgjtwb2U": [
+            56.2,
+            56.2
+          ],
+          "overlay_bF5IfC2ZHjQ": [
+            1379.8,
+            1379.8
+          ],
+          "overlay_iJ2JvNk4Rmk": [
+            83.9,
+            83.9
+          ],
+          "overlay_nsONSyk9wtc": [
+            3028.9,
+            141.2
+          ],
+          "overlay_zt8rHvHKBUU": [
+            139.6,
+            139.6
+          ],
+          "berlin_0-420": [
+            135.1,
+            135.1
+          ],
+          "kitti_0009": [
+            3734.6,
+            18228.5
+          ],
+          "kitti_0033": [
+            7003.8,
+            5751.4
+          ],
+          "london": [
+            62.5,
+            62.5
+          ],
+          "overlay_1nF_7l07i-E": [
+            77.5,
+            77.5
+          ],
+          "overlay_LmIHvLMLqFk": [
+            132.6,
+            132.6
+          ],
+          "overlay_Wrn4_uCxRCQ": [
+            34.6,
+            34.6
+          ],
+          "overlay_ZhGb8q1kliY": [
+            54.6,
+            54.6
+          ],
+          "overlay_g5lnpYCk1Ec": [
+            1387.2,
+            13881.5
+          ],
+          "overlay_kxEDNj5L_yQ": [
+            6024.4,
+            24.4
+          ],
+          "overlay_vCSEG6KaFng": [
+            169.2,
+            169.2
+          ],
+          "overlay_wJsEQTCAg1c": [
+            18644.1,
+            18.9
+          ],
+          "overlay_y66ZkRpUh4k": [
+            6589.6,
+            3468.8
+          ],
+          "ulm2": [
+            42.7,
+            42.7
+          ],
+          "ulm4k_0-300": [
+            16.4,
+            16.4
+          ]
+        },
+        "within_200m": "ordinary track 16/29 (Wilson 95 % [38 %, 72 %]), ring 20/29 ([51 %, 83 %]); test2 2/7 -> 3/7, test1 5/7 -> 6/7, dev 9/15 -> 11/15",
+        "M1": "holds: no clip within 200 m with the ordinary track is above it with the ring",
+        "M2": "holds: 4 gains across 200 m (Warsaw lCm2a3kOEmE, NYC nsONSyk9wtc, Atlanta kxEDNj5L_yQ, Phoenix wJsEQTCAg1c); 8 better, 3 worse (Montreal, KITTI 0009, Detroit g5lnpYCk1Ec), 18 ties; one-sided sign test p = 0.113",
+        "wall_clock": "46.6 h in total; triggered clips 1.5-4.7 h, untriggered 1-56 min (warm ordinary caches)",
+        "decision": "M1 and M2 hold in-sample; under the 2026-11-07 amendment this no longer gates anything. The held-out test (test3_2026_11) showed no gain, so --vpr-metro-ring stays opt-in and off by default.",
+        "report": "docs/heldout_test3_2026-11.md#development-check-metro_ring_dev_2026_11-in-sample"
+      }
     },
     "test3_2026_11": {
       "registered": "2026-11-07",
