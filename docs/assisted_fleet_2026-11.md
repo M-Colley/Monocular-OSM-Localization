@@ -215,6 +215,26 @@ built from this clip). Detroit is not, and the reasons are now known:
   (dense pool plus 3 km route pool, image-only) reaches 909 m: the location
   is right, the freeway imagery cannot place the 8.5 km route. An exit-number
   cue would need VO or road-graph alignment, not image decoding; not built.
+* **Two-anchor VO pin (offline check, 2026-11-09; not adopted).** The
+  simplest such alignment does not work.
+  - **Setup.** The v4 run's own OCR (409a959, stamps filtered) reads `186B` at
+    t = 391.9 s and `188` at t = 469.5 s. OSM has three `motorway_junction`
+    nodes with ref 186B and one with ref 188 within 30 km of the Detroit
+    geocode. For each pair, a 2-D similarity transform maps the cached VO
+    track (`trajectory_v2_4-599.0_s4_fauto_vo3.npz`) onto the two junctions at
+    the read times, and the whole track is scored.
+  - **Correct pair.** With the pair the car actually passed (159 m and 196 m
+    from it at the read times), the route is 1,923 m off.
+  - **Selection rule.** The ground-truth-free rule (the pinned track's median
+    distance to OSM major roads near the reads) picks the wrong 186B (963 m
+    from the car); that pair scores 1,756 m.
+  - **Why.** Two anchors 1-2 km and 77 s apart fix scale and rotation too
+    loosely: a few degrees of rotation over a 5 km lever arm, plus VO drift
+    across ten minutes, outweigh the anchors' 200 m accuracy.
+  - **What would be needed.** A usable exit cue would need full road-graph
+    map matching of the VO between anchors. That would be developed on this
+    one clip and is not built.
+  - Ground truth was used only to score.
 
 ## Policy v4: the complete fifteen-clip run
 
