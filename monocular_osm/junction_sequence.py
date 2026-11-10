@@ -1,0 +1,517 @@
+"""Experimental OFFLINE road/OCR sequence importance sampler; no admission API.
+
+All signposted junction alternatives are soft upstream-reachability factors, NOT
+camera fixes or assertions that an exit is taken. Future evidence guides proposals
+only; initial/turn importance ratios and auxiliary-resampling corrections are
+explicit. Finite particles, a shortest-road-distance observation model, VO and
+sign timing can all be wrong. Returned mass is not calibrated accuracy confidence.
+No downloads, images, model execution, GT, policy mutation or file IO occur here.
+"""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+import heapq
+import math
+import time
+
+import numpy as np
+from scipy.special import logsumexp
+
+from .graph_filter import FilterConfig, GraphParticleFilter, Odometry, RoadNetwork
+from .road_sign_clues import _EXIT, _ref
+
+
+PROFILE = {
+    "method": "offline-all-junction-upstream-sequence-prototype-v1",
+    "max_particles": 50_000, "max_steps": 1200, "composition_hz": 2.0,
+    "max_native_increments": 100_000,
+    "max_cues": 8, "max_hypotheses": 64, "max_edges": 100_000,
+    "max_segments": 200_000, "max_successor_entries": 1_000_000,
+    "max_guide_cells": 2_000_000, "max_initial_cells": 200_000,
+    "genealogy_bytes": 1 << 30, "proposal_block_particles": 512,
+    "proposal_scratch_bytes": 64 << 20, "inner_s": 1800., "outer_s": 1830.,
+    "external_cpu_threads": 2, "external_rss_bytes": 3 << 30,
+    "external_physical_and_commit_floor_bytes": 8 << 30,
+    "advance_distance_scale_m": 750., "advance_time_scale_s": 45.,
+    "sign_outlier": .15, "defensive_proposal": .25,
+    "initial_cell_m": 100., "junction_node_coordinate_tolerance_m": 5.,
+    "junction_binding": "exact retained OSM node ID; all incident directed endpoints; no nearest-road fallback",
+    "max_attachments": 64,
+    "speed_prior_median_mps": 8., "speed_prior_log_sigma": .75,
+    "speed_prior_range_mps": [.5, 55.], "heading_sigma_deg": 15.,
+    "heading_outlier": .2, "heading_bias_rw_deg_sqrt_s": 2.,
+    "unknown_extra_heading_rw_deg_sqrt_s": 5.,
+    "cue_timing": "native read time retained; factor at next composed boundary with explicit lag",
+    "cue_requirement": "road_sign_clues literal EXIT pairing; bare references forbidden",
+    "turn_prior_kappa": 0., "normalise_turn_prior": False, "allow_uturn": False,
+    "all_inputs_retained": True, "online": False, "accuracy_admitted": False,
+}
+
+
+class Unavailable(ValueError):
+    """Bound/eligibility failure, never a successful partial-window route."""
+
+
+@dataclass(frozen=True)
+class Config:
+    # Lower values are useful for pure fixtures; actual profile must be declared.
+    particles: int = 50_000
+    seed: int = 0
+    genealogy_bytes: int = 1 << 30
+    inner_s: float = 1800.
+
+    def validate(self):
+        if (type(self.particles) is not int or not 1 <= self.particles <= 50_000
+                or type(self.seed) is not int or self.seed < 0
+                or type(self.genealogy_bytes) is not int
+                or not 1 <= self.genealogy_bytes <= PROFILE["genealogy_bytes"]
+                or isinstance(self.inner_s, bool) or not math.isfinite(self.inner_s)
+                or not 0 < self.inner_s <= 1800):
+            raise ValueError("invalid bounded junction-sequence configuration")
+
+
+@dataclass
+class Motion:
+    times: np.ndarray
+    step: np.ndarray
+    heading: np.ndarray
+    heading_var: np.ndarray
+    unknown_seconds: np.ndarray
+    stationary_seconds: np.ndarray
+    native_end_indices: np.ndarray
+    counts: np.ndarray  # measured, unknown, stationary native increments per bin
+    se2: np.ndarray  # supplied-heading SE2 composition; NaN across unknown motion
+    unit_seconds: float
+
+
+def compose_se2(increments):
+    """Compose body-frame transforms in acquisition order (no similarity fit)."""
+    a = np.asarray(increments, dtype=np.float64)
+    if a.ndim != 3 or a.shape[1:] != (3, 3) or not np.isfinite(a).all():
+        raise ValueError("finite SE2 increments required")
+    out = np.eye(3)
+    for m in a:
+        if (not np.allclose(m[2], [0, 0, 1], atol=1e-12, rtol=0)
+                or not np.allclose(m[:2, :2].T @ m[:2, :2], np.eye(2), atol=1e-12)
+                or not np.isclose(np.linalg.det(m[:2, :2]), 1., atol=1e-12)):
+            raise ValueError("increment is not a proper SE2 transform")
+        out = out @ m
+    return out
+
+
+def coarsen_motion(odom: Odometry, status, timestamps) -> Motion:
+    """Full-window <=2Hz target composition, never a first-1200 truncation.
+
+    ``status`` MUST independently distinguish measured / unknown / stationary;
+    a held VO pose alone cannot establish a stop. Arc lengths sum; yaw rotations
+    compose, rather than averaging angles. SE2 is the embedding of the supplied
+    travel-heading/arc increments, NOT recovery of unprovided 3D translations.
+    Unknown portions retain elapsed time and yield unknown composed SE2, not I.
+    The final partial bin is retained even when shorter than half a second.
+    """
+    n = len(odom)
+    if n > PROFILE["max_native_increments"]:
+        raise Unavailable("complete native motion inventory exceeds fixed bound")
+    ts = np.asarray(timestamps)
+    st = np.asarray(status)
+    if (odom.metric or odom.unit_seconds is None or not math.isfinite(odom.unit_seconds)
+            or odom.unit_seconds <= 0 or n == 0 or ts.dtype != np.float64
+            or ts.shape != (n + 1,) or not np.isfinite(ts).all()
+            or not np.all(ts[1:] > ts[:-1]) or st.shape != (n,)
+            or not np.isin(st, ["measured", "unknown", "stationary"]).all()
+            or not np.allclose(np.diff(ts), odom.dt, atol=1e-9, rtol=1e-10)
+            or not np.isfinite(odom.step).all() or not np.isfinite(odom.dt).all()
+            or not np.all(odom.dt > 0) or np.isinf(odom.heading).any()
+            or np.any((st == "measured") & (odom.step <= 0))
+            or np.any((st == "stationary") & (odom.step != 0))):
+        raise ValueError("explicit nonmetric full native clock/motion semantics required")
+    hv = np.zeros(n) if odom.heading_var is None else np.asarray(odom.heading_var)
+    if hv.shape != (n,) or not np.isfinite(hv).all() or np.any(hv < 0):
+        raise ValueError("invalid heading uncertainty")
+    ends, last = [], 0
+    for i in range(1, n + 1):
+        if ts[i] - ts[last] >= .5:
+            ends.append(i)
+            last = i
+    if last != n:
+        ends.append(n)
+    if len(ends) > PROFILE["max_steps"]:
+        raise Unavailable("complete native window exceeds 1200 composed steps")
+    steps, heads, variances, unknown, stopped, counts, transforms = ([] for _ in range(7))
+    previous_heading = 0.
+    lo = 0
+    for hi in ends:
+        status_bin = st[lo:hi]
+        measured = status_bin == "measured"
+        unk = status_bin == "unknown"
+        stop = status_bin == "stationary"
+        steps.append(float(odom.step[lo:hi][measured].sum(dtype=np.float64)))
+        u = float(odom.dt[lo:hi][unk].sum(dtype=np.float64))
+        unknown.append(u)
+        stopped.append(float(odom.dt[lo:hi][stop].sum(dtype=np.float64)))
+        counts.append([int(measured.sum()), int(unk.sum()), int(stop.sum())])
+        known_h = np.flatnonzero(~unk & np.isfinite(odom.heading[lo:hi]))
+        heads.append(float(odom.heading[lo + known_h[-1]]) if len(known_h) else np.nan)
+        variances.append(float(hv[lo:hi].sum()) + math.radians(5.) ** 2 * u)
+        inc = []
+        valid_se2 = not unk.any() and np.isfinite(odom.heading[lo:hi]).all()
+        for j in range(lo, hi):
+            h = float(odom.heading[j])
+            if st[j] != "unknown" and math.isfinite(h):
+                dh = h - previous_heading
+                cs, sn = math.cos(dh), math.sin(dh)
+                d = float(odom.step[j]) if st[j] == "measured" else 0.
+                inc.append(np.array([[cs, -sn, d * cs], [sn, cs, d * sn], [0, 0, 1.]]))
+                previous_heading = h
+        transforms.append(compose_se2(inc) if valid_se2 else np.full((3, 3), np.nan))
+        lo = hi
+    return Motion(ts[np.r_[0, ends]].copy(), np.asarray(steps), np.asarray(heads),
+                  np.asarray(variances), np.asarray(unknown), np.asarray(stopped),
+                  np.asarray(ends, dtype=np.int64), np.asarray(counts),
+                  np.asarray(transforms), float(odom.unit_seconds))
+
+
+@dataclass
+class Target:
+    identity: str
+    edges: np.ndarray
+    offsets: np.ndarray
+    tail_distance: np.ndarray
+
+    def remaining(self, net, edge, offset):
+        d = net.edge_len[edge] - offset + self.tail_distance[edge]
+        for e, s in zip(self.edges, self.offsets):
+            d = np.minimum(d, np.where((edge == e) & (offset <= s), s - offset, np.inf))
+        return d
+
+
+def _target(net, identity, xy, reverse, poll):
+    # A geometric crossing can be a bridge. Only the actual OSM topology node
+    # establishes junction reachability; the future map adapter must preserve
+    # these nodes through simplification. Never replace/drop a missing target.
+    try:
+        node = int(identity.removeprefix("node/"))
+    except ValueError:
+        raise Unavailable("junction is not a retained OSM topology node") from None
+    if identity != f"node/{node}" or node <= 0:
+        raise Unavailable("junction is not a retained OSM topology node")
+    attachments = {}
+    for e, (u, v, _) in enumerate(net.edge_keys):
+        if e % 4096 == 0:
+            poll()
+        if u == node:
+            attachments[(e, 0.)] = None
+        if v == node:
+            attachments[(e, float(net.edge_len[e]))] = None
+    if not attachments:
+        raise Unavailable("junction missing from retained OSM topology; preserve it before graph simplification")
+    if len(attachments) > PROFILE["max_attachments"]:
+        raise Unavailable("junction attachment bound exceeded; no alternative dropped")
+    ae = np.asarray([e for e, _ in attachments])
+    ao = np.asarray([s for _, s in attachments])
+    x, y, _, _ = net.locate(ae, ao)
+    if np.any(np.hypot(x - xy[0], y - xy[1]) > PROFILE["junction_node_coordinate_tolerance_m"]):
+        raise Unavailable("junction topology node coordinate disagrees with public inventory")
+    start = np.full(net.n_edges, np.inf)
+    heap = []
+    for e, s in attachments:
+        if s < start[e]:
+            start[e] = s
+            heapq.heappush(heap, (s, e))
+    visits = 0
+    while heap:
+        d, e = heapq.heappop(heap)
+        if d != start[e]:
+            continue
+        visits += 1
+        if visits % 512 == 0:
+            poll()
+        for prev in reverse[e]:
+            value = d + net.edge_len[prev]
+            if value < start[prev]:
+                start[prev] = value
+                heapq.heappush(heap, (value, prev))
+    tail = np.full(net.n_edges, np.inf)
+    for k in range(net.succ_table.shape[1]):
+        suc = net.succ_table[:, k]
+        tail = np.minimum(tail, np.where(suc >= 0, start[np.maximum(suc, 0)], np.inf))
+    pairs = sorted(attachments)
+    return Target(identity, np.asarray([a for a, _ in pairs]), np.asarray([b for _, b in pairs]), tail)
+
+
+@dataclass
+class Cue:
+    time: float
+    step: int
+    targets: tuple[Target, ...]
+    observation: dict
+
+
+def prepare_cues(net, matched, times, poll=lambda: None):
+    """Consume road_sign_clues.match_motorway_junctions output; retain all rows."""
+    rows = matched.get("matches")
+    if (matched.get("status") != "complete" or matched.get("selected_answer") is not None
+            or matched.get("camera_fix") is not None or not isinstance(rows, list) or not rows):
+        raise Unavailable("complete all-hypothesis road-sign match inventory required")
+    if len(rows) > 8 or sum(len(r["candidates"]) for r in rows) > 64:
+        raise Unavailable("complete OCR hypothesis inventory exceeds fixed bounds")
+    if net.n_edges * sum(len(r["candidates"]) for r in rows) > 2_000_000:
+        raise Unavailable("road/junction distance table budget exceeded")
+    reverse = [[] for _ in range(net.n_edges)]
+    for e, row in enumerate(net.succ_table):
+        for nxt in row[row >= 0]:
+            reverse[int(nxt)].append(e)
+    targets, descriptions, cues = {}, {}, []
+    for row in rows:
+        obs = row["observation"]
+        anchor = obs.get("anchor") or {}
+        if (obs.get("pairing") not in {"inline_EXIT_reference", "same_frame_nearby_native_boxes"}
+                or not isinstance(anchor.get("text"), str) or not _EXIT.search(anchor["text"])
+                or not isinstance(obs.get("ref"), str)
+                or _ref(obs.get("ref")) != obs.get("ref")):
+            raise ValueError("literal EXIT pairing from road_sign_clues is required; bare refs are not anchors")
+        stamp = obs.get("t_sec")
+        if (isinstance(stamp, bool) or not isinstance(stamp, (int, float))
+                or not math.isfinite(stamp) or not times[0] <= stamp <= times[-1]
+                or row.get("camera_fix") is not None):
+            raise ValueError("OCR times must belong to the complete native window")
+        candidate_ids = []
+        for candidate in row["candidates"]:
+            identity = candidate["id"]
+            ll = np.asarray([candidate["lat"], candidate["lon"]], dtype=np.float64)
+            if (not isinstance(identity, str) or not identity or not np.isfinite(ll).all()
+                    or abs(ll[0]) > 90 or abs(ll[1]) > 180 or identity in candidate_ids):
+                raise ValueError("invalid or duplicated junction hypothesis")
+            if identity in descriptions and not np.array_equal(ll, descriptions[identity]):
+                raise ValueError("conflicting junction identity")
+            if identity not in targets:
+                descriptions[identity] = ll.copy()
+                targets[identity] = _target(net, identity, net.latlon_to_local(ll)[0], reverse, poll)
+            candidate_ids.append(identity)
+        cues.append(Cue(float(stamp), int(np.searchsorted(times, stamp, side="left")),
+                        tuple(targets[k] for k in sorted(candidate_ids)), dict(obs)))
+    return sorted(cues, key=lambda c: (c.time, str(c.observation.get("ref", ""))))
+
+
+def sign_factor(net, targets, edge, offset, speed, *, travel=0.):
+    """Dimensionless event compatibility, NOT a calibrated position density.
+
+    Exponential advance-distance and advance-time survival components allow
+    signs before junctions; an outlier floor admits unrelated/missing exits.
+    Directed reachability concerns the signposted target, not the taken route.
+    """
+    support = np.zeros(np.shape(edge), dtype=np.float64)
+    speed = np.maximum(np.asarray(speed), .5)
+    for target in targets:
+        remaining = target.remaining(net, edge, offset) - travel
+        valid = (remaining >= 0) & np.isfinite(remaining)
+        d = np.where(valid, remaining, np.inf)
+        support += .5 * np.exp(-d / 750.) + .5 * np.exp(-d / (speed * 45.))
+    if targets:
+        support /= len(targets)
+    return .15 + .85 * support
+
+
+def initial_proposal(lengths, guide, defensive=.25):
+    """Piecewise road-length prior p, proposal q, exact p/q per cell."""
+    lengths, guide = np.asarray(lengths), np.asarray(guide)
+    if (lengths.ndim != 1 or lengths.shape != guide.shape or not len(lengths)
+            or not np.isfinite(lengths).all() or not np.isfinite(guide).all()
+            or np.any(lengths <= 0) or np.any(guide <= 0) or not 0 < defensive <= 1):
+        raise ValueError("positive bounded proposal cells required")
+    p = lengths / lengths.sum()
+    tilted = p * guide
+    q = defensive * p + (1 - defensive) * tilted / tilted.sum()
+    return q, np.log(p) - np.log(q)
+
+
+class _OfflineFilter(GraphParticleFilter):
+    def __init__(self, net, cfg, motion, cues, poll):
+        super().__init__(net, cfg, metric=False, unit_seconds=motion.unit_seconds)
+        self.motion, self.cues, self.poll, self.index = motion, cues, poll, 0
+        self.units = np.r_[0., np.cumsum(motion.step + motion.unknown_seconds / motion.unit_seconds)]
+
+    def guide(self, edge, offset, logk):
+        # Nearest future observation is a proposal heuristic; ALL observations
+        # still enter the target factors at their own times, without a winner.
+        future = next((c for c in self.cues if c.step > self.index and c.targets), None)
+        if future is None:
+            return np.ones(np.shape(edge))
+        travel = np.exp(logk) * (self.units[future.step] - self.units[self.index])
+        speed = np.exp(logk) / self.unit_seconds
+        return sign_factor(self.net, future.targets, edge, offset, speed, travel=travel)
+
+    def initialise_offline(self):
+        net = self.net
+        nc = np.ceil(net.edge_len / 100.).astype(np.int64)
+        if int(nc.sum()) > 200_000:
+            raise Unavailable("complete road-length proposal partition exceeds bound")
+        edges = np.repeat(np.arange(net.n_edges), nc)
+        starts = np.concatenate([np.arange(k) * (length / k) for k, length in zip(nc, net.edge_len)])
+        lengths = np.repeat(net.edge_len / nc, nc)
+        guide = self.guide(edges, starts + lengths / 2, np.full(len(edges), math.log(8. * self.unit_seconds)))
+        q, ratio = initial_proposal(lengths, guide)
+        pick = self.rng.choice(len(q), size=self.cfg.n_particles, p=q)
+        self.edge = edges[pick]
+        self.offset = starts[pick] + self.rng.random(len(pick)) * lengths[pick]
+        self.logk = self._sample_logk(len(pick))
+        self.eps = self.rng.normal(0., self._dev_sigma, len(pick))
+        self.logw = ratio[pick]
+        self._relocate()
+
+    def _choose_successors(self, e, h_preds):
+        # Bound temporary candidate tensors independently of particle count.
+        out, correction, dead = np.empty_like(e), np.empty(len(e)), np.empty(len(e), bool)
+        for lo in range(0, len(e), 512):
+            self.poll()
+            sl = slice(lo, lo + 512)
+            old = e[sl]
+            cand = self.net.succ_table[old]
+            lp = self.net.succ_logprior[old]
+            no_exit = cand[:, 0] < 0
+            safe = np.maximum(cand, 0)
+            with np.errstate(invalid="ignore"):
+                p = np.nan_to_num(np.exp(lp - logsumexp(lp, axis=1, keepdims=True)))
+            # h_preds and e are subsets of crossing particles; no false mapping
+            # to the full logk array. Proposal uses broad fixed speed; target
+            # motion scale remains particle-specific in predict().
+            guide = self.guide(safe, np.zeros_like(safe, dtype=float),
+                               np.full(safe.shape, math.log(8. * self.unit_seconds)))
+            logits = lp + np.log(guide)
+            for h in h_preds:
+                if h is not None:
+                    hs = h[sl]
+                    logits += np.where(np.isfinite(hs)[:, None],
+                                       2. * np.cos(np.nan_to_num(hs)[:, None] - self.net.succ_head[old]), 0.)
+            with np.errstate(invalid="ignore"):
+                guided = np.nan_to_num(np.exp(logits - logsumexp(logits, axis=1, keepdims=True)))
+            q = .25 * p + .75 * guided
+            cdf = np.cumsum(q, axis=1)
+            degree = (cand >= 0).sum(axis=1)
+            u = self.rng.random(len(old))[:, None] * cdf[:, -1:]
+            choice = np.minimum((cdf <= u).sum(axis=1), np.maximum(degree - 1, 0))
+            rows = np.arange(len(old))
+            chosen = cand[rows, choice]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                corr = lp[rows, choice] - np.log(q[rows, choice] / np.maximum(cdf[:, -1], 1e-300))
+            out[sl] = np.where(no_exit, old, chosen)
+            correction[sl] = np.where(no_exit, -np.inf, corr)
+            dead[sl] = no_exit
+        return out, correction, dead
+
+
+def auxiliary_resample(pf, weights, guide):
+    """Sample ancestors q_i∝w_i*g_i, then correct by 1/g_i (up to common Z)."""
+    tilted = weights * guide
+    if not np.isfinite(tilted).all() or np.any(guide <= 0) or tilted.sum() <= 0:
+        raise ValueError("invalid future-cue auxiliary proposal")
+    idx = pf.resample(tilted / tilted.sum())
+    pf.logw = -np.log(guide[idx])
+    pf.logw -= logsumexp(pf.logw)
+    return idx
+
+
+def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
+          *, config: Config | None = None, check=lambda: None, clock=time.monotonic):
+    """Return a diagnostic offline lineage or explicit unavailable; never select.
+
+    Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
+    edge, float64 offset. Worst admitted 50k*1201 =960,800,000 B (<1GiB).
+    No thinning/interpolating of the composed path, automatic restart or MAP
+    optimality claim. Root must externally enforce CPU/RSS/headroom/outer time.
+    """
+    config = config or Config()
+    config.validate()
+    started = clock()
+    def poll():
+        check()
+        if clock() - started > config.inner_s:
+            raise Unavailable("complete offline sequence exceeded inner time budget")
+    base = {"method": PROFILE["method"], "profile": dict(PROFILE), "config": asdict(config),
+            "online": False, "accuracy_admitted": False, "selection": None,
+            "confidence_calibrated": False, "proposal_corrections": "initial p/q; turn prior/q; auxiliary 1/g"}
+    try:
+        poll()
+        motion = coarsen_motion(odometry, motion_status, native_times)
+        t_count, p = len(motion.step), config.particles
+        genealogy_bytes = 16 * p * (t_count + 1)
+        if genealogy_bytes > config.genealogy_bytes:
+            raise Unavailable("complete full-window genealogy cannot fit declared byte bound")
+        if (net.n_edges > 100_000 or len(net.seg_gstart) > 200_000
+                or np.count_nonzero(net.succ_table >= 0) > 1_000_000
+                or net.succ_table.shape[1] > 32):
+            raise Unavailable("complete road graph exceeds declared bounded prototype")
+        if net.turn_prior_kappa != 0 or net.normalise_turn_prior or net.allow_uturn:
+            raise ValueError("profile requires default unnormalised directed-road turn prior")
+        cues = prepare_cues(net, matched, motion.times, poll)
+        cfg = FilterConfig(n_particles=p, seed=config.seed, path_storage=False,
+                           speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
+                           heading_sigma_deg=15., heading_outlier=.2, delta_rw_deg=2.)
+        pf = _OfflineFilter(net, cfg, motion, cues, poll)
+        parent = np.empty((t_count + 1, p), dtype=np.int32)
+        edges = np.empty_like(parent)
+        offsets = np.empty((t_count + 1, p), dtype=np.float64)
+        pf.initialise_offline()
+        ancestry = np.full(p, -1, dtype=np.int32)
+        ess, cue_records, modes, mode_counts, mode_mass, scale_modes = ([] for _ in range(6))
+        for t in range(t_count + 1):
+            poll()
+            pf.index = t
+            if t:
+                step = motion.step[t - 1] + motion.unknown_seconds[t - 1] / motion.unit_seconds
+                dt = float(motion.times[t] - motion.times[t - 1])
+                pf.predict(float(step), float(motion.heading[t - 1]), dt,
+                           heading_var=float(motion.heading_var[t - 1]))
+                if step > 0:
+                    pf.update_heading(float(motion.heading[t - 1]), dt)
+            for cue in (c for c in cues if c.step == t):
+                factor = sign_factor(net, cue.targets, pf.edge, pf.offset,
+                                     np.exp(pf.logk + pf.eps) / motion.unit_seconds)
+                pf.logw += np.log(factor)
+                cue_records.append({"time": cue.time, "applied_time": float(motion.times[t]),
+                                    "composition_lag_s": float(motion.times[t] - cue.time),
+                                    "junction_ids": [j.identity for j in cue.targets],
+                                    "no_matches_outlier_only": not bool(cue.targets),
+                                    "factor_min": float(factor.min()), "factor_max": float(factor.max())})
+            norm = logsumexp(pf.logw)
+            if not math.isfinite(norm):
+                raise Unavailable("all full-window graph hypotheses died; no automatic restart")
+            pf.logw -= norm
+            weights = np.exp(pf.logw)
+            ess.append(float(1 / np.sum(weights * weights)))
+            summary = pf.summary(weights)
+            modes.append(summary["mode"])
+            mode_counts.append(summary["n_modes"])
+            mode_mass.append(summary["confidence"])
+            scale_modes.append(summary["k_mode"])
+            edges[t], offsets[t], parent[t] = pf.edge, pf.offset, ancestry
+            if t < t_count:
+                guide = pf.guide(pf.edge, pf.offset, pf.logk + pf.eps)
+                ancestry = auxiliary_resample(pf, weights, guide).astype(np.int32)
+        # A representative lineage in the heaviest final spatial mode, not
+        # a MAP path or an isolated high-importance-weight tail particle.
+        mx, my = modes[-1]
+        near = (pf.x - mx) ** 2 + (pf.y - my) ** 2 <= cfg.confidence_radius_m ** 2
+        candidates = np.flatnonzero(near) if near.any() else np.arange(p)
+        choice = int(candidates[np.argmax(pf.logw[candidates])])
+        route_edge, route_offset = np.empty(t_count + 1, np.int32), np.empty(t_count + 1)
+        for t in range(t_count, -1, -1):
+            route_edge[t], route_offset[t] = edges[t, choice], offsets[t, choice]
+            choice = int(parent[t, choice])
+        x, y, heading, _ = net.locate(route_edge, route_offset)
+        poll()
+        return {**base, "status": "complete_diagnostic_only", "times": motion.times,
+                "route_latlon": net.local_to_latlon(np.column_stack([x, y])),
+                "route_edge": route_edge, "route_offset_m": route_offset,
+                "road_heading": heading, "mode_xy": net.local_to_crs(np.asarray(modes)),
+                "ess": np.asarray(ess), "n_modes": np.asarray(mode_counts),
+                "mode_mass_uncalibrated": np.asarray(mode_mass),
+                "mode_metres_per_vo_unit": np.asarray(scale_modes), "cues": cue_records,
+                "native_end_indices": motion.native_end_indices, "motion_counts": motion.counts,
+                "unknown_seconds": motion.unknown_seconds, "stationary_seconds": motion.stationary_seconds,
+                "composed_se2": motion.se2, "full_window_endpoints_preserved": True,
+                "genealogy_payload_bytes": genealogy_bytes, "elapsed_s": clock() - started,
+                "approximation": "finite-particle offline importance genealogy; no exact MAP or calibration"}
+    except Unavailable as exc:
+        return {**base, "status": "unavailable", "reason": str(exc), "route_latlon": None,
+                "full_window_endpoints_preserved": False, "elapsed_s": clock() - started}
