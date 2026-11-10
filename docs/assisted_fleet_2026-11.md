@@ -399,3 +399,42 @@ Prediction closure SHA256:
 `ba9a65ba9f9a3b450d385bc6c390db7705182ba9ebb0af58ef0cdac9f99e6bd8`.
 The report-only `closed_diagnostic.json` has SHA256
 `8d373c766df75ded94a3ed948a27dd3ef4421d8da1d9675d64fd113d233c572c`.
+
+## Conditional-uniform graph prior (10 November 2026; also negative)
+
+Clean `72437d9` added an explicit opt-in `conditional-uniform-v3` graph
+prior. This is a graph prototype version, separate from assisted v3.
+Genuine transition probabilities sum to one across legal successors, with
+all original proposal corrections retained. The default stays `legacy`.
+Both profiles now record the complete effective filter configuration and
+state that the base speed range is not a hard speed cap.
+
+Map preparation was repeated truthfully under the new source. Root verified
+every typed map-array hash, topology metadata and complete sign/candidate
+record equal to the preceding trial before inference. Geometry, signs,
+motion, correlation powers, seed, particle count and resource limits were
+held fixed. Preparation closed before the numerical actor began.
+
+The full-window trial completed in **64.156 s**, with **1,177,436,160 bytes**
+peak sampled aggregate RSS. Every observed numerical worker closed and all
+registered source/input bytes were verified before the one offline score.
+The unmodified representative lineage scored **18,281.577297323704 m**
+symmetric mean error (start **22,331.86457438476 m**, end
+**16,705.675519077064 m**). It is worse than both the previous graph trial
+and the retained v4 Answer. It is not adopted and triggers no full-fleet
+trial or admission relaxation. Development remains **14/15**.
+
+Proof: `E:/monocular-osm-junction-uniform-proof/run1`.
+Prepared equivalence SHA256:
+`f3a3f86b82cb81cccc67551e60e2525b58d2477ee832b346899b7a47ecd53342`.
+Prediction closure SHA256:
+`c0ee393a6cfa3af9ebdf80580515ad429cabcca5a9e1880d605e0316a858fc14`.
+`component_score.json` SHA256:
+`c8ac4e0ad55f6b4944810589ff16e07c2073864d85333c83b69c285fe148352f`.
+
+These finite-particle negatives do not prove that road-constrained
+localization is impossible. They do show that these road/sign-only profiles
+do not solve this case. The next source investigation combines earlier
+audited visual evidence with these constraints, rather than further tuning
+the same three late sign events. It has no implemented combined likelihood
+or actual combined-method result yet.

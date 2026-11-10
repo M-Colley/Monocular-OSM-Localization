@@ -119,8 +119,12 @@ The diagnostic score is
 `E:/monocular-osm-junction-sequence-proof/run1/component_score.json`, SHA256
 `ba9a65ba9f9a3b450d385bc6c390db7705182ba9ebb0af58ef0cdac9f99e6bd8`.
 Its flat unnormalized turn potentials reward branching multiplicity; a new
-conditional-uniform transition model is the next controlled comparison.
-That changes a modeling assumption and has no measured accuracy yet.
+conditional-uniform transition model was then tested at clean `72437d9`
+with byte-identical typed map arrays, signs and hypotheses. It also failed:
+**18,281.577297323704 m**, in 64.156 s. Neither graph-only variant is adopted.
+The next investigation is a source-level feasibility check for early audited
+raw VPR evidence as soft spatial mixtures alongside road/sign constraints;
+no combined-method trial has run.
 
 ## Evaluation and operating constraints
 
