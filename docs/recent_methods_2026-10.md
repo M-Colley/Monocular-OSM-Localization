@@ -1,22 +1,40 @@
 # Recent methods: research and controlled tests
 
-Checked 30 October 2026. The complete cold development baseline remains
-**9/15 within 200 m symmetric mean route error**. The experiments below do
-not establish a new complete fleet result. All use development clips; the
-held-out clips have not been used for method or parameter selection.
+Current status (10 November 2026): the completed assisted v4 development
+fleet reached **14/15**, with Detroit `g5lnpYCk1Ec` still failing. See
+[code knowledge](code_knowledge.md) and the [fleet record](assisted_fleet_2026-11.md).
+The October 30 live-run statements below are historical, not current process
+claims. The former held-out cohorts have since been scored and used to
+inform development; a new TEST4 cohort is being acquired separately.
 
-A fresh, serial all-fifteen run of the fixed opt-in v3 policy is now running
+At the 30 October 2026 checkpoint, the complete cold development baseline was
+**9/15 within 200 m symmetric mean route error**. These experiments did not
+establish a new complete fleet result. They used development clips; the
+held-out clips had not then been used for method or parameter selection.
+
+At that checkpoint a serial all-fifteen run of the fixed opt-in v3 policy was running
 at clean source `f72fdaf`. Its complete prepared-input audit passed before
 inference. Every terminal attempt, including a missing answer or failure,
-will remain in the denominator; no new fleet accuracy is available yet.
-Live execution counts and handles are recorded in `output/goal_progress.json`.
+remained in the denominator; no new fleet accuracy was available then.
+Historical execution counts and handles are recorded in `output/goal_progress.json`.
 Completed executions are not accuracy passes.
 KITTI0009 reached the two-hour deadline without a parent answer, so this
 registered run cannot establish 15/15. An isolated source fix addresses both
 deadline finalization and a metadata-union duplicate-reference identity error;
-the original run continues unchanged. Neither fix has an accuracy result yet.
+the original run continued unchanged. Neither fix had an accuracy result then.
 
 ## What was searched
+
+An additional focused primary-source check on 10 November found the
+following candidates. This supplements the earlier bounded conference scan;
+it is not a claim to have read every newly published paper. No model from
+this supplementary check has been run on the project.
+
+| Candidate | Verified release/input finding | Implication |
+|---|---|---|
+| [PGGT-Loc](https://arxiv.org/abs/2610.41833), posted October 30, NeurIPS 2026 | The paper uses an image plus planar map primitives. Its author-linked `3dv-casia/PGGT-Loc` main README returned HTTP 404 through GitHub on November 10. | A runnable release was not verified. OSM road centerlines alone do not supply its planar primitive map; this is an input mismatch, inferred from its stated inputs. |
+| [AutoCompass](https://nianticspatial.github.io/autocompass/), ECCV 2026 | The authors describe learning image-to-map pose distributions from noisy position labels and optional relative poses. The inspected project page did not expose a verified code/checkpoint download. | Useful motivation for retaining distributions and uncertain motion; it is not an available replacement demonstrated here. |
+| [TOL/TOLoc](https://arxiv.org/abs/2604.01644), April 2026 | The [official repository](https://github.com/WHU-USI3DV/TOL) contains released code and checkpoint download links. Its [text generator](https://github.com/WHU-USI3DV/TOL/blob/main/data_prepare/generate_text_from_raster.py) produces cardinal-direction object descriptions from OSM rasters. | Its text input differs substantially from observed shop/exit OCR. Generating a query description from the unknown true pose/map tile would leak location; a future trial needs an independent video-to-description front end and verified weight/runtime provenance. |
 
 The official [NeurIPS 2025](https://neurips.cc/Downloads/2025) and
 [2026](https://neurips.cc/Downloads/2026) programs were searched for place

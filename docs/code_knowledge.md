@@ -57,8 +57,9 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   fifteen-clip outcome. Component/oracle alternatives are diagnostics.
 - `road_sign_clues.py` requires literal EXIT evidence and retains every
   matching public junction. `road_sign_context.py` plans bounded native OCR
-  crops. `junction_sequence.py` is an experimental offline road sequence
-  sampler; none of these modules establishes a newly admitted Answer.
+  crops. `junction_inputs.py` preserves exact map topology and groups
+  correlated sign views. `junction_sequence.py` is an experimental offline
+  road sequence sampler; none establishes a newly admitted Answer.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
