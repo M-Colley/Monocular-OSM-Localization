@@ -24,6 +24,8 @@ from .junction_inputs import CORRELATION_PROFILE, validate_correlations
 
 PROFILE = {
     "method": "offline-all-junction-upstream-sequence-prototype-correlation-v2",
+    "junction_prior": "legacy",
+    "turn_target_semantics": "unit weight per legal successor; unnormalised outgoing mass equals degree",
     "correlation_profile": CORRELATION_PROFILE,
     "legacy_unannotated_factor_power": 1.,
     "max_particles": 50_000, "max_steps": 1200, "composition_hz": 2.0,
@@ -44,12 +46,20 @@ PROFILE = {
     "max_attachments": 64,
     "speed_prior_median_mps": 8., "speed_prior_log_sigma": .75,
     "speed_prior_range_mps": [.5, 55.], "heading_sigma_deg": 15.,
+    "speed_range_is_hard_cap": False,
+    "speed_bound_semantics": "initial/base logk bounds plus logk margin; Gaussian OU eps and lognormal step noise are unbounded",
     "heading_outlier": .2, "heading_bias_rw_deg_sqrt_s": 2.,
     "unknown_extra_heading_rw_deg_sqrt_s": 5.,
     "cue_timing": "native read time retained; factor at next composed boundary with explicit lag",
     "cue_requirement": "road_sign_clues literal EXIT pairing; bare references forbidden",
     "turn_prior_kappa": 0., "normalise_turn_prior": False, "allow_uturn": False,
     "all_inputs_retained": True, "online": False, "accuracy_admitted": False,
+}
+
+PROFILE_V3 = {**PROFILE,
+    "method": "offline-all-junction-upstream-sequence-prototype-conditional-uniform-v3",
+    "junction_prior": "conditional-uniform-v3", "normalise_turn_prior": True,
+    "turn_target_semantics": "proper conditional uniform over legal successors; not uniform over complete routes",
 }
 
 
@@ -64,6 +74,7 @@ class Config:
     seed: int = 0
     genealogy_bytes: int = 1 << 30
     inner_s: float = 1800.
+    junction_prior: str = "legacy"
 
     def validate(self):
         if (type(self.particles) is not int or not 1 <= self.particles <= 50_000
@@ -71,7 +82,9 @@ class Config:
                 or type(self.genealogy_bytes) is not int
                 or not 1 <= self.genealogy_bytes <= PROFILE["genealogy_bytes"]
                 or isinstance(self.inner_s, bool) or not math.isfinite(self.inner_s)
-                or not 0 < self.inner_s <= 1800):
+                or not 0 < self.inner_s <= 1800
+                or type(self.junction_prior) is not str
+                or self.junction_prior not in {"legacy", "conditional-uniform-v3"}):
             raise ValueError("invalid bounded junction-sequence configuration")
 
 
@@ -432,12 +445,18 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
     """
     config = config or Config()
     config.validate()
+    profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
+    cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
+                       turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
+                       speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
+                       heading_sigma_deg=15., heading_outlier=.2, delta_rw_deg=2.)
     started = clock()
     def poll():
         check()
         if clock() - started > config.inner_s:
             raise Unavailable("complete offline sequence exceeded inner time budget")
-    base = {"method": PROFILE["method"], "profile": dict(PROFILE), "config": asdict(config),
+    base = {"method": profile["method"], "profile": dict(profile), "config": asdict(config),
+            "effective_filter_config": asdict(cfg), "base_turn_profile_verified": False,
             "online": False, "accuracy_admitted": False, "selection": None,
             "confidence_calibrated": False, "proposal_corrections": "initial p/q; turn prior/q; auxiliary 1/g"}
     try:
@@ -453,10 +472,16 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
             raise Unavailable("complete road graph exceeds declared bounded prototype")
         if net.turn_prior_kappa != 0 or net.normalise_turn_prior or net.allow_uturn:
             raise ValueError("profile requires default unnormalised directed-road turn prior")
+        valid_turn = net.succ_table >= 0
+        if (not np.all(net.succ_logprior[valid_turn] == 0.)
+                or not np.all(np.isneginf(net.succ_logprior[~valid_turn]))):
+            raise ValueError("base compact graph no longer carries original unit legal-turn weights")
+        base["base_turn_profile_verified"] = True
+        if config.junction_prior == "conditional-uniform-v3":
+            # New TARGET, not deletion of an importance correction. All geometry,
+            # node IDs and successor topology are shared with original inputs.
+            net = net.with_turn_prior(0., normalise=True)
         cues = prepare_cues(net, matched, motion.times, poll)
-        cfg = FilterConfig(n_particles=p, seed=config.seed, path_storage=False,
-                           speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
-                           heading_sigma_deg=15., heading_outlier=.2, delta_rw_deg=2.)
         pf = _OfflineFilter(net, cfg, motion, cues, poll)
         parent = np.empty((t_count + 1, p), dtype=np.int32)
         edges = np.empty_like(parent)

@@ -293,6 +293,11 @@ def load_motion(vo, clock_arrays, timestamp_member, video_binding, graph_filter,
 def run(config_path, expected):
     config, base, protected = load_config(config_path, expected, "run")
     np, _, sequence, graph_filter, visual_odometry, _ = dependencies()
+    # Absence delegates to the genuine legacy default. Explicit modes are
+    # validated by the same Config used by the numerical implementation.
+    runtime_config = sequence.Config(particles=50_000, seed=0, inner_s=1800.,
+                                     junction_prior=config.get("junction_prior", "legacy"))
+    runtime_config.validate()
     require(set(config["inputs"]) == {"prepared", "native_vo", "native_clock"}, "run input roles differ")
     paths = {k: checked_ref(v, base, protected) for k, v in config["inputs"].items()}
     prepared = read_json(paths["prepared"])
@@ -315,7 +320,8 @@ def run(config_path, expected):
                                          graph_filter, visual_odometry)
     # Real full profile, fixed seed; no per-case particle/step truncation knob.
     result = sequence.align(net, odometry, status, times,
-                            matched, config=sequence.Config(particles=50_000, seed=0, inner_s=1800.))
+                            matched, config=runtime_config)
+    require(isinstance(result.get("profile"), dict), "numerical result lacks resolved profile")
     arrays = {key: value for key, value in result.items() if isinstance(value, np.ndarray)}
     arrays.update(native_times=times, motion_status=status, native_step=odometry.step,
                   native_heading=odometry.heading, native_heading_var=odometry.heading_var, native_dt=odometry.dt)
@@ -334,7 +340,7 @@ def run(config_path, expected):
     return publish(output, "run", protected, generated,
                    {"status": "CLOSED_JUNCTION_SEQUENCE_DIAGNOSTIC_NO_ACCURACY",
                     "config_sha256": expected, "numerical_status": result["status"],
-                    "profile": sequence.PROFILE})
+                    "profile": result["profile"]})
 
 
 def main(argv=None):

@@ -264,3 +264,131 @@ def test_bare_numeric_reference_cannot_be_promoted_to_verified_exit():
 def test_worst_genealogy_bound_is_honest():
     assert 16 * 50_000 * 1201 == 960_800_000
     assert 960_800_000 <= j.PROFILE["genealogy_bytes"] == 1 << 30
+
+
+def fork_filter(degree, *, conditional, monkeypatch, tilted=False):
+    net = roads(two=True)
+    net.succ_table = np.full((4, 3), -1, dtype=np.int64)
+    net.succ_table[0, :degree] = np.arange(1, degree + 1)
+    net.succ_head = np.zeros((4, 3))
+    net.succ_logprior = np.where(net.succ_table >= 0, 0., -np.inf)
+    if conditional:
+        net = net.with_turn_prior(0., normalise=True)
+    od, st, ts = motion(2)
+    pf = j._OfflineFilter(net, FilterConfig(n_particles=16, path_storage=False),
+                          j.coarsen_motion(od, st, ts), [], lambda: None)
+    monkeypatch.setattr(pf, "guide", lambda e, s, k: (e + .25) if tilted else np.ones(np.shape(e)))
+    return pf
+
+
+@pytest.mark.parametrize("degree", [1, 2, 3])
+def test_conditional_uniform_q_equals_p_has_zero_correction_and_mass_one(degree, monkeypatch):
+    pf = fork_filter(degree, conditional=True, monkeypatch=monkeypatch)
+    edge, correction, dead = pf._choose_successors(np.zeros(100, dtype=np.int64), [])
+    np.testing.assert_allclose(correction, 0., atol=1e-15)
+    assert not dead.any() and np.all((edge >= 1) & (edge <= degree))
+    lp = pf.net.succ_logprior[0, :degree]
+    np.testing.assert_allclose(np.exp(lp), np.full(degree, 1. / degree))
+    assert np.exp(lp).sum() == pytest.approx(1.)
+
+
+@pytest.mark.parametrize("degree", [1, 2, 3])
+def test_conditional_importance_correction_recovers_target_under_tilted_guide(degree, monkeypatch):
+    pf = fork_filter(degree, conditional=True, monkeypatch=monkeypatch, tilted=True)
+    edge, correction, _ = pf._choose_successors(np.zeros(200, dtype=np.int64), [])
+    p = np.full(degree, 1. / degree)
+    guide = np.arange(1, degree + 1) + .25
+    q = .25 * p + .75 * (p * guide) / (p @ guide)
+    np.testing.assert_allclose(correction, np.log(p[edge - 1]) - np.log(q[edge - 1]), atol=1e-15)
+    np.testing.assert_allclose(q * np.exp(np.log(p) - np.log(q)), p, atol=1e-15)
+
+
+def test_multiple_crossings_preserve_markov_mass_and_degree_one_subdivision():
+    from itertools import product
+    from monocular_osm.graph_filter import _turn_logprior
+    def total_mass(degrees, conditional):
+        kernels = []
+        for degree in degrees:
+            succ = np.arange(degree, dtype=np.int64)[None]
+            lp = _turn_logprior(succ, np.zeros_like(succ, dtype=float), np.zeros(1), 0., conditional)[0]
+            q = np.arange(1., degree + 1)
+            q /= q.sum()
+            kernels.append((lp, q))
+        mass = 0.
+        for choices in product(*(range(d) for d in degrees)):
+            proposal, correction = 1., 0.
+            for choice, (lp, q) in zip(choices, kernels):
+                proposal *= q[choice]
+                correction += lp[choice] - np.log(q[choice])
+            mass += proposal * np.exp(correction)
+        return mass
+    assert total_mass([2, 3], True) == pytest.approx(1.)
+    assert total_mass([2, 3], False) == pytest.approx(6.)
+    assert total_mass([1, 2, 1, 3, 1], True) == pytest.approx(total_mass([2, 3], True))
+    assert total_mass([1, 2, 1, 3, 1], False) == pytest.approx(total_mass([2, 3], False))
+
+
+def test_conditional_dead_ends_and_padding_never_nan_or_select_padding(monkeypatch):
+    pf = fork_filter(2, conditional=True, monkeypatch=monkeypatch)
+    old = np.array([0, 1, 0, 2, 3], dtype=np.int64)
+    edge, correction, dead = pf._choose_successors(old, [])
+    np.testing.assert_array_equal(dead, [False, True, False, True, True])
+    assert np.all(np.isneginf(correction[dead])) and not np.isnan(correction).any()
+    np.testing.assert_array_equal(edge[dead], old[dead])
+    assert np.all(np.isin(edge[~dead], [1, 2]))
+
+
+def test_local_conditional_view_shares_all_geometry_and_keeps_base_unit_weights():
+    net = roads(two=True)
+    before = net.succ_logprior.copy()
+    new = net.with_turn_prior(0., normalise=True)
+    assert new is not net and new.normalise_turn_prior and not net.normalise_turn_prior
+    for key in net.__dataclass_fields__:
+        if isinstance(getattr(net, key), np.ndarray) and key != "succ_logprior":
+            assert getattr(new, key) is getattr(net, key)
+    assert new.edge_keys is net.edge_keys
+    np.testing.assert_array_equal(net.succ_logprior, before)
+
+
+def test_default_legacy_is_unchanged_and_profiles_record_full_filter_configuration():
+    from dataclasses import asdict
+    net = roads()
+    od, st, ts = motion(8)
+    cues = matches([(ts[-1], [candidate(net)])])
+    default = j.align(net, od, st, ts, cues, config=j.Config(particles=60, seed=3))
+    legacy = j.align(net, od, st, ts, cues, config=j.Config(particles=60, seed=3, junction_prior="legacy"))
+    conditional = j.align(net, od, st, ts, cues,
+                          config=j.Config(particles=60, seed=3, junction_prior="conditional-uniform-v3"))
+    for key in default:
+        if isinstance(default[key], np.ndarray):
+            np.testing.assert_array_equal(default[key], legacy[key])
+    assert default["cues"] == legacy["cues"]
+    assert default["profile"] == j.PROFILE and conditional["profile"] == j.PROFILE_V3
+    assert default["method"] != conditional["method"]
+    assert default["base_turn_profile_verified"] is conditional["base_turn_profile_verified"] is True
+    old_cfg, new_cfg = default["effective_filter_config"], conditional["effective_filter_config"]
+    assert set(old_cfg) == set(asdict(FilterConfig()))
+    assert old_cfg["normalise_turn_prior"] is False and new_cfg["normalise_turn_prior"] is True
+    assert {k: v for k, v in old_cfg.items() if k != "normalise_turn_prior"} == {
+        k: v for k, v in new_cfg.items() if k != "normalise_turn_prior"}
+    assert old_cfg["speed_range_mps"] == (.5, 55.)
+    assert old_cfg["logk_bounds_margin"] == .5 and old_cfg["speed_dev_sigma"] == .3
+    assert old_cfg["step_noise"] == .05
+    assert conditional["profile"]["speed_range_is_hard_cap"] is False
+
+
+@pytest.mark.parametrize("fault", ["normalized_input", "changed_base_weight"])
+def test_v3_requires_original_unit_weight_base_before_local_transformation(fault):
+    net = roads()
+    od, st, ts = motion(2)
+    if fault == "normalized_input": net = net.with_turn_prior(0., normalise=True)
+    else: net.succ_logprior[net.succ_table >= 0] = .5
+    with pytest.raises(ValueError, match="unnormalised|unit legal"):
+        j.align(net, od, st, ts, matches([(ts[-1], [candidate(net)])]),
+                config=j.Config(particles=2, junction_prior="conditional-uniform-v3"))
+
+
+@pytest.mark.parametrize("value", [True, None, "conditional", 1])
+def test_turn_prior_choice_is_explicit_and_no_aliases(value):
+    with pytest.raises(ValueError):
+        j.Config(junction_prior=value).validate()

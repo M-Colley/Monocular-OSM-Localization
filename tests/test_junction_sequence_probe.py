@@ -149,26 +149,55 @@ def test_run_keeps_all_result_arrays_and_frozen_profile(tmp_path, monkeypatch):
     config = run_config(tmp_path, directory)
     def fake_align(net, odometry, status, times, matched, *, config):
         assert config.particles == 50_000 and config.seed == 0 and config.inner_s == 1800.
+        assert config.junction_prior == "legacy"
         assert len(times) == 6 and len(status) == 5
         assert matched["matches"][0]["candidates"][0]["id"] == "node/3"
         return {"status": "complete_diagnostic_only", "times": times, "route_edge": np.array([0, 1]),
-                "route_latlon": np.array([[1., 2.], [1., 2.1]]), "other_array": np.array([np.nan]), "selection": None}
+                "route_latlon": np.array([[1., 2.], [1., 2.1]]), "other_array": np.array([np.nan]), "selection": None,
+                "profile": {"method": "private-resolved-legacy-profile"}}
     monkeypatch.setattr(js, "align", fake_align)
     ref = dump(tmp_path / "run_config.json", config)
     result = p.run(ref["path"], ref["sha256"])
     stored = p.load_npz(tmp_path / "run" / "result.npz")
     assert {"times", "route_edge", "route_latlon", "other_array", "motion_status", "native_times"} <= set(stored)
     assert result["numerical_status"] == "complete_diagnostic_only" and result["accuracy_admitted"] is False
+    assert result["profile"] == {"method": "private-resolved-legacy-profile"}
     assert p.read_json(tmp_path / "run" / "result.json")["video_bytes_opened_or_verified_by_probe"] is False
 
 
 def test_full_window_unavailable_is_retained_not_relabelled_as_route(tmp_path, monkeypatch):
     _, directory = prepared(tmp_path, monkeypatch)
-    monkeypatch.setattr(js, "align", lambda *a, **kw: {"status": "unavailable", "route_latlon": None, "reason": "full window over cap"})
+    monkeypatch.setattr(js, "align", lambda *a, **kw: {"status": "unavailable", "route_latlon": None,
+                                                    "reason": "full window over cap", "profile": dict(js.PROFILE)})
     ref = dump(tmp_path / "run_config.json", run_config(tmp_path, directory))
     result = p.run(ref["path"], ref["sha256"])
     assert result["numerical_status"] == "unavailable"
     assert p.read_json(tmp_path / "run" / "result.json")["route_latlon"] is None
+
+
+def test_explicit_conditional_uniform_prior_and_resolved_result_profile_are_recorded(tmp_path, monkeypatch):
+    _, directory = prepared(tmp_path, monkeypatch)
+    config = run_config(tmp_path, directory)
+    config["junction_prior"] = "conditional-uniform-v3"
+    resolved = {"method": "private-resolved-v3", "normalise_turn_prior": True}
+    def fake_align(net, odometry, status, times, matched, *, config):
+        assert config.junction_prior == "conditional-uniform-v3"
+        assert config.particles == 50_000 and config.seed == 0
+        return {"status": "unavailable", "route_latlon": None, "profile": resolved}
+    monkeypatch.setattr(js, "align", fake_align)
+    ref = dump(tmp_path / "run_config.json", config)
+    result = p.run(ref["path"], ref["sha256"])
+    assert result["profile"] == resolved and result["profile"] != js.PROFILE
+    assert p.read_json(tmp_path / "run" / "result.json")["profile"] == resolved
+
+
+@pytest.mark.parametrize("prior", ["uniform", "", None, True])
+def test_unregistered_prior_refused_before_numeric_inputs(tmp_path, monkeypatch, prior):
+    config = {"schema": "junction-sequence-probe-run-v1", "source_hashes": sources(), "junction_prior": prior}
+    ref = dump(tmp_path / "invalid_prior.json", config)
+    monkeypatch.setattr(p, "load_npz", lambda *a: pytest.fail("numeric values before prior validation"))
+    with pytest.raises(ValueError):
+        p.run(ref["path"], ref["sha256"])
 
 
 def test_late_input_mutation_during_solver_refuses_final_master(tmp_path, monkeypatch):
@@ -178,7 +207,7 @@ def test_late_input_mutation_during_solver_refuses_final_master(tmp_path, monkey
         target = (tmp_path / "native.npz").resolve()
         assert target.is_relative_to(tmp_path.resolve())
         target.write_bytes(b"changed private input")
-        return {"status": "unavailable", "route_latlon": None}
+        return {"status": "unavailable", "route_latlon": None, "profile": dict(js.PROFILE)}
     monkeypatch.setattr(js, "align", mutate)
     ref = dump(tmp_path / "run_config.json", config)
     with pytest.raises(ValueError, match="bytes changed"):
