@@ -314,3 +314,38 @@ The unrounded component diagnostic is
 The best verified full development result remains v4's **14/15**. A bounded
 road-graph sequence prototype retaining all OCR junction hypotheses is the
 next investigation; it has no measured accuracy or policy admission yet.
+
+## Literal road-sign input check (10 November 2026)
+
+The cached native OCR did not contain literal EXIT, so its bare `186B` and
+`188` could not satisfy the new road-sign parser. At clean `e292224`, a
+pre-registered crop probe read all four >=0.90 numeric seeds with fixed
+padding. All four reads completed; none recovered EXIT. The result at
+`E:/monocular-osm-exit-context-proof/run1/context_result.json` has SHA256
+`1473c783c6839cac435bb272879826a6a1031b6306f712ccff8bb83ff55b71f9`.
+
+A separate prospective temporal probe read full native frames at fixed
+offsets +/-0.5, 1, 2 and 4 seconds around every original eligible seed.
+Rounding and window clipping were fixed before OCR; all 29 unique planned
+frames completed. The same cached RapidOCR weights and CPU 2/1 runtime
+recovered these literal EXIT observations, without using labels:
+
+| Reference | Actual native time (s) | Evidence |
+|---|---|---|
+| 186A | 364.03831982313926 | Inline `EXIT 186A` |
+| 186B | 392.40972733971995 | EXIT and reference in nearby native boxes |
+| 186B | 392.9121725731895 | Second view of the same event |
+| 190A | 594.8281637301534 | EXIT and reference in nearby native boxes |
+
+The two 186B reads must not count as independent sign events. Bare 188
+remains unverified. All detections keep their actual frame times; an EXIT
+from another frame never certifies an original bare number. Coordinate
+stamps were filtered, and no route was inferred or scored. This establishes
+usable input evidence, not a localization gain.
+
+The temporal probe completed in 49.562 s, with 404,078,592 bytes peak sampled
+aggregate RSS and both physical/commit headroom above 8 GiB. Registration
+SHA256 is `cc28dbd2e35fc08ae4499db71c3dae85c03ce9fd2ea76f0bfa9de2f20b46bd9a`;
+result `E:/monocular-osm-exit-temporal-proof/run1/temporal_result.json` has
+SHA256 `d86782eb13974c9874838fbd83a658f9d4f574352af971eb68e412be55e4a608`.
+The strict full-city map and road sequence experiment remain separate work.

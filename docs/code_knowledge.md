@@ -1,7 +1,8 @@
 # Project code knowledge
 
-Refreshed 10 November 2026 from checkout `0a97040` and the current experiment
-records. Read this alongside the dated records; a test passing or a candidate
+Refreshed 10 November 2026 from the current checkout and closed experiment
+records, including `d4c67ed`, `e292224` and `afb4b89`. Read this alongside the
+dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
 ## Active objective
@@ -54,6 +55,10 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
 - `scripts/benchmark.py` runs frozen inputs and separately aggregates the
   selected Answer. `scripts/check_dev_goal.py` audits evidence and the
   fifteen-clip outcome. Component/oracle alternatives are diagnostics.
+- `road_sign_clues.py` requires literal EXIT evidence and retains every
+  matching public junction. `road_sign_context.py` plans bounded native OCR
+  crops. `junction_sequence.py` is an experimental offline road sequence
+  sampler; none of these modules establishes a newly admitted Answer.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -81,6 +86,22 @@ motion, scale, and competing modes; it has no validated result or policy
 admission yet. See the Detroit discussion in the fleet record before
 proposing a new pilot.
 
+The original Detroit OCR has bare `186B` and `188`, with no literal EXIT.
+The frozen `e292224` native-crop probe read all four eligible numeric seeds
+and recovered no EXIT. A separately registered full-frame temporal probe
+read all 29 planned native frames around those seeds, using fixed offsets
+of +/-0.5, 1, 2 and 4 seconds and the same cached CPU OCR model. It recovered
+literal EXIT references **186A, 186B and 190A** at their actual frame times.
+The two 186B views are one correlated event. This verifies an input
+prerequisite; no road sequence or new localization accuracy has been
+measured. The graph adapter must preserve every matched OSM node ID and
+directed incidence; nearest-road projection is insufficient at bridges.
+
+The temporal probe closed in 49.562 s with 404,078,592 bytes peak sampled
+aggregate RSS. Its immutable result is
+`E:/monocular-osm-exit-temporal-proof/run1/temporal_result.json`, SHA256
+`d86782eb13974c9874838fbd83a658f9d4f574352af971eb68e412be55e4a608`.
+
 ## Evaluation and operating constraints
 
 - Inference uses the video and declared city/title cues. Burned-in coordinate
@@ -102,11 +123,14 @@ proposing a new pilot.
 - Benchmark's ordinary timeout is shorter than the measured assisted budget.
   Set the intended CPU budget and CPU-only VRAM floor explicitly when
   reproducing an assisted run. Record warm caches and CPU contention.
+- Since `d4c67ed`, benchmark score artifacts retain raw floating-point
+  precision. A displayed 200.00 m can still exceed 200 m; use the unrounded
+  metric and consistent threshold flags for goal checks.
 
 ## Stale state to avoid
 
-`output/goal_progress.json` last recorded the October 31 experiments before
-this refresh. Its old `75406` live-session claim and 9/15-only status are
-historical. The original A8 run has since finished and been scored. Preserve
-the old artifacts, but use the November records and a current process check
-to decide what work remains. The 15/15 objective is still incomplete.
+Historical October 31 fields in `output/goal_progress.json`, including its
+old `75406` live-session claim and 9/15-only status, are stale. Follow the
+current `authoritative_checkpoint` and dated November records. The original
+A8 run has finished and been scored. Preserve the old artifacts and verify
+process state before resuming a job. The 15/15 objective is still incomplete.
