@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 10 November 2026 from the current checkout and closed experiment
-records, including `d4c67ed`, `e292224` and `afb4b89`. Read this alongside the
+records, including probe source `7ddea55` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -24,9 +24,14 @@ failed development clips or change that denominator.
   passed the recorded evidence audit. Detroit `g5lnpYCk1Ec` remains at
   **1,387.24 m**. These are development results; v4 has no clean held-out
   validation.
-- At the initial refresh the manifest contained 42 entries: 18 development clips, of which 15 are
-  available, plus 24 available clips across `test`, `test2`, and `test3`.
-  The three unavailable development entries remain documented.
+- The manifest now contains **48 entries, 45 available**: 18 development
+  clips (15 available), 24 across `test`, `test2`, and `test3`, and six new
+  `test4` clips. The three unavailable development entries remain documented.
+  TEST4's fixed metadata/QC search exhausted its pool at six usable videos;
+  its planned target of seven was not met. No TEST4 localization has run.
+  Its labels remain restricted to data QC until a global method is frozen.
+  See [selection and acquisition](../benchmarks/test4_screen/README.md) and
+  the [dataset freeze](../benchmarks/test4_screen/dataset_freeze.json).
 - The retrieval track scored **5/7** on test1 and **2/7** on test2. Assisted
   v3 also scored **2/7** on test2. The opt-in metro-ring method scored
   **5/10**, equal to its ordinary-track control, on test3.
@@ -60,6 +65,10 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   crops. `junction_inputs.py` preserves exact map topology and groups
   correlated sign views. `junction_sequence.py` is an experimental offline
   road sequence sampler; none establishes a newly admitted Answer.
+- `scripts/junction_sequence_probe.py` separates guarded map preparation
+  from the fixed full-window numerical trial. Compact network arrays,
+  original native motion, literal signs, source hashes and video identity
+  are bound before running; the helper never scores or selects an Answer.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -121,6 +130,10 @@ aggregate RSS. Its immutable result is
   registered `video.local_path` through `--video-path`, preserving URL identity
   and video timing. Relative paths resolve against the executing checkout;
   an isolated experiment can freeze an absolute-path manifest instead.
+  TEST4's cached URL metadata is under `data/test4/metadata_cache`, so its
+  eventual offline benchmark needs `--data-dir data/test4`. Root verified
+  all six literal video paths and cached URL identities without decoding,
+  localization or label reads. Its method binding is still pending.
 - Benchmark's ordinary timeout is shorter than the measured assisted budget.
   Set the intended CPU budget and CPU-only VRAM floor explicitly when
   reproducing an assisted run. Record warm caches and CPU contention.
