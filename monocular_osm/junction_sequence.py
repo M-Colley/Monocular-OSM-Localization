@@ -19,14 +19,19 @@ from scipy.special import logsumexp
 
 from .graph_filter import FilterConfig, GraphParticleFilter, Odometry, RoadNetwork
 from .road_sign_clues import _EXIT, _ref
+from .junction_inputs import CORRELATION_PROFILE, validate_correlations
 
 
 PROFILE = {
-    "method": "offline-all-junction-upstream-sequence-prototype-v1",
+    "method": "offline-all-junction-upstream-sequence-prototype-correlation-v2",
+    "correlation_profile": CORRELATION_PROFILE,
+    "legacy_unannotated_factor_power": 1.,
     "max_particles": 50_000, "max_steps": 1200, "composition_hz": 2.0,
     "max_native_increments": 100_000,
     "max_cues": 8, "max_hypotheses": 64, "max_edges": 100_000,
-    "max_segments": 200_000, "max_successor_entries": 1_000_000,
+    "max_segments": 500_000, "max_successor_entries": 1_000_000,
+    "retained_segment_arrays_max_bytes": 24_000_000,
+    "graph_preparation_separate_from_runtime": True,
     "max_guide_cells": 2_000_000, "max_initial_cells": 200_000,
     "genealogy_bytes": 1 << 30, "proposal_block_particles": 512,
     "proposal_scratch_bytes": 64 << 20, "inner_s": 1800., "outer_s": 1830.,
@@ -245,6 +250,9 @@ class Cue:
     step: int
     targets: tuple[Target, ...]
     observation: dict
+    power: float = 1.
+    group_id: str | None = None
+    group_count: int = 1
 
 
 def prepare_cues(net, matched, times, poll=lambda: None):
@@ -255,6 +263,7 @@ def prepare_cues(net, matched, times, poll=lambda: None):
         raise Unavailable("complete all-hypothesis road-sign match inventory required")
     if len(rows) > 8 or sum(len(r["candidates"]) for r in rows) > 64:
         raise Unavailable("complete OCR hypothesis inventory exceeds fixed bounds")
+    annotations = validate_correlations(matched)
     if net.n_edges * sum(len(r["candidates"]) for r in rows) > 2_000_000:
         raise Unavailable("road/junction distance table budget exceeded")
     reverse = [[] for _ in range(net.n_edges)]
@@ -262,7 +271,7 @@ def prepare_cues(net, matched, times, poll=lambda: None):
         for nxt in row[row >= 0]:
             reverse[int(nxt)].append(e)
     targets, descriptions, cues = {}, {}, []
-    for row in rows:
+    for row, annotation in zip(rows, annotations):
         obs = row["observation"]
         anchor = obs.get("anchor") or {}
         if (obs.get("pairing") not in {"inline_EXIT_reference", "same_frame_nearby_native_boxes"}
@@ -289,7 +298,8 @@ def prepare_cues(net, matched, times, poll=lambda: None):
                 targets[identity] = _target(net, identity, net.latlon_to_local(ll)[0], reverse, poll)
             candidate_ids.append(identity)
         cues.append(Cue(float(stamp), int(np.searchsorted(times, stamp, side="left")),
-                        tuple(targets[k] for k in sorted(candidate_ids)), dict(obs)))
+                        tuple(targets[k] for k in sorted(candidate_ids)), dict(obs),
+                        annotation["power"], annotation["group_id"], annotation["count"]))
     return sorted(cues, key=lambda c: (c.time, str(c.observation.get("ref", ""))))
 
 
@@ -437,7 +447,7 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
         genealogy_bytes = 16 * p * (t_count + 1)
         if genealogy_bytes > config.genealogy_bytes:
             raise Unavailable("complete full-window genealogy cannot fit declared byte bound")
-        if (net.n_edges > 100_000 or len(net.seg_gstart) > 200_000
+        if (net.n_edges > 100_000 or len(net.seg_gstart) > 500_000
                 or np.count_nonzero(net.succ_table >= 0) > 1_000_000
                 or net.succ_table.shape[1] > 32):
             raise Unavailable("complete road graph exceeds declared bounded prototype")
@@ -467,9 +477,11 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
             for cue in (c for c in cues if c.step == t):
                 factor = sign_factor(net, cue.targets, pf.edge, pf.offset,
                                      np.exp(pf.logk + pf.eps) / motion.unit_seconds)
-                pf.logw += np.log(factor)
+                pf.logw += cue.power * np.log(factor)
                 cue_records.append({"time": cue.time, "applied_time": float(motion.times[t]),
                                     "composition_lag_s": float(motion.times[t] - cue.time),
+                                    "correlation_group_id": cue.group_id, "group_count": cue.group_count,
+                                    "factor_power": cue.power,
                                     "junction_ids": [j.identity for j in cue.targets],
                                     "no_matches_outlier_only": not bool(cue.targets),
                                     "factor_min": float(factor.min()), "factor_max": float(factor.max())})
