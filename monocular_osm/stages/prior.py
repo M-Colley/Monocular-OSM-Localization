@@ -352,6 +352,8 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
                                 "backbone": baseline_backbone,
                                 "track_decoding": baseline_region.get("track_decoding", dict(kv.LAST_TRACK_STATS))},
                    "selected_city_frames": 0}
+    cell_selector = getattr(cfg, "vpr_city_cell_selector", "decoded")
+    diagnostics["cell_selector"] = cell_selector
     try:
         if plan is None:
             regions, plan_audit = plan_city_regions(
@@ -385,13 +387,17 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
         kv.LAST_FAILURE = None
         kv.LAST_TRACK_STATS = {}
         record = {"cache": str(directory), "source": source, "backbone": kv.backbone_info()}
+        audit = {} if cell_selector == "raw-votes" else None
+        audit_options = ({"audit": audit, "query_timestamps": np.asarray(frames.timestamps, float)}
+                         if audit is not None else {})
         try:
             track = track_fn(
                 frames.frames, tuple(region["center"]), radius_m=region["radius_m"],
                 cache_dir=str(directory), device=device, source=source, token=token,
                 cap=cap, sequence_decode=cfg.vpr_viterbi, query_dt_s=query_dt_s,
                 query_mode=getattr(cfg, "vpr_query_mode", "warp"),
-                query_batch_size=getattr(cfg, "vpr_query_batch_size", 4), query_cache=query_cache)
+                query_batch_size=getattr(cfg, "vpr_query_batch_size", 4), query_cache=query_cache,
+                **audit_options)
         except Exception as exc:
             record.update(error=f"{type(exc).__name__}: {exc}")
             return None, record
@@ -410,14 +416,15 @@ def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token,
             expected_backbone = fingerprint
         if track is None:
             record["reason"] = kv.LAST_FAILURE or "no reference track"
-        return track, record
+        return (track, record, audit) if audit is not None else (track, record)
 
     try:
         merged, selection = select_city_tracks(
             regions, baseline_track, frames.timestamps, retrieve,
             coarse_cap=(coarse_cap if coarse_cap is not None
                         else getattr(cfg, "vpr_city_coarse_cap", 250)),
-            fine_regions=getattr(cfg, "vpr_city_fine_regions", 3), fine_cap=cfg.vpr_ref_cap)
+            fine_regions=getattr(cfg, "vpr_city_fine_regions", 3), fine_cap=cfg.vpr_ref_cap,
+            cell_selector=cell_selector)
         diagnostics.update(selection)
         multiplier = 3 if source == "union" else 1
         diagnostics["reference_budget"].update(
@@ -615,9 +622,19 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                 _ordinary_track = kartaview_vpr_track
                 ctx.retrieval_audits = []
                 def kartaview_vpr_track(*args, **kwargs):
-                    audit = {"call_index": len(ctx.retrieval_audits), "request": {
-                        key: value for key, value in kwargs.items() if key not in {"token", "query_cache"}}}
-                    audit["request"]["center"] = list(args[1])
+                    # A city raw-votes caller owns this dictionary. Pass that
+                    # SAME sink through the real cache/encoder call, which can
+                    # clear it before populating actual consumed evidence.
+                    audit = kwargs.get("audit")
+                    if audit is None:
+                        audit = {}
+                    elif not isinstance(audit, dict):
+                        raise ValueError("retrieval audit sink must be a dictionary")
+                    audit.clear()
+                    request = {key: value for key, value in kwargs.items()
+                               if key not in {"token", "query_cache", "audit", "query_timestamps"}}
+                    request["center"] = list(args[1])
+                    audit.update(call_index=len(ctx.retrieval_audits), request=request)
                     if kwargs.get("source") != "union" and not kwargs.get("outer_radius_m"):
                         kwargs.update(audit=audit, query_timestamps=np.asarray(frames.timestamps, float))
                     else:
@@ -633,7 +650,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                             "latlon": np.asarray(track[1]), "cosines": np.asarray(track[2])}
                     else:
                         try:
-                            terminal = _terminal_sparse_search(args[1], audit["request"],
+                            terminal = _terminal_sparse_search(args[1], request,
                                 deepcopy(_kv.LAST_FETCH_STATS), _kv.LAST_FAILURE)
                             if terminal is not None:
                                 audit["terminal_search"] = terminal

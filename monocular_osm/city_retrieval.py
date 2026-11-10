@@ -249,19 +249,73 @@ def _validated_track(track, timestamps, expected_indices):
     return indices, coords, similarities
 
 
+def _raw_cell_vote_input(audit, track, timestamps):
+    """Validate the actual consumer audit, then retain only its row maxima."""
+    from .kartaview_vpr import _audit_array_sha
+
+    if not isinstance(audit, dict) or audit.get("status") != "complete":
+        raise ValueError("raw-votes requires a complete actual retrieval audit")
+    indices, coordinates, cosines = track
+    raw = np.asarray(audit["raw_similarities"])
+    refs, ids = np.asarray(audit["ref_latlon"]), np.asarray(audit["ref_ids"])
+    ix, times = np.asarray(audit["query_indices"]), np.asarray(audit["query_times"])
+    chosen = np.asarray(audit["decoded_ref_indices"])
+    if (raw.dtype != np.float32 or raw.ndim != 2 or not 1 <= raw.shape[0] <= 80
+            or not 1 <= raw.shape[1] <= 20000 or raw.size > 1600000
+            or not np.isfinite(raw).all() or np.any(np.abs(raw) > 1.0001)
+            or refs.dtype != np.float64 or refs.shape != (raw.shape[1], 2)
+            or not np.isfinite(refs).all() or np.any(np.abs(refs[:, 0]) > 90)
+            or np.any(np.abs(refs[:, 1]) > 180)
+            or ids.shape != (raw.shape[1],) or ids.dtype.kind not in "US"
+            or len(set(ids.astype(str).tolist())) != len(ids) or not np.all(ids.astype(str) != "")
+            or ix.shape != (raw.shape[0],) or ix.dtype.kind not in "iu"
+            or not np.array_equal(ix, indices) or np.any(ix < 0)
+            or np.any(ix >= len(timestamps)) or np.any(ix[1:] <= ix[:-1])
+            or times.dtype != np.float64 or times.shape != ix.shape
+            or not np.array_equal(times, timestamps[ix.astype(np.intp)])
+            or chosen.shape != ix.shape or chosen.dtype.kind not in "iu"
+            or np.any(chosen < 0) or np.any(chosen >= len(refs))):
+        raise ValueError("raw-votes matrix/reference/query grid is invalid or nonfinite")
+    actual = raw[np.arange(len(ix)), chosen.astype(np.intp)].astype(np.float64)
+    if (not np.array_equal(actual, cosines)
+            or not np.array_equal(actual, audit["decoded_cosines"])
+            or not np.array_equal(refs[chosen.astype(np.intp)], coordinates)):
+        raise ValueError("raw-votes audit does not describe the actual returned track")
+    identity = {key: audit[key] for key in ("query_pixels_sha256", "query_descriptors_sha256",
+                "actual_model_state_sha256", "backbone", "preprocessing", "query_mode", "score_kind", "decoder")}
+    identity.update(query_indices_sha256=_audit_array_sha(ix), query_times_sha256=_audit_array_sha(times))
+    digest = lambda value: hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                                    allow_nan=False).encode()).hexdigest()
+    hashes = [audit[key] for key in ("query_pixels_sha256", "query_descriptors_sha256",
+                                   "actual_model_state_sha256", "ref_embeddings_sha256")]
+    if (any(type(h) is not str or len(h) != 64 or any(c not in "0123456789abcdef" for c in h) for h in hashes)
+            or audit["score_kind"] != "raw_cosine_at_decoded_reference"
+            or identity != audit["comparison_identity"] or digest(identity) != audit["comparison_identity_sha256"]):
+        raise ValueError("raw-votes actual model/query identity is incomplete")
+    # Decoder choices can differ by pool. Raw appearance must be identical.
+    appearance = {key: value for key, value in identity.items() if key != "decoder"}
+    return raw.max(axis=1), appearance, {"status": "complete", "n_references": raw.shape[1],
+        "raw_similarities_sha256": _audit_array_sha(raw), "appearance_sha256": digest(appearance)}
+
+
 def select_city_tracks(regions, baseline_track, timestamps, retrieve, *,
-                       coarse_cap=250, fine_regions=3, fine_cap=1500):
+                       coarse_cap=250, fine_regions=3, fine_cap=1500, cell_selector="decoded"):
     """Search every cell, densify supported cells, retain baseline evidence.
 
     ``retrieve(region, cap=..., phase='coarse'|'fine', index=...)`` returns
     ``(track_or_None, provenance_dict)``. The existing regional cosine/continuity
     rule ranks fine cells by supported-query count, median cosine, then index.
+    Opt-in ``raw-votes`` takes a third return value: the actual populated audit.
+    Each query votes for its top three coarse-cell raw maxima; total votes,
+    then existing cell order choose the same bounded number of fine cells.
     Coarse candidates remain available if fine retrieval fails or the drive
     spans more cells than the fine budget. No model or GT is accessed here.
     """
     coarse_cap = _positive_integer(coarse_cap, "coarse_cap")
     fine_regions = _positive_integer(fine_regions, "fine_regions")
     fine_cap = _positive_integer(fine_cap, "fine_cap")
+    if cell_selector not in {"decoded", "raw-votes"}:
+        raise ValueError("city cell selector must be decoded or raw-votes")
     if len(regions) > MAX_CITY_CELLS:
         raise CityCoverageLimitError(len(regions), MAX_CITY_CELLS)
     times = np.asarray(timestamps, float)
@@ -271,13 +325,16 @@ def select_city_tracks(regions, baseline_track, timestamps, retrieve, *,
     if baseline_track is not None:
         expected = _validated_track(baseline_track, times, None)[0]
     coarse, fine, coarse_records, fine_records = [], [], [], []
+    raw_rows, appearance, raw_errors = {}, None, []
 
     def fetch(index, phase, cap):
-        nonlocal expected
+        nonlocal expected, appearance
         region = regions[index]
         record = {**deepcopy(region), "cell_index": index, "phase": phase, "ref_cap": cap}
+        track = None
         try:
-            track, provenance = retrieve(deepcopy(region), cap=cap, phase=phase, index=index)
+            returned = retrieve(deepcopy(region), cap=cap, phase=phase, index=index)
+            track, provenance = returned[:2]
             record.update(provenance or {})
             if track is None:
                 record["status"] = "failed" if record.get("error") else "unavailable"
@@ -285,9 +342,28 @@ def select_city_tracks(regions, baseline_track, timestamps, retrieve, *,
             track = _validated_track(track, times, expected)
             expected = track[0]
             record.update(status="ok", median_similarity=float(np.nanmedian(track[2])))
+            if cell_selector == "raw-votes":
+                try:
+                    maxima, identity, proof = _raw_cell_vote_input(returned[2] if len(returned) == 3 else None, track, times)
+                    if appearance is not None and identity != appearance:
+                        raise ValueError("raw-votes coarse cells have different actual model/query identities")
+                    appearance = identity
+                    record["raw_evidence"] = proof
+                    if phase == "coarse":
+                        raw_rows[index] = maxima
+                except (KeyError, TypeError, ValueError, IndexError) as exc:
+                    record["raw_evidence"] = {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"}
+                    if phase == "coarse":
+                        raw_errors.append(index)
+                    else:
+                        record.update(status="failed", error=record["raw_evidence"]["reason"])
+                        return None, record
             return track, record
         except Exception as exc:
             record.update(status="failed", error=f"{type(exc).__name__}: {exc}")
+            if cell_selector == "raw-votes" and phase == "coarse" and track is not None:
+                raw_errors.append(index)
+                record["raw_evidence"] = {"status": "unavailable", "reason": record["error"]}
             return None, record
 
     for index in range(len(regions)):
@@ -301,15 +377,30 @@ def select_city_tracks(regions, baseline_track, timestamps, retrieve, *,
     # useful thin cell before it can be densified. Baseline remains in the
     # final comparison, so this does not force the answer away from it.
     coarse_candidates = [track for _, track in coarse]
-    _coarse_track, coarse_selection = merge_region_tracks(coarse_candidates, times)
+    if cell_selector == "decoded":
+        _coarse_track, coarse_selection = merge_region_tracks(coarse_candidates, times)
+    else:
+        coarse_selection = {}
     counts = coarse_selection.get("region_frame_counts") or []
     support = []
-    for candidate_index, (index, track) in enumerate(coarse):
-        count = counts[candidate_index] if candidate_index < len(counts) else 0
-        if count:
-            support.append({"cell_index": index, "supported_frames": count,
-                            "median_similarity": float(np.nanmedian(track[2]))})
-    support.sort(key=lambda s: (-s["supported_frames"], -s["median_similarity"], s["cell_index"]))
+    raw_available = cell_selector != "raw-votes" or bool(coarse) and not raw_errors
+    if cell_selector == "raw-votes" and raw_available:
+        maxima = np.column_stack([raw_rows[index] for index, _ in coarse])
+        top = np.argsort(-maxima, axis=1, kind="stable")[:, :min(3, len(coarse))]
+        counts = np.bincount(top.ravel(), minlength=len(coarse)).tolist()
+        coarse_selection = {"selector": "raw-votes", "region_frame_counts": counts,
+            "top_cell_indices_per_query": [[coarse[position][0] for position in row] for row in top]}
+        for position, (index, _track) in enumerate(coarse):
+            if counts[position]:
+                support.append({"cell_index": index, "supported_frames": counts[position]})
+        support.sort(key=lambda s: (-s["supported_frames"], s["cell_index"]))
+    elif cell_selector == "decoded":
+        for candidate_index, (index, track) in enumerate(coarse):
+            count = counts[candidate_index] if candidate_index < len(counts) else 0
+            if count:
+                support.append({"cell_index": index, "supported_frames": count,
+                                "median_similarity": float(np.nanmedian(track[2]))})
+        support.sort(key=lambda s: (-s["supported_frames"], -s["median_similarity"], s["cell_index"]))
     selected_cells = [s["cell_index"] for s in support[:fine_regions]]
     for index in selected_cells:
         track, record = fetch(index, "fine", fine_cap)
@@ -319,7 +410,9 @@ def select_city_tracks(regions, baseline_track, timestamps, retrieve, *,
     labels = ([{"phase": "baseline", "cell_index": None}] if baseline else [])
     labels += [{"phase": "coarse", "cell_index": index} for index, _ in coarse]
     labels += [{"phase": "fine", "cell_index": index} for index, _ in fine]
-    candidates = baseline + coarse_candidates + [track for _, track in fine]
+    candidates = baseline + coarse_candidates + [track for _, track in fine] if raw_available else baseline
+    if not raw_available:
+        labels = labels[:len(baseline)]
     merged, final_selection = merge_region_tracks(candidates, times)
     selected_sources = [labels[i] for i in final_selection.get("selected_regions", [])]
     selected_city_frames = sum(s["phase"] != "baseline" for s in selected_sources)
@@ -327,7 +420,8 @@ def select_city_tracks(regions, baseline_track, timestamps, retrieve, *,
         merged = baseline_track           # Preserve the exact ordinary track.
     diagnostics = {
         "experimental": True, "confidence_calibrated": False,
-        "status": "ok" if coarse and merged is not None else "unavailable", "n_cells": len(regions),
+        "status": "ok" if raw_available and coarse and merged is not None else "unavailable", "n_cells": len(regions),
+        "cell_selector": cell_selector,
         "coarse_cap": coarse_cap, "fine_cap": fine_cap, "fine_region_limit": fine_regions,
         "reference_budget": {"coarse_max": len(regions) * coarse_cap,
                              "fine_max": min(len(regions), fine_regions) * fine_cap,
@@ -335,7 +429,9 @@ def select_city_tracks(regions, baseline_track, timestamps, retrieve, *,
         "n_usable_coarse": len(coarse), "n_usable_fine": len(fine),
         "coarse_regions": coarse_records, "fine_regions": fine_records,
         "coarse_selection": coarse_selection, "visually_supported_cells": support,
-        "coarse_ranking_pool": "equal-budget city cells only; ordinary baseline retained for final comparison",
+        "coarse_ranking_pool": ("actual raw query-wise top3 coarse-cell maxima votes, cell-order ties"
+                                if cell_selector == "raw-votes" else
+                                "equal-budget city cells only; ordinary baseline retained for final comparison"),
         "comparison_calibration": {"calibrated": False,
                                    "different_reference_pool_sizes": True,
                                    "raw_cosine_across_pools_is_experimental": True},
@@ -343,4 +439,9 @@ def select_city_tracks(regions, baseline_track, timestamps, retrieve, *,
         "final_selection": {**final_selection, "selected_sources": selected_sources},
         "selected_city_frames": selected_city_frames,
     }
+    if cell_selector == "raw-votes":
+        diagnostics["raw_votes"] = {"status": "complete" if raw_available else "unavailable",
+            "top_cells_per_query": 3, "unavailable_coarse_cell_indices": raw_errors,
+            "reason": None if raw_available else "missing_or_incomparable_actual_coarse_raw_evidence",
+            "appearance_identity": appearance}
     return merged, diagnostics

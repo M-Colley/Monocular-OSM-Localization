@@ -169,6 +169,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "--url; requires --city)")
     p.add_argument("--url", nargs="+", default=None,
                    help="One or more YouTube URLs (default: the Ulm demo clip)")
+    p.add_argument("--video-path", type=Path, default=None,
+                   help="Exact local video for one --url with --skip-download; "
+                        "retains the URL's cached uploader metadata and cache identity")
     p.add_argument("--city", default=None,
                    help="City the video was filmed in, as 'City, Country' "
                         "(e.g. 'Ulm, Germany'). Required with --video; inferred "
@@ -203,6 +206,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Reference budget per coarse municipality cell (default 250).")
     p.add_argument("--vpr-city-fine-regions", type=int, default=3,
                    help="Maximum coarse cells to densify (default 3).")
+    p.add_argument("--vpr-city-cell-selector", choices=("decoded", "raw-votes"), default="decoded",
+                   help="Coarse-cell shortlist rule: existing decoded-track support "
+                        "(default) or experimental raw similarity votes")
     p.add_argument("--vpr-metro-ring", action=argparse.BooleanOptionalAction, default=False,
                    help="Experimental: when the retrieval track's confidence is below the "
                         "pre-registered selective threshold (0.162), also search the city's "
@@ -739,6 +745,12 @@ def main() -> None:
     except ValueError as e:
         p.error(str(e))
 
+    if args.video_path is not None:
+        if args.video or not args.url or len(args.url) != 1 or not args.skip_download:
+            p.error("--video-path requires exactly one --url and --skip-download; do not combine it with --video")
+        if not args.video_path.is_file():
+            p.error(f"local video not found: {args.video_path}")
+
     osm_around = None
     if args.osm_around:
         try:
@@ -774,7 +786,10 @@ def main() -> None:
             )
             if metadata is not None:
                 print(f"Using cached metadata for {url} (--skip-download)")
-                submissions.append((metadata, None))
+                submissions.append((metadata, args.video_path))
+                continue
+            if args.video_path is not None:
+                metadata_errors.append(f"{url}: --video-path requires cached URL metadata in {args.data_dir}")
                 continue
             try:
                 metadata = fetch_video_metadata(url)
@@ -788,7 +803,7 @@ def main() -> None:
         effective_title = metadata.title if args.video_title is None else args.video_title
         effective_description = (getattr(metadata, "description", None)
                                  if args.video_description is None else args.video_description)
-        if local_path is not None:
+        if args.video:
             city = args.city  # guaranteed by _validate_input_args
         else:
             city = _resolve_city(args.city, metadata.url, effective_title)
@@ -847,7 +862,7 @@ def main() -> None:
                 probe = pick_cached_input(args.data_dir / submission_slug)
             fps = _probe_video_fps(probe) if probe is not None else None
             if fps is None:
-                fps = getattr(metadata, "fps", None) if local_path is None else None
+                fps = getattr(metadata, "fps", None) if not args.video else None
             frame_stride = _auto_frame_stride(duration, fps=fps)
 
         cfg = PipelineConfig(
@@ -950,6 +965,7 @@ def main() -> None:
             vpr_city_cover=args.vpr_city_cover,
             vpr_city_coarse_cap=args.vpr_city_coarse_cap,
             vpr_city_fine_regions=args.vpr_city_fine_regions,
+            vpr_city_cell_selector=args.vpr_city_cell_selector,
             vpr_metro_ring=args.vpr_metro_ring,
             vpr_metro_radius_m=args.vpr_metro_radius,
             video_title=effective_title,

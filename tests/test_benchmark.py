@@ -82,6 +82,51 @@ def test_build_pipeline_argv_is_minimal() -> None:
                               data_dir=Path("data"), extra=["--osm-around", "1,2,3"])
 
 
+def test_skip_download_passes_exact_registered_window_video_without_changing_url_or_window(tmp_path, monkeypatch):
+    monkeypatch.setattr(M, "ROOT", tmp_path)
+    local = tmp_path / "data/abc-driving-in-ulm/input_0-600.mp4"
+    local.parent.mkdir(parents=True)
+    local.write_bytes(b"synthetic window")
+    entry = _entry(video={"url": "https://www.youtube.com/watch?v=abc",
+        "local_path": local.relative_to(tmp_path).as_posix()}, vo_segment="17:431")
+    argv = M.build_pipeline_argv(entry, city=entry["city"], output_dir=Path("out"),
+        data_dir=Path("data"), extra=["--skip-download"])
+    assert argv[argv.index("--video-path") + 1] == local.resolve().as_posix()
+    assert argv[argv.index("--url") + 1] == entry["video"]["url"]
+    assert argv[argv.index("--vo-segment") + 1] == "17:431"
+    assert not (tmp_path / "data/abc-driving-in-ulm-ulm-germany").exists()
+    M.assert_leak_free(argv, entry)
+    # Fresh URL runs and old URL-only manifests keep their existing behavior.
+    assert "--video-path" not in M.build_pipeline_argv(entry, city=entry["city"],
+        output_dir=Path("out"), data_dir=Path("data"))
+    legacy = _entry()
+    assert "--video-path" not in M.build_pipeline_argv(legacy, city=legacy["city"],
+        output_dir=Path("out"), data_dir=Path("data"), extra=["--skip-download"])
+
+
+@pytest.mark.parametrize("registered", ["data/missing.mp4", "", None])
+def test_skip_download_refuses_bad_explicit_video_without_cache_fallback(tmp_path, monkeypatch, registered):
+    monkeypatch.setattr(M, "ROOT", tmp_path)
+    fallback = tmp_path / "data/abc-old-cache/input.mp4"
+    fallback.parent.mkdir(parents=True)
+    fallback.write_bytes(b"wrong fallback")
+    entry = _entry(video={"url": "https://www.youtube.com/watch?v=abc", "local_path": registered})
+    with pytest.raises((FileNotFoundError, ValueError), match="local_path"):
+        M.build_pipeline_argv(entry, city=entry["city"], output_dir=Path("out"),
+            data_dir=Path("data"), extra=["--skip-download"])
+
+
+def test_absolute_registered_window_video_is_used_and_video_override_is_runner_owned(tmp_path):
+    local = tmp_path / "input_0-600.mkv"
+    local.write_bytes(b"synthetic window")
+    entry = _entry(video={"url": "https://www.youtube.com/watch?v=abc", "local_path": str(local)})
+    argv = M.build_pipeline_argv(entry, city=entry["city"], output_dir=Path("out"),
+        data_dir=Path("other-data"), extra=["--skip-download"])
+    assert argv[argv.index("--video-path") + 1] == local.resolve().as_posix()
+    with pytest.raises(SystemExit, match="runner-owned"):
+        M.check_passthrough(["--video-path", str(local)])
+
+
 @pytest.mark.parametrize("variant", [None, 0, 1])
 def test_argv_for_every_committed_clip_never_carries_ground_truth(variant) -> None:
     manifest = M.load_manifest()
@@ -222,6 +267,53 @@ def test_cmd_run_end_to_end_with_fake_pipeline(tmp_path, monkeypatch, capsys) ->
         M.cmd_run(_run_args(repeats=3))
 
 
+def test_cmd_run_registered_window_reaches_acquisition_and_recorded_provenance(tmp_path, monkeypatch):
+    from monocular_osm import cli
+    from monocular_osm.download import VideoMetadata, write_cached_metadata
+    from monocular_osm.pipeline import _resolve_input_video
+    from monocular_osm.provenance import config_snapshot
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(M, "ROOT", tmp_path)
+    monkeypatch.setattr(M, "_git_state", lambda: {})
+    local = tmp_path / "data/abc-driving-in-ulm/input_0-600.mp4"
+    local.parent.mkdir(parents=True)
+    local.write_bytes(b"registered local window")
+    url = "https://www.youtube.com/watch?v=abc"
+    entry = _entry(video={"url": url, "local_path": local.relative_to(tmp_path).as_posix()}, vo_segment="17:431")
+    _write_manifest(tmp_path, [entry])
+    write_cached_metadata(tmp_path / "data", url, VideoMetadata(url=url,
+        title="Driving in Ulm, Germany", video_id="abc", description="Uploader route description"))
+    monkeypatch.setattr(cli, "fetch_video_metadata", lambda url: pytest.fail("network metadata"))
+    monkeypatch.setattr(cli, "_probe_video_fps", lambda path: 30.)
+
+    def pipeline(cfg):
+        assert _resolve_input_video(cfg) == local
+        assert cfg.url == url and cfg.video_description == "Uploader route description"
+        assert (cfg.vo_start_sec, cfg.vo_end_sec) == (17., 431.)
+        cfg.output_dir.mkdir(parents=True)
+        result = {"provenance": {"config": config_snapshot(cfg)}}
+        (cfg.output_dir / "result.json").write_text(json.dumps(result))
+        return result
+
+    monkeypatch.setattr(cli, "run_pipeline", pipeline)
+
+    def run_one(argv, log_path, env, timeout):
+        monkeypatch.setattr(__import__("sys"), "argv", ["cli", *argv[3:]])
+        cli.main()
+        Path(log_path).write_text("synthetic pipeline\n")
+        return {"rc": 0, "timed_out": False, "wall_s": .1}
+
+    monkeypatch.setattr(M, "run_one", run_one)
+    assert M.cmd_run(_run_args(skip_download=True, pipeline_arg=["--no-coarse-from-video"])) == 0
+    rep = tmp_path / "output/benchmark_runs/r1/clipA/rep0"
+    recorded = json.loads((rep / "argv.json").read_text())["argv"]
+    assert recorded[recorded.index("--video-path") + 1] == local.resolve().as_posix()
+    cfg = json.loads((rep / "result.json").read_text())["provenance"]["config"]
+    assert Path(cfg["video_path"]) == local and cfg["url"] == url
+    assert not list(local.parent.parent.glob("*-ulm-germany/input.mp4"))
+
+
 def test_cmd_run_skips_unavailable_and_missing_local_video(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(M, "ROOT", tmp_path)
     monkeypatch.setattr(M, "_git_state", lambda: {})
@@ -261,12 +353,16 @@ def test_cmd_run_retrieval_only_skips_overpass_preflight(tmp_path, monkeypatch, 
 
 def test_split_test_is_opt_in() -> None:
     manifest = {"clips": [_entry(id="d"), _entry(id="t", split="test"),
-                          _entry(id="t2", split="test2"), _entry(id="t3", split="test3")]}
+                          _entry(id="t2", split="test2"), _entry(id="t3", split="test3"),
+                          _entry(id="t4", split="test4"), _entry(id="future", split="test5")]}
     assert [c["id"] for c in M.select_clips(manifest, split="dev")] == ["d"]
     assert [c["id"] for c in M.select_clips(manifest, split="all")] == ["d"]
     assert [c["id"] for c in M.select_clips(manifest, split="test")] == ["t"]
     assert [c["id"] for c in M.select_clips(manifest, split="test2")] == ["t2"]
     assert [c["id"] for c in M.select_clips(manifest, split="test3")] == ["t3"]
+    assert [c["id"] for c in M.select_clips(manifest, split="test4")] == ["t4"]
+    assert M.build_parser().parse_args(["run", "--run-name", "new", "--split", "test4"]).split == "test4"
+    assert not M.select_clips(manifest, clips=["t4"], split="all")
 
 
 # ---------------------------------------------------------------------------

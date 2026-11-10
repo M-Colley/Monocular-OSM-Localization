@@ -234,6 +234,7 @@ class PipelineConfig:
     vpr_city_cover: bool = False
     vpr_city_coarse_cap: int = 250
     vpr_city_fine_regions: int = 3
+    vpr_city_cell_selector: str = "decoded"
     # Metro ring (opt-in): when the track's confidence is below the
     # pre-registered selective tau, also search the city's surroundings, out to
     # this radius around its geocode, with the municipality search's cell
@@ -466,6 +467,8 @@ class PipelineConfig:
             raise ValueError("vpr_region_cap must be positive")
         if self.vpr_city_coarse_cap <= 0 or self.vpr_city_fine_regions <= 0:
             raise ValueError("city retrieval budgets must be positive")
+        if type(self.vpr_city_cell_selector) is not str or self.vpr_city_cell_selector not in ("decoded", "raw-votes"):
+            raise ValueError("vpr_city_cell_selector must be 'decoded' or 'raw-votes'")
         if not math.isfinite(self.vpr_metro_radius_m) or self.vpr_metro_radius_m <= 0:
             raise ValueError("vpr_metro_radius_m must be finite and positive")
         if self.retrieval_only and self.answer != "track":

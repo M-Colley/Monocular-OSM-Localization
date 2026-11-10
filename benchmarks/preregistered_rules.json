@@ -561,6 +561,75 @@
         "decision": "the metro ring is not adopted; --vpr-metro-ring stays opt-in and off by default",
         "report": "docs/heldout_test3_2026-11.md"
       }
+    },
+    "test4_data_selection_2026_11": {
+      "schema": "test4-data-selection-v1",
+      "registered_utc": "2026-11-10T21:41:25.615124+00:00",
+      "target": 7,
+      "split": "test4",
+      "purpose": "New road/dashcam evaluation data only; no localization before separate global method binding.",
+      "fixed_initial_order": [
+        "tK7bHJXAJX8",
+        "yd5g7jsWiEM",
+        "jkkl1QgsPSo",
+        "oPbnvEIRm3A",
+        "ZLmQWroXthY",
+        "jz6o-_Y6r2E"
+      ],
+      "initial_screen": "benchmarks/test3_screen/screen5.json",
+      "initial_screen_sha256": "f5b390676db695cef56828427d0ee9b4bf448fb6daf645d432ecc588b7f4b028",
+      "excluded_before_new_acquisition": [
+        {
+          "id": "hrbPCnxiQeQ",
+          "reason": "Aircraft/out-of-domain: title Flying the New Orleans City tour with ATC audio ... Passenger’s 1st time; previous stamp pass preserved."
+        }
+      ],
+      "replacement_city_order": [
+        "Trondheim, Norway",
+        "Tampere, Finland",
+        "Rennes, France",
+        "Grenoble, France",
+        "Dresden, Germany"
+      ],
+      "queries": [
+        "{city} dashcam GPS",
+        "{city} dashcam VIOFO",
+        "{city} dashcam drive"
+      ],
+      "results_per_query": 12,
+      "eligibility": "City-naming title, >=420 s, positive road/motorvehicle title wording; exclude aircraft/rail/walking/cycling/timelapse/sped-up/rear-facing titles; deduplicate IDs in search order.",
+      "screen": "Same thumbnail stamp then three full-resolution frames at 25/50/75 percent; >=2 parse within40km of namedcity; no localization output.",
+      "build": "First0-600s (or whole shorter upload),<=1080p,CPU unchanged build_overlay_fleet.py defaults interval5/minfixes12/longestcontinuousrun; plausible check_overlay_gt.py +>=500m in analysiswindow.",
+      "failure_handling": "Keep every attempt/exclusion/GTfailure. Advance fixed order on objective ineligibility or definitive GT failure. Infrastructure/bot/unread frames are UNVERIFIED; pause/retry unchanged, not no-result. After7 valid builds stop; if exhausted report actual smaller count. Localization failure never causes replacement.",
+      "evaluation_separation": "Titlecity only; GT/rawGPS cache/GT-derived disc never pipeline inputs; existing stamp-filter policy; all selected outcomes reported; method frozen separately before any localization; no clip-specific tuning.",
+      "method_binding": {
+        "status": "PENDING_SEPARATE_GLOBAL_METHOD_FREEZE",
+        "test4_localization_authorized": false
+      },
+      "known_prior_localization_check": {
+        "manifest_ids_present": [],
+        "searched_summary_roots": [
+          "output",
+          "E:/claude-scoring",
+          "C:/Users/markc/metro-eval"
+        ],
+        "summary_files_checked": 27,
+        "hits": []
+      },
+      "new_label_details_restricted_to_data_qc": true
+    },
+    "raw_city_votes_dev_2026_11": {
+      "registered": "2026-11-10T21:42:46.236475+00:00",
+      "description": "Prospective post-hoc DEV experiment on the original15; no held-out claim. Does raw city-cell voting repair remaining g5l without losing existing v4 successes?",
+      "method": "assisted v4 + --vpr-city-cell-selector=raw-votes: rank cells by each query’s maximum raw cosine, cast votes for its top3 cells, apply fixed source-defined deterministic tie-breaks; keep same fine3-cell/reference budgets, decoder and admission. Existing decoded selector remains default.",
+      "source_commit_binding": {
+        "status": "PENDING_ROOT_CLEAN_SOURCE_FREEZE",
+        "pilot_must_wait_for_binding": true
+      },
+      "execution": "Pilot remaining overlay_g5lnpYCk1Ec first, then a uniform complete original15 run if promising; 14400s CPU16 per clip, warm copies of v4 inputs, minimum VRAM floor0; no perclip policy mixture.",
+      "decision": "Require actual result.answer on all15, every selected raw unrounded symmetric mean error <=200m, all strict frozen-input/provenance gates, and no loss among14 baseline v4 successes. A oneclip pilot cannot establish15/15.",
+      "comparison": "Complete assisted_v4_fleet at409a959,14/15, saved official selected-Answer scores; failures remain in denominator.",
+      "evaluation_separation": "PosthocDEV only. Test4 selection/labels unchanged and blind to algorithm development. Test4 method binding remains separate and pending until a global method is frozen."
     }
   }
 }

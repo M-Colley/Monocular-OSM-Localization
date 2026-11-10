@@ -85,7 +85,7 @@ def select_clips(manifest: dict, *, fleet: str = "core", clips: Iterable[str] | 
             continue
         if split != "all" and c["split"] != split:
             continue
-        if split == "all" and c["split"] in ("test", "test2", "test3"):
+        if split == "all" and c["split"] != "dev":
             continue  # never by accident
         if not c.get("available_locally", True) and not include_unavailable:
             log(f"SKIP {c['id']}: available_locally=false "
@@ -108,7 +108,7 @@ FORBIDDEN_FLAGS: tuple[str, ...] = (
 )
 #: Flags the runner sets itself; a passthrough may not override them.
 RUNNER_FLAGS: tuple[str, ...] = (
-    "--url", "--video", "--city", "--vo-segment", "--analyze-minutes",
+    "--url", "--video", "--video-path", "--city", "--vo-segment", "--analyze-minutes",
     "--data-dir", "--output-dir",
 )
 _COORD_RE = re.compile(r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+")
@@ -182,8 +182,18 @@ def build_pipeline_argv(entry: dict, *, city: str, output_dir: Path, data_dir: P
                         extra: Iterable[str] = ()) -> list[str]:
     """The ONLY way the benchmark launches the pipeline."""
     video = entry["video"]
+    extra = list(extra)
     if "url" in video:
         src = ["--url", video["url"]]
+        if "local_path" in video and any(_matches_flag(t, ("--skip-download",)) for t in extra):
+            registered = video["local_path"]
+            if not isinstance(registered, str) or not registered.strip():
+                raise ValueError(f"{entry['id']}: video.local_path must name the registered local video")
+            path = Path(registered)
+            path = path if path.is_absolute() else ROOT / path
+            if not path.is_file():
+                raise FileNotFoundError(f"{entry['id']}: registered video.local_path missing: {path}")
+            src += ["--video-path", path.resolve().as_posix()]
     elif "path" in video:
         src = ["--video", Path(video["path"]).as_posix()]
     else:
@@ -2209,7 +2219,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--manifest", default=MANIFEST_PATH.as_posix())
     r.add_argument("--fleet", choices=("core", "overlay", "all"), default="core")
     r.add_argument("--clips", nargs="+", default=None, metavar="ID")
-    r.add_argument("--split", choices=("dev", "test", "test2", "test3", "all"), default="dev")
+    r.add_argument("--split", choices=("dev", "test", "test2", "test3", "test4", "all"), default="dev")
     r.add_argument("--repeats", type=int, default=1)
     r.add_argument("--city-variant", type=int, default=None, metavar="I",
                    help="use city_alternatives[I] instead of the manifest city "

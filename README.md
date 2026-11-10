@@ -14,6 +14,9 @@
 Reference clip used in the demo:
 [Driving in Ulm, Germany](https://www.youtube.com/watch?v=ULl8s4qydrk).
 
+For the current code map, active work, and evaluation constraints, see
+[project code knowledge](docs/code_knowledge.md).
+
 **Current measured baseline:** `reliable_cold_dev` at clean source `2b95f12`,
 one cold repetition on all 15 available **development** clips, gives
 **9/15 within 200 m** and **135.10 m median symmetric route error** for the

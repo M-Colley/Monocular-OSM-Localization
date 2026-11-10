@@ -1,0 +1,8 @@
+{
+  "status": "TEST4_SELECTION_REGISTERED_BEFORE_NEW_NETWORK_DATA_GT_OR_LOCALIZATION",
+  "registered_utc": "2026-11-10T21:41:25.615124+00:00",
+  "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+  "preregistered_rules_sha256": "25bcf1d69a4df4327d52f6212cecd01837de2edb348addbea60914fc1325ca83",
+  "head_at_registration": "0a97040807d9cebcfa1dbaf3dd812614f355ec74",
+  "method_binding_pending": true
+}
