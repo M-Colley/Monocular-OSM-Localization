@@ -598,6 +598,13 @@ def check_goal(summary: dict, manifest: dict, *, threshold_m: float = 200.0,
                 issues.append(f"rep{rep.get('rep')}: failed, unanswered or nonfinite")
             else:
                 errors.append(error)
+            success = score.get("success")
+            flags = success.get("symmetric_mean_m") if isinstance(success, dict) else None
+            label = str(int(threshold_m)) if float(threshold_m).is_integer() else str(threshold_m)
+            if isinstance(flags, dict) and label in flags:
+                flag = flags[label]
+                if type(flag) is not bool or (error is not None and flag != (error <= threshold_m)):
+                    issues.append(f"rep{rep.get('rep')}: saved error conflicts with threshold success flag (rounded score)")
             source = str(score.get("source") or "").lower()
             chosen = str((score.get("meta") or {}).get("method") or "").lower()
             if (score.get("oracle") or "oracle" in source or "ground_truth" in source

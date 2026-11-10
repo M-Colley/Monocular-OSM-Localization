@@ -110,6 +110,10 @@ All notable changes to this project are documented here. This project adheres to
 
 ### Retrieval output and benchmark reliability
 
+- Saved benchmark repeat scores retain full floating-point precision for
+  threshold and median decisions. The goal audit rejects a saved error that
+  contradicts its threshold flag, including a rounded 200.004 m false pass.
+  Display tables keep their existing rounding.
 - Assisted baseline and expanded children persist each returned retrieval
   call before starting the next one. Atomic array/metadata publication and
   verified array reuse preserve completed calls if a later call times out.

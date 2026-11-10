@@ -277,3 +277,40 @@ ground-truth builds, and other projects' simulations throughout), and used
 14,276 s of its 14,400 s budget (2,885 s in the v3 rerun). It kept its baseline (35 m), the same
 answer as v3, so the contention did not change its outcome; on a budget-bound
 clip it could have.
+
+## Raw-evidence fine-cell pilot (10 November 2026; not adopted)
+
+The opt-in `--vpr-city-cell-selector=raw-votes` pilot at clean `62868aa`
+reused warm v4 inputs, 16 CPU threads and the 14,400 s limit. Each query
+voted for its top three coarse-cell raw maxima; the same three-cell fine
+budget, decoder and final admission rule remained in place. The prospective
+rule is `raw_city_votes_dev_2026_11`.
+
+All 27 coarse matrices qualified and all three fine retrievals completed.
+Votes selected cells 1, 9 and 13, so two previously starved areas were
+densified. The expanded route's median cosine was 0.168222 against the
+required 0.177707. The policy kept its baseline.
+
+| Frozen output | Symmetric route error (m) | Role |
+|---|---|---|
+| Actual selected Answer | 1,387.24 | Failed the 200 m target |
+| Expanded child | 1,714.67 | Offline component diagnostic; not selected |
+
+The run completed with rc 0 in 2,514.2 s and consistent provenance. The
+strict pilot audit found no input-evidence failure; Detroit failed the error
+threshold. Its fourteen missing siblings are expected for a one-clip pilot,
+so this is not a complete fleet result. The component diagnostic used the
+already frozen child route without changing it or choosing a route using
+ground truth. Rejection protected the selected result from a worse route.
+No admission threshold was relaxed, no full-fleet trial was started, and the
+default remains `decoded`.
+
+Run: `E:/monocular-osm-runs/raw-city-votes-20261110/output/benchmark_runs/raw_city_votes_v4_g5_20261110`.
+Summary SHA256: `b44ff5b775a621e1e1784373b1983edc3ffaf0eb157f2fc93fa446cf0841259a`.
+The unrounded component diagnostic is
+`E:/monocular-osm-raw-city-votes-proof/run1/component_diagnostic.json`, SHA256
+`bc71f29cf01c40a245ee5fc3fdc3a7bf3c7d69f9f8eeeaad2df92f3d9fdbd847`.
+
+The best verified full development result remains v4's **14/15**. A bounded
+road-graph sequence prototype retaining all OCR junction hypotheses is the
+next investigation; it has no measured accuracy or policy admission yet.

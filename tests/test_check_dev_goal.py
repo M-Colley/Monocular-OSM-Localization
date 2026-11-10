@@ -5,7 +5,9 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import math
 from pathlib import Path
+import statistics
 
 import pytest
 
@@ -229,6 +231,55 @@ def test_repeats_are_configurable_and_threshold_uses_actual_scores():
     # Editing only a summary median cannot satisfy the target.
     summary["clips"]["clip00"]["methods"]["answer"]["symmetric_mean_m"]["median"] = 1.0
     assert not M.check_goal(summary, manifest)["goal_met"]
+
+
+def _clip_errors(summary, errors, *, legacy_rounded=False):
+    from monocular_osm.metrics import success_flags
+
+    for rep, error in zip((r for r in summary["reps"] if r["clip"] == "clip00"), errors):
+        rep["scores"]["answer"].update(
+            symmetric_mean_m=round(error, 2) if legacy_rounded else error,
+            success=success_flags({"symmetric_mean_m": error}))
+    saved = [r["scores"]["answer"]["symmetric_mean_m"]
+             for r in summary["reps"] if r["clip"] == "clip00"]
+    summary["clips"]["clip00"]["methods"]["answer"]["symmetric_mean_m"]["median"] = round(statistics.median(saved), 1)
+
+
+@pytest.mark.parametrize("error", [200., math.nextafter(200., -math.inf),
+    math.nextafter(200., math.inf), 200.004, 200.04])
+def test_goal_threshold_uses_unrounded_repeat_score_even_when_display_median_is_200(error):
+    summary, manifest = _valid()
+    _clip_errors(summary, [error])
+    assert summary["clips"]["clip00"]["methods"]["answer"]["symmetric_mean_m"]["median"] == 200.
+    report = M.check_goal(summary, manifest)
+    assert report["goal_met"] is (error <= 200.)
+    assert report["clips"][0]["symmetric_mean_m"] == error
+
+
+def test_old_rounded_200_alias_with_false_raw_flag_cannot_pass():
+    summary, manifest = _valid()
+    _clip_errors(summary, [200.004], legacy_rounded=True)
+    assert summary["reps"][0]["scores"]["answer"]["symmetric_mean_m"] == 200.
+    report = M.check_goal(summary, manifest)
+    assert not report["goal_met"] and report["n_passing"] == 14
+    assert any("threshold success flag" in reason for reason in report["clips"][0]["reasons"])
+
+
+def test_custom_threshold_does_not_borrow_a_nearby_standard_success_flag():
+    summary, manifest = _valid()
+    _clip_errors(summary, [200.000000005])
+    assert summary["reps"][0]["scores"]["answer"]["success"]["symmetric_mean_m"]["200"] is False
+    assert M.check_goal(summary, manifest, threshold_m=200.00000001)["goal_met"]
+
+
+@pytest.mark.parametrize("errors,passes", [([199., 199., 201.], True),
+    ([199.999, 200.001], True), ([199.999, 200.004], False)])
+def test_raw_repeat_median_is_the_target_without_requiring_every_repeat_under_threshold(errors, passes):
+    summary, manifest = _valid(repeats=len(errors))
+    _clip_errors(summary, errors)
+    report = M.check_goal(summary, manifest, min_repeats=len(errors))
+    assert report["goal_met"] is passes
+    assert report["clips"][0]["symmetric_mean_m"] == statistics.median(errors)
 
 
 @pytest.mark.parametrize("change", ["plan", "complete", "provenance", "dirty", "code",

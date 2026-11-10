@@ -23,7 +23,7 @@ failed development clips or change that denominator.
   passed the recorded evidence audit. Detroit `g5lnpYCk1Ec` remains at
   **1,387.24 m**. These are development results; v4 has no clean held-out
   validation.
-- The manifest contains 42 entries: 18 development clips, of which 15 are
+- At the initial refresh the manifest contained 42 entries: 18 development clips, of which 15 are
   available, plus 24 available clips across `test`, `test2`, and `test3`.
   The three unavailable development entries remain documented.
 - The retrieval track scored **5/7** on test1 and **2/7** on test2. Assisted
@@ -66,13 +66,20 @@ only the first portion was covered well. The current investigation is an
 opt-in `--vpr-city-cell-selector=raw-votes` selector based on each coarse
 cell's raw query/reference similarities. It retains the existing fine-cell
 count, reference budgets, decoder, and admission policy for comparison.
-`decoded` remains the default. New localization results are pending.
+`decoded` remains the default. The frozen `62868aa` Detroit pilot completed
+all 27 coarse and three fine calls, selecting cells 1, 9, and 13. It retained
+the baseline at **1,387.2377579105248 m**. Its expanded child was worse at
+**1,714.6662206685678 m** in an offline component diagnostic, and failed the
+existing raw-cosine admission margin. This is a negative experiment; no
+fifteen-clip gain or adoption follows from it.
 
 The simple two-exit VO similarity fit has already failed, including the
-correct junction pair. Its correct-pair error was 1,923 m. If better fine
-coverage still fails, investigate full road-graph sequence alignment rather
-than repeat that two-anchor fit. See the Detroit discussion in the fleet
-record before proposing a new pilot.
+correct junction pair. Its correct-pair error was 1,923 m. A bounded full
+road-graph sequence prototype with all OCR junction alternatives is now under
+development. It must preserve uncertain advance-sign location/time, unknown
+motion, scale, and competing modes; it has no validated result or policy
+admission yet. See the Detroit discussion in the fleet record before
+proposing a new pilot.
 
 ## Evaluation and operating constraints
 

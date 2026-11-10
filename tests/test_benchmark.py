@@ -9,6 +9,7 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -602,6 +603,30 @@ def _make_run(tmp_path: Path, **result_kw) -> tuple[Path, dict, Path]:
             else:
                 _write_rep(run_dir, cid, k, _fake_result(shifts[cid], off, **result_kw))
     return run_dir, manifest, root
+
+
+@pytest.mark.parametrize("error", [200.004, 200.04, 200.,
+    math.nextafter(200., math.inf), math.nextafter(200., -math.inf)])
+def test_repeat_scores_keep_full_precision_but_display_rounding_and_raw_flags_are_unchanged(monkeypatch, error):
+    from monocular_osm import metrics
+
+    raw = metrics.RouteScore(start_error_m=error, end_error_m=error,
+        gt_to_pred_mean_m=error, gt_to_pred_max_m=error, pred_to_gt_mean_m=error,
+        symmetric_mean_m=error, hausdorff_m=error, frechet_m=error,
+        pred_length_m=1000., gt_length_m=1000., n_pred_points=2, n_gt_points=2,
+        degenerate=False, success=metrics.success_flags({
+            "start_error_m": error, "symmetric_mean_m": error}))
+    monkeypatch.setattr(metrics, "score_route", lambda *a: raw)
+    pred = SimpleNamespace(route_latlon=[[0., 0.], [0., .01]], source="result.answer",
+        kind="route", oracle=False, meta={"mode": "track"})
+    score = M._score(pred, np.zeros((2, 2)))
+    assert score["symmetric_mean_m"] == error
+    assert json.loads(json.dumps(score))["symmetric_mean_m"] == error
+    assert score["success"]["symmetric_mean_m"]["200"] is (error <= 200.)
+    assert raw.to_dict()["symmetric_mean_m"] == round(error, 2)
+    displayed = M._clip_method_summary([score])
+    assert displayed["symmetric_mean_m"]["median"] == round(error, 1)
+    assert displayed["success_rate"]["symmetric_mean_m"]["200"] == float(error <= 200.)
 
 
 def test_aggregate_scores_methods_and_baselines(tmp_path: Path) -> None:

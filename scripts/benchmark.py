@@ -28,6 +28,7 @@ Runs live under ``output/benchmark_runs/<run_name>/<clip_id>/rep<k>/``
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import datetime as _dt
 import hashlib
 import json
@@ -986,7 +987,9 @@ def _score(pred, gt_latlon: np.ndarray) -> dict:
         out = failed_score(len(gt_latlon))
         out["answered"] = False
         return out
-    out = score_route(pred.route_latlon, gt_latlon).to_dict()
+    # Repeat scores drive threshold/median decisions. Display-only rounding
+    # stays in _quantiles and RouteScore.to_dict, never in these saved values.
+    out = asdict(score_route(pred.route_latlon, gt_latlon))
     out.update(answered=True, failed=False, source=pred.source, kind=pred.kind,
                oracle=pred.oracle, meta=pred.meta)
     return out
