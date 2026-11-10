@@ -261,6 +261,30 @@ right place in the first place, not more hypotheses. That was also the
 conclusion for the dev night and historical clips. Nothing here was turned
 into a method.
 
+**A denser first pass (offline diagnostic, not adopted).**
+- **Setup.** The same six clips were rerun with the tokened first-pass cap
+  raised through a diagnostic override in the audit driver only. The method
+  constant `_PASS1_TOKEN_CAP` was set to 4,800; the effective cap became
+  3,000 (`min(max(1500, 3000), 4800)`).
+  - Düsseldorf `HfK2LuXQtfA` and Eindhoven took a branch that does not use
+    this cap (a plate or OCR frame prior). They kept about 1,500 references
+    and are not tested here.
+  - Data: `docs/pass1_density_test3_2026-11.json`.
+- **Results:**
+
+| Clip | True area rank, 1,200 refs | ~3,000 refs | Answer, 1,200 refs | ~3,000 refs |
+|---|---|---|---|---|
+| Katowice `5ewPAw_gIeI` | 2 | **1** (top area 236 m from route) | 2,708 m | **745 m** |
+| Cork `vp_D8mxgEkA` | 14 | 11 | 4,679 m | 4,768 m |
+| Bristol `G6bUX4GvSbE` | 2 | 1 | 198 m | 198 m |
+| Riga `K_54XHyzRn8` | 2 | 2 | 31 m | 17 m |
+
+- **Reading.** Density moves Katowice's first pass onto the right area, but
+  the 2 km second pass still ends 745 m off. Cork stays wrong. No clip
+  crosses 200 m in either direction. Reference sparsity is part of the
+  Katowice failure but not the whole of it; nothing here is enough to
+  pre-register as a method by itself.
+
 ## Disclosures
 
 - **First attempt.** It failed on all ten clips within seconds, before any
