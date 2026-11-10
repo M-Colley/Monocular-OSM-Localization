@@ -349,3 +349,53 @@ SHA256 is `cc28dbd2e35fc08ae4499db71c3dae85c03ce9fd2ea76f0bfa9de2f20b46bd9a`;
 result `E:/monocular-osm-exit-temporal-proof/run1/temporal_result.json` has
 SHA256 `d86782eb13974c9874838fbd83a658f9d4f574352af971eb68e412be55e4a608`.
 The strict full-city map and road sequence experiment remain separate work.
+
+## Full road-sequence diagnostic (10 November 2026; negative, not adopted)
+
+At clean `7ddea55`, the fixed correlation-v2 sampler completed the entire
+native Detroit window: 4,440 increments composed into 1,110 steps, 50,000
+particles and seed 0. It retained all four literal observations (the two
+186B views each have log-factor power 0.5) and every matching junction:
+two 186A, three 186B and two 190A hypotheses. The complete named-city graph
+retained 93,004 directed edges and all 330,592 polyline segments. Exact
+matched node IDs, directed incidence and public coordinates were verified.
+
+Separate guarded preparation completed in 21.547 s, peaking at
+2,584,084,480 sampled aggregate RSS bytes. The numerical worker completed
+in 776.141 s, peaking at 1,149,431,808 bytes. CPU affinity was two logical
+CPUs; both physical and actual commit headroom stayed above 8 GiB. Every
+registered input/source hash remained unchanged. Every observed worker
+birth closed before prediction hashing and the single offline GT score.
+
+| Frozen diagnostic | Unrounded error (m) |
+|---|---:|
+| Symmetric mean | 6,323.285942994211 |
+| Start | 7,420.339254033987 |
+| End | 7,394.620411573654 |
+
+This is worse than v4's retained 1,387.2377579105248 m Answer. No selected
+Answer, threshold or policy was changed, and no full-fleet gain follows.
+The best verified full development result remains **14/15**.
+
+The unchanged output also exposes two limitations. The first sign arrived
+360.052 s into the window; at that point ESS/50,000 was about 0.0002.
+ESS does not measure historical ancestor diversity, which was not exported.
+Unknown motion covered 81.865 s (13.761%); 122 purely unknown composed bins
+accumulated 1,410.144 m of model-driven endpoint chord displacement. That is
+neither measured speed nor evidence that the vehicle actually moved there.
+
+The current flat, unnormalized transition potentials assign weight one to
+each legal branch. Their total outgoing mass grows with junction degree,
+which can overwhelm a few soft signs. This is a source-level modeling
+limitation, not proof of the cause of this particular failure. The next
+separately registered comparison uses conditional-uniform legal turns with
+total outgoing mass one, preserving all geometry, cues, motion assumptions,
+proposal corrections and resource bounds. It has no measured result yet.
+
+Proof directory: `E:/monocular-osm-junction-sequence-proof/run1`.
+Prediction closure SHA256:
+`201f96b8c3e5d697727168f35b1b670271640cf3a35c2a395e9276539bc4f4e4`.
+`component_score.json` SHA256:
+`ba9a65ba9f9a3b450d385bc6c390db7705182ba9ebb0af58ef0cdac9f99e6bd8`.
+The report-only `closed_diagnostic.json` has SHA256
+`8d373c766df75ded94a3ed948a27dd3ef4421d8da1d9675d64fd113d233c572c`.

@@ -91,9 +91,9 @@ fifteen-clip gain or adoption follows from it.
 The simple two-exit VO similarity fit has already failed, including the
 correct junction pair. Its correct-pair error was 1,923 m. A bounded full
 road-graph sequence prototype with all OCR junction alternatives is now under
-development. It must preserve uncertain advance-sign location/time, unknown
-motion, scale, and competing modes; it has no validated result or policy
-admission yet. See the Detroit discussion in the fleet record before
+development. Its first frozen full-window trial completed but failed at
+**6,323.285942994211 m**, worse than v4's retained Answer. It remains off
+by default, with no policy admission. See the Detroit discussion in the fleet record before
 proposing a new pilot.
 
 The original Detroit OCR has bare `186B` and `188`, with no literal EXIT.
@@ -103,14 +103,24 @@ read all 29 planned native frames around those seeds, using fixed offsets
 of +/-0.5, 1, 2 and 4 seconds and the same cached CPU OCR model. It recovered
 literal EXIT references **186A, 186B and 190A** at their actual frame times.
 The two 186B views are one correlated event. This verifies an input
-prerequisite; no road sequence or new localization accuracy has been
-measured. The graph adapter must preserve every matched OSM node ID and
+prerequisite; it did not produce a localization gain in the subsequent graph
+trial. The graph adapter must preserve every matched OSM node ID and
 directed incidence; nearest-road projection is insufficient at bridges.
 
 The temporal probe closed in 49.562 s with 404,078,592 bytes peak sampled
 aggregate RSS. Its immutable result is
 `E:/monocular-osm-exit-temporal-proof/run1/temporal_result.json`, SHA256
 `d86782eb13974c9874838fbd83a658f9d4f574352af971eb68e412be55e4a608`.
+
+The failed `7ddea55` graph trial used all 4,440 native increments, composed
+into 1,110 steps, all four literal observations and seven map hypotheses.
+Its output was frozen and every worker closed before the one offline score.
+The diagnostic score is
+`E:/monocular-osm-junction-sequence-proof/run1/component_score.json`, SHA256
+`ba9a65ba9f9a3b450d385bc6c390db7705182ba9ebb0af58ef0cdac9f99e6bd8`.
+Its flat unnormalized turn potentials reward branching multiplicity; a new
+conditional-uniform transition model is the next controlled comparison.
+That changes a modeling assumption and has no measured accuracy yet.
 
 ## Evaluation and operating constraints
 
