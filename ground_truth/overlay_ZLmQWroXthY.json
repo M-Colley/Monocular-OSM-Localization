@@ -1,0 +1,110 @@
+{
+  "video_id": "ZLmQWroXthY",
+  "video_url": "https://www.youtube.com/watch?v=ZLmQWroXthY",
+  "city": "Kansas City, Missouri, USA",
+  "vo_segment": "5:595",
+  "description": "Unused fixed-screen pass; titled Missouri: I-435 S to I-70 E in Kansas City (detour), 7/1/20. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 119 OCR fixes over 5-595 s (12.54 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": 39.0862,
+      "lon": -94.488171
+    },
+    {
+      "t_sec": 35.0,
+      "lat": 39.07887,
+      "lon": -94.490951
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 39.07179,
+      "lon": -94.488251
+    },
+    {
+      "t_sec": 100.0,
+      "lat": 39.06327,
+      "lon": -94.488341
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 39.05706,
+      "lon": -94.492381
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 39.05138,
+      "lon": -94.498771
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 39.04365,
+      "lon": -94.500051
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 39.03637,
+      "lon": -94.50046
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 39.0313,
+      "lon": -94.50112
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 39.03113,
+      "lon": -94.498055
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 39.03147,
+      "lon": -94.49211
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 39.03126,
+      "lon": -94.48687
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 39.03108,
+      "lon": -94.48075
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 39.03447,
+      "lon": -94.47785
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 39.03887,
+      "lon": -94.47601
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 39.04365,
+      "lon": -94.4757
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 39.04873,
+      "lon": -94.4755
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 39.05075,
+      "lon": -94.47261
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 39.04793,
+      "lon": -94.464451
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 39.04751,
+      "lon": -94.454421
+    }
+  ]
+}

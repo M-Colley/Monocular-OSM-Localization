@@ -1,0 +1,1 @@
+{"utc": "2026-11-10T22:06:10.938826+00:00", "id": "tK7bHJXAJX8", "exec": 40519, "status": "EXCLUSIVE_EXISTING_LOG_REFUSAL_BEFORE_GT", "input_bytes_unchanged": true, "GT_verdict_emitted": false, "resolution": "Recorded preserved initial interruption in attempt ledger, then resume next exclusive slot"}

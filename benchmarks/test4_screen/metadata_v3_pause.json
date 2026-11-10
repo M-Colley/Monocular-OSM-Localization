@@ -1,0 +1,26 @@
+{
+  "status": "OWNED_SCREEN_STOPPED_FOR_METADATA_ELIGIBILITY_IMPLEMENTATION_CORRECTION",
+  "utc": "2026-11-10T23:10:42.779769+00:00",
+  "owned_births": [
+    {
+      "pid": 38992,
+      "birth": 1794351014.7420733
+    },
+    {
+      "pid": 39880,
+      "birth": 1794351014.75077
+    },
+    {
+      "pid": 37112,
+      "birth": 1794352242.6958616
+    },
+    {
+      "pid": 40468,
+      "birth": 1794352242.7055995
+    }
+  ],
+  "observed_owned_births_gone": true,
+  "completed_records_preserved_sha256": "7acf3827dbdfe2cea251256ae980da3f6baa9bbbc44c85a41a182bf4fcd00a9e",
+  "completed_stamp_GT_verdicts_not_revisited": true,
+  "reason": "Add generic language aliases for existing ground-motor-vehicle criterion; Root authorized before new stamp/GT reads."
+}

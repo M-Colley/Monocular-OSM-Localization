@@ -46,7 +46,8 @@ class OverlayClip:
     #: split="test" BEFORE running anything on it, and never tune on its result.
     #: "test2" is the second held-out set, for methods built after "test" was
     #: scored (added 2026-11-05); "test3" the third, for methods built after
-    #: "test2" was scored (added 2026-11-07).
+    #: "test2" was scored (added 2026-11-07); "test4" is the fresh batch
+    #: registered after test3 was scored (added 2026-11-10).
     split: str = "dev"
 
     @property
@@ -329,6 +330,43 @@ CLIPS: tuple[OverlayClip, ...] = (
         city_override="Zagreb, Croatia",
         overlay="decimal lat/lon (bottom)",
         note="Titled 'Zagreb at night ~ 4K Dashcam' (screen round 3); replaces the failed Aarhus clip.",
+    ),
+    # Test4 selection is registered in benchmarks/test4_screen/ before any
+    # download, GT build or localization; method binding is separate/pending.
+    OverlayClip(
+        video_id="tK7bHJXAJX8", region="bottom", window=_W, split="test4",
+        city_override="Bucharest, Romania", overlay="decimal lat/lon (bottom)",
+        note="Unused fixed-screen pass; titled Garmin DriveAssist at night (Bucharest - Buzau).",
+    ),
+    OverlayClip(
+        video_id="yd5g7jsWiEM", region="bottom", window=_W, split="test4",
+        city_override="Bucharest, Romania", overlay="decimal lat/lon (bottom)",
+        note="Unused fixed-screen pass; titled Garmin DriveAssist 51 LMT-S (Buzau - Bucuresti).",
+    ),
+    OverlayClip(
+        video_id="jkkl1QgsPSo", region="bottom", window=_W, split="test4",
+        city_override="Sofia, Bulgaria", overlay="decimal lat/lon (bottom)",
+        note="Unused fixed-screen pass; titled Viofo A119S / (03) Driving in Sofia, BG.",
+    ),
+    OverlayClip(
+        video_id="oPbnvEIRm3A", region="bottom", window=_W, split="test4",
+        city_override="Kansas City, Missouri, USA", overlay="decimal lat/lon (bottom)",
+        note="Unused fixed-screen pass; road dashcam upload is 420 seconds long.",
+    ),
+    OverlayClip(
+        video_id="ZLmQWroXthY", region="bottom", window=_W, split="test4",
+        city_override="Kansas City, Missouri, USA", overlay="decimal lat/lon (bottom)",
+        note="Unused fixed-screen pass; titled Missouri: I-435 S to I-70 E in Kansas City (detour), 7/1/20.",
+    ),
+    OverlayClip(
+        video_id="jz6o-_Y6r2E", region="bottom", window=_W, split="test4",
+        city_override="Albuquerque, New Mexico, USA", overlay="decimal lat/lon (bottom)",
+        note="Unused fixed-screen pass; titled Dashcam #albuquerque #dashcam #ROVE #viofo.",
+    ),
+    OverlayClip(
+        video_id="pFbUvfr8k-Q", region="bottom", window=_W, split="test4",
+        city_override="Trondheim, Norway", overlay="GPS coordinate stamp (bottom)",
+        note="First passing candidate of the preregistered replacement search: Trondheim query 1, rank 4; GT QC pending at selection. No localization used.",
     ),
 )
 

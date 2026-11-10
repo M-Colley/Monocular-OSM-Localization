@@ -20,9 +20,10 @@
   },
   "splits": {
     "dev": "Every clip that existed before this benchmark: all were used to tune the pipeline, so dev numbers are optimistic by construction.",
-    "test": "Reserved for FRESH clips added after the method is frozen. Empty today. `run` skips split=test unless --split test is given explicitly.",
-    "test2": "A second held-out set (added 2026-11-05) for methods built after test was scored: no development step has processed these clips. `run` skips split=test2 unless --split test2 is given explicitly.",
-    "test3": "A third held-out set (added 2026-11-07) for the metro-ring search, built after test2 was scored: no development step has processed these clips. `run` skips split=test3 unless --split test3 is given explicitly."
+    "test": "First held-out set (added 2026-10-24) for its preregistered frozen method; later used in development and not a fresh test for newer methods. `run` requires explicit --split test.",
+    "test2": "Second held-out set (added 2026-11-05) for its preregistered frozen methods; later used in development and not a fresh test for newer methods. `run` requires explicit --split test2.",
+    "test3": "Third held-out set (added 2026-11-07) for the frozen metro-ring search; later post-hoc diagnostics do not constitute a fresh test of newer methods. `run` requires explicit --split test3.",
+    "test4": "Fresh road/dashcam batch selected under the 2026-11-10 data rule after test3 was scored. Its global method binding is frozen separately before any localization. `run` requires explicit --split test4."
   },
   "clips": [
     {
@@ -257,7 +258,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "5a2fadb3900df864ca91401d8f96bd58feae7b03a45757f4ac9dbbd8e0aa3c6c",
       "video": {
-        "url": "https://www.youtube.com/watch?v=vCSEG6KaFng"
+        "url": "https://www.youtube.com/watch?v=vCSEG6KaFng",
+        "local_path": "data/vcseg6kafng-chicago-viofo-a229-pro-front-unit-day-time-testing/input_0-600.mp4"
       },
       "title": "Chicago | Viofo A229 Pro Front Unit Day Time Testing |",
       "vo_segment": "5:595",
@@ -281,7 +283,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "c62a82711199566467bf507fc5e22c218cf94b839ad8e521c7a830d55e35e25e",
       "video": {
-        "url": "https://www.youtube.com/watch?v=LmIHvLMLqFk"
+        "url": "https://www.youtube.com/watch?v=LmIHvLMLqFk",
+        "local_path": "data/lmihvlmlqfk-chicago-weekend-night-drive-december-16-2023/input_0-600.mp4"
       },
       "title": "Chicago | Weekend Night Drive | December 16, 2023",
       "vo_segment": "0:595",
@@ -305,7 +308,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "5fb8d6aacdb94cfd326b53a6a34bab8b4349163566cd70f500d79ea66d08979e",
       "video": {
-        "url": "https://www.youtube.com/watch?v=wJsEQTCAg1c"
+        "url": "https://www.youtube.com/watch?v=wJsEQTCAg1c",
+        "local_path": "data/wjseqtcag1c-driving-in-phoenix-tempe-scottsdale-chandler-gilbert-queen-creek-i-1/input_0-600.mp4"
       },
       "title": "Driving in Phoenix, Tempe, Scottsdale, Chandler, Gilbert, Queen Creek, I-10,Loop101,202,Arizona.",
       "vo_segment": "400:595",
@@ -333,7 +337,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "a0bb663976f164f3221b0ed1652412b4cf51972dc38fb29a97167eddab201cb4",
       "video": {
-        "url": "https://www.youtube.com/watch?v=ZhGb8q1kliY"
+        "url": "https://www.youtube.com/watch?v=ZhGb8q1kliY",
+        "local_path": "data/zhgb8q1kliy-detroit-driving-from-downtown-to-northwest-n-back-dashcam-10-16-2016/input_0-600.mp4"
       },
       "title": "Detroit: Driving From Downtown to Northwest 'n Back, Dashcam, 10/16/2016.",
       "vo_segment": "0:275",
@@ -357,7 +362,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "efeb58917da1e80e49351a8290ea68aa9b683143ff2462e722a9d7ace6f599a2",
       "video": {
-        "url": "https://www.youtube.com/watch?v=1nF_7l07i-E"
+        "url": "https://www.youtube.com/watch?v=1nF_7l07i-E",
+        "local_path": "data/1nf-7l07i-e-amazing-detroit-come-n-visit-dashcam-driving-into-downtown-usa-08-15/input_0-600.mp4"
       },
       "title": "Amazing Detroit - Come 'n Visit: Dashcam Driving Into Downtown, USA, 08/15/2016.",
       "vo_segment": "0:595",
@@ -381,7 +387,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "5d00981605431fc082532911bb446051131df3e9eb96757d8bfddad1272ffeaf",
       "video": {
-        "url": "https://www.youtube.com/watch?v=g5lnpYCk1Ec"
+        "url": "https://www.youtube.com/watch?v=g5lnpYCk1Ec",
+        "local_path": "data/g5lnpyck1ec-driving-from-detroit-michigan-to-roseville-michigan/input_0-600.mp4"
       },
       "title": "Driving from Detroit, Michigan to Roseville, Michigan",
       "vo_segment": "4:599",
@@ -405,7 +412,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "459a32c5e16fbf66617a5cdf7936d0779ce4dabb05d8367a76a79011142dddb8",
       "video": {
-        "url": "https://www.youtube.com/watch?v=y66ZkRpUh4k"
+        "url": "https://www.youtube.com/watch?v=y66ZkRpUh4k",
+        "local_path": "data/y66zkrpuh4k-asmr-driving-in-atlanta-at-night-in-a-tesla-model-3-wolfbox-i07-dash/input_0-600.mp4"
       },
       "title": "ASMR Driving in Atlanta at night in a Tesla Model 3 WolfBox i07 Dashcam",
       "vo_segment": "0:295",
@@ -429,7 +437,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "47a77d25fd7cc71f0c021acb56b4d9dfc582f5e1d2912f700f2f17e7e210dd67",
       "video": {
-        "url": "https://www.youtube.com/watch?v=kxEDNj5L_yQ"
+        "url": "https://www.youtube.com/watch?v=kxEDNj5L_yQ",
+        "local_path": "data/kxednj5l-yq-asmr-driving-through-atlanta-vinings-midtown-and-buckhead-no-talking/input_0-600.mp4"
       },
       "title": "ASMR Driving through Atlanta, Vinings, Midtown, and Buckhead ( No talking, No Music )",
       "vo_segment": "0:595",
@@ -453,7 +462,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "2689a523a5719cbaa6000a4bc2d18436050d82c875578ae9adccd4be4f38b045",
       "video": {
-        "url": "https://www.youtube.com/watch?v=Wrn4_uCxRCQ"
+        "url": "https://www.youtube.com/watch?v=Wrn4_uCxRCQ",
+        "local_path": "data/wrn4-ucxrcq-newcastle-driving-tyne-bridge-central-motorway-jesmond-and-coast-roa/input_0-600.mp4"
       },
       "title": "Newcastle Driving - Tyne Bridge, Central Motorway, Jesmond and Coast Road",
       "vo_segment": "0:595",
@@ -477,7 +487,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "4c7e1eedd5328b5afe88a5f4afe3e72b785f2a0432a426cbb3ae90303a7f2987",
       "video": {
-        "url": "https://www.youtube.com/watch?v=nsONSyk9wtc"
+        "url": "https://www.youtube.com/watch?v=nsONSyk9wtc",
+        "local_path": "data/nsonsyk9wtc-driving-nyc-midtown-manhattan-e-34th-st-fdr-dr-manhattan-bridge-broo/input_0-600.mp4"
       },
       "title": "Driving NYC: Midtown Manhattan, E 34th St, FDR Dr, Manhattan Bridge, Brooklyn Bridge. 紐約曼哈頓，布魯克林大橋",
       "vo_segment": "0:595",
@@ -505,7 +516,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "9dcf1bc9502563109aee12724f28f535ea92688ba23218de93b03485cf098d8c",
       "video": {
-        "url": "https://www.youtube.com/watch?v=bF5IfC2ZHjQ"
+        "url": "https://www.youtube.com/watch?v=bF5IfC2ZHjQ",
+        "local_path": "data/bf5ifc2zhjq-driving-ottawa-draper-av-to-queen-st-downtown-dashcam/input_0-600.mp4"
       },
       "title": "DRIVING OTTAWA: Draper Av to Queen St | Downtown DashCam",
       "vo_segment": "19:596",
@@ -529,7 +541,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "6dfec74214e6b19ac94115a268c256fa492a926b08d69ae5b0a84d6f9aafeccc",
       "video": {
-        "url": "https://www.youtube.com/watch?v=5b-tgjtwb2U"
+        "url": "https://www.youtube.com/watch?v=5b-tgjtwb2U",
+        "local_path": "data/5b-tgjtwb2u-approach-to-manchester-city-center-from-old-trafford/input_0-420.mp4"
       },
       "title": "Approach to Manchester City Center from Old Trafford",
       "vo_segment": "5:400",
@@ -553,7 +566,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "bf33b878bcb80aa566909d9f0de95856a533856af48ff690e11f7f52815a13e5",
       "video": {
-        "url": "https://www.youtube.com/watch?v=zt8rHvHKBUU"
+        "url": "https://www.youtube.com/watch?v=zt8rHvHKBUU",
+        "local_path": "data/zt8rhvhkbuu-ch-bern-schweiz-rundfahrt-durch-die-innenstadt-oktober-2019/input_0-600.mp4"
       },
       "title": "CH: Bern. Schweiz. Rundfahrt durch die Innenstadt. Oktober 2019",
       "vo_segment": "0:597",
@@ -577,7 +591,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "611f7d52add46ebadd9ee6018ea902c126882879159531f588bf8bd480b164e4",
       "video": {
-        "url": "https://www.youtube.com/watch?v=4LvkBo69jZo"
+        "url": "https://www.youtube.com/watch?v=4LvkBo69jZo",
+        "local_path": "data/4lvkbo69jzo-f-strasbourg-stra-burg-france-tour-around-the-city-december-2017/input_0-600.mp4"
       },
       "title": "F: Strasbourg (Straßburg). France. Tour around the City. December 2017",
       "vo_segment": "0:597",
@@ -601,7 +616,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "bc4572729fbd878efa52574523ccbf3b7ff3e46af40653bb9b51d39f95a73253",
       "video": {
-        "url": "https://www.youtube.com/watch?v=iJ2JvNk4Rmk"
+        "url": "https://www.youtube.com/watch?v=iJ2JvNk4Rmk",
+        "local_path": "data/ij2jvnk4rmk-d-frankfurt-am-main-rundfahrt-durch-die-innenstadt-dezember-2019/input_0-600.mp4"
       },
       "title": "D: Frankfurt am Main. Rundfahrt durch die Innenstadt. Dezember 2019",
       "vo_segment": "0:597",
@@ -625,7 +641,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "bf60869ebc97ec1b570f7607f2dc40ae024ba458073436af15c329eae03b6deb",
       "video": {
-        "url": "https://www.youtube.com/watch?v=-1xwoetuoOg"
+        "url": "https://www.youtube.com/watch?v=-1xwoetuoOg",
+        "local_path": "data/1xwoetuoog-driving-practice-route-daylight-sydney-nsw-australia/input_0-600.mp4"
       },
       "title": "Driving practice route \"Daylight\" - Sydney NSW Australia",
       "vo_segment": "4:599",
@@ -649,7 +666,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "7fb4eca74f9097cbf79b946600c44a9b4fdeb1f4ba59131f18550f2cc4c8ce93",
       "video": {
-        "url": "https://www.youtube.com/watch?v=2sS6glBBm8g"
+        "url": "https://www.youtube.com/watch?v=2sS6glBBm8g",
+        "local_path": "data/2ss6glbbm8g-amsterdam-dashcam-chaos-wild-traffic-moments-4k/input_0-600.mp4"
       },
       "title": "Amsterdam Dashcam Chaos - Wild Traffic Moments 4K. 🚲😳",
       "vo_segment": "20:595",
@@ -673,7 +691,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "34da04b8d085674921e29cd04677ab998f09db2e345b78f82fb877277982b4b7",
       "video": {
-        "url": "https://www.youtube.com/watch?v=GnXsgpVPvww"
+        "url": "https://www.youtube.com/watch?v=GnXsgpVPvww",
+        "local_path": "data/gnxsgpvpvww-warsaw-driving-tour-2k-skyscrapers-downtown-driving-in-warsaw-drivin/input_0-600.mp4"
       },
       "title": "WARSAW DRIVING TOUR 2K | Skyscrapers, Downtown |  Driving in Warsaw | Driving in Poland | Dash cam",
       "vo_segment": "0:595",
@@ -697,7 +716,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "1a902d9cd0af8d614aa7f61dbe076138534e2e69af877fb6f9bf316ef53544dc",
       "video": {
-        "url": "https://www.youtube.com/watch?v=lCm2a3kOEmE"
+        "url": "https://www.youtube.com/watch?v=lCm2a3kOEmE",
+        "local_path": "data/lcm2a3koeme-warsaw-skyline-drive-2k-warschau-skyline-fahrt-conducir-por-varsovia/input_0-600.mp4"
       },
       "title": "WARSAW SKYLINE DRIVE 2K | WARSCHAU SKYLINE FAHRT | CONDUCIR POR VARSOVIA | DRIVING IN POLAND",
       "vo_segment": "0:515",
@@ -721,7 +741,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "6aede3ff754e0711580428454b363cf91c2987d57fd74c37b5eb5a570a6faa35",
       "video": {
-        "url": "https://www.youtube.com/watch?v=0jJbdTcDseI"
+        "url": "https://www.youtube.com/watch?v=0jJbdTcDseI",
+        "local_path": "data/0jjbdtcdsei-driving-in-montreal-on-a-cloudy-day-a440-o/input_0-600.mp4"
       },
       "title": "Driving in Montreal on a Cloudy Day - A440 O",
       "vo_segment": "5:595",
@@ -745,7 +766,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "4d07913196516af76cbb95a4544f91f4040bc012f45e2db7ca91d7debf0e41fb",
       "video": {
-        "url": "https://www.youtube.com/watch?v=HpBfjRA60ws"
+        "url": "https://www.youtube.com/watch?v=HpBfjRA60ws",
+        "local_path": "data/hpbfjra60ws-dashcam-crossing-paris-at-rush-hour-a1-a3-the-peripherique-and-out-o/input_0-600.mp4"
       },
       "title": "Dashcam: Crossing Paris at Rush Hour - A1, A3, the Peripherique and out on the A10",
       "vo_segment": "0:595",
@@ -769,7 +791,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "762d30c93f4ca4a57ed3629949bc748d082852c48608d5aa9f0a5ac4a424e57c",
       "video": {
-        "url": "https://www.youtube.com/watch?v=1bGf8OD9Fqo"
+        "url": "https://www.youtube.com/watch?v=1bGf8OD9Fqo",
+        "local_path": "data/1bgf8od9fqo-budapest-2020-with-dash-cam-vol-1/input_0-600.mp4"
       },
       "title": "Budapest 2020 with Dash Cam Vol. 1",
       "vo_segment": "4:597",
@@ -793,7 +816,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "2785ea9c7c3e42c89f223e0968c092f1acb3fcb4d9d6219fa0a1b65bd05a1bed",
       "video": {
-        "url": "https://www.youtube.com/watch?v=XO6H3mGMKYg"
+        "url": "https://www.youtube.com/watch?v=XO6H3mGMKYg",
+        "local_path": "data/xo6h3mgmkyg-driving-to-germering-via-autobahn-munich-germany-viofo-a329s-dashcam/input_0-600.mp4"
       },
       "title": "Driving to Germering via Autobahn 🇩🇪 | Munich, Germany | VIOFO A329s Dashcam 4K",
       "vo_segment": "75:250",
@@ -817,7 +841,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "e946df0bde3b117150d20f6bbdbf12849a073f4cee63208b0914c4f223b0f98a",
       "video": {
-        "url": "https://www.youtube.com/watch?v=8BUtb7TKUFA"
+        "url": "https://www.youtube.com/watch?v=8BUtb7TKUFA",
+        "local_path": "E:/claude-scoring/test3/data/8butb7tkufa-dc-multikorso-d-sseldorf-09-10-2021/input_0-600.mp4"
       },
       "title": "DC Multikorso Düsseldorf 09.10.2021",
       "vo_segment": "0:595",
@@ -841,7 +866,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "d24adc63362d3d67efc4c1c43e8b510dc834c5cc22077f78fe4adcd1f8aa21bd",
       "video": {
-        "url": "https://www.youtube.com/watch?v=HfK2LuXQtfA"
+        "url": "https://www.youtube.com/watch?v=HfK2LuXQtfA",
+        "local_path": "E:/claude-scoring/test3/data/hfk2luxqtfa-dc-kombikorso-d-sseldorf-22-08-2021/input_0-600.mp4"
       },
       "title": "DC KombiKorso Düsseldorf 22.08.2021",
       "vo_segment": "0:595",
@@ -865,7 +891,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "4e4d1c9e837691321183459d474b28edd0b5fe24784e745298968b7ec38f6c37",
       "video": {
-        "url": "https://www.youtube.com/watch?v=6GciDYJ1FUc"
+        "url": "https://www.youtube.com/watch?v=6GciDYJ1FUc",
+        "local_path": "E:/claude-scoring/test3/data/6gcidyj1fuc-2016-02-09-from-eindhoven-to-maasbree/input_0-600.mp4"
       },
       "title": "2016-02-09  From Eindhoven to Maasbree",
       "vo_segment": "125:595",
@@ -889,7 +916,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "31b30c080bacddf1284790ad4ce30c9813c165980c21183aa031fd557e3c1a48",
       "video": {
-        "url": "https://www.youtube.com/watch?v=G6bUX4GvSbE"
+        "url": "https://www.youtube.com/watch?v=G6bUX4GvSbE",
+        "local_path": "E:/claude-scoring/test3/data/g6bux4gvsbe-mercedes-bristol-dealership-mechanic-takes-customer-car-for-joyride/input_0-600.mp4"
       },
       "title": "Mercedes Bristol Dealership mechanic takes customer car for joyride Sytner",
       "vo_segment": "333:433",
@@ -913,7 +941,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "effa6afe0549f7499a1880d820d2657ded46b1aa5f013481dadb3d43a35a6cda",
       "video": {
-        "url": "https://www.youtube.com/watch?v=vp_D8mxgEkA"
+        "url": "https://www.youtube.com/watch?v=vp_D8mxgEkA",
+        "local_path": "E:/claude-scoring/test3/data/vp-d8mxgeka-cork-city-at-dusk-viofo-a129-dashcam-test-2019-09-06/input_0-600.mp4"
       },
       "title": "Cork city at dusk - Viofo A129 dashcam test (2019.09.06)",
       "vo_segment": "0:595",
@@ -937,7 +966,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "69a31e97bf5ca868e62fa2752ea477ca1d49fbe358fc71dc2c0d652907af7847",
       "video": {
-        "url": "https://www.youtube.com/watch?v=K_54XHyzRn8"
+        "url": "https://www.youtube.com/watch?v=K_54XHyzRn8",
+        "local_path": "E:/claude-scoring/test3/data/k-54xhyzrn8-garmin-nuvicam-lmt-test-1-riga-latvia/input_0-600.mp4"
       },
       "title": "Garmin nuvicam LMT Test #1 / Riga / Latvia",
       "vo_segment": "0:418",
@@ -961,7 +991,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "8ac4f1377de7b2e22cacf99fd3de3a760c8326453f2747a9aa0deda8065079ca",
       "video": {
-        "url": "https://www.youtube.com/watch?v=5koGsNdaVvE"
+        "url": "https://www.youtube.com/watch?v=5koGsNdaVvE",
+        "local_path": "E:/claude-scoring/test3/data/5kogsndavve-bratislava-slovakia-4k/input_0-600.mp4"
       },
       "title": "Bratislava - Slovakia (4k)",
       "vo_segment": "9:542",
@@ -985,7 +1016,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "8cee76b45f174d16176c76e0d89905b2c7d5829afd41c6e191642d3807801262",
       "video": {
-        "url": "https://www.youtube.com/watch?v=MMKAehhi-tA"
+        "url": "https://www.youtube.com/watch?v=MMKAehhi-tA",
+        "local_path": "E:/claude-scoring/test3/data/mmkaehhi-ta-podzamcze-katowice/input_0-600.mp4"
       },
       "title": "Podzamcze - Katowice",
       "vo_segment": "20:595",
@@ -1009,7 +1041,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "4466dfedb0b36600f372eb3fe60ca3485c955df1373cbdc3d8afe4e9a9cf8a06",
       "video": {
-        "url": "https://www.youtube.com/watch?v=5ewPAw_gIeI"
+        "url": "https://www.youtube.com/watch?v=5ewPAw_gIeI",
+        "local_path": "E:/claude-scoring/test3/data/5ewpaw-giei-katowice-balice-dk79/input_0-600.mp4"
       },
       "title": "Katowice - Balice [DK79]",
       "vo_segment": "95:595",
@@ -1033,7 +1066,8 @@
       "gt_n_waypoints": 20,
       "gt_waypoints_sha256": "85c59ea78cdb77446e78c063910126e61e838ac0d65a51aa3d975b1773e39d26",
       "video": {
-        "url": "https://www.youtube.com/watch?v=7n4XQUBEH5Y"
+        "url": "https://www.youtube.com/watch?v=7n4XQUBEH5Y",
+        "local_path": "E:/claude-scoring/test3/data/7n4xqubeh5y-zagreb-at-night-4k-dashcam-relaxing-music/input_0-600.mp4"
       },
       "title": "Zagreb at night ~ 4K Dashcam ~ relaxing music",
       "vo_segment": "5:595",
@@ -1045,6 +1079,156 @@
       "city_alternatives": [],
       "city_alternatives_notes": {},
       "legacy_city": "Zagreb, Croatia",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_tK7bHJXAJX8",
+      "name": "Bucharest (tK7bHJXAJX8)",
+      "fleet": "overlay",
+      "split": "test4",
+      "gt": "ground_truth/overlay_tK7bHJXAJX8.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "7d5cf56eb0570561b28ee56e17f0baae0445ff19f9f43664309558f8cd0885f0",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=tK7bHJXAJX8",
+        "local_path": "data/test4/tk7bhjxajx8-garmin-driveassist-at-night-bucharest-buzau/input_0-600.mp4"
+      },
+      "title": "Garmin DriveAssist at night (Bucharest - Buzau)",
+      "vo_segment": "5:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Bucharest, Romania",
+      "city_basis": "the fixed screen's title-named city (intercity titles may name other places)",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Bucharest, Romania",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_yd5g7jsWiEM",
+      "name": "Bucharest (yd5g7jsWiEM)",
+      "fleet": "overlay",
+      "split": "test4",
+      "gt": "ground_truth/overlay_yd5g7jsWiEM.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "9a7563dfbd84d9208b4b3c00e05f3d6c0ab933c6010fe4fa9b29acb6ed69378b",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=yd5g7jsWiEM",
+        "local_path": "data/test4/yd5g7jswiem-garmin-driveassist-51-lmt-s-buzau-bucuresti/input_0-600.mp4"
+      },
+      "title": "Garmin DriveAssist 51 LMT-S (Buzau - Bucuresti)",
+      "vo_segment": "440:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (28 fixes dropped to edit cuts).",
+      "city": "Bucharest, Romania",
+      "city_basis": "the fixed screen's title-named city (intercity titles may name other places)",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Bucharest, Romania",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_jkkl1QgsPSo",
+      "name": "Sofia (jkkl1QgsPSo)",
+      "fleet": "overlay",
+      "split": "test4",
+      "gt": "ground_truth/overlay_jkkl1QgsPSo.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "9bf5ef9a804f3990ebc0a395c2342dcaa30a6f8a287b90320cbdb307d7059acc",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=jkkl1QgsPSo",
+        "local_path": "data/test4/jkkl1qgspso-viofo-a119s-03-driving-in-sofia-bg/input_0-600.mp4"
+      },
+      "title": "Viofo A119S / (03) Driving in Sofia, BG",
+      "vo_segment": "0:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Sofia, Bulgaria",
+      "city_basis": "the fixed screen's title-named city (intercity titles may name other places)",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Sofia, Bulgaria",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_ZLmQWroXthY",
+      "name": "Kansas City (ZLmQWroXthY)",
+      "fleet": "overlay",
+      "split": "test4",
+      "gt": "ground_truth/overlay_ZLmQWroXthY.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "95a6fdf615d642db1d62950cd8da9a88430e418b0b674b6e9cc80b411cf329f0",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=ZLmQWroXthY",
+        "local_path": "data/test4/zlmqwroxthy-missouri-i-435-s-to-i-70-e-in-kansas-city-detour-7-1-20/input_0-600.mp4"
+      },
+      "title": "Missouri: I-435 S to I-70 E in Kansas City (detour), 7/1/20",
+      "vo_segment": "5:595",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (0 fixes dropped to edit cuts).",
+      "city": "Kansas City, Missouri, USA",
+      "city_basis": "the fixed screen's title-named city (intercity titles may name other places)",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Kansas City, Missouri, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_jz6o-_Y6r2E",
+      "name": "Albuquerque (jz6o-_Y6r2E)",
+      "fleet": "overlay",
+      "split": "test4",
+      "gt": "ground_truth/overlay_jz6o-_Y6r2E.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "0386599f53757977923b1cf494d3d1dd777dd20d98a5db2912a08da8e73d5e1d",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=jz6o-_Y6r2E",
+        "local_path": "data/test4/jz6o-y6r2e-dashcam-albuquerque-dashcam-rove-viofo/input_0-600.mp4"
+      },
+      "title": "Dashcam #albuquerque #dashcam #ROVE #viofo",
+      "vo_segment": "155:285",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (22 fixes dropped to edit cuts).",
+      "city": "Albuquerque, New Mexico, USA",
+      "city_basis": "the fixed screen's title-named city (intercity titles may name other places)",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Albuquerque, New Mexico, USA",
+      "available_locally": true
+    },
+    {
+      "id": "overlay_pFbUvfr8k-Q",
+      "name": "Trondheim (pFbUvfr8k-Q)",
+      "fleet": "overlay",
+      "split": "test4",
+      "gt": "ground_truth/overlay_pFbUvfr8k-Q.json",
+      "gt_source": "overlay_ocr",
+      "gt_n_waypoints": 20,
+      "gt_waypoints_sha256": "5c97408565ebcc5233955b67ad9d15bf29b0d00521a7ab8ea7fe41f2c0ecfe89",
+      "video": {
+        "url": "https://www.youtube.com/watch?v=pFbUvfr8k-Q",
+        "local_path": "data/test4/pfbuvfr8k-q-trondheim-by-night-from-a-garmin-dashcam/input_0-600.mp4"
+      },
+      "title": "Trondheim By Night from a Garmin Dashcam.",
+      "vo_segment": "154:413",
+      "vo_segment_source": "overlay_index",
+      "window_source": "gt_continuous",
+      "window_note": "Longest cut-free run of OCR'd GPS fixes inside the 0-600 s download window (30 fixes dropped to edit cuts).",
+      "city": "Trondheim, Norway",
+      "city_basis": "the fixed screen's title-named city (intercity titles may name other places)",
+      "city_alternatives": [],
+      "city_alternatives_notes": {},
+      "legacy_city": "Trondheim, Norway",
       "available_locally": true
     }
   ]

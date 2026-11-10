@@ -616,20 +616,92 @@
         "summary_files_checked": 27,
         "hits": []
       },
-      "new_label_details_restricted_to_data_qc": true
+      "new_label_details_restricted_to_data_qc": true,
+      "implementation_amendments": [
+        {
+          "registered_utc": "2026-11-10T23:15:42.903904+00:00",
+          "version": "ground-motor-title-aliases-v3",
+          "reason": "Correct English-only metadata title matching with generic groundmotor aliases and spelling aliases of the existing no-timelapse exclusion. No selection criterion or outcome change.",
+          "profile_path": "benchmarks/test4_screen/metadata_eligibility_v3_registration.json",
+          "profile_sha256": "5ba509ae9e6e92e742282d5cf27ea0eeff6f7e60634910f42d287ab8d4c19053",
+          "screen_helper_sha256": "4d1682229d09e8b79088398a00dd14b1cc5ad11d9cfae9a88b8df4e928ee8ec5",
+          "preserved_previous_records_sha256": "7acf3827dbdfe2cea251256ae980da3f6baa9bbbc44c85a41a182bf4fcd00a9e",
+          "metadata_only_replay_ids": [
+            "MN4j34O7yO4",
+            "hlvB-OV9Mn4"
+          ],
+          "completed_stamp_GT_verdicts_revisited": false,
+          "registered_before_new_V3_stamp_or_GT_reads": true
+        }
+      ],
+      "data_selection_outcome": {
+        "status": "FIXED_POOL_EXHAUSTED_SIX_USABLE_TARGET_SEVEN_NOT_MET",
+        "eligible_video_ids": [
+          "tK7bHJXAJX8",
+          "yd5g7jsWiEM",
+          "jkkl1QgsPSo",
+          "ZLmQWroXthY",
+          "jz6o-_Y6r2E",
+          "pFbUvfr8k-Q"
+        ],
+        "target_usable": 7,
+        "actual_usable": 6,
+        "target_met": false,
+        "selection_outcome": "benchmarks/test4_screen/selection_outcome.json",
+        "selection_outcome_sha256": "db319d461a7dcb87e74cf5dde7a797f1bc15576408db1af40c54402f3526f72d",
+        "method_binding_pending": true,
+        "localization_executed": false
+      }
     },
     "raw_city_votes_dev_2026_11": {
       "registered": "2026-11-10T21:42:46.236475+00:00",
       "description": "Prospective post-hoc DEV experiment on the original15; no held-out claim. Does raw city-cell voting repair remaining g5l without losing existing v4 successes?",
       "method": "assisted v4 + --vpr-city-cell-selector=raw-votes: rank cells by each query’s maximum raw cosine, cast votes for its top3 cells, apply fixed source-defined deterministic tie-breaks; keep same fine3-cell/reference budgets, decoder and admission. Existing decoded selector remains default.",
       "source_commit_binding": {
-        "status": "PENDING_ROOT_CLEAN_SOURCE_FREEZE",
-        "pilot_must_wait_for_binding": true
+        "status": "ROOT_CLEAN_SOURCE_FREEZE_BOUND_EXTERNAL_REGISTRATION_REQUIRED_BEFORE_PILOT",
+        "commit": "62868aa7aa92f42497954090148ad17202ab72bf",
+        "worktree": "E:/monocular-osm-runs/raw-city-votes-20261110",
+        "external_pre_pilot_registration": "E:/monocular-osm-raw-city-votes-proof/run1/registration.json",
+        "bound_utc": "2026-11-10T21:52:38.802709+00:00",
+        "method_change": false
       },
       "execution": "Pilot remaining overlay_g5lnpYCk1Ec first, then a uniform complete original15 run if promising; 14400s CPU16 per clip, warm copies of v4 inputs, minimum VRAM floor0; no perclip policy mixture.",
       "decision": "Require actual result.answer on all15, every selected raw unrounded symmetric mean error <=200m, all strict frozen-input/provenance gates, and no loss among14 baseline v4 successes. A oneclip pilot cannot establish15/15.",
       "comparison": "Complete assisted_v4_fleet at409a959,14/15, saved official selected-Answer scores; failures remain in denominator.",
-      "evaluation_separation": "PosthocDEV only. Test4 selection/labels unchanged and blind to algorithm development. Test4 method binding remains separate and pending until a global method is frozen."
+      "evaluation_separation": "PosthocDEV only. Test4 selection/labels unchanged and blind to algorithm development. Test4 method binding remains separate and pending until a global method is frozen.",
+      "outcome_recorded": {
+        "recorded_utc": "2026-11-10T22:46:04.581181+00:00",
+        "source_commit": "62868aa7aa92f42497954090148ad17202ab72bf",
+        "clip": "overlay_g5lnpYCk1Ec",
+        "execution": {
+          "rc": 0,
+          "wall_s": 2514.2
+        },
+        "selected_answer_symmetric_m": 1387.2377579105248,
+        "selected_answer_under_200m": false,
+        "strict_pilot_input_audits_clean": true,
+        "coarse_raw_cells_valid": 27,
+        "fine_cells_complete": 3,
+        "selected_cells": [
+          1,
+          9,
+          13
+        ],
+        "admission": "correctly rejected expanded: candidate cosine 0.168222 vs required threshold 0.177707 (baseline 0.157707 + margin 0.020000)",
+        "closed_expanded_component": {
+          "symmetric_m": 1714.6662206685678,
+          "selected": false,
+          "counts_toward_goal": false,
+          "root_proof": "E:/monocular-osm-raw-city-votes-proof/run1/component_diagnostic.json",
+          "sha256": "bc71f29cf01c40a245ee5fc3fdc3a7bf3c7d69f9f8eeeaad2df92f3d9fdbd847"
+        },
+        "summary_sha256": "b44ff5b775a621e1e1784373b1983edc3ffaf0eb157f2fc93fa446cf0841259a",
+        "decision": "One-clip negative pilot; no complete original15 run. Not adopted; default remains decoded.",
+        "full_original15_run_performed": false,
+        "test4_labels_accessed": false,
+        "test4_method_binding_pending": true,
+        "evidence_scope": "Exact outcome supplied by Root; DATA operator did not reopen localization outputs or GT."
+      }
     }
   }
 }

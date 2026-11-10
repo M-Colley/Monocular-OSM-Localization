@@ -1,0 +1,110 @@
+{
+  "video_id": "tK7bHJXAJX8",
+  "video_url": "https://www.youtube.com/watch?v=tK7bHJXAJX8",
+  "city": "Bucharest, Romania",
+  "vo_segment": "5:595",
+  "description": "Unused fixed-screen pass; titled Garmin DriveAssist at night (Bucharest - Buzau). Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 119 OCR fixes over 5-595 s (5.60 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": 44.44059,
+      "lon": 26.072674
+    },
+    {
+      "t_sec": 35.0,
+      "lat": 44.43834,
+      "lon": 26.076395
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 44.43927,
+      "lon": 26.079874
+    },
+    {
+      "t_sec": 100.0,
+      "lat": 44.44007,
+      "lon": 26.083055
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 44.44002,
+      "lon": 26.086662
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 44.4399,
+      "lon": 26.088594
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 44.44006,
+      "lon": 26.092572
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 44.44068,
+      "lon": 26.095235
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 44.44001,
+      "lon": 26.097154
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 44.44086,
+      "lon": 26.100464
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 44.44127,
+      "lon": 26.104043
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 44.44221,
+      "lon": 26.107444
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 44.44224,
+      "lon": 26.109762
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 44.44184,
+      "lon": 26.112902
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 44.44075,
+      "lon": 26.116573
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 44.44309,
+      "lon": 26.119012
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 44.4449,
+      "lon": 26.120645
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 44.44861,
+      "lon": 26.124115
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 44.45196,
+      "lon": 26.126575
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 44.45397,
+      "lon": 26.128066
+    }
+  ]
+}

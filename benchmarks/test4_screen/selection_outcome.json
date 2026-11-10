@@ -1,0 +1,107 @@
+{
+  "schema": "test4-closed-data-selection-v1",
+  "utc": "2026-11-10T23:30:52.600293+00:00",
+  "status": "FIXED_POOL_EXHAUSTED_SIX_USABLE_TARGET_SEVEN_NOT_MET",
+  "target_usable": 7,
+  "actual_usable": 6,
+  "target_met": false,
+  "eligible_video_ids": [
+    "tK7bHJXAJX8",
+    "yd5g7jsWiEM",
+    "jkkl1QgsPSo",
+    "ZLmQWroXthY",
+    "jz6o-_Y6r2E",
+    "pFbUvfr8k-Q"
+  ],
+  "eligible": [
+    {
+      "id": "tK7bHJXAJX8",
+      "city": "Bucharest, Romania",
+      "video_path": "data/test4/tk7bhjxajx8-garmin-driveassist-at-night-bucharest-buzau/input_0-600.mp4",
+      "video_sha256": "e9e3501a4f43014430e5fd3d9248a7eb43be728dfb1ca81ac481888c9ec0cf64",
+      "download_duration_s": 600.0,
+      "gt_path": "ground_truth/overlay_tK7bHJXAJX8.json",
+      "gt_file_sha256": "251a27a0cdb9d700a4074051ee90262a19f5c3b4663b9d0f96a87188148d67e6",
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "yd5g7jsWiEM",
+      "city": "Bucharest, Romania",
+      "video_path": "data/test4/yd5g7jswiem-garmin-driveassist-51-lmt-s-buzau-bucuresti/input_0-600.mp4",
+      "video_sha256": "bd0c0f4f335b78b77da357f379e53820ba9d0b624a2284d4116976618f7bf7d2",
+      "download_duration_s": 600.0,
+      "gt_path": "ground_truth/overlay_yd5g7jsWiEM.json",
+      "gt_file_sha256": "a1b1c425a1118cebbe471a3bdf01699ece639c2c1c8f7b3a400e46e91c92162a",
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "jkkl1QgsPSo",
+      "city": "Sofia, Bulgaria",
+      "video_path": "data/test4/jkkl1qgspso-viofo-a119s-03-driving-in-sofia-bg/input_0-600.mp4",
+      "video_sha256": "fc85012a18cd7e10e4be1bbe19f97d5e68f2985a3c667e73d7b4198c6cdcd4ea",
+      "download_duration_s": 600.0,
+      "gt_path": "ground_truth/overlay_jkkl1QgsPSo.json",
+      "gt_file_sha256": "79bdcb60f7cd4c5eb73f51c288ca63632a8827aec80830d3480037b3535e0f9e",
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "ZLmQWroXthY",
+      "city": "Kansas City, Missouri, USA",
+      "video_path": "data/test4/zlmqwroxthy-missouri-i-435-s-to-i-70-e-in-kansas-city-detour-7-1-20/input_0-600.mp4",
+      "video_sha256": "ea84a0fc5b49677ad15565be80240121cb78318d31a95afd7e3190927e382a79",
+      "download_duration_s": 600.0,
+      "gt_path": "ground_truth/overlay_ZLmQWroXthY.json",
+      "gt_file_sha256": "68fd9bc3047d7f8152354016cd0e7878517d6fe1280b062d605815b2bab5ba7e",
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "jz6o-_Y6r2E",
+      "city": "Albuquerque, New Mexico, USA",
+      "video_path": "data/test4/jz6o-y6r2e-dashcam-albuquerque-dashcam-rove-viofo/input_0-600.mp4",
+      "video_sha256": "8984d803b0a6bf287cd9bb039e1577c18bb3ee6fae41f8846b222edc20013cb6",
+      "download_duration_s": 420.0,
+      "gt_path": "ground_truth/overlay_jz6o-_Y6r2E.json",
+      "gt_file_sha256": "d6d15010f5b7785e55b74d7145c4302e390b9d52619a98f26daf11446da84913",
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "pFbUvfr8k-Q",
+      "city": "Trondheim, Norway",
+      "video_path": "data/test4/pfbuvfr8k-q-trondheim-by-night-from-a-garmin-dashcam/input_0-600.mp4",
+      "video_sha256": "1b2ba1376ab81cb9e3355719cf8030179fc972b687cd27452105ac3aff13b1fc",
+      "download_duration_s": 425.0246,
+      "gt_path": "ground_truth/overlay_pFbUvfr8k-Q.json",
+      "gt_file_sha256": "230b79ede9a5b61aaf7deee9d5dfdb98a2fbbf659fd1d5ec1e6005f6b437ae23",
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    }
+  ],
+  "retained_gt_builder_declines": [
+    "oPbnvEIRm3A"
+  ],
+  "excluded_before_acquisition": [
+    "hrbPCnxiQeQ"
+  ],
+  "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+  "fixed_pool_closure_sha256": "04b4249ebf887949136b513849a24ec27f034a63a5ba22a076d5d9c3c59a92d3",
+  "screen_results_sha256": "747eac64123fa95b18f6a8ec119b64e9062e38bebe9eb43a08c21c3076a4f09a",
+  "title_implementation_registration_sha256": "5ba509ae9e6e92e742282d5cf27ea0eeff6f7e60634910f42d287ab8d4c19053",
+  "all15_city_queries_complete": true,
+  "all_data_exec_handles_closed": true,
+  "method_binding_status": "PENDING_SEPARATE_GLOBAL_METHOD_FREEZE",
+  "localization_executed": false,
+  "accuracy_scoring_executed": false,
+  "new_label_details_restricted_to_data_qc": true,
+  "manifest_path": "benchmarks/manifest.json",
+  "manifest_sha256": "7f4150ffe9ed8092872836bed2fec1508f9a1fa72506678d1d4e4e20b9b748b6",
+  "manifest_registered_count": 48,
+  "manifest_available_count": 45,
+  "prior_clip_metadata_preserved_except_exact_registered_local_video_paths": true,
+  "prior_gt_files_edited": false,
+  "no_localization_outcome_used_for_selection": true
+}

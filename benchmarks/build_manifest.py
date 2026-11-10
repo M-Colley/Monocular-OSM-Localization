@@ -57,14 +57,18 @@ WINDOW_SOURCES = {
 SPLITS = {
     "dev": "Every clip that existed before this benchmark: all were used to tune the "
            "pipeline, so dev numbers are optimistic by construction.",
-    "test": "Reserved for FRESH clips added after the method is frozen. Empty today. "
-            "`run` skips split=test unless --split test is given explicitly.",
-    "test2": "A second held-out set (added 2026-11-05) for methods built after test "
-             "was scored: no development step has processed these clips. `run` skips "
-             "split=test2 unless --split test2 is given explicitly.",
-    "test3": "A third held-out set (added 2026-11-07) for the metro-ring search, built "
-             "after test2 was scored: no development step has processed these clips. "
-             "`run` skips split=test3 unless --split test3 is given explicitly.",
+    "test": "First held-out set (added 2026-10-24) for its preregistered frozen method; "
+            "later used in development and not a fresh test for newer methods. "
+            "`run` requires explicit --split test.",
+    "test2": "Second held-out set (added 2026-11-05) for its preregistered frozen methods; "
+             "later used in development and not a fresh test for newer methods. "
+             "`run` requires explicit --split test2.",
+    "test3": "Third held-out set (added 2026-11-07) for the frozen metro-ring search; "
+             "later post-hoc diagnostics do not constitute a fresh test of newer methods. "
+             "`run` requires explicit --split test3.",
+    "test4": "Fresh road/dashcam batch selected under the 2026-11-10 data rule after "
+             "test3 was scored. Its global method binding is frozen separately before "
+             "any localization. `run` requires explicit --split test4.",
 }
 
 #: The core fleet. Strings only — no coordinates are maintained here; the
@@ -252,6 +256,14 @@ OVERLAY_TITLE_CITY: dict[str, str] = {
     "MMKAehhi-tA": "Katowice, Poland",
     "5ewPAw_gIeI": "Katowice, Poland",
     "7n4XQUBEH5Y": "Zagreb, Croatia",
+    # Test4, fixed before acquisition/localization (2026-11-10).
+    "tK7bHJXAJX8": "Bucharest, Romania",
+    "yd5g7jsWiEM": "Bucharest, Romania",
+    "jkkl1QgsPSo": "Sofia, Bulgaria",
+    "oPbnvEIRm3A": "Kansas City, Missouri, USA",
+    "ZLmQWroXthY": "Kansas City, Missouri, USA",
+    "jz6o-_Y6r2E": "Albuquerque, New Mexico, USA",
+    "pFbUvfr8k-Q": "Trondheim, Norway",
 }
 
 
@@ -288,7 +300,12 @@ def _core_entry(spec: dict, root: Path) -> dict:
     return entry
 
 
-def _overlay_entries(root: Path) -> list[dict]:
+def _overlay_entries(root: Path, *, video_ids: set[str] | None = None) -> list[dict]:
+    """Build entries, optionally reading labels only for new video IDs.
+
+    The normal full generator passes no filter. An incremental data addition
+    can preserve historical manifest entries without reopening old labels.
+    """
     from overlay_clips import BY_ID  # scripts/overlay_clips.py
 
     index_path = root / OVERLAY_INDEX
@@ -297,6 +314,8 @@ def _overlay_entries(root: Path) -> list[dict]:
     out: list[dict] = []
     for c in _read_json(index_path).get("clips", []):
         vid = c["video_id"]
+        if video_ids is not None and vid not in video_ids:
+            continue
         if vid not in OVERLAY_TITLE_CITY:
             raise KeyError(f"overlay clip {vid} has no title-named city in "
                            f"OVERLAY_TITLE_CITY; add the city its title names")
@@ -316,7 +335,10 @@ def _overlay_entries(root: Path) -> list[dict]:
             "gt": c["ground_truth"], "gt_source": "overlay_ocr",
             "gt_n_waypoints": len(gt["waypoints"]),
             "gt_waypoints_sha256": gt_waypoints_digest(gt),
-            "video": {"url": clip.url},
+            # Keep the source URL/title identity and the builder's exact local
+            # download together. A guessed input.* filename can select a
+            # different window or fail even though the registered bytes exist.
+            "video": {"url": clip.url, "local_path": c["video"]},
             "title": c.get("title"),
             "vo_segment": c["vo_segment"], "vo_segment_source": "overlay_index",
             "window_source": "gt_continuous",
@@ -325,7 +347,8 @@ def _overlay_entries(root: Path) -> list[dict]:
                             f"window ({c.get('n_dropped_to_cuts', 0)} fixes dropped "
                             f"to edit cuts)."),
             "city": city,
-            "city_basis": "the first place the upload title names",
+            "city_basis": ("the fixed screen's title-named city (intercity titles may name other places)"
+                           if clip.split == "test4" else "the first place the upload title names"),
             "city_alternatives": alts, "city_alternatives_notes": notes,
             "legacy_city": c["city"],
             "available_locally": True,

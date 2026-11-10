@@ -1,0 +1,177 @@
+{
+  "schema": "test4-fixed-replacement-pool-closure-v1",
+  "utc": "2026-11-10T23:29:29.120728+00:00",
+  "status": "FIXED_POOL_EXHAUSTED_SHORT_OF_TARGET",
+  "target_usable": 7,
+  "usable_count": 6,
+  "prefix_downloads_complete": 7,
+  "gt_qc_pass": 6,
+  "gt_builder_decline": 1,
+  "seventh_usable_available": false,
+  "all15_city_query_blocks_complete": true,
+  "query_blocks": [
+    {
+      "city": "Trondheim, Norway",
+      "query": "Trondheim dashcam GPS",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Trondheim, Norway",
+      "query": "Trondheim dashcam VIOFO",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Trondheim, Norway",
+      "query": "Trondheim dashcam drive",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Tampere, Finland",
+      "query": "Tampere dashcam GPS",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Tampere, Finland",
+      "query": "Tampere dashcam VIOFO",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Tampere, Finland",
+      "query": "Tampere dashcam drive",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Rennes, France",
+      "query": "Rennes dashcam GPS",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Rennes, France",
+      "query": "Rennes dashcam VIOFO",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Rennes, France",
+      "query": "Rennes dashcam drive",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Grenoble, France",
+      "query": "Grenoble dashcam GPS",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Grenoble, France",
+      "query": "Grenoble dashcam VIOFO",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Grenoble, France",
+      "query": "Grenoble dashcam drive",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Dresden, Germany",
+      "query": "Dresden dashcam GPS",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Dresden, Germany",
+      "query": "Dresden dashcam VIOFO",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    },
+    {
+      "city": "Dresden, Germany",
+      "query": "Dresden dashcam drive",
+      "id": null,
+      "query_complete": true,
+      "n_results": 12
+    }
+  ],
+  "screen_row_count": 167,
+  "status_counts": {
+    "SCREEN_NOT_PASSED": 52,
+    "TITLE_OR_DURATION_INELIGIBLE": 99,
+    "PASS": 1,
+    "QUERY_COMPLETE": 15
+  },
+  "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+  "screen_results_sha256": "747eac64123fa95b18f6a8ec119b64e9062e38bebe9eb43a08c21c3076a4f09a",
+  "title_profile_sha256": "5ba509ae9e6e92e742282d5cf27ea0eeff6f7e60634910f42d287ab8d4c19053",
+  "executed_screen_source_sha256": "4d1682229d09e8b79088398a00dd14b1cc5ad11d9cfae9a88b8df4e928ee8ec5",
+  "exec_handle": 71890,
+  "outer_shell_returncode": 1,
+  "program_exhaustion_returncode_declared_in_source": 2,
+  "terminal_stdout_marker": "fixed replacement pool exhausted",
+  "observed_owned_births": [
+    {
+      "pid": 10328,
+      "create_time": 1794352543.2093432,
+      "exact_birth_gone": true,
+      "current_birth": null
+    },
+    {
+      "pid": 32484,
+      "create_time": 1794352543.2181273,
+      "exact_birth_gone": true,
+      "current_birth": null
+    },
+    {
+      "pid": 41552,
+      "create_time": 1794352542.949045,
+      "exact_birth_gone": true,
+      "current_birth": null
+    },
+    {
+      "pid": 17516,
+      "create_time": 1794352542.956882,
+      "exact_birth_gone": true,
+      "current_birth": null
+    },
+    {
+      "pid": 17536,
+      "create_time": 1794352543.1442845,
+      "exact_birth_gone": true,
+      "current_birth": null
+    },
+    {
+      "pid": 41908,
+      "create_time": 1794352543.1530907,
+      "exact_birth_gone": true,
+      "current_birth": null
+    }
+  ],
+  "no_open_data_exec_handles": true,
+  "no_bot_condition_observed": true,
+  "localization_executed": false,
+  "method_binding_pending": true,
+  "new_labels_restricted_to_data_qc": true
+}
