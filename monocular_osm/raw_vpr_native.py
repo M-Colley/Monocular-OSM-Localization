@@ -202,7 +202,7 @@ def inventory_rows(inventory):
     return rows
 
 
-def make_plan(inventory, calls, bindings, request_loader, metadata_loader):
+def make_plan(inventory, calls, bindings, request_loader, metadata_loader, *, request_execution_root=None):
     """Metadata only: preserve EVERY physical alias and OWN request association."""
     rows = inventory_rows(inventory)
     need(isinstance(calls, list) and len(calls) == len(rows), "ALL physical inventory calls required")
@@ -235,7 +235,12 @@ def make_plan(inventory, calls, bindings, request_loader, metadata_loader):
         need(request.get("kind") in {"baseline", "expanded"} and isinstance(request.get("execution_id"), str)
              and request["execution_id"] and is_sha(request.get("video_sha256")), "ordinary OWN request identity missing")
         cfg = request["config"]
-        need(key(original["metadata"]).startswith(key(cfg["output_dir"]) + os.sep), "metadata not under OWN request output")
+        output = Path(cfg["output_dir"])
+        if not output.is_absolute():
+            need(request_execution_root is not None and Path(request_execution_root).is_absolute(),
+                 "relative OWN output requires explicit historical request_execution_root")
+            output = Path(request_execution_root) / output
+        need(Path(key(original["metadata"])).is_relative_to(Path(key(output))), "metadata not under OWN request output")
         need(meta.get("status") == "complete" and not meta.get("issues")
              and meta.get("score_kind") == "raw_cosine_at_decoded_reference" and meta.get("query_mode") == "warp",
              "complete original warp audit required")
@@ -279,6 +284,7 @@ def make_plan(inventory, calls, bindings, request_loader, metadata_loader):
     membership = {b["key"]: [call_key(b["key"], p["role"]) for p in b["pair_records"]] for b in inventory["banks"]}
     need(len(membership) == len(inventory["banks"]), "duplicate bank key")
     return {"calls": plans, "appearance_identity": common, "bank_membership": membership,
+            "request_execution_root": str(Path(request_execution_root).resolve()) if request_execution_root is not None else None,
             "all_physical_aliases_retained": True}
 
 
@@ -380,6 +386,7 @@ def replay(plan, video, vo, signature, grids_loader, native_grid, *, max_lag_s, 
     return {"schema": "raw-vpr-own-native80-replay-v1", "status": "VERIFIED_ALL_BOUND_OWN_NATIVE80_PIXELS_CLOCK_NO_NN",
             "profile": PROFILE, "video_sha256": video["sha256"], "appearance_identity": plan["appearance_identity"],
             "bank_membership": plan["bank_membership"],
+            "request_execution_root": plan["request_execution_root"],
             "all_physical_calls_and_aliases": rows, "unique_native_decodes": len(cache),
             "signed_vo_clock_sha256": typed(vo["timestamps"]), "native70_K_sha256": typed(vo["K"]),
             "declared_max_composed_lag_s": max_lag_s, "actual_timestamps_unchanged": True,

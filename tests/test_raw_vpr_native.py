@@ -49,11 +49,12 @@ def decoder(genuine, events=None):
 def header(a): return {"shape": list(a.shape), "dtype": a.dtype.str, "sha256": r.typed(a)}
 
 
-def fixture(tmp, genuine, sparse=True):
+def fixture(tmp, genuine, sparse=True, relative=False):
     path = tmp / "private.fake"; path.write_bytes(b"private fake encoded source")
     video = {"path": str(path), "sha256": r.sha(path), "size": path.stat().st_size}
     cfg = dict(vo_start_sec=0., vo_end_sec=16.1, frame_stride=2, max_frames=None, frame_max_width=None,
-               retrieval_only=sparse, answer="track", use_vpr_prior=True, use_ipm_scale=False, output_dir=str(tmp / "child"))
+               retrieval_only=sparse, answer="track", use_vpr_prior=True, use_ipm_scale=False,
+               output_dir="child" if relative else str(tmp / "child"))
     qg = decoder(genuine)(video["path"], cfg)
     q = {"query_indices": np.arange(80, dtype=np.int64) if sparse else np.asarray(qg["dense_indices"], np.int64),
          "query_times": qg["query_times"]}
@@ -97,7 +98,8 @@ def fixture_rows(tmp, cfg, qg, q, rr, rows, calls, protected, objects, video, vo
     inv = dict(schema="closed-raw-vpr-metadata-bank-inventory-v1", banks=[dict(key="expanded",child="expanded",pair_records=rows)], protected_files=protected)
     bindings = dict(schema="root-exact-raw-bank-own-request-bindings-v1", all_inventory_rows_bound=2,
                     calls=[{**c,"owner_freeze_ref":owner} for c in calls], protected_files=[rr,owner,*protected])
-    plan = r.make_plan(inv,calls,bindings,lambda _:request,lambda v:objects[r.key(v["path"])])
+    plan = r.make_plan(inv,calls,bindings,lambda _:request,lambda v:objects[r.key(v["path"])],
+                       request_execution_root=str(tmp) if not Path(cfg["output_dir"]).is_absolute() else None)
     return inv,calls,bindings,plan,video,vo,sig,q,request,objects
 
 
@@ -209,8 +211,9 @@ def test_final_callback_mutation_is_caught_by_callback_free_pass(tmp_path):
     with pytest.raises(ValueError,match="protected bytes changed"):ledger.unchanged()
 
 
-def test_standalone_reads_only_six_allowed_members_and_publishes(tmp_path,genuine_grid,monkeypatch):
-    inv,calls,bindings,_,video,vo,sig,_,_,_=fixture(tmp_path,genuine_grid)
+@pytest.mark.parametrize("relative",[False,True])
+def test_standalone_reads_only_six_allowed_members_and_publishes(tmp_path,genuine_grid,monkeypatch,relative):
+    inv,calls,bindings,_,video,vo,sig,_,_,_=fixture(tmp_path,genuine_grid,relative=relative)
     ir=write(tmp_path/"inventory.json",inv);bindings["inventory_ref"]=ir
     br=write(tmp_path/"bindings.json",bindings)
     vp,sp=tmp_path/"vo.npz",tmp_path/"signed.npz"
@@ -221,6 +224,9 @@ def test_standalone_reads_only_six_allowed_members_and_publishes(tmp_path,genuin
                 inventory=ir,own_request_bindings=br,calls=calls,video=video,
                 cues_vo=dict(path=str(vp),sha256=r.sha(vp)),signed_vo_cache=dict(path=str(sp),sha256=r.sha(sp)),
                 max_composed_lag_s=1.,output_dir=str(tmp_path/"out"))
+    if relative:
+        config["request_execution_root"]=str(tmp_path)
+        config["request_execution_origin_ref"]=write(tmp_path/"origin.json",dict(source=str(tmp_path),source_commit="a"*40,source_clean=True))
     cr=write(tmp_path/"config.json",config)
     opened=[];original=np.lib.npyio.NpzFile.__getitem__
     def getitem(archive,name):
@@ -238,3 +244,38 @@ def test_native_loader_wrong_pin_refuses_before_execution(tmp_path):
     with pytest.raises(ValueError,match="original native/dependency"):
         r.load_native_grid(r.Ledger(),dict(path=str(tmp_path/"none.py"),sha256="0"*64),
                            dict(path=str(tmp_path/"audit_prepared.py"),sha256=r.DEPENDENCY_SHA))
+
+
+@pytest.mark.parametrize("origin", ["correct", "wrong", "missing"])
+def test_relative_own_output_uses_explicit_historical_execution_root(tmp_path,genuine_grid,origin):
+    inv,calls,bindings,_,_,_,_,_,request,objects=fixture(tmp_path,genuine_grid,relative=True)
+    before=copy.deepcopy(request)
+    root=str(tmp_path) if origin=="correct" else str(tmp_path/"wrong_checkout") if origin=="wrong" else None
+    def plan():
+        return r.make_plan(inv,calls,bindings,lambda _:request,lambda v:objects[r.key(v["path"])],request_execution_root=root)
+    if origin=="correct":
+        assert plan()["request_execution_root"]==str(tmp_path.resolve())
+    else:
+        with pytest.raises(ValueError,match="historical|not under OWN"):
+            plan()
+    assert request==before and request["config"]["output_dir"]=="child"
+
+
+def test_absolute_own_output_ignores_other_checkout_origin(tmp_path,genuine_grid):
+    inv,calls,bindings,_,_,_,_,_,request,objects=fixture(tmp_path,genuine_grid)
+    plan=r.make_plan(inv,calls,bindings,lambda _:request,lambda v:objects[r.key(v["path"])],
+                     request_execution_root=str(tmp_path/"another_checkout"))
+    assert len(plan["calls"])==2
+
+
+def test_wrong_origin_registration_refuses_before_query_or_video_values(tmp_path,genuine_grid,monkeypatch):
+    inv,calls,bindings,_,_,_,_,_,_,_=fixture(tmp_path,genuine_grid,relative=True)
+    ir=write(tmp_path/"inventory.json",inv);bindings["inventory_ref"]=ir
+    config=dict(schema="raw-vpr-native-replay-config-v1",source_hashes={n:r.sha(r.ROOT/n) for n in r.SOURCE_PATHS},
+                inventory=ir,own_request_bindings=write(tmp_path/"bindings.json",bindings),calls=calls,
+                request_execution_root=str(tmp_path),request_execution_origin_ref=write(tmp_path/"origin.json",
+                dict(source=str(tmp_path/"other_checkout"),source_commit="a"*40,source_clean=True)))
+    cr=write(tmp_path/"config.json",config)
+    monkeypatch.setattr(r.Ledger,"members",lambda *a:pytest.fail("arrays before historical origin binding"))
+    with pytest.raises(ValueError,match="origin registration differs"):
+        cli.execute(cr["path"],cr["sha256"],native_grid=lambda *a:pytest.fail("video before origin"))
