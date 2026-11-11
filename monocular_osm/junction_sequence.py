@@ -455,9 +455,21 @@ def align_with_appearance(net: RoadNetwork, odometry: Odometry, motion_status, n
                   check=check, clock=clock, appearance_input=(bank, native_facts))
 
 
+def align_with_compatible_appearance(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
+                                    bank, native_facts, *, config: Config | None = None,
+                                    check=lambda: None, clock=time.monotonic):
+    """Separate numeric-compatible data study; identical fixed fusion math."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("compatible appearance requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config,
+                  check=check, clock=clock, appearance_input=(bank, native_facts), compatible_appearance=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
-           appearance_input=None):
+           appearance_input=None, compatible_appearance=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -469,12 +481,20 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
     config.validate()
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
     if appearance_input is not None:
-        from . import raw_vpr_appearance
-        profile = {**profile, "method": "offline-all-junction-raw-vpr-appearance-v1",
-                   "base_method": PROFILE_V3["method"], "appearance_profile": dict(raw_vpr_appearance.PROFILE),
-                   "appearance_profile_sha256": raw_vpr_appearance.PROFILE_SHA256,
+        if compatible_appearance:
+            from . import raw_vpr_compat_appearance as appearance_core
+            prepare_appearance = appearance_core.prepare_compatible
+        else:
+            from . import raw_vpr_appearance as appearance_core
+            prepare_appearance = appearance_core.prepare
+        profile = {**profile, "method": ("offline-all-junction-compatible-raw-vpr-appearance-v1" if compatible_appearance
+                                         else "offline-all-junction-raw-vpr-appearance-v1"),
+                   "base_method": PROFILE_V3["method"], "appearance_profile": dict(appearance_core.PROFILE),
+                   "appearance_profile_sha256": appearance_core.PROFILE_SHA256,
                    "appearance_initial_guide": "EXIT guide times first appearance factor to group power; exact initial p/q",
                    "turn_and_ancestor_guides": "unchanged EXIT-only guides with exact corrections"}
+        if compatible_appearance:
+            profile["compatibility_not_bitwise_identity"] = True
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -515,7 +535,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
         appearance_records = []
         if appearance_input is not None:
             try:
-                appearance = raw_vpr_appearance.prepare(appearance_input[0], net, appearance_input[1],
+                appearance = prepare_appearance(appearance_input[0], net, appearance_input[1],
                     native_times, motion.times, check=poll)
             except ValueError as error:
                 raise Unavailable("appearance inputs refused: " + str(error)) from error
