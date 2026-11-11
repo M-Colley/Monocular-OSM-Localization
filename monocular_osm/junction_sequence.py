@@ -467,9 +467,21 @@ def align_with_compatible_appearance(net: RoadNetwork, odometry: Odometry, motio
                   check=check, clock=clock, appearance_input=(bank, native_facts), compatible_appearance=True)
 
 
+def align_with_snapshot_appearance(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
+                                   evidence, native_facts, *, config: Config | None = None,
+                                   check=lambda: None, clock=time.monotonic):
+    """Separate provider-normalized snapshot alternatives; never an Answer."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("snapshot appearance requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config,
+                  check=check, clock=clock, appearance_input=(evidence, native_facts), snapshot_appearance=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
-           appearance_input=None, compatible_appearance=False):
+           appearance_input=None, compatible_appearance=False, snapshot_appearance=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -481,20 +493,27 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
     config.validate()
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
     if appearance_input is not None:
-        if compatible_appearance:
+        if snapshot_appearance:
+            from . import reference_snapshot_appearance as appearance_core
+            prepare_appearance = appearance_core.prepare_snapshot
+        elif compatible_appearance:
             from . import raw_vpr_compat_appearance as appearance_core
             prepare_appearance = appearance_core.prepare_compatible
         else:
             from . import raw_vpr_appearance as appearance_core
             prepare_appearance = appearance_core.prepare
-        profile = {**profile, "method": ("offline-all-junction-compatible-raw-vpr-appearance-v1" if compatible_appearance
-                                         else "offline-all-junction-raw-vpr-appearance-v1"),
+        profile = {**profile, "method": ("offline-all-junction-reference-snapshot-appearance-v1" if snapshot_appearance else
+                                         "offline-all-junction-compatible-raw-vpr-appearance-v1" if compatible_appearance else
+                                         "offline-all-junction-raw-vpr-appearance-v1"),
                    "base_method": PROFILE_V3["method"], "appearance_profile": dict(appearance_core.PROFILE),
                    "appearance_profile_sha256": appearance_core.PROFILE_SHA256,
                    "appearance_initial_guide": "EXIT guide times first appearance factor to group power; exact initial p/q",
                    "turn_and_ancestor_guides": "unchanged EXIT-only guides with exact corrections"}
         if compatible_appearance:
             profile["compatibility_not_bitwise_identity"] = True
+        if snapshot_appearance:
+            profile["descriptor_equivalence_assumed"] = False
+            profile["historical_encoder_verified"] = False
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
