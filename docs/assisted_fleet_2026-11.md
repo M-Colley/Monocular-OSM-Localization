@@ -936,3 +936,44 @@ No new motion or Answer is adopted; validated development stays **14/15**.
 
 Proof: `E:/monocular-osm-multiview-motion-proof/run1`; completion SHA256
 `4ae691f2bf5c6aa7bc177c5d8a03298b3513a8949b99dfdb078612237ebf6109`.
+
+## Road-context epsilon target (11 November 2026; negative)
+
+Source `67be7cb` adds a separate research entry that changes only the epsilon
+transition after the original clipped cruising-scale update. Exact scalar
+base-speed context at the previous segment and fully measured native-moving
+support enable a normalized 25% parent / 75% road mixture, with 0.75 extra
+stationary diffusion SD. Missing, unsupported, mixed, unknown and stationary
+support retains the parent transition. This is an uncalibrated motion target,
+not a measured physical speed or legal cap. No closed variant was combined.
+
+Root's combined 382 source/private and parent-regression tests passed, as did
+the independent kernel, integration, worker and closure reviews. Fresh guarded
+preparation took 22.094 s, peaked at 2,584,334,336 bytes RSS, and preserved all
+18 network arrays plus the complete network/matched/topology/plan metadata
+against R18. Numerical workers consumed only sealed outputs and metadata;
+original prepare inputs and historical source maps remained opaque.
+
+| Bank | Heading | Raw symmetric mean error (m) | Prediction time (s) | Peak aggregate RSS (bytes) |
+|---|---|---:|---:|---:|
+| Baseline | Legacy | 1638.2766488560471 | 177.953 | 1,261,297,664 |
+| Expanded | Legacy | 19760.57970939646 | 168.000 | 1,308,409,856 |
+| Baseline | Normalized | 18845.335325828848 | 116.094 | 1,256,013,824 |
+| Expanded | Normalized | 20289.24917215141 | 119.735 | 1,312,571,392 |
+
+All four complete predictions and owned worker births closed before any new
+GT score. Root independently reconstructed every context value/status and
+replayed 50,000 particles at five predetermined steps per control, including
+actual pre-K PCG64 states, clipped K, Gaussian innovations, uniforms and
+epsilon. All twenty snapshots agreed exactly. Original native Q, all 80
+appearance factors, cues, full-window lineage and scoring rules were retained.
+This does not claim full PF/genealogy replay or calibrated speed/covariance.
+
+All four fail 200 m. Baseline/legacy improved on its Run9 parent, while the
+other three worsened. The best new diagnostic also remains worse than the
+retained Detroit Answer at 1,387.2377579105248 m and earlier best diagnostic
+at 1,058.1609295408853 m. No retuning, new policy, selected Answer or fleet run
+follows. The validated fleet remains **14/15** and TEST4 remains blind.
+
+Proof: `E:/monocular-osm-joint-vpr-proof/run19`; completion SHA256
+`af1f1e036e3fd0428648b0442a8958a42dd75b27242eed6461be26b1ee394cad`.

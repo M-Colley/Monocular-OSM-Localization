@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including semantic-sidecar source `f2e8ee5`, joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
+records, including road-context source `67be7cb`, semantic-sidecar source `f2e8ee5`, joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
 `54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
@@ -688,9 +688,9 @@ uncertain context. Legal limits are not measured travel speed. No new model
 parameters or implementation have been adopted. A successful component still
 needs generic runtime integration and a fresh original-fifteen Answer run.
 
-## Active road-context transition study
+## Closed road-context transition study
 
-Run19 freezes one new target before any new route:
+Run19 froze one new target before any new route:
 `E:/monocular-osm-joint-vpr-proof/run19/road_speed_study_contract.json`.
 The original clipped cruising-scale update and Gaussian epsilon innovation
 remain in their original order. On fully reported measured-moving intervals
@@ -709,12 +709,48 @@ segment; `pf.index=t` remains unchanged while motion support uses `t-1`.
 Independent mathematical, sampling-hook and context-cache reviews are GO
 with these explicit limits. The implementation is held and privately tested;
 382 focused and parent-regression cases pass at Root.
-Five fixed transition steps export all 50k particle pre/post states and
+Five fixed transition steps exported all 50k particle pre/post states and
 pre-predict PCG64 states for Root replay. The four original bank/heading
-controls retain all visual/EXIT/native-Q/proposal/genealogy settings; no
+controls retained all visual/EXIT/native-Q/proposal/genealogy settings; no
 closed query-veto, joint-initialization, adaptive or high-N variant is mixed
-in. All four predictions must close before scoring. No new road-context route,
-selected Answer or fleet result exists yet.
+in. All four predictions closed before any new score. All twenty full-cloud
+transition snapshots replayed exactly, including clipped K, actual Gaussian
+innovation, uniforms and epsilon. Fresh basic preparation preserved all 18
+network arrays and the complete four old metadata objects against R18.
+
+| Bank / heading | Run9 parent error (m) | Road-context error (m) |
+|---|---:|---:|
+| Baseline / legacy | 4910.147300513726 | 1638.2766488560471 |
+| Expanded / legacy | 6041.076373316711 | 19760.57970939646 |
+| Baseline / normalized | 3605.817422391153 | 18845.335325828848 |
+| Expanded / normalized | 1058.1609295408853 | 20289.24917215141 |
+
+All four failed 200 m. One paired control improved and three worsened; the
+best new diagnostic also remained worse than the retained Detroit Answer.
+No parameters were retuned, no route or policy was adopted, and no new
+selected-Answer fleet ran. The validated fleet remains **14/15**. Prediction
+workers used 116.094–177.953 s and peaked at 1,312,571,392 bytes aggregate RSS,
+within two-CPU, 3 GiB RSS and 8 GiB headroom guards. Full-window single lineages were scored
+unchanged; full PF/genealogy replay or physical-speed calibration is not
+claimed. Completion: `E:/monocular-osm-joint-vpr-proof/run19/study_completion.json`,
+SHA256 `af1f1e036e3fd0428648b0442a8958a42dd75b27242eed6461be26b1ee394cad`.
+
+The benchmark analysis window is separate from container duration. Overlay
+fleet acquisition declares ten-minute windows and can narrow each to a
+continuous annotation segment; the manifest supplies its explicit
+`vo_segment` to frame extraction. Scoring uses the complete frozen GT file.
+A long upload does not imply that the benchmark should localize its entire
+duration. Source rules alone do not prove a particular cached clock/annotation
+endpoint join; preserve the registered case window and full GT during tests.
+
+A bounded 11 November primary-source scan also found
+[Déjà View/DVLT](https://research.nvidia.com/labs/dvl/projects/dvlt/), a
+NeurIPS 2026 joint multiview camera/geometry model with
+[official code](https://github.com/nv-tlabs/dvlt) and published weights.
+Its CPU/Windows resource feasibility and metric validity are unverified here.
+Source inspection confirms a standard PyTorch SDPA path; an isolated
+environment and separate synthetic feasibility tests remain pending.
+No neural forward or actual-video test has run, and it changes no R19 control.
 
 ## Evaluation and operating constraints
 

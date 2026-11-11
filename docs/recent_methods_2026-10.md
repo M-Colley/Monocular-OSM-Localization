@@ -35,6 +35,16 @@ full original pixel/clock stream, then refused all32 independent windows under
 fixed triangulation, parallax and held-out gates. Synthetic-image feasibility
 did not establish useful actual-video motion; no new pose or route is adopted.
 
+The fixed road-context epsilon-mixture study at `67be7cb` subsequently completed
+all four controls, with exact transition replay and all predictions closed
+before scoring. Errors were 1,638.2766488560471 / 19,760.57970939646 m with
+legacy heading and 18,845.335325828848 / 20,289.24917215141 m with normalized
+heading, in baseline/expanded order. All failed 200 m. One paired Run9 control
+improved and three worsened; no new route, parameter adjustment or policy was
+adopted. Validated fleet accuracy remains **14/15**. The completion record is
+`E:/monocular-osm-joint-vpr-proof/run19/study_completion.json`, SHA256
+`af1f1e036e3fd0428648b0442a8958a42dd75b27242eed6461be26b1ee394cad`.
+
 At the 30 October 2026 checkpoint, the complete cold development baseline was
 **9/15 within 200 m symmetric mean route error**. These experiments did not
 establish a new complete fleet result. They used development clips; the
@@ -52,6 +62,20 @@ deadline finalization and a metadata-union duplicate-reference identity error;
 the original run continued unchanged. Neither fix had an accuracy result then.
 
 ## What was searched
+
+A further bounded primary-source scan on 11 November identified
+[Déjà View/DVLT](https://research.nvidia.com/labs/dvl/projects/dvlt/), listed
+as a NeurIPS 2026 Oral. Its [official repository](https://github.com/nv-tlabs/dvlt)
+at `f59bb18259ab446a7585c4f47731a77cfdefa426` provides inference code and a
+publisher checkpoint link. The 117M-parameter model estimates cameras and
+dense geometry jointly from multiple views. This suggests a distinct motion
+frontend to examine after the unsuccessful sparse fixed-K window pilot;
+that transfer is a hypothesis, not an accuracy result. Linux/CUDA is the
+publisher-tested environment. Windows/CPU2/3 GiB feasibility, checkpoint
+identity and native-video geometric support remain to be established. No
+model or weights from this check have been run. Internal consistency and
+Sim(3)-aligned benchmark results would not independently certify metric
+speed or covariance on the project video.
 
 An additional focused primary-source check on 10 November found the
 following candidates. This supplements the earlier bounded conference scan;
