@@ -608,6 +608,111 @@ class _JointInitialProposalMixin:
             "witness_before_any_target_factor": True, "speed_prior_sampling_certified_from_values": False}
 
 
+class _RoadSpeedMixin:
+    """Only the protected epsilon target changes; genuine predict stays shared."""
+
+    def install_road_context(self, context):
+        from . import road_speed_context as context_core, road_speed_kernel as kernel
+        if (not isinstance(context, context_core.RoadSpeedContext) or self.metric
+                or self._dev_sigma != kernel.PARENT_SIGMA or self.cfg.speed_dev_tau_s != kernel.PARENT_TAU):
+            raise ValueError("genuine nonmetric parent/context parameters required")
+        context.require_runtime(self.net)
+        self._road_context = context
+        self._road_schedule = context_core.moving_schedule(self.motion)
+        total, particles = len(self.motion.step), self.cfg.n_particles
+        planned = kernel.witness_steps(total)
+        payload = 60 * particles * len(planned) + 4 * len(planned) + 9 * (total + 1)
+        if payload > 64 << 20:
+            raise Unavailable("fixed road witness payload exceeds64MiB")
+        self._road_planned = planned
+        self._road_witness = {"road_witness_previous_edge": np.empty((len(planned), particles), np.int32)}
+        for name in ("previous_offset_m", "logk_before", "eps_before", "logk_after", "eps_after", "innovation", "uniform"):
+            self._road_witness["road_witness_" + name] = np.empty((len(planned), particles), np.float64)
+        self._road_rng = [None] * len(planned)
+        self._road_ready = np.zeros(len(planned), np.bool_)
+        self._road_context_count = np.zeros(total + 1, np.int32)
+        self._road_component_count = np.zeros(total + 1, np.int32)
+        self._road_interval_eligible = np.r_[False, self._road_schedule["eligible"]]
+        self._road_pred_done = self._road_eps_done = self._road_attempted = 0
+        self._road_active = None
+        self._road_witness_bytes = payload
+
+    def predict(self, step, heading, dt, *args, **kwargs):
+        import copy
+        t = self.index
+        if (type(t) is not int or t != self._road_attempted + 1 or t > len(self.motion.step)
+                or float(dt) != self._road_schedule["dt"][t - 1]
+                or float(step) != self._road_schedule["parent_step"][t - 1]):
+            raise ValueError("road interval must be genuine index-1 under unchanged pf.index")
+        previous = self._road_context.lookup_previous(self.net, self.edge, self.offset)
+        eligible = previous["eligible"] & bool(self._road_schedule["eligible"][t - 1])
+        row = int(np.searchsorted(self._road_planned, t))
+        row = row if row < len(self._road_planned) and self._road_planned[row] == t else None
+        if row is not None:
+            state = self.rng.bit_generator.state
+            if state.get("bit_generator") != "PCG64":
+                raise ValueError("fixed PCG64 witness required")
+            self._road_rng[row] = copy.deepcopy(state)
+            self._road_witness["road_witness_previous_edge"][row] = self.edge
+            self._road_witness["road_witness_previous_offset_m"][row] = self.offset
+            self._road_witness["road_witness_logk_before"][row] = self.logk
+            self._road_witness["road_witness_eps_before"][row] = self.eps
+        self._road_attempted = t
+        self._road_active = {"step": t, "row": row, "eligible": eligible, "mps": previous["mps"],
+                             "u": float(self._road_schedule["measured_step"][t - 1]), "dt": float(dt)}
+        try:
+            super().predict(step, heading, dt, *args, **kwargs)
+            self._road_pred_done = t
+        finally:
+            self._road_active = None
+
+    def _epsilon_transition(self, mean0, innovation, a):
+        from . import road_speed_kernel as kernel
+        active = self._road_active
+        if active is None:
+            raise ValueError("road epsilon hook requires captured previous interval")
+        epsilon, diagnostic = kernel.sample_epsilon(mean0, innovation, a, self.logk,
+            active["u"], active["dt"], active["mps"], active["eligible"], self.rng)
+        t, row = active["step"], active["row"]
+        self._road_context_count[t] = diagnostic["context_count"]
+        self._road_component_count[t] = diagnostic["road_component_count"]
+        self._road_eps_done = t
+        if row is not None:
+            self._road_witness["road_witness_logk_after"][row] = self.logk
+            self._road_witness["road_witness_eps_after"][row] = epsilon
+            self._road_witness["road_witness_innovation"][row] = innovation
+            self._road_witness["road_witness_uniform"][row] = diagnostic["uniform"]
+            self._road_ready[row] = True
+        return epsilon
+
+    def road_speed_exports(self):
+        import copy
+        ready = int(np.count_nonzero(self._road_ready))
+        if not (self._road_ready[:ready].all() and not self._road_ready[ready:].any()):
+            raise ValueError("road witnesses must be a completed scheduled prefix")
+        result = {"road_model_eligible": self._road_interval_eligible.copy(),
+            "road_context_count": self._road_context_count.copy(),
+            "road_component_count": self._road_component_count.copy(),
+            "road_speed_witness_planned_steps": self._road_planned.tolist(),
+            "road_speed_completed_prediction_steps": self._road_pred_done,
+            "road_speed_epsilon_steps_computed": self._road_eps_done,
+            "road_speed_step_count_semantics": "counts valid through epsilon_steps_computed; later zeros uncomputed, interval mask derived for fullMotion",
+            "road_speed_witness_payload_bytes": self._road_witness_bytes}
+        if ready:
+            result["road_witness_steps"] = self._road_planned[:ready].copy()
+            result.update({name: values[:ready].copy() for name, values in self._road_witness.items()})
+            result["road_speed_witness_rng_before"] = copy.deepcopy(self._road_rng[:ready])
+        return result
+
+
+class _RoadSpeedFutureGuideFilter(_RoadSpeedMixin, _SnapshotFutureGuideFilter):
+    pass
+
+
+class _RoadSpeedNormalizedHeadingFutureGuideFilter(_RoadSpeedMixin, _NormalizedHeadingSnapshotFutureGuideFilter):
+    pass
+
+
 class _JointInitialFutureGuideFilter(_JointInitialProposalMixin, _SnapshotFutureGuideFilter):
     """Separate INITIAL proposal, genuine original subsequent filter methods."""
 
@@ -930,11 +1035,38 @@ def align_with_snapshot_normalized_heading_future_guide_joint_initial_proposal(n
                   normalized_heading=True, future_proposal=True, joint_initial_proposal=True)
 
 
+def align_with_snapshot_future_guide_road_speed(net: RoadNetwork, odometry: Odometry, motion_status,
+                                              native_times, matched, evidence, native_facts, *,
+                                              road_context, config: Config | None = None,
+                                              check=lambda: None, clock=time.monotonic):
+    """Explicit legacy-heading run9 parent plus fixed road epsilon TARGET."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.particles != 50_000 or config.seed != 0 or config.junction_prior != "conditional-uniform-v3":
+        raise ValueError("road speed requires conditional-uniform-v3 /50k /seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True, future_proposal=True,
+                  road_speed=True, road_context=road_context)
+
+
+def align_with_snapshot_normalized_heading_future_guide_road_speed(net: RoadNetwork, odometry: Odometry,
+        motion_status, native_times, matched, evidence, native_facts, *, road_context,
+        config: Config | None = None, check=lambda: None, clock=time.monotonic):
+    """Explicit normalized-heading run9 parent plus fixed road epsilon TARGET."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.particles != 50_000 or config.seed != 0 or config.junction_prior != "conditional-uniform-v3":
+        raise ValueError("road speed requires conditional-uniform-v3 /50k /seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True, future_proposal=True,
+                  normalized_heading=True, road_speed=True, road_context=road_context)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
            appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False,
            common_null=False, no_adaptive_heading_q=False, adaptive_resampling=False, high_particle_budget=False,
-           raw_query_veto=False, joint_initial_proposal=False):
+           raw_query_veto=False, joint_initial_proposal=False, road_speed=False, road_context=None):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -952,6 +1084,17 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
         if config.particles > 50_000 or config.genealogy_bytes > PROFILE["genealogy_bytes"]:
             raise ValueError("original entries retain their50k/1GiB budget")
     config.validate()
+    if road_speed:
+        from . import road_speed_context as context_core
+        if (type(road_speed) is not bool or appearance_input is None or not snapshot_appearance
+                or not future_proposal or compatible_appearance or common_null or no_adaptive_heading_q
+                or adaptive_resampling or high_particle_budget or raw_query_veto or joint_initial_proposal
+                or config.particles != 50_000 or config.seed != 0 or config.junction_prior != "conditional-uniform-v3"
+                or not isinstance(road_context, context_core.RoadSpeedContext)):
+            raise ValueError("road speed requires only fixed original run9 parent and immutable context")
+        road_context.require_base(net)
+    elif road_context is not None:
+        raise ValueError("road context requires explicit road-speed entry")
     if common_null and (appearance_input is None or not snapshot_appearance or compatible_appearance or future_proposal):
         raise ValueError("common-null requires separate snapshot inputs and EXIT-only proposals")
     if no_adaptive_heading_q and (appearance_input is None or not snapshot_appearance or not future_proposal
@@ -1093,6 +1236,20 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "appearance_initial_guide": "speed prior first; conditional-bin RAW EXIT*future times SAME G0; exact p_pos/q_cond",
             "new_mode_RNG_draw_order_changed": True,
             "initial_witness_scope": "after complete initialization BEFORE any target/global normalization"}
+    if road_speed:
+        from . import road_speed_kernel as road_kernel
+        profile = {**profile,
+            "method": ("offline-snapshot-normalized-heading-future-road-speed-v1" if normalized_heading else
+                       "offline-snapshot-legacy-heading-future-road-speed-v1"),
+            "road_speed_mode": road_kernel.MODE, "road_speed_kernel_profile": dict(road_kernel.PROFILE),
+            "road_speed_kernel_profile_sha256": road_kernel.PROFILE_SHA256,
+            "road_speed_context_profile": dict(context_core.PROFILE),
+            "road_speed_context_profile_sha256": context_core.PROFILE_SHA256,
+            "proposal_only": False, "future_guide_is_proposal_only": True,
+            "target_changed": True, "motion_target_changed": True, "appearance_target_unchanged": True,
+            "native_heading_variance_unchanged": True, "original_initial_prior_unchanged": True,
+            "epsilon_transition_only": True, "epsilon_transition_correction": "direct q=p; no extra PDF weight",
+            "no_physical_speed_or_covariance_calibration_claim": True}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -1109,6 +1266,12 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
     variance_arrays = {}
     veto_arrays = {}
     joint_initial_arrays = {}
+    if road_speed:
+        road_pf = None
+        base["road_speed_kernel_receipt"] = {"schema": "road-speed-epsilon-transition-receipt-v1",
+            "mode": road_kernel.MODE, "profile_sha256": road_kernel.PROFILE_SHA256,
+            "profile": dict(road_kernel.PROFILE), "direct_q_equals_p": True,
+            "new_PDF_weight_applied": False}
     try:
         poll()
         if no_adaptive_heading_q:
@@ -1138,6 +1301,9 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             # New TARGET, not deletion of an importance correction. All geometry,
             # node IDs and successor topology are shared with original inputs.
             net = net.with_turn_prior(0., normalise=True)
+        if road_speed:
+            net = road_context.bind_runtime(net)
+            base["road_speed_context_receipt"] = road_context.receipt
         cues = prepare_cues(net, matched, motion.times, poll)
         appearance = None
         appearance_records = []
@@ -1170,7 +1336,12 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             filter_class = _HighParticleNormalizedHeadingFutureGuideFilter if normalized_heading else _HighParticleFutureGuideFilter
         if joint_initial_proposal:
             filter_class = _JointInitialNormalizedHeadingFutureGuideFilter if normalized_heading else _JointInitialFutureGuideFilter
+        if road_speed:
+            filter_class = _RoadSpeedNormalizedHeadingFutureGuideFilter if normalized_heading else _RoadSpeedFutureGuideFilter
         pf = filter_class(net, cfg, motion, cues, poll)
+        if road_speed:
+            pf.install_road_context(road_context)
+            road_pf = pf
         if future_proposal:
             pf.future_guide = future
         parent = np.empty((t_count + 1, p), dtype=np.int32)
@@ -1278,6 +1449,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                 **resampling_arrays,
                 **veto_arrays,
                 **joint_initial_arrays,
+                **(road_pf.road_speed_exports() if road_speed else {}),
                 **({"summary_step_indices": np.asarray(summary_step_indices, np.int32)} if high_particle_budget else {}),
                 **({"appearance_events": appearance_records} if appearance is not None else {}),
                 "route_latlon": net.local_to_latlon(np.column_stack([x, y])),
@@ -1293,4 +1465,5 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                 "approximation": "finite-particle offline importance genealogy; no exact MAP or calibration"}
     except Unavailable as exc:
         return {**base, "status": "unavailable", "reason": str(exc), "route_latlon": None, **variance_arrays, **veto_arrays, **joint_initial_arrays,
+                **(road_pf.road_speed_exports() if road_speed and road_pf is not None else {}),
                 "full_window_endpoints_preserved": False, "elapsed_s": clock() - started}

@@ -688,6 +688,34 @@ uncertain context. Legal limits are not measured travel speed. No new model
 parameters or implementation have been adopted. A successful component still
 needs generic runtime integration and a fresh original-fifteen Answer run.
 
+## Active road-context transition study
+
+Run19 freezes one new target before any new route:
+`E:/monocular-osm-joint-vpr-proof/run19/road_speed_study_contract.json`.
+The original clipped cruising-scale update and Gaussian epsilon innovation
+remain in their original order. On fully reported measured-moving intervals
+with exact scalar map context, the epsilon transition directly samples a
+normalized 25% parent / 75% road-context mixture. Road variance adds 0.75
+squared to the parent stationary diffusion variance. Unknown, stationary,
+mixed and missing-context intervals retain the parent transition.
+
+This is a weak, uncalibrated anchor: constant-context stationary epsilon mean
+is 0.75 times the road equilibrium shift, and both slow and fast tails widen.
+It is not a persistent traffic-regime model or an exact OU semigroup. Numeric
+base tags remain uncertain map context, not measured speed or a hard legal
+cap. The model uses measured `log(step)-log(dt)` and the previous physical
+segment; `pf.index=t` remains unchanged while motion support uses `t-1`.
+
+Independent mathematical, sampling-hook and context-cache reviews are GO
+with these explicit limits. The implementation is held and privately tested;
+382 focused and parent-regression cases pass at Root.
+Five fixed transition steps export all 50k particle pre/post states and
+pre-predict PCG64 states for Root replay. The four original bank/heading
+controls retain all visual/EXIT/native-Q/proposal/genealogy settings; no
+closed query-veto, joint-initialization, adaptive or high-N variant is mixed
+in. All four predictions must close before scoring. No new road-context route,
+selected Answer or fleet result exists yet.
+
 ## Evaluation and operating constraints
 
 - Inference uses the video and declared city/title cues. Burned-in coordinate

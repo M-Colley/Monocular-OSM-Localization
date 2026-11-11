@@ -1136,6 +1136,10 @@ class GraphParticleFilter:
         corr = np.where(dead, -np.inf, corr)
         return np.where(dead, e, new_e), corr, dead
 
+    def _epsilon_transition(self, mean0: np.ndarray, innovation: np.ndarray, a: float) -> np.ndarray:
+        """Combine retained innovation after genuine K draw; default parent math."""
+        return mean0 + innovation
+
     def predict(self, step: float, heading: float, dt: float,
                 heading_ahead: float = float("nan"), heading_var: float = 0.0) -> None:
         """Propagate every particle by one odometry step.
@@ -1152,8 +1156,10 @@ class GraphParticleFilter:
             self.logk = np.clip(self.logk + self.rng.normal(0.0, c.logk_rw * sq, n),
                                 lo - m, hi + m)
             a = math.exp(-dt / c.speed_dev_tau_s)
-            self.eps = a * self.eps + self.rng.normal(
+            _eps_mean0 = a * self.eps
+            _eps_innovation = self.rng.normal(
                 0.0, self._dev_sigma * math.sqrt(1.0 - a * a), n)
+            self.eps = self._epsilon_transition(_eps_mean0, _eps_innovation, a)
         if step <= 0.0:
             return
         if self.delta_ready and dt > 0:

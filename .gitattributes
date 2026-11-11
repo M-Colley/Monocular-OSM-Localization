@@ -14,3 +14,14 @@ tests/test_junction_inputs_semantics.py text eol=lf
 tests/test_road_segment_semantics.py text eol=lf
 tests/test_road_segment_semantics_io.py text eol=lf
 tests/test_prepare_road_segment_semantics.py text eol=lf
+# Preserve reviewed road-context transition sources across study checkouts.
+monocular_osm/junction_sequence.py text eol=lf
+monocular_osm/road_speed_kernel.py text eol=lf
+monocular_osm/road_speed_context.py text eol=lf
+monocular_osm/road_speed_io.py text eol=lf
+scripts/reference_snapshot_road_speed_probe.py text eol=lf
+tests/test_road_speed_kernel.py text eol=lf
+tests/test_road_speed_context.py text eol=lf
+tests/test_junction_sequence_road_speed.py text eol=lf
+tests/test_graph_filter_epsilon_hook.py text eol=lf
+tests/test_reference_snapshot_road_speed_probe.py text eol=lf
