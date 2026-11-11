@@ -461,6 +461,17 @@ class _NormalizedHeadingOfflineFilter(_OfflineFilter):
         self.logw = self.logw + ll
 
 
+class _SnapshotFutureGuideFilter(_OfflineFilter):
+    """RAW guide only; existing initial/turn defenses remain in their callers."""
+    def guide(self, edge, offset, logk):
+        old_exit = super().guide(edge, offset, logk)
+        return old_exit * self.future_guide.sample(self.index, self.net, edge, offset)
+
+
+class _NormalizedHeadingSnapshotFutureGuideFilter(_SnapshotFutureGuideFilter, _NormalizedHeadingOfflineFilter):
+    """Same proposal guide with the separately declared normalized target."""
+
+
 def auxiliary_resample(pf, weights, guide):
     """Sample ancestors q_i∝w_i*g_i, then correct by 1/g_i (up to common Z)."""
     tilted = weights * guide
@@ -529,9 +540,35 @@ def align_with_snapshot_normalized_heading(net: RoadNetwork, odometry: Odometry,
                   snapshot_appearance=True, normalized_heading=True)
 
 
+def align_with_snapshot_future_guide(net: RoadNetwork, odometry: Odometry, motion_status, native_times,
+                                    matched, evidence, native_facts, *, config: Config | None = None,
+                                    check=lambda: None, clock=time.monotonic):
+    """Explicit future-proposal study with the unchanged legacy heading target."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("future guide requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True, future_proposal=True)
+
+
+def align_with_snapshot_normalized_heading_future_guide(net: RoadNetwork, odometry: Odometry, motion_status,
+                                                       native_times, matched, evidence, native_facts, *,
+                                                       config: Config | None = None, check=lambda: None,
+                                                       clock=time.monotonic):
+    """Explicit future proposal plus normalized kernel/approximate bias KF."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("future guide requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  normalized_heading=True, future_proposal=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
-           appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False):
+           appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -574,6 +611,21 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "heading_predictive_kernel_normalized": True,
             "heading_bias_update": "nearest-branch robust scalar KF approximation with normalized responsibility",
             "exact_marginalized_arc_convolution": False, "exact_bias_posterior_moments": False}
+    if future_proposal:
+        if not snapshot_appearance:
+            raise ValueError("future proposal requires explicit snapshot entry")
+        from . import snapshot_future_guide as future_core
+        profile = {**profile,
+            "method": ("offline-snapshot-normalized-heading-future-proposal-v1" if normalized_heading else
+                       "offline-snapshot-legacy-heading-future-proposal-v1"),
+            "base_heading_target": "normalized-junction-v1" if normalized_heading else "legacy",
+            "future_guide_profile": dict(future_core.PROFILE),
+            "future_guide_profile_sha256": future_core.PROFILE_SHA256,
+            "proposal_only": True, "appearance_target_unchanged": True,
+            "appearance_initial_guide": "old EXIT times future times original G0 power; exact initial p/q",
+            "turn_and_ancestor_guides": "RAW EXIT times future for turns; defensive effectiveg for auxiliary; exact corrections",
+            "initial_and_turn_guide": "RAW old EXIT times future; existing .25 defenses unchanged; initial G0 retained",
+            "auxiliary_guide": ".25+.75*raw/(w@raw) ONLY at auxiliary caller; exact1/effectiveg correction"}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -619,8 +671,19 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             except ValueError as error:
                 raise Unavailable("appearance inputs refused: " + str(error)) from error
             base["appearance"] = appearance.receipt
-        filter_class = _NormalizedHeadingOfflineFilter if normalized_heading else _OfflineFilter
+        future = None
+        if future_proposal:
+            try:
+                future = future_core.build(appearance, motion.times, check=poll)
+                base["future_guide"] = future.receipt
+            except ValueError as error:
+                raise Unavailable("future proposal refused: " + str(error)) from error
+            filter_class = _NormalizedHeadingSnapshotFutureGuideFilter if normalized_heading else _SnapshotFutureGuideFilter
+        else:
+            filter_class = _NormalizedHeadingOfflineFilter if normalized_heading else _OfflineFilter
         pf = filter_class(net, cfg, motion, cues, poll)
+        if future_proposal:
+            pf.future_guide = future
         parent = np.empty((t_count + 1, p), dtype=np.int32)
         edges = np.empty_like(parent)
         offsets = np.empty((t_count + 1, p), dtype=np.float64)
@@ -675,6 +738,8 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             edges[t], offsets[t], parent[t] = pf.edge, pf.offset, ancestry
             if t < t_count:
                 guide = pf.guide(pf.edge, pf.offset, pf.logk + pf.eps)
+                if future_proposal:
+                    guide = future_core.defensive_auxiliary_guide(weights, guide)
                 ancestry = auxiliary_resample(pf, weights, guide).astype(np.int32)
         # A representative lineage in the heaviest final spatial mode, not
         # a MAP path or an isolated high-importance-weight tail particle.

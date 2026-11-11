@@ -112,6 +112,14 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   separately. Existing entries and configuration stay unchanged. The new worker
   binds both snapshot-data and heading-model declarations before numerical
   inputs; its robust yaw-bias KF update remains approximate.
+- `snapshot_future_guide.py` builds bounded backward visual messages for
+  proposal guidance. The explicit legacy-heading and normalized-heading future
+  entries preserve their respective target factors. Initial/turn proposals
+  retain their original corrections; the new auxiliary mixture retains at least
+  one quarter of current target mass before the exact importance correction.
+  `scripts/reference_snapshot_future_guide_probe.py` binds the data, heading and
+  proposal declarations before numerical inputs. None is a default pipeline or
+  Answer-policy entry.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -281,6 +289,17 @@ The mathematical normalization finding did not repair these routes. Run8
 retains all immutable output and closure records. The next separately declared
 proposal experiment will test future appearance guides and defensive auxiliary
 sampling over both fixed heading targets; no such case execution has run yet.
+The proposal implementation passed 267 relevant tests, including 44 pure-guide
+and 24 new integration/worker tests; Root repeated those 68 tests. Peers verified
+exact old-entry outputs, particle states and RNG for both heading targets.
+A CPU2 private benchmark of the maximum 16M-value field and 1,201 endpoints
+took 4.01 s, with 66.65 MB additional traced memory and 216.32 MB sampled total
+RSS, not an absolute peak guarantee. The guide is query-spacing dependent and
+is not a physical motion posterior. Gaussian sigma above eight cells refuses
+the whole control before allocation; it is never clipped or cropped. Run9's
+final prospective contract is `future_guide_study_contract_v2.json`; the first
+contract is preserved unlaunched. Four fixed controls are pending, with every
+prediction to close before any new offline scoring.
 The source/private audit is under
 `output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
 resampling also has a demonstrated ancestry-variance risk under changing guides,
