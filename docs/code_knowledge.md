@@ -157,6 +157,10 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   guides. `scripts/reference_snapshot_raw_query_veto_probe.py` binds the
   separate run15 declaration, policy provenance and 33 source roles. It is
   diagnostic only and leaves production policy unchanged.
+- `joint_initial_proposal.py` defines fixed guide-only speed bins with total
+  tail coverage. The separate run16 integration conditions the initial road
+  position proposal on these bins, preserving actual continuous speed draws
+  and the original target through the exact conditional importance ratio.
 - `multiview_motion.py` is an opt-in seven-frame geometric frontend promoted
   byte-for-byte from a reviewed prototype. It estimates FIT-only anchor E/PnP
   poses with held-out later-view checks and preserves unknown translation.
@@ -538,7 +542,7 @@ any new ground-truth score. Each retained all 80 query events and native Q.
 | Expanded / normalized | 1,058.16 | 1,064.98 |
 
 All four fail 200 m at raw precision. Runtime was 70.47–76.06 seconds per
-prediction under CPU2/RSS3GiB limits. The shortest-looking error still comes
+prediction under CPU2/RSS3GiB limits. The lowest-error variant still comes
 from a partial route: expanded/normalized predicts 2,703 m against 10,368 m
 of ground truth, with start/end errors of 5,200/5,896 m. No candidate was
 adopted; the global selected-Answer result remains 14/15. Complete records:
@@ -574,7 +578,31 @@ time. It changes only initialization, with a separate opt-in profile and
 new RNG order. It does not combine the query veto, adaptive resampling or
 larger particle count. Source-only design:
 `output/joint_speed_position_proposal_design_20261111/design.json`.
-No new implementation, actual route or accuracy result exists yet.
+Run16 prospectively declares this separate proposal. The fixed bin helper has
+36 passing private tests and an independent review. The initializer passed
+a private 200k-cell/100k-edge/50k-particle/all-16-bin benchmark in 1.60 s,
+with 39,026,258 bytes of traced extra scratch against 64 MiB. G0 was computed
+once and one active future raster was reused; this is an initializer-only
+benchmark, not a full-filter RSS guarantee. Root repeated 106 new and 98
+existing private tests; independent review preserved complete old particle
+state and RNG. The separate worker pins 33 source roles and all four study
+declarations before values. The actual four-control run is pending; no
+joint-initial route or accuracy result exists yet. The declaration is
+`E:/monocular-osm-joint-vpr-proof/run16/joint_initial_proposal_study_contract.json`.
+
+## Frozen map tag availability
+
+A separately declared Root-only metadata inventory closed under
+`E:/monocular-osm-joint-vpr-proof/run17/audit_external_closed.json`. The original
+unsimplified graph has 175,570 nodes and 330,592 directed edges. Highway class,
+oneway, original way ID and reversal metadata occur on every edge; road refs
+on 16,222 and maxspeed tags on 134,951. Directional/conditional maxspeed and
+all tested destination fields are absent. No numeric speed values, images,
+OCR, ground truth or route inference were used. This supports investigating
+an exact original-segment road-class sidecar; it cannot support destination
+associations from these absent tags. Legal maxspeed is not observed speed or
+a hard motion bound. A normalized persistent physical-speed model, missing-tag
+behavior and congestion/stopping support are still unimplemented.
 
 ## Evaluation and operating constraints
 

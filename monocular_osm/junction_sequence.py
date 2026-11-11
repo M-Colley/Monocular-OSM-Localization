@@ -527,6 +527,95 @@ class _HighParticleNormalizedHeadingFutureGuideFilter(_HighParticleFutureGuideFi
     """Separate highN pointwise adapters; original target and raw guide math."""
 
 
+class _JointInitialProposalMixin:
+    """One bounded conditional-position proposal; genuine speed prior first."""
+    def initialise_offline(self, appearance=None):
+        import hashlib
+        from . import joint_initial_proposal as core
+        if appearance is None or self.cfg.n_particles != core.MAX_PARTICLES or self.index != 0:
+            raise ValueError("fixed50k initial snapshot proposal at index0 required")
+        net, count = self.net, self.cfg.n_particles
+        nc = np.ceil(net.edge_len / 100.).astype(np.int64)
+        cells = int(nc.sum())
+        reserve = 256 * cells + 128 * count + 64 * net.n_edges
+        if cells > core.MAX_CELLS or reserve > core.SCRATCH_BYTES:
+            raise Unavailable("complete joint initial partition/scratch reserve exceeds fixed bound")
+        edges = np.repeat(np.arange(net.n_edges), nc)
+        starts = np.concatenate([np.arange(k) * (length / k) for k, length in zip(nc, net.edge_len)])
+        lengths = np.repeat(net.edge_len / nc, nc)
+        midpoints = starts + lengths / 2
+        def digest(value):
+            h = hashlib.sha256(str((value.shape, value.dtype.str)).encode())
+            h.update(memoryview(value).cast("B"))
+            return h.hexdigest()
+        total = float(lengths.sum())
+        prior = lengths / total
+        partition = {"cell_edge_sha256": digest(edges), "cell_start_sha256": digest(starts),
+                     "cell_length_sha256": digest(lengths), "position_prior_sha256": digest(prior)}
+        del prior
+        # Preserve the actual original continuous prior draws, including atoms
+        # and eps tails. Bin representatives are used only in the guide.
+        self.logk = self._sample_logk(count)
+        self.eps = self.rng.normal(0., self._dev_sigma, count)
+        speed_bin = core.bin_indices(self.logk, self.eps, self.unit_seconds)
+        if (not isinstance(speed_bin, np.ndarray) or speed_bin.dtype != np.int32 or speed_bin.shape != (count,)
+                or np.any(speed_bin < 0) or np.any(speed_bin >= 16)):
+            raise ValueError("fixed16 bounded speed bins required before allocation")
+        counts = np.bincount(speed_bin, minlength=16).astype(np.int32)
+        cell = np.empty(count, np.int32)
+        g0 = appearance.initial_weight(net, edges, midpoints)
+        if g0.shape != (cells,) or not np.isfinite(g0).all() or np.any(g0 <= 0):
+            raise ValueError("genuine full-partition positive G0 required")
+        per_bin = []
+        for b, representative in enumerate(core.SPEED_REPRESENTATIVES):
+            if not counts[b]:
+                continue
+            self.poll()
+            ids = np.flatnonzero(speed_bin == b)
+            guide = self.guide(edges, midpoints, np.full(cells, math.log(representative * self.unit_seconds)))
+            guide *= g0
+            q, ratio = initial_proposal(lengths, guide)
+            if (not np.isfinite(q).all() or not np.isfinite(ratio).all()
+                    or abs(float(q.sum()) - 1.) > 1e-12 or float(ratio.max()) > math.log(4.) + 1e-12):
+                raise ValueError("finite normalized quarter-defensive conditional proposal required")
+            chosen = self.rng.choice(cells, size=len(ids), p=q)
+            cell[ids] = chosen
+            self.edge[ids] = edges[chosen]
+            self.offset[ids] = starts[chosen] + self.rng.random(len(ids)) * lengths[chosen]
+            self.logw[ids] = ratio[chosen]
+            per_bin.append({"bin": b, "count": int(counts[b]), "representative_mps": representative,
+                            "q_sum": float(q.sum()), "log_prior_over_q_min": float(ratio.min()),
+                            "log_prior_over_q_max": float(ratio.max())})
+            del ids, guide, q, ratio, chosen
+        del edges, starts, lengths, midpoints, g0, nc
+        self._relocate()
+        self.joint_initial_witness = {
+            "initial_speed_representatives_mps": np.asarray(core.SPEED_REPRESENTATIVES, np.float64),
+            "initial_speed_log_boundaries": np.asarray(core.LOG_SPEED_BOUNDARIES, np.float64),
+            "initial_speed_bin_counts": counts, "initial_particle_cell": cell,
+            "initial_particle_speed_bin": speed_bin, "initial_particle_edge": self.edge.astype(np.int32),
+            "initial_particle_offset_m": self.offset.copy(), "initial_particle_logk": self.logk.copy(),
+            "initial_particle_eps": self.eps.copy(), "initial_particle_logw": self.logw.copy()}
+        self.joint_initial_receipt = {"schema": "joint-speed-position-initial-proposal-receipt-v1",
+            "mode": core.MODE, "profile_sha256": core.PROFILE_SHA256, "particle_count": count,
+            "cell_count": cells, "occupied_bin_count": int(np.count_nonzero(counts)),
+            "bin_counts": counts.tolist(), "road_length_total_m": total, **partition,
+            "defensive_fraction": .25, "per_bin": per_bin, "declared_scratch_bytes": core.SCRATCH_BYTES,
+            "scratch_reserve_bytes": reserve, "scratch_reserve_formula": "256*C+128*P+64*E",
+            "target_changed": False, "proposal_only": True, "actual_latent_draws_retained": True,
+            "bin_mass_ratio_or_per_bin_weight_normalization": False,
+            "G0_computed_once": True, "future_index": 0, "all_cells_retained": True,
+            "witness_before_any_target_factor": True, "speed_prior_sampling_certified_from_values": False}
+
+
+class _JointInitialFutureGuideFilter(_JointInitialProposalMixin, _SnapshotFutureGuideFilter):
+    """Separate INITIAL proposal, genuine original subsequent filter methods."""
+
+
+class _JointInitialNormalizedHeadingFutureGuideFilter(_JointInitialProposalMixin, _NormalizedHeadingSnapshotFutureGuideFilter):
+    """Same INITIAL proposal with the original normalized-heading target."""
+
+
 def auxiliary_resample(pf, weights, guide):
     """Sample ancestors q_i∝w_i*g_i, then correct by 1/g_i (up to common Z)."""
     tilted = weights * guide
@@ -814,11 +903,38 @@ def align_with_snapshot_normalized_heading_future_guide_raw_query_veto(net: Road
                   normalized_heading=True, future_proposal=True, raw_query_veto=True)
 
 
+def align_with_snapshot_future_guide_joint_initial_proposal(net: RoadNetwork, odometry: Odometry, motion_status,
+                                                          native_times, matched, evidence, native_facts,
+                                                          *, config=None, check=lambda: None, clock=time.monotonic):
+    """Explicit speed-conditioned INITIAL proposal; original run9 target."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("joint INITIAL proposal requires conditional-uniform-v3 /50k /seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  future_proposal=True, joint_initial_proposal=True)
+
+
+def align_with_snapshot_normalized_heading_future_guide_joint_initial_proposal(net: RoadNetwork, odometry: Odometry,
+                                                                             motion_status, native_times, matched,
+                                                                             evidence, native_facts, *, config=None,
+                                                                             check=lambda: None, clock=time.monotonic):
+    """Same INITIAL proposal with original normalized-heading target/KF."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("joint INITIAL proposal requires conditional-uniform-v3 /50k /seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  normalized_heading=True, future_proposal=True, joint_initial_proposal=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
            appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False,
            common_null=False, no_adaptive_heading_q=False, adaptive_resampling=False, high_particle_budget=False,
-           raw_query_veto=False):
+           raw_query_veto=False, joint_initial_proposal=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -851,6 +967,11 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                            or high_particle_budget or compatible_appearance or config.particles != 50_000
                            or config.seed != 0 or config.junction_prior != "conditional-uniform-v3"):
         raise ValueError("raw-query veto requires only the fixed original run9 snapshot/future/native-Q target")
+    if joint_initial_proposal and (type(joint_initial_proposal) is not bool or appearance_input is None
+            or not snapshot_appearance or not future_proposal or raw_query_veto or common_null
+            or no_adaptive_heading_q or adaptive_resampling or high_particle_budget or compatible_appearance
+            or config.particles != 50_000 or config.seed != 0 or config.junction_prior != "conditional-uniform-v3"):
+        raise ValueError("joint INITIAL proposal requires only fixed original run9 target/proposals")
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
     if appearance_input is not None:
         if common_null:
@@ -958,6 +1079,20 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "appearance_target_unchanged": False, "appearance_object_and_all_proposals_ungated": True,
             "original_group_powers_unchanged": True, "native_heading_variance_unchanged": True,
             "raw_query_gate_confidence_calibrated": False}
+    if joint_initial_proposal:
+        from . import joint_initial_proposal as initial_core
+        profile = {**profile,
+            "method": ("offline-snapshot-normalized-heading-future-joint-initial-v1" if normalized_heading else
+                       "offline-snapshot-legacy-heading-future-joint-initial-v1"),
+            "joint_initial_proposal_mode": initial_core.MODE,
+            "joint_initial_proposal_profile": dict(initial_core.PROFILE),
+            "joint_initial_proposal_profile_sha256": initial_core.PROFILE_SHA256,
+            "proposal_only": True, "target_changed": False, "appearance_target_unchanged": True,
+            "future_guide_is_proposal_only": True, "original_initial_speed_prior_unchanged": True,
+            "native_heading_variance_unchanged": True, "all_original_target_events_unchanged": True,
+            "appearance_initial_guide": "speed prior first; conditional-bin RAW EXIT*future times SAME G0; exact p_pos/q_cond",
+            "new_mode_RNG_draw_order_changed": True,
+            "initial_witness_scope": "after complete initialization BEFORE any target/global normalization"}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -973,6 +1108,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "confidence_calibrated": False, "proposal_corrections": "initial p/q; turn prior/q; auxiliary 1/g"}
     variance_arrays = {}
     veto_arrays = {}
+    joint_initial_arrays = {}
     try:
         poll()
         if no_adaptive_heading_q:
@@ -1032,6 +1168,8 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             filter_class = _NormalizedHeadingOfflineFilter if normalized_heading else _OfflineFilter
         if high_particle_budget:
             filter_class = _HighParticleNormalizedHeadingFutureGuideFilter if normalized_heading else _HighParticleFutureGuideFilter
+        if joint_initial_proposal:
+            filter_class = _JointInitialNormalizedHeadingFutureGuideFilter if normalized_heading else _JointInitialFutureGuideFilter
         pf = filter_class(net, cfg, motion, cues, poll)
         if future_proposal:
             pf.future_guide = future
@@ -1047,6 +1185,9 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             pf.initialise_offline()
         else:
             pf.initialise_offline(appearance)
+        if joint_initial_proposal:
+            joint_initial_arrays = pf.joint_initial_witness
+            base["joint_initial_proposal_receipt"] = pf.joint_initial_receipt
         ancestry = np.full(p, -1, dtype=np.int32)
         ess, cue_records, modes, mode_counts, mode_mass, scale_modes = ([] for _ in range(6))
         summary_step_indices = []
@@ -1136,6 +1277,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                 **variance_arrays,
                 **resampling_arrays,
                 **veto_arrays,
+                **joint_initial_arrays,
                 **({"summary_step_indices": np.asarray(summary_step_indices, np.int32)} if high_particle_budget else {}),
                 **({"appearance_events": appearance_records} if appearance is not None else {}),
                 "route_latlon": net.local_to_latlon(np.column_stack([x, y])),
@@ -1150,5 +1292,5 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                 "genealogy_payload_bytes": genealogy_bytes, "elapsed_s": clock() - started,
                 "approximation": "finite-particle offline importance genealogy; no exact MAP or calibration"}
     except Unavailable as exc:
-        return {**base, "status": "unavailable", "reason": str(exc), "route_latlon": None, **variance_arrays, **veto_arrays,
+        return {**base, "status": "unavailable", "reason": str(exc), "route_latlon": None, **variance_arrays, **veto_arrays, **joint_initial_arrays,
                 "full_window_endpoints_preserved": False, "elapsed_s": clock() - started}
