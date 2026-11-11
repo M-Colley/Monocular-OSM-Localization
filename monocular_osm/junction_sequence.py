@@ -490,6 +490,89 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
                   config=config, check=check, clock=clock)
 
 
+@dataclass(frozen=True)
+class CommonNullAppearance:
+    """Sample the separately normalized visual log-ratio without an old wrapper."""
+    field: object
+    groups: np.ndarray
+    powers: np.ndarray
+    steps: np.ndarray
+    receipt: dict
+
+    def log_factor(self, query, net, local_xy, *, time):
+        from .raw_vpr_appearance import need
+        need(type(query) is int and 0 <= query < 80 and time == self.field.query_times[query],
+             "common-null appearance must sample exact original query PTS")
+        local = np.asarray(local_xy)
+        need(local.ndim == 2 and local.shape[1] == 2 and np.isfinite(local).all(),
+             "finite local PF positions required")
+        return self.field.sample(net.local_to_crs(local)[:, None, :],
+                                 np.array([time], np.float64))[:, 0]
+
+    def initial_weight(self, net, edge, offset):
+        x, y, _, _ = net.locate(edge, offset)
+        log_factor = self.log_factor(0, net, np.column_stack([x, y]), time=self.field.query_times[0])
+        return np.exp(self.powers[0] * log_factor)
+
+
+def prepare_common_null_appearance(evidence, net, native_facts, native_times, composed_times, *, check=lambda: None):
+    """Authenticate the unchanged snapshot/schedule contract, then build logpsi."""
+    from . import common_null_appearance as null_core
+    from . import reference_snapshot_appearance as snapshot_core
+    strict = snapshot_core.strict
+    check()
+    providers = snapshot_core._validate(evidence)
+    steps, _ = strict.verify_schedule(evidence, native_facts, native_times, composed_times)
+    times = evidence["query_times"]
+    groups, powers = strict.temporal_groups(times)
+    refs = net.local_to_crs(net.latlon_to_local(evidence["ref_latlon"]))
+    origin, shape, extent = strict.full_extent(net, refs)
+    field = null_core.build_common_null_field(refs, evidence["raw_similarities"],
+        evidence["snapshot_weights"], times, origin_xy=origin, shape=shape, check=check)
+    strict.need(field.values.dtype == np.float32 and field.values.size <= 16_000_000
+                and field.outside_value == 0., "complete common-null F32 log-ratio field required")
+    receipt = {"profile": dict(null_core.PROFILE), "profile_sha256": null_core.PROFILE_SHA256,
+        "visual_target": "common-null-v1", "field": field.source_record(), "crs": net.crs, **extent,
+        "snapshot_count": len(evidence["snapshot_weights"]), "unique_provider_count": providers,
+        "all_references": len(evidence["snapshot_weights"]), "all_physical_calls": evidence["physical_calls_validated"],
+        "reference_snapshot_profile_sha256": evidence["profile_sha256"],
+        "appearance_identity": evidence["appearance_identity"],
+        "native_clock_sha256": native_facts["signed_vo_clock_sha256"],
+        "snapshot_weights_sha256": strict.native.typed(evidence["snapshot_weights"]),
+        "query_times": times.tolist(), "group_ids": groups.tolist(), "group_powers": powers.tolist(),
+        "scheduled_steps": steps.tolist(), "all_queries_once": True,
+        "direct_log_ratio_sampling": True, "old_row_max_or_outlier_wrapper": False,
+        "outside_log_factor": 0., "model_and_reference_encoding_verified": False,
+        "descriptor_equivalence_assumed": False, "historical_encoder_verified": False}
+    check()
+    return CommonNullAppearance(field, groups, powers, steps, receipt)
+
+
+def align_with_snapshot_common_null_appearance(net: RoadNetwork, odometry: Odometry, motion_status,
+                                              native_times, matched, evidence, native_facts, *,
+                                              config: Config | None = None, check=lambda: None, clock=time.monotonic):
+    """Explicit common-null visual target with unchanged legacy heading/EXIT guides."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("common-null requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True, common_null=True)
+
+
+def align_with_snapshot_common_null_normalized_heading(net: RoadNetwork, odometry: Odometry, motion_status,
+                                                      native_times, matched, evidence, native_facts, *,
+                                                      config: Config | None = None, check=lambda: None, clock=time.monotonic):
+    """Explicit common-null visual target with normalized heading/approximate bias KF."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("common-null requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  normalized_heading=True, common_null=True)
+
+
 def align_with_appearance(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
                           bank, native_facts, *, config: Config | None = None,
                           check=lambda: None, clock=time.monotonic):
@@ -568,7 +651,8 @@ def align_with_snapshot_normalized_heading_future_guide(net: RoadNetwork, odomet
 
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
-           appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False):
+           appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False,
+           common_null=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -578,9 +662,14 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
     """
     config = config or Config()
     config.validate()
+    if common_null and (appearance_input is None or not snapshot_appearance or compatible_appearance or future_proposal):
+        raise ValueError("common-null requires separate snapshot inputs and EXIT-only proposals")
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
     if appearance_input is not None:
-        if snapshot_appearance:
+        if common_null:
+            from . import common_null_appearance as appearance_core
+            prepare_appearance = prepare_common_null_appearance
+        elif snapshot_appearance:
             from . import reference_snapshot_appearance as appearance_core
             prepare_appearance = appearance_core.prepare_snapshot
         elif compatible_appearance:
@@ -611,6 +700,15 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "heading_predictive_kernel_normalized": True,
             "heading_bias_update": "nearest-branch robust scalar KF approximation with normalized responsibility",
             "exact_marginalized_arc_convolution": False, "exact_bias_posterior_moments": False}
+    if common_null:
+        profile = {**profile,
+            "method": ("offline-snapshot-common-null-normalized-heading-v1" if normalized_heading else
+                       "offline-snapshot-common-null-legacy-heading-v1"),
+            "visual_target": "common-null-v1", "base_heading_target": "normalized-junction-v1" if normalized_heading else "legacy",
+            "visual_target_changed": True, "direct_log_ratio_sampling": True,
+            "old_row_max_or_outlier_wrapper": False, "future_proposal": False,
+            "appearance_initial_guide": "EXIT guide times exp(beta0*logpsi0); exact initial p/q",
+            "turn_and_ancestor_guides": "unchanged EXIT-only guides with exact corrections"}
     if future_proposal:
         if not snapshot_appearance:
             raise ValueError("future proposal requires explicit snapshot entry")

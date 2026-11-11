@@ -120,6 +120,13 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   `scripts/reference_snapshot_future_guide_probe.py` binds the data, heading and
   proposal declarations before numerical inputs. None is a default pipeline or
   Answer-policy entry.
+- `common_null_appearance.py` defines a separate visual density-ratio target.
+  It normalizes the query-weighted and coverage-only Gaussian grids separately,
+  mixes each with the same uniform background, and returns direct F32 log-ratios
+  with neutral value zero outside coverage. Its sampler adapter verifies the
+  original snapshot/native schedule. Explicit common-null entries and
+  `scripts/reference_snapshot_common_null_probe.py` keep future appearance
+  guidance and the heading-variance model unchanged.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -318,8 +325,14 @@ or fresh fleet gain follows. Development remains **14/15**. Proofs are under
 Source/private review also found that the current visual compatibility
 potential strongly rewards reference coverage even for a flat query; this is a
 model effect, not an arithmetic bug. A separately declared common-null density
-ratio could make flat queries and unsupported regions neutral. Its source/private
-prototype is pending. A separate heading-process audit found that inlier counts
+ratio makes flat queries and unsupported regions neutral in private tests.
+Its implementation passed 301 relevant regressions. Root repeated 37 pure and
+34 integration tests plus 60 scalar and four exact-flat checks; peers confirmed
+old-entry outputs, particle states and RNG remain unchanged. The full-cap CPU2
+field benchmark took 0.316 s with 83.9 MB additional traced memory, not a peak
+RSS guarantee. Four fixed EXIT-only case controls are pending under
+`E:/monocular-osm-joint-vpr-proof/run10`, with no common-null accuracy result yet.
+A separate heading-process audit found that inlier counts
 do not affect the current yaw-derived variance; an abrupt 90-degree jump is
 confounded with noise, whereas a smooth three-second turn receives small
 variance. Neither a measured geometric covariance nor a no-extra-Q ablation
