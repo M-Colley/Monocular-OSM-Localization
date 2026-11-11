@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
+records, including semantic-sidecar source `f2e8ee5`, joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
 `54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
@@ -647,26 +647,46 @@ defensive mixture needs private validation. No road-speed parameters have
 been fitted and no model is implemented. Designs and private proofs are in
 `output/road_conditioned_speed_design_20261111/`.
 
-## Active original-segment semantics preparation
+## Sealed original-segment semantics preparation
 
-Run18 separately declares semantic preparation under
+Source `f2e8ee5` implements the opt-in Run18 preparation under
 `E:/monocular-osm-joint-vpr-proof/run18/segment_semantics_study_contract.json`.
-It preserves the old 18-array network and full topology/match/plan metadata,
-while exporting a separate catalog and exact keyed-path/segment mapping.
-The opt-in core, geometry trace, preparation wrapper and separate worker are
-implemented. Root repeated 225 focused/new and existing checks. Independent
-reviews preserve all old construction math and particle state/RNG. The Root
+Root repeated 225 new/focused and existing checks. Independent reviews
+preserve old construction math, all 18 arrays and particle state/RNG. The Root
 validator passed 12 private end-to-end probes, including resealed corruption
 checks; it independently replays keyed simplification because geometry alone
-cannot distinguish coincident parallel paths. No actual Run18 preparation or
-Root acceptance exists yet. Caps are 500k raw directed
-edges, 100k compact edges, 500k segments, one million path memberships,
-192 MiB of catalog bytes and 64 MiB of semantic arrays. The actual preparer
-must remain within CPU2/RSS3GiB and the existing deadlines; source-only tests
-cannot establish that. Root must close the producer and independently verify
-every catalog record, disposition and mapped/neutral segment before any model
-consumes the packet. No road-conditioned speed model or new accuracy result
-exists yet.
+cannot distinguish coincident parallel paths.
+
+The actual full-map producer closed in 60.48 s, peak aggregate RSS
+2,610,544,640 bytes. Its 178,423,446-byte catalog preserves all 330,592 loaded
+raw edge records and every attribute value/type. The seven separate semantic
+arrays occupy 16,861,000 bytes. The independent validator closed in 35.47 s,
+peak 2,646,536,192 bytes. Both stayed within CPU2/RSS3GiB, headroom and deadline
+limits, with all observed worker births closed and protected bytes unchanged.
+
+Root verified all 18 network arrays and full old network/matched/topology/plan
+metadata exactly against Run16. Every compact key's original path was replayed;
+every raw disposition and all 330,592 segment associations were rebuilt. All
+segments map exactly in this packet. A further 754,188 previous-segment lookup
+checks cover segment starts, midpoints and final edge endpoints. Numeric base
+maxspeed context is available on 134,951 raw records; 195,641 remain missing.
+No missing state was removed or assigned an invented speed.
+
+The packet is sealed by
+`E:/monocular-osm-joint-vpr-proof/run18/semantic_root_acceptance.json`.
+It proves preservation of this loaded graph artifact, with source and resource
+binding. It does not upgrade original OSM coverage, way-forward direction or
+acquisition history. The old network remains an exact 18-array archive, and
+the sidecar remains separate. No road-speed model, new route, selected Answer
+or fleet score was produced; the last validated fleet remains 14/15.
+
+The next step is a separately declared, normalized road-context epsilon
+transition using measured `step/dt`, preserving unknown/stationary/mixed and
+missing-tag intervals. It must use genuine joint sampling or an exact full
+proposal density, retain broad slow support, and treat base speed tags as
+uncertain context. Legal limits are not measured travel speed. No new model
+parameters or implementation have been adopted. A successful component still
+needs generic runtime integration and a fresh original-fifteen Answer run.
 
 ## Evaluation and operating constraints
 
