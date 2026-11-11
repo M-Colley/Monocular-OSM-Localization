@@ -649,10 +649,37 @@ def align_with_snapshot_normalized_heading_future_guide(net: RoadNetwork, odomet
                   normalized_heading=True, future_proposal=True)
 
 
+def align_with_snapshot_future_guide_no_adaptive_q(net: RoadNetwork, odometry: Odometry, motion_status,
+                                                 native_times, matched, evidence, native_facts, *,
+                                                 config: Config | None = None, check=lambda: None, clock=time.monotonic):
+    """Explicit legacy-heading future proposal with zero native extra-Q only."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("no-adaptive-Q requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  future_proposal=True, no_adaptive_heading_q=True)
+
+
+def align_with_snapshot_normalized_heading_future_guide_no_adaptive_q(net: RoadNetwork, odometry: Odometry,
+                                                                   motion_status, native_times, matched,
+                                                                   evidence, native_facts, *, config: Config | None = None,
+                                                                   check=lambda: None, clock=time.monotonic):
+    """Explicit normalized-heading future proposal with zero native extra-Q only."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("no-adaptive-Q requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  normalized_heading=True, future_proposal=True, no_adaptive_heading_q=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
            appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False,
-           common_null=False):
+           common_null=False, no_adaptive_heading_q=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -664,6 +691,9 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
     config.validate()
     if common_null and (appearance_input is None or not snapshot_appearance or compatible_appearance or future_proposal):
         raise ValueError("common-null requires separate snapshot inputs and EXIT-only proposals")
+    if no_adaptive_heading_q and (appearance_input is None or not snapshot_appearance or not future_proposal
+                                 or common_null or compatible_appearance):
+        raise ValueError("no-adaptive-Q requires original snapshot visual target and explicit future proposal")
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
     if appearance_input is not None:
         if common_null:
@@ -724,6 +754,17 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "turn_and_ancestor_guides": "RAW EXIT times future for turns; defensive effectiveg for auxiliary; exact corrections",
             "initial_and_turn_guide": "RAW old EXIT times future; existing .25 defenses unchanged; initial G0 retained",
             "auxiliary_guide": ".25+.75*raw/(w@raw) ONLY at auxiliary caller; exact1/effectiveg correction"}
+    if no_adaptive_heading_q:
+        from . import no_adaptive_heading_variance as variance_core
+        profile = {**profile,
+            "method": ("offline-snapshot-normalized-heading-future-no-adaptive-q-v1" if normalized_heading else
+                       "offline-snapshot-legacy-heading-future-no-adaptive-q-v1"),
+            "variance_mode": "no-adaptive-extra-Q-v1", "heading_variance_profile": dict(variance_core.PROFILE),
+            "heading_variance_profile_sha256": variance_core.PROFILE_SHA256,
+            "proposal_only": False, "future_guide_is_proposal_only": True,
+            "native_heading_extra_Q_changed": True, "motion_means_status_clock_unchanged": True,
+            "unknown_motion_variance_unchanged": True, "fixed_bias_random_walk_unchanged": True,
+            "measured_covariance": False, "calibrated_covariance": False}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -737,9 +778,17 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "effective_filter_config": asdict(cfg), "base_turn_profile_verified": False,
             "online": False, "accuracy_admitted": False, "selection": None,
             "confidence_calibrated": False, "proposal_corrections": "initial p/q; turn prior/q; auxiliary 1/g"}
+    variance_arrays = {}
     try:
         poll()
-        motion = coarsen_motion(odometry, motion_status, native_times)
+        if no_adaptive_heading_q:
+            effective_odometry = variance_core.without_adaptive_heading_variance(odometry)
+            motion = coarsen_motion(effective_odometry, motion_status, native_times)
+            variance_arrays = {"effective_native_heading_var": effective_odometry.heading_var.copy(),
+                               "composed_heading_var": motion.heading_var.copy()}
+            del effective_odometry
+        else:
+            motion = coarsen_motion(odometry, motion_status, native_times)
         t_count, p = len(motion.step), config.particles
         genealogy_bytes = 16 * p * (t_count + 1)
         if genealogy_bytes > config.genealogy_bytes:
@@ -854,6 +903,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             raise Unavailable("appearance did not consume every original query exactly once")
         poll()
         return {**base, "status": "complete_diagnostic_only", "times": motion.times,
+                **variance_arrays,
                 **({"appearance_events": appearance_records} if appearance is not None else {}),
                 "route_latlon": net.local_to_latlon(np.column_stack([x, y])),
                 "route_edge": route_edge, "route_offset_m": route_offset,
@@ -867,5 +917,5 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                 "genealogy_payload_bytes": genealogy_bytes, "elapsed_s": clock() - started,
                 "approximation": "finite-particle offline importance genealogy; no exact MAP or calibration"}
     except Unavailable as exc:
-        return {**base, "status": "unavailable", "reason": str(exc), "route_latlon": None,
+        return {**base, "status": "unavailable", "reason": str(exc), "route_latlon": None, **variance_arrays,
                 "full_window_endpoints_preserved": False, "elapsed_s": clock() - started}

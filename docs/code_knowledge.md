@@ -127,6 +127,12 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   original snapshot/native schedule. Explicit common-null entries and
   `scripts/reference_snapshot_common_null_probe.py` keep future appearance
   guidance and the heading-variance model unchanged.
+- `no_adaptive_heading_variance.py` provides independent motion copies with
+  only native residual-derived heading variance replaced by zero. The explicit
+  future-guided Q-ablation entries and
+  `scripts/reference_snapshot_no_adaptive_q_probe.py` preserve original native
+  variance separately from effective zero and composed unknown-motion variance.
+  The fixed drift and observation noise remain; this is not measured covariance.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -346,7 +352,12 @@ source/private review; a separate run11 declaration preserves the old run9
 visual target and future proposals while removing only native residual-derived
 heading variance. It retains fixed yaw drift, unknown-motion uncertainty and
 all original motion means. No Q-ablation case result exists yet. Its source and
-model change must remain separate from run9/run10 results.
+model change must remain separate from run9/run10 results. The explicit
+implementation passed 367 relevant private tests. Root repeated 32 pure and
+34 integration tests; both peers approved, including exact old future/common-null
+entry outputs, particle states and RNG. Fresh 33-source case preparation and
+four fixed controls are pending. Original and effective variance are never
+relabelled as each other.
 The source/private audit is under
 `output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
 resampling also has a demonstrated ancestry-variance risk under changing guides,
