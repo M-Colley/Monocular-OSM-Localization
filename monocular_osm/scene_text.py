@@ -272,6 +272,14 @@ def _default_reader(languages: tuple[str, ...], use_gpu: bool,
 _COORD_FRAGMENT = re.compile(r"\d{1,3}[.,]\d{3,}")
 # degrees-minutes with the degree sign kept, or lost to a space by OCR
 _DMS_FRAGMENT = re.compile(r"\d{1,3}\s*(?:[°º*]|\s)\s*\d{1,2}\s*['’′]")
+# OCR can join degrees+minutes and concatenate the next coordinate directly
+# after the hemisphere: 4025'32"N7400'11"W. Require a minute mark, seconds
+# and an explicit hemisphere so road refs, EAST/WEST and names like "1960's"
+# stay available. This rejects fragments; it does not parse a geographic fix.
+_COMPACT_DMS_BODY = r"\d{2,5}\s*['’′]\s*\d{1,2}(?:[.,]\d+)?\s*[\"”″]?"
+_COMPACT_DMS_FRAGMENT = re.compile(
+    r"(?<![A-Z0-9])(?:" + _COMPACT_DMS_BODY + r"\s*[NSEW](?![A-Z])|"
+    r"[NSEW]\s*[:=]?\s*" + _COMPACT_DMS_BODY + r"(?![A-Z0-9]))", re.IGNORECASE)
 _HEMI_FRAGMENT = re.compile(r"\b[NSEW]\s*[:=]\s*\d", re.IGNORECASE)
 _SPEED_STAMP = re.compile(r"\d{1,3}\s*(?:MPH|KPH|KM\s*/?\s*H)\b", re.IGNORECASE)
 
@@ -282,6 +290,7 @@ def is_position_stamp(text: str) -> bool:
 
     t = normalize_overlay_text(str(text or ""))
     return bool(parse_latlon(t) or _COORD_FRAGMENT.search(t) or _DMS_FRAGMENT.search(t)
+                or _COMPACT_DMS_FRAGMENT.search(t)
                 or _HEMI_FRAGMENT.search(t) or _SPEED_STAMP.search(t))
 
 

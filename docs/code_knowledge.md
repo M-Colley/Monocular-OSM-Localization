@@ -170,7 +170,7 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
 
 Detroit's municipal search densified cells selected from already-decoded
 coarse tracks. Cells needed later in the drive received no decoded support;
-only the first portion was covered well. The current investigation is an
+only the first portion was covered well. The earlier investigation tested an
 opt-in `--vpr-city-cell-selector=raw-votes` selector based on each coarse
 cell's raw query/reference similarities. It retains the existing fine-cell
 count, reference budgets, decoder, and admission policy for comparison.
@@ -215,7 +215,7 @@ Its flat unnormalized turn potentials reward branching multiplicity; a new
 conditional-uniform transition model was then tested at clean `72437d9`
 with byte-identical typed map arrays, signs and hypotheses. It also failed:
 **18,281.577297323704 m**, in 64.156 s. Neither graph-only variant is adopted.
-The next investigation uses early raw VPR evidence as soft spatial mixtures
+The subsequent investigation used early raw VPR evidence as soft spatial mixtures
 alongside road/sign constraints. The complete saved inventory contains two
 baseline records and 40 expanded/control records, including five physical
 copies. All 42 are retained; copies cannot create extra query observations.
@@ -270,7 +270,7 @@ baseline's five arrays are exactly identical to the previously scored strict
 control. No new sampler or accuracy score ran. The guarded study closed in
 58.344 s at 324,284,416 bytes peak sampled aggregate RSS.
 
-The next separately declared representation retains distinct protected
+The later separately declared representation retained distinct protected
 reference-feature snapshots as alternatives. Each provider image has total
 weight one, split uniformly over its distinct descriptor/raw-column snapshots;
 exact physical copies add no weight. It retains every original per-pool and
@@ -506,6 +506,31 @@ confirms expanded search already uses multiple named places and undirected MST
 corridors. It loses ordered origin/destination roles. A soft directed intent
 model remains unimplemented; city-centre attraction or shortest corridors can
 miss a cropped drive, as earlier negative coverage studies already show.
+
+## Current next target and shared text fix
+
+A bounded raw-query eligibility audit under
+`E:/monocular-osm-joint-vpr-proof/run14` found that the inherited `.162` cutoff
+enables 63/80 baseline and 75/80 expanded query maxima. It therefore is not a
+no-op. This cutoff was designed for a POSTHOC DEV decoded-track median, not a
+calibrated query inlier probability. Run15 prospectively declares one separate
+heuristic target change: multiply each original visual log factor by that
+query flag, retaining all 80 events and original powers without renormalizing.
+Original initial/turn/ancestor/backward guides remain ungated with exact
+importance corrections. Source/private implementation is pending; no gated
+route, policy or fleet result exists yet.
+
+`scene_text.is_position_stamp` now also rejects compact DMS fragments with
+minute/second marks and an explicit hemisphere, including missing degree marks
+and short fragments. Normal road references, cardinal words and apostrophe
+names remain available. The shared fix applies to fresh and cached extraction
+and restored context; it does not rewrite cache artifacts or change GPS/GT
+parsers. The author/peer focused suite passed 84 checks plus 26 independent
+string variants. Root repeated 75 scene/context/clue tests. Reapplying the new
+filter to the old frozen temporal OCR excludes one previously missed
+coordinate-like row while preserving all four EXIT refs, times, confidences
+and pairings. This is an exclusion fix, not an accuracy gain; old artifacts
+and the last validated 14/15 remain historical evidence.
 
 ## Evaluation and operating constraints
 

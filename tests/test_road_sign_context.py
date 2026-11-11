@@ -93,6 +93,17 @@ def test_stamp_filter_applies_to_original_and_context_detections():
     assert not any("MPH" in r["text"] for r in result["merged_detections"])
 
 
+def test_compact_stamp_exclusion_is_shared_by_original_and_restored_context():
+    fabricated = "4025'32\"N7400'11\"W"
+    result, _, calls = run([seed(), seed(fabricated)],
+        outputs=[detection(), detection(fabricated, box=(1., 1., 10., 8.))])
+    assert result["status"] == "complete" and len(calls) == 1
+    assert result["plan"]["filtered_stamp_indices"] == [1]
+    assert result["crop_records"][0]["filtered_stamp_outputs"] == [1]
+    assert not any(row["text"] == fabricated for row in result["merged_detections"])
+    assert [row["ref"] for row in result["clues"]["observations"]] == ["186B"]
+
+
 def test_no_eligible_seed_never_calls_a_reader_or_loader_and_keeps_existing_clues():
     def forbid(*args):
         pytest.fail("unplanned pixels or OCR")
