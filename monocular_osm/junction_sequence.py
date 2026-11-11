@@ -787,10 +787,38 @@ def align_with_snapshot_normalized_heading_future_guide_high_particle_budget(net
                   normalized_heading=True, future_proposal=True, adaptive_resampling=True, high_particle_budget=True)
 
 
+def align_with_snapshot_future_guide_raw_query_veto(net: RoadNetwork, odometry: Odometry, motion_status,
+                                                  native_times, matched, evidence, native_facts,
+                                                  *, config=None, check=lambda: None, clock=time.monotonic):
+    """Explicit TARGET-only absolute raw-query veto; run9 proposals unchanged."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("raw-query veto requires conditional-uniform-v3 /50k /seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  future_proposal=True, raw_query_veto=True)
+
+
+def align_with_snapshot_normalized_heading_future_guide_raw_query_veto(net: RoadNetwork, odometry: Odometry,
+                                                                     motion_status, native_times, matched,
+                                                                     evidence, native_facts, *, config=None,
+                                                                     check=lambda: None, clock=time.monotonic):
+    """Normalized-heading TARGET-only veto, retaining the approximate bias KF."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("raw-query veto requires conditional-uniform-v3 /50k /seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  normalized_heading=True, future_proposal=True, raw_query_veto=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
            appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False,
-           common_null=False, no_adaptive_heading_q=False, adaptive_resampling=False, high_particle_budget=False):
+           common_null=False, no_adaptive_heading_q=False, adaptive_resampling=False, high_particle_budget=False,
+           raw_query_veto=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -818,6 +846,11 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
         raise ValueError("adaptive resampling requires original run9 snapshot/future/native-Q target")
     if high_particle_budget and not adaptive_resampling:
         raise ValueError("high-particle budget requires explicit adaptive run9 target/proposal")
+    if raw_query_veto and (type(raw_query_veto) is not bool or appearance_input is None or not snapshot_appearance
+                           or not future_proposal or common_null or no_adaptive_heading_q or adaptive_resampling
+                           or high_particle_budget or compatible_appearance or config.particles != 50_000
+                           or config.seed != 0 or config.junction_prior != "conditional-uniform-v3"):
+        raise ValueError("raw-query veto requires only the fixed original run9 snapshot/future/native-Q target")
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
     if appearance_input is not None:
         if common_null:
@@ -913,6 +946,18 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "summary_schedule": "final-only-v1", "summary_indices": "int32 indices into full stored times; finalT only",
             "future_pointwise_batch_max": 200_000, "normalized_heading_pointwise_batch_max": 50_000,
             "auxiliary_defense": "ONE global highN weighted mean; unchanged global ancestor draw/inverse-guide correction"}
+    if raw_query_veto:
+        from . import raw_query_veto as veto_core
+        profile = {**profile,
+            "method": ("offline-snapshot-normalized-heading-future-raw-query-veto-v1" if normalized_heading else
+                       "offline-snapshot-legacy-heading-future-raw-query-veto-v1"),
+            "raw_query_veto_mode": "absolute-max-dev-veto-v1",
+            "raw_query_veto_profile": dict(veto_core.PROFILE),
+            "raw_query_veto_profile_sha256": veto_core.PROFILE_SHA256,
+            "proposal_only": False, "future_guide_is_proposal_only": True, "target_changed": True,
+            "appearance_target_unchanged": False, "appearance_object_and_all_proposals_ungated": True,
+            "original_group_powers_unchanged": True, "native_heading_variance_unchanged": True,
+            "raw_query_gate_confidence_calibrated": False}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -927,6 +972,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "online": False, "accuracy_admitted": False, "selection": None,
             "confidence_calibrated": False, "proposal_corrections": "initial p/q; turn prior/q; auxiliary 1/g"}
     variance_arrays = {}
+    veto_arrays = {}
     try:
         poll()
         if no_adaptive_heading_q:
@@ -966,6 +1012,14 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             except ValueError as error:
                 raise Unavailable("appearance inputs refused: " + str(error)) from error
             base["appearance"] = appearance.receipt
+        if raw_query_veto:
+            enabled, maxima, receipt = veto_core.build_gate(appearance_input[0]["raw_similarities"])
+            if (not isinstance(enabled, np.ndarray) or enabled.dtype != np.bool_ or enabled.shape != (80,)
+                    or not isinstance(maxima, np.ndarray) or maxima.dtype != np.float64 or maxima.shape != (80,)
+                    or not np.isfinite(maxima).all()):
+                raise ValueError("fixed80 typed absolute raw-query gate required")
+            veto_arrays = {"raw_query_enabled": enabled, "raw_query_maxima": maxima}
+            base["raw_query_veto_receipt"] = receipt
         future = None
         if future_proposal:
             try:
@@ -1022,11 +1076,18 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                     query = int(query)
                     stamp = appearance.field.query_times[query]
                     log_factor = appearance.log_factor(query, net, np.column_stack([pf.x, pf.y]), time=stamp)
+                    if raw_query_veto:
+                        if log_factor.shape != (p,) or not np.isfinite(log_factor).all():
+                            raise ValueError("finite per-particle appearance factor required before raw-query veto")
+                        log_factor *= float(enabled[query])
                     pf.logw += appearance.powers[query] * log_factor
                     appearance_records.append({"query_row": query, "t_sec": float(stamp),
                         "applied_time": float(motion.times[t]), "composition_lag_s": float(motion.times[t] - stamp),
                         "group_id": int(appearance.groups[query]), "power": float(appearance.powers[query]),
                         "log_factor_min": float(log_factor.min()), "log_factor_max": float(log_factor.max())})
+                    if raw_query_veto:
+                        appearance_records[-1].update(enabled=bool(enabled[query]),
+                            effective_power=float(appearance.powers[query]) * float(enabled[query]))
             norm = logsumexp(pf.logw)
             if not math.isfinite(norm):
                 raise Unavailable("all full-window graph hypotheses died; no automatic restart")
@@ -1074,6 +1135,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
         return {**base, "status": "complete_diagnostic_only", "times": motion.times,
                 **variance_arrays,
                 **resampling_arrays,
+                **veto_arrays,
                 **({"summary_step_indices": np.asarray(summary_step_indices, np.int32)} if high_particle_budget else {}),
                 **({"appearance_events": appearance_records} if appearance is not None else {}),
                 "route_latlon": net.local_to_latlon(np.column_stack([x, y])),
@@ -1088,5 +1150,5 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                 "genealogy_payload_bytes": genealogy_bytes, "elapsed_s": clock() - started,
                 "approximation": "finite-particle offline importance genealogy; no exact MAP or calibration"}
     except Unavailable as exc:
-        return {**base, "status": "unavailable", "reason": str(exc), "route_latlon": None, **variance_arrays,
+        return {**base, "status": "unavailable", "reason": str(exc), "route_latlon": None, **variance_arrays, **veto_arrays,
                 "full_window_endpoints_preserved": False, "elapsed_s": clock() - started}

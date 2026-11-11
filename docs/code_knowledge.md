@@ -151,6 +151,12 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   `scripts/reference_snapshot_high_particle_probe.py` binds its separate run13
   declaration and external 16 GiB RSS bound before inputs. Case execution is
   complete for all four controls; none passed 200 m.
+- `raw_query_veto.py` defines a pure, fixed `.162` maximum-raw-score gate.
+  Two explicit `junction_sequence` entries apply it only to target visual
+  factors while retaining the original appearance object and all proposal
+  guides. `scripts/reference_snapshot_raw_query_veto_probe.py` binds the
+  separate run15 declaration, policy provenance and 33 source roles. It is
+  diagnostic only and leaves production policy unchanged.
 - `multiview_motion.py` is an opt-in seven-frame geometric frontend promoted
   byte-for-byte from a reviewed prototype. It estimates FIT-only anchor E/PnP
   poses with held-out later-view checks and preserves unknown translation.
@@ -517,8 +523,11 @@ calibrated query inlier probability. Run15 prospectively declares one separate
 heuristic target change: multiply each original visual log factor by that
 query flag, retaining all 80 events and original powers without renormalizing.
 Original initial/turn/ancestor/backward guides remain ungated with exact
-importance corrections. Source/private implementation is pending; no gated
-route, policy or fleet result exists yet.
+importance corrections. Explicit opt-in helper, sampler entries and worker are
+implemented; Root repeated 96 focused private tests. All-enabled controls match
+the parent route, particle state and RNG for both heading variants. Independent
+review and the actual four-control study are pending; no gated route, policy
+or fleet result exists yet.
 
 `scene_text.is_position_stamp` now also rejects compact DMS fragments with
 minute/second marks and an explicit hemisphere, including missing degree marks
