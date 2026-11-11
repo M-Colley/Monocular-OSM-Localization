@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
+records, including raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
 `54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
@@ -513,7 +513,7 @@ corridors. It loses ordered origin/destination roles. A soft directed intent
 model remains unimplemented; city-centre attraction or shortest corridors can
 miss a cropped drive, as earlier negative coverage studies already show.
 
-## Current next target and shared text fix
+## Closed absolute-query veto and shared text fix
 
 A bounded raw-query eligibility audit under
 `E:/monocular-osm-joint-vpr-proof/run14` found that the inherited `.162` cutoff
@@ -523,11 +523,26 @@ calibrated query inlier probability. Run15 prospectively declares one separate
 heuristic target change: multiply each original visual log factor by that
 query flag, retaining all 80 events and original powers without renormalizing.
 Original initial/turn/ancestor/backward guides remain ungated with exact
-importance corrections. Explicit opt-in helper, sampler entries and worker are
-implemented; Root repeated 96 focused private tests. All-enabled controls match
-the parent route, particle state and RNG for both heading variants. Independent
-review and the actual four-control study are pending; no gated route, policy
-or fleet result exists yet.
+importance corrections. Source `b872862` contains the explicit opt-in helper,
+sampler entries and worker. Root repeated 96 focused and 71 existing tests;
+independent reviews verified the old particle state and RNG remain exact.
+Fresh preparation matched all 18 network arrays and full metadata. All four
+full-window predictions, worker births and frozen bytes were closed before
+any new ground-truth score. Each retained all 80 query events and native Q.
+
+| Bank / heading | Parent run9 error (m) | Query-veto error (m) |
+| --- | ---: | ---: |
+| Baseline / legacy | 4,910.15 | 4,910.17 |
+| Expanded / legacy | 6,041.08 | 6,041.08 |
+| Baseline / normalized | 3,605.82 | 3,608.23 |
+| Expanded / normalized | 1,058.16 | 1,064.98 |
+
+All four fail 200 m at raw precision. Runtime was 70.47–76.06 seconds per
+prediction under CPU2/RSS3GiB limits. The shortest-looking error still comes
+from a partial route: expanded/normalized predicts 2,703 m against 10,368 m
+of ground truth, with start/end errors of 5,200/5,896 m. No candidate was
+adopted; the global selected-Answer result remains 14/15. Complete records:
+`E:/monocular-osm-joint-vpr-proof/run15/study_completion.json`.
 
 `scene_text.is_position_stamp` now also rejects compact DMS fragments with
 minute/second marks and an explicit hemisphere, including missing degree marks
@@ -540,6 +555,26 @@ filter to the old frozen temporal OCR excludes one previously missed
 coordinate-like row while preserving all four EXIT refs, times, confidences
 and pairings. This is an exclusion fix, not an accuracy gain; old artifacts
 and the last validated 14/15 remain historical evidence.
+
+## Next source-validated proposal study
+
+The current initial position guide assumes 8 m/s, then independently draws
+continuous cruising scale and its deviation. That is a valid importance
+proposal, but can start position and speed poorly coupled. A separate design
+samples the unchanged continuous speed prior first, then road position
+conditional on a fixed guide-only speed bin. The exact correction is the road
+cell prior divided by that bin's actual conditional proposal; no speed or
+bin-mass factor applies. Defensive mixing bounds this ratio by four.
+Two independent finite-state proofs recover the original target expectation.
+
+The design uses 16 fixed log-spaced representatives over 0.5–55 m/s, with
+unbounded exterior bins; actual speed samples and tails remain unchanged.
+One full road partition and one conditional guide/proposal are active at a
+time. It changes only initialization, with a separate opt-in profile and
+new RNG order. It does not combine the query veto, adaptive resampling or
+larger particle count. Source-only design:
+`output/joint_speed_position_proposal_design_20261111/design.json`.
+No new implementation, actual route or accuracy result exists yet.
 
 ## Evaluation and operating constraints
 
