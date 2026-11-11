@@ -438,3 +438,41 @@ do not solve this case. The next source investigation combines earlier
 audited visual evidence with these constraints, rather than further tuning
 the same three late sign events. It has no implemented combined likelihood
 or actual combined-method result yet.
+
+## Native visual-input replay (11 November 2026)
+
+The next investigation keeps earlier raw visual alternatives in a spatial
+mixture alongside native VO, roads and literal EXIT evidence. Before loading
+reference positions or similarity values, Root froze all numeric retrieval
+audit pairs: two baseline records and 40 expanded/control records, including
+five physical aliases. No record was dropped to obtain a compatible subset.
+The public reference payload inventory also froze 148 candidate files in 37
+directories by opaque file hash; this did not verify historical encoding.
+
+Source `0695745` adds a complete-bank input replay and pure streaming bank
+validator. Root's 65 focused tests and independent source/private reviews
+passed. The first actual replay refused a relative historical output path
+before numerical-member loading; that failure is preserved. The corrected
+helper resolves relative paths against the explicitly pinned original
+execution checkout without rewriting saved metadata.
+
+The corrected guarded replay closed in **55.110 s**, peaking at
+**147,611,648 bytes** sampled aggregate RSS. All 42 physical calls passed the
+original native80 pixel/clock check. Every query time exactly matches the
+signed VO clock; applying factors at the next composed motion boundary adds
+at most **0.401956186775692 s** of declared lag. All observed worker births
+closed and protected input/source hashes remained unchanged before Root
+accepted this input-only result. No NN, descriptor recomputation, route
+inference, GT or policy selection ran.
+
+Native facts: `E:/monocular-osm-joint-vpr-proof/run2/native_result/native_replay.json`,
+SHA256 `67476f9171724727dbef7531c8bb8869ccc0da82d1f7dd1999566d73251207a9`.
+Root acceptance: `E:/monocular-osm-joint-vpr-proof/run2/native_root_acceptance.json`,
+SHA256 `407e1495c0c4e729d9d5d6c7c842012dcf8c22c8a382232b2e7950f3e4cec5e5`.
+
+Whole-bank reference/descriptor/raw-score admission is the next gate. A
+conflicting bank remains unavailable; no cell may be removed to rescue it.
+Historical reference encoding remains **UNVERIFIED**. The prospective
+two-control fusion profile is frozen, but no combined-method trial or
+localization improvement follows from this input check. Development is
+still **14/15**.

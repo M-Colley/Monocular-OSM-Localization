@@ -1,7 +1,7 @@
 # Project code knowledge
 
-Refreshed 10 November 2026 from the current checkout and closed experiment
-records, including probe source `7ddea55` and dataset addition `fa7df5e`. Read this alongside the
+Refreshed 11 November 2026 from the current checkout and closed experiment
+records, including native replay/bank source `0695745` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -69,6 +69,17 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   from the fixed full-window numerical trial. Compact network arrays,
   original native motion, literal signs, source hashes and video identity
   are bound before running; the helper never scores or selects an Answer.
+- `raw_vpr_native.py` and `scripts/replay_raw_vpr_native.py` verify every
+  frozen retrieval call against its OWN request, original native video pixels,
+  and signed VO clock. Relative historical output paths require the pinned
+  original execution root. This is input proof, not a descriptor/model replay
+  or child-completion certificate.
+- `raw_vpr_bank.py` validates an entire declared bank through the existing
+  `metadata_union` identity/acquisition gates. Every physical copy is checked;
+  overlapping IDs require exact coordinates, computed protected descriptor
+  identity, and a full raw-score envelope within 1e-6. It streams descriptor
+  pools and refuses the whole bank on conflict. It builds no likelihood field
+  and changes no selection policy.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -90,8 +101,8 @@ fifteen-clip gain or adoption follows from it.
 
 The simple two-exit VO similarity fit has already failed, including the
 correct junction pair. Its correct-pair error was 1,923 m. A bounded full
-road-graph sequence prototype with all OCR junction alternatives is now under
-development. Its first frozen full-window trial completed but failed at
+road-graph sequence prototype with all OCR junction alternatives was tested.
+Its first frozen full-window trial completed but failed at
 **6,323.285942994211 m**, worse than v4's retained Answer. It remains off
 by default, with no policy admission. See the Detroit discussion in the fleet record before
 proposing a new pilot.
@@ -122,9 +133,24 @@ Its flat unnormalized turn potentials reward branching multiplicity; a new
 conditional-uniform transition model was then tested at clean `72437d9`
 with byte-identical typed map arrays, signs and hypotheses. It also failed:
 **18,281.577297323704 m**, in 64.156 s. Neither graph-only variant is adopted.
-The next investigation is a source-level feasibility check for early audited
-raw VPR evidence as soft spatial mixtures alongside road/sign constraints;
-no combined-method trial has run.
+The next investigation uses early raw VPR evidence as soft spatial mixtures
+alongside road/sign constraints. The complete saved inventory contains two
+baseline records and 40 expanded/control records, including five physical
+copies. All 42 are retained; copies cannot create extra query observations.
+Root's guarded native replay at `0695745` passed for every call: all 80 query
+pixels and times match the original video, and each time is an exact member
+of the signed VO clock. The half-second composed clock introduces at most
+0.401956186775692 s of explicitly recorded lag. The replay closed in 55.110 s
+with 147,611,648 bytes peak sampled aggregate RSS and no NN or GT use.
+
+The native acceptance is
+`E:/monocular-osm-joint-vpr-proof/run2/native_root_acceptance.json`, SHA256
+`407e1495c0c4e729d9d5d6c7c842012dcf8c22c8a382232b2e7950f3e4cec5e5`.
+Reference and raw-score array admission is still pending. Historical reference
+encoding remains **UNVERIFIED**; native pixel agreement does not upgrade it.
+A two-control fusion profile was declared before opening reference positions
+or similarities. No actual visual-field/fused-sampler trial or new accuracy
+result has run, and development remains **14/15**.
 
 ## Evaluation and operating constraints
 
