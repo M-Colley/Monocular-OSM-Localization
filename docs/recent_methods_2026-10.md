@@ -8,6 +8,17 @@ claims. The former held-out cohorts have since been scored and used to
 inform development. Six new TEST4 videos are registered and frozen separately;
 their localization has not run and their method binding remains pending.
 
+The 11 November sequence study also completed two protected reference-snapshot
+controls, retaining all 42 original calls and weighting each provider image
+once across its feature alternatives. Both fixed full-window controls were
+negative: baseline **7,152.842366478733 m**, expanded **6,338.264241249098 m**,
+against the retained Detroit Answer's **1,387.2377579105248 m**. The baseline
+reproduced the earlier strict-bank trial exactly. Fresh map preparation,
+complete field reconstruction, native-clock checks and closed predictions
+preceded scoring. No policy or fleet gain follows. Full source/proof details
+are in the fleet record linked above; older running-status entries below
+retain their original historical context.
+
 At the 30 October 2026 checkpoint, the complete cold development baseline was
 **9/15 within 200 m symmetric mean route error**. These experiments did not
 establish a new complete fleet result. They used development clips; the
@@ -36,6 +47,20 @@ this supplementary check has been run on the project.
 | [PGGT-Loc](https://arxiv.org/abs/2610.41833), posted October 30, NeurIPS 2026 | The paper uses an image plus planar map primitives. Its author-linked `3dv-casia/PGGT-Loc` main README returned HTTP 404 through GitHub on November 10. | A runnable release was not verified. OSM road centerlines alone do not supply its planar primitive map; this is an input mismatch, inferred from its stated inputs. |
 | [AutoCompass](https://nianticspatial.github.io/autocompass/), ECCV 2026 | The authors describe learning image-to-map pose distributions from noisy position labels and optional relative poses. The inspected project page did not expose a verified code/checkpoint download. | Useful motivation for retaining distributions and uncertain motion; it is not an available replacement demonstrated here. |
 | [TOL/TOLoc](https://arxiv.org/abs/2604.01644), April 2026 | The [official repository](https://github.com/WHU-USI3DV/TOL) contains released code and checkpoint download links. Its [text generator](https://github.com/WHU-USI3DV/TOL/blob/main/data_prepare/generate_text_from_raster.py) produces cardinal-direction object descriptions from OSM rasters. | Its text input differs substantially from observed shop/exit OCR. Generating a query description from the unknown true pose/map tile would leak location; a future trial needs an independent video-to-description front end and verified weight/runtime provenance. |
+
+A further 11 November primary-source check found two SMC inference papers:
+[Psi-Sampler, NeurIPS 2025](https://arxiv.org/abs/2506.01320) studies posterior-aware
+particle initialization for score-model reward alignment;
+[Diffusion Path Samplers via SMC](https://arxiv.org/abs/2601.21951), revised
+8 November and marked accepted at NeurIPS 2026, provides
+[official code](https://github.com/akyildiz-group/dpsmc) for diffusion-based
+sampling of unnormalized targets. These are generative sampling papers, not
+released OSM localizers. The inferred project experiment is a bounded backward
+appearance guide for initial/turn/ancestor proposals with exact importance
+corrections, preserving each target observation once. It needs no new model,
+but runtime and localization gains remain unmeasured. Correctness review of
+the existing mode readout and heading factors takes priority. The bounded
+research receipt is `output/reference_snapshot_next_methods_20261111/research.json`.
 
 The official [NeurIPS 2025](https://neurips.cc/Downloads/2025) and
 [2026](https://neurips.cc/Downloads/2026) programs were searched for place

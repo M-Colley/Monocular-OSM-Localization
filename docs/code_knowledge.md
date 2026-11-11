@@ -65,6 +65,11 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   crops. `junction_inputs.py` preserves exact map topology and groups
   correlated sign views. `junction_sequence.py` is an experimental offline
   road sequence sampler; none establishes a newly admitted Answer.
+- `graph_filter.GraphParticleFilter._block_stats` now ranks complete 3x3
+  posterior neighbourhoods before retaining 64 candidates. Its shared occupied
+  cell implementation includes empty neighbouring centres and avoids allocating
+  the full dense grid. This corrects shared mode readout; accuracy at the revised
+  source still needs evaluation.
 - `scripts/junction_sequence_probe.py` separates guarded map preparation
   from the fixed full-window numerical trial. Compact network arrays,
   original native motion, literal signs, source hashes and video identity
@@ -233,8 +238,27 @@ neither changes policy or the **14/15** fleet result. Trial directories are
 `E:/monocular-osm-joint-vpr-proof/run6/trial_baseline_v2` and
 `E:/monocular-osm-joint-vpr-proof/run6/trial_expanded_v2`. These checks do not
 replay every particle or prove directed transition paths, MAP optimality or
-calibrated confidence. The next source review concerns motion/scale support
-and posterior collapse before declaring another fixed experiment.
+calibrated confidence.
+
+Source/private review then found two distinct issues. `_block_stats` selected
+64 individual cells before summing neighbourhood mass; a 73-particle fixture
+can hide a heavier nine-cell cluster behind 64 lighter isolated cells. The
+summary-only correction passed 22 new tests and 165 relevant regressions; Root
+also reproduced the old failure using the previous implementation. A private
+50,000-particle benchmark took 0.189 s and about 42 MB additional traced peak
+allocation, without a full dense-grid allocation. This is not a certified RSS
+peak. A separately declared run7 replay is pending; it leaves the particle
+target, motion, likelihoods, resampling and RNG untouched. Separately,
+the heading model gives zero residual throughout a junction arc while keeping
+point-Gaussian normalization. Private integration gives total factor mass
+1.000, 2.593 and 4.187 for point, 90-degree and 180-degree expectations with the
+same variance/outlier settings. A normalized heading model is a separate future
+experiment. Neither finding is proven to explain the actual failed routes.
+The source/private audit is under
+`output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
+resampling also has a demonstrated ancestry-variance risk under changing guides,
+but constant uniform weights/guides resample identically; collapse is not
+inevitable. No motion or resampling change is part of the summary correction.
 
 ## Evaluation and operating constraints
 

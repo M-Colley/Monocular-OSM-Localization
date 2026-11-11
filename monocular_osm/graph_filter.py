@@ -1254,47 +1254,65 @@ class GraphParticleFilter:
     _OFFS = np.array([(a, b) for a in (-1, 0, 1) for b in (-1, 0, 1)], np.int64)
 
     def _block_stats(self, w: np.ndarray, K: int = 64):
-        """Bin particles on a ``mode_grid_m`` grid; for the K heaviest cells
-        return the (K, 9) masses and weighted x/y sums of their 3x3 blocks."""
+        """Return the K heaviest COMPLETE 3x3 blocks and weighted x/y sums.
+
+        Candidate centres include empty neighbours of occupied cells. Shared
+        occupied-cell binning gives the same result for dense/sparse map hints,
+        including negative coordinates, without allocating the 20M-cell grid.
+        Only candidate coordinates/inverse indices scale as 9*occupied cells;
+        the neighbour-value matrices are constructed for the final K only.
+        Equal computed masses use lexical (cell x, cell y) order.
+        Empty/zero posterior mass and invalid summary inputs are refused.
+        """
+        w = np.asarray(w)
+        x, y = np.asarray(self.x), np.asarray(self.y)
         g = self.cfg.mode_grid_m
-        if self._dense_grid is not None:
-            nx_, ny_ = self._dense_grid
-            ix = (self.x / g).astype(np.int64) + 1      # +1: a one-cell border
-            iy = (self.y / g).astype(np.int64) + 1
-            flat = ix * ny_ + iy
-            size = nx_ * ny_
-            cm = np.bincount(flat, w, minlength=size)
-            K = min(K, int(np.count_nonzero(cm)) or 1)
-            top = np.argpartition(-cm, K - 1)[:K]
-            nb = top[:, None] + self._OFFS[None, :, 0] * ny_ + self._OFFS[None, :, 1]
-            nb = np.clip(nb, 0, size - 1)
-            sx = np.bincount(flat, w * self.x, minlength=size)
-            sy = np.bincount(flat, w * self.y, minlength=size)
-            return cm[nb], sx[nb], sy[nb]
-        cx = np.floor(self.x / g).astype(np.int64)
-        cy = np.floor(self.y / g).astype(np.int64)
-        key = (cx << 32) + (cy + (1 << 31))
-        uk, inv = np.unique(key, return_inverse=True)
-        cm = np.bincount(inv, w, minlength=len(uk))
-        sx = np.bincount(inv, w * self.x, minlength=len(uk))
-        sy = np.bincount(inv, w * self.y, minlength=len(uk))
-        ucx = uk >> 32
-        ucy = (uk & 0xFFFFFFFF) - (1 << 31)
-        K = min(K, len(uk))
-        top = np.argpartition(-cm, K - 1)[:K]
-        offs = self._OFFS
-        nk = ((ucx[top, None] + offs[None, :, 0]) << 32) + (ucy[top, None] + offs[None, :, 1] + (1 << 31))
-        pos = np.minimum(np.searchsorted(uk, nk), len(uk) - 1)
-        hit = uk[pos] == nk
-        return (np.where(hit, cm[pos], 0.0), np.where(hit, sx[pos], 0.0),
-                np.where(hit, sy[pos], 0.0))
+        if (type(K) is not int or K <= 0 or w.ndim != 1 or x.shape != w.shape
+                or y.shape != w.shape or not len(w) or not np.isfinite(w).all()
+                or np.any(w < 0) or not np.any(w > 0) or not np.isfinite(x).all()
+                or not np.isfinite(y).all() or not np.isfinite(g) or g <= 0):
+            raise ValueError("finite positions, positive posterior mass and positive summary grid/K required")
+        keep = w > 0
+        px, py, pw = x[keep], y[keep], w[keep]
+        cells = np.column_stack([np.floor(px / g), np.floor(py / g)])
+        # Leave ample integer margin for all +/-1 neighbour operations.
+        if not np.isfinite(cells).all() or np.any(np.abs(cells) >= 2**62):
+            raise ValueError("summary cell coordinates exceed signed integer range")
+        occupied, inverse = np.unique(cells.astype(np.int64), axis=0, return_inverse=True)
+        count = len(occupied)
+        cm = np.bincount(inverse, pw, minlength=count)
+        sx = np.bincount(inverse, pw * px, minlength=count)
+        sy = np.bincount(inverse, pw * py, minlength=count)
+        del cells, inverse, px, py, pw, keep
+
+        centres = np.empty((9 * count, 2), np.int64)
+        for j, offset in enumerate(self._OFFS):
+            centres[j * count:(j + 1) * count] = occupied - offset
+        candidates, inverse = np.unique(centres, axis=0, return_inverse=True)
+        del centres
+        # Each occupied cell contributes once to every block containing it.
+        masses = np.bincount(inverse, np.tile(cm, 9), minlength=len(candidates))
+        del inverse
+        top = np.argsort(-masses, kind="stable")[:min(K, len(candidates))]
+        centres = candidates[top]
+        del candidates, masses, top
+
+        neighbours = np.ascontiguousarray(centres[:, None, :] + self._OFFS[None, :, :])
+        pair = np.dtype([("x", np.int64), ("y", np.int64)])
+        keys = occupied.view(pair).reshape(-1)
+        wanted = neighbours.view(pair).reshape(-1)
+        pos = np.searchsorted(keys, wanted)
+        safe = np.minimum(pos, count - 1)
+        hit = (pos < count) & (keys[safe] == wanted)
+        shape = (len(centres), 9)
+        return tuple(np.where(hit, values[safe], 0.).reshape(shape) for values in (cm, sx, sy))
 
     def summary(self, w: np.ndarray) -> dict:
         """Weighted posterior mode, its mass, and the number of separated modes."""
         c = self.cfg
         bm, bx, by = self._block_stats(w)
         block_mass = bm.sum(axis=1)
-        order = np.argsort(-block_mass)
+        order = np.argsort(-block_mass, kind="stable")
         best = order[0]
         mx = bx[best].sum() / max(block_mass[best], 1e-300)
         my = by[best].sum() / max(block_mass[best], 1e-300)
