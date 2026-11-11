@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including native replay/bank source `0695745` and dataset addition `fa7df5e`. Read this alongside the
+records, including appearance prototype source `2e0f169` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -80,6 +80,14 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   identity, and a full raw-score envelope within 1e-6. It streams descriptor
   pools and refuses the whole bank on conflict. It builds no likelihood field
   and changes no selection policy.
+- `scripts/admit_raw_vpr_bank.py` consumes Root's closed native acceptance,
+  the full frozen metadata/payload inventory and genuine descriptor receipts.
+  It emits independent complete/unavailable bank outcomes before any field.
+- `raw_vpr_appearance.py` and `junction_sequence.align_with_appearance`
+  implement an explicit research prototype: one robust all-reference raster
+  factor per query, fixed 30-second correlation groups and corrected initial
+  proposal guidance. All visual alternatives remain in the field. The
+  original road-only entry remains the default; no Answer policy uses this.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -146,11 +154,23 @@ with 147,611,648 bytes peak sampled aggregate RSS and no NN or GT use.
 The native acceptance is
 `E:/monocular-osm-joint-vpr-proof/run2/native_root_acceptance.json`, SHA256
 `407e1495c0c4e729d9d5d6c7c842012dcf8c22c8a382232b2e7950f3e4cec5e5`.
-Reference and raw-score array admission is still pending. Historical reference
-encoding remains **UNVERIFIED**; native pixel agreement does not upgrade it.
-A two-control fusion profile was declared before opening reference positions
-or similarities. No actual visual-field/fused-sampler trial or new accuracy
-result has run, and development remains **14/15**.
+Whole-bank admission at `b702c81` then accepted the complete baseline bank:
+2,606 unique references from 2,699 occurrences, including 93 overlapping IDs.
+Root independently checked every canonical coordinate/raw score and actual
+descriptor row/tensor. Overlap coordinates/descriptors agree exactly; raw
+score spread is zero. The expanded bank is **UNAVAILABLE** because a repeated
+ID has conflicting protected descriptors. It was not rescued by dropping
+cells or copies. The guarded job closed in 55.625 s with 151,584,768 bytes
+peak sampled aggregate RSS. Root acceptance is
+`E:/monocular-osm-joint-vpr-proof/run3/bank_root_acceptance.json`, SHA256
+`84bcf5f54932eaee5622cc61b6d8061286bffe81101538b2d6cfbab00503156a`.
+
+Historical reference encoding remains **UNVERIFIED**. A two-control fusion
+profile was declared before loading reference/score arrays. Its off-default
+source prototype passed 83 focused tests and independent review, but no actual
+visual-field/fused-sampler trial or new accuracy result has run. The next run
+can use the admitted complete baseline bank; the expanded control stays
+unavailable. Development remains **14/15**.
 
 ## Evaluation and operating constraints
 

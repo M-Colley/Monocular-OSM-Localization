@@ -470,9 +470,28 @@ SHA256 `67476f9171724727dbef7531c8bb8869ccc0da82d1f7dd1999566d73251207a9`.
 Root acceptance: `E:/monocular-osm-joint-vpr-proof/run2/native_root_acceptance.json`,
 SHA256 `407e1495c0c4e729d9d5d6c7c842012dcf8c22c8a382232b2e7950f3e4cec5e5`.
 
-Whole-bank reference/descriptor/raw-score admission is the next gate. A
-conflicting bank remains unavailable; no cell may be removed to rescue it.
-Historical reference encoding remains **UNVERIFIED**. The prospective
-two-control fusion profile is frozen, but no combined-method trial or
-localization improvement follows from this input check. Development is
-still **14/15**.
+Whole-bank admission at `b702c81` subsequently completed in **55.625 s**,
+peaking at **151,584,768 bytes** sampled aggregate RSS. The complete baseline
+bank passed: 2,699 reference occurrences became 2,606 unique references,
+with 93 overlaps. Root independently verified every canonical raw matrix
+column/coordinate and the actual descriptor rows/consumed tensors. All
+overlap coordinates and descriptors agree exactly; raw-score spread is zero.
+
+The expanded bank remains **UNAVAILABLE**: overlapping IDs have conflicting
+computed protected descriptor rows. Its failure is preserved; no cells or
+aliases were dropped to obtain a usable subset. All observed worker births
+closed and registered input/source bytes remained unchanged. No model, field,
+route inference, GT score or policy adoption ran in this admission job.
+
+Admission report: `E:/monocular-osm-joint-vpr-proof/run3/bank_result/bank_admission.json`,
+SHA256 `0acf3c74da5143808d4f753c24fe0c6c5915ca2f5af7699085e752bb42746c44`.
+Root acceptance: `E:/monocular-osm-joint-vpr-proof/run3/bank_root_acceptance.json`,
+SHA256 `84bcf5f54932eaee5622cc61b6d8061286bffe81101538b2d6cfbab00503156a`.
+
+Source `2e0f169` implements the separately invoked visual/road prototype with
+the predeclared all-reference field, robust mixture, 30-second correlation
+powers and corrected initial guidance. Root and the independent peer each
+passed 83 focused tests, including the existing road-only/probe controls.
+Historical reference encoding remains **UNVERIFIED**. No actual fused trial
+or new localization accuracy is established yet; the next trial uses the
+complete admitted baseline bank. Development is still **14/15**.
