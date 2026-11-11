@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including summary-correction trial source `3001550` and dataset addition `fa7df5e`. Read this alongside the
+records, including normalized-heading trial source `d4266f5` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -269,10 +269,18 @@ experiment, prospectively declared under
 `E:/monocular-osm-joint-vpr-proof/run8/heading_study_contract.json`. The explicit
 source/private implementation passed 199 relevant tests, including 48 pure
 kernel and 17 new integration/worker tests. Root repeated those 65 tests and
-60 independent scalar quadrature checks. Final integration peer review and
-fresh-source case execution are pending; there is no normalized-heading
-localization or accuracy result yet.
-The normalization issue is not proven to explain the actual failed routes.
+60 independent scalar quadrature checks. Both peers approved integration,
+including exact old-entry outputs, final particle states and RNG equivalence.
+Fresh preparation and both fixed controls at `d4266f5` then completed. Root
+reconstructed their fields/native clocks/road points and verified the new
+target profile; both predictions closed before either score. Baseline scored
+**18,947.181863246762 m** and expanded **20,134.2580526717 m**, worse than both
+the earlier snapshot controls and retained v4 Answer. The normalized target
+remains off by default, with no policy admission or fleet improvement.
+The mathematical normalization finding did not repair these routes. Run8
+retains all immutable output and closure records. The next separately declared
+proposal experiment will test future appearance guides and defensive auxiliary
+sampling over both fixed heading targets; no such case execution has run yet.
 The source/private audit is under
 `output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
 resampling also has a demonstrated ancestry-variance risk under changing guides,

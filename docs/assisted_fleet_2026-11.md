@@ -671,4 +671,40 @@ Private integration gives extra state-dependent mass at wide arcs. Run8 declares
 a normalized circular predictive kernel while retaining genuine signed
 innovations and explicitly approximate robust KF bias updates. It is a separate
 target experiment; no normalized-heading case trial or accuracy result exists
-yet. Conditional resampling and future appearance guides remain deferred.
+yet at that checkpoint. The completed normalized-target control follows below.
+
+## Normalized junction-heading target (11 November 2026; negative)
+
+The separate off-default target at `d4266f5` normalizes the circular nearest-arc
+predictive kernel and recomputes inlier responsibility before the retained
+approximate robust KF bias update. It does not assert exact latent-arc
+convolution or exact posterior bias moments. All existing public entries,
+configuration and workers remain unchanged. Private validation passed 199
+relevant tests. Root repeated 48 pure and 17 integration tests plus 60 independent
+scalar quadratures; peers verified the implementation and exact legacy output,
+particle-state and RNG equivalence.
+
+Both the original snapshot-data declaration and separate heading-target
+declaration were checked before numerical inputs. Fresh preparation bound all
+29 source roles and reproduced the prior geometry/topology/cue records. Root
+rebuilt both complete appearance fields and verified the full native motion,
+all 80 scheduled queries, original signs, road-point reconstruction and resolved
+target profile. Both predictions and all actors closed before any new scoring.
+
+| Control | Symmetric mean error (m) | Trial runtime (s) | Peak sampled RSS (bytes) |
+|---|---:|---:|---:|
+| Baseline snapshots, normalized heading | 18,947.181863246762 | 65.750 | 1,213,440,000 |
+| Expanded snapshots, normalized heading | 20,134.2580526717 | 65.718 | 1,249,275,904 |
+
+Both are worse than the corresponding earlier controls and retained v4
+**1,387.2377579105248 m** Answer. The normalization fixes a predictive-kernel
+inconsistency but does not establish a useful localization model. It stays
+experimental and off by default. Development remains **14/15**, with no new
+selected-Answer fleet evaluation or adoption.
+
+Proof: `E:/monocular-osm-joint-vpr-proof/run8`. Score SHA256 values:
+baseline `5c47c23527da67d6f7141fb4e350cb33ffcbe51030d6515dac5ea5a87f788497`;
+expanded `ec19c8c8b4bf85e8ad3a391958a72971657801effc75120927f75cbc8f51f6b3`.
+The next source/private study tests future appearance proposal guidance,
+preserving each target and exact importance corrections. It is not a parameter
+retuning or policy adoption of these negative routes.
