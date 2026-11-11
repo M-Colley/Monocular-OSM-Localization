@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including future-guided trial source `05b06c5` and dataset addition `fa7df5e`. Read this alongside the
+records, including common-null trial source `7168b55` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -330,13 +330,23 @@ Its implementation passed 301 relevant regressions. Root repeated 37 pure and
 34 integration tests plus 60 scalar and four exact-flat checks; peers confirmed
 old-entry outputs, particle states and RNG remain unchanged. The full-cap CPU2
 field benchmark took 0.316 s with 83.9 MB additional traced memory, not a peak
-RSS guarantee. Four fixed EXIT-only case controls are pending under
-`E:/monocular-osm-joint-vpr-proof/run10`, with no common-null accuracy result yet.
+RSS guarantee. All four fixed EXIT-only controls at `7168b55` completed under
+`E:/monocular-osm-joint-vpr-proof/run10` after fresh 31-source preparation and
+complete direct-field/native/event/road-point checks. Every prediction closed
+before any new score. Symmetric means were **5,020.884804690638 / 10,531.389060528203 m**
+for baseline/expanded with original heading and **11,178.426729963401 /
+10,820.891157969181 m** with normalized heading. All fail the target; the common-null
+model stays experimental, with no adoption or fleet improvement.
 A separate heading-process audit found that inlier counts
 do not affect the current yaw-derived variance; an abrupt 90-degree jump is
 confounded with noise, whereas a smooth three-second turn receives small
 variance. Neither a measured geometric covariance nor a no-extra-Q ablation
-has been run on the case. Future target changes must stay separate from run9.
+has been run on the case. A pure no-adaptive-extra-Q view and its tests are in
+source/private review; a separate run11 declaration preserves the old run9
+visual target and future proposals while removing only native residual-derived
+heading variance. It retains fixed yaw drift, unknown-motion uncertainty and
+all original motion means. No Q-ablation case result exists yet. Its source and
+model change must remain separate from run9/run10 results.
 The source/private audit is under
 `output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
 resampling also has a demonstrated ancestry-variance risk under changing guides,

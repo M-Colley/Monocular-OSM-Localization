@@ -753,3 +753,42 @@ order: `4356bafcf3871fa40624de23892107cf928670f2dfb7f42ec8aefc0a3e6bb424`,
 `e0696a0fd4f9314d09e56e89c71f27a0bbb6dcf509dc19330083dcdb65f98e43`,
 `1857fc5a9a225bb2faeac54efd36f7771d6b90a79e19f57ae0ffc894758fdab9`.
 All historical reference-encoding and calibration limitations remain.
+
+## Common-null visual density ratio (11 November 2026; negative)
+
+The separate target at `7168b55` normalizes the query-weighted Gaussian grid N
+and coverage-only grid D over the same frozen full grid. It directly samples
+`log(.1/M+.9*N/sumN)-log(.1/M+.9*D/sumD)`, before original temporal powering.
+Flat and unsupported observations are neutral in private tests. Both banks use
+the declared F64 statistics/histogram math; no old F32 equivalence is claimed.
+This is a new spatial compatibility model, not calibrated image likelihood.
+
+Private validation passed 301 regressions; Root independently passed 37 pure
+and 34 integration tests plus 64 scalar/flat checks. Both peers approved,
+including exact preservation of prior entry outputs, final particle states and
+RNG. The controls keep EXIT-only proposals, original heading-variance inputs,
+all 80 native observations/powers and each parent heading target unchanged.
+
+Fresh preparation bound 31 source roles with equal geometry/cues. Root rebuilt
+each entire direct log-ratio field, verified native means/variance/clock,
+scheduled factors, source/target identity and road points, then closed all four
+predictions and workers before any scoring.
+
+| References | Heading target | Symmetric mean (m) | Runtime (s) | Peak sampled RSS (bytes) |
+|---|---|---:|---:|---:|
+| Baseline | Original | 5,020.884804690638 | 66.500 | 1,214,914,560 |
+| Expanded | Original | 10,531.389060528203 | 71.672 | 1,250,783,232 |
+| Baseline | Normalized | 11,178.426729963401 | 71.125 | 1,211,928,576 |
+| Expanded | Normalized | 10,820.891157969181 | 69.531 | 1,250,226,176 |
+
+All four fail 200 m and are worse than retained v4's Answer. Neutrality under
+flat evidence does not establish useful localization. No new policy or fleet
+gain follows; the model remains experimental and development remains **14/15**.
+
+Proof: `E:/monocular-osm-joint-vpr-proof/run10`. Score SHA256 values in table
+order: `a7e48dd1362f26ab5d5884cada25008a303bc233554afd8271b490bf4796a034`,
+`132cb2eb51c6c3d79c7f523d7d2f654b20a5d7da87792d6fc699d3aad5258834`,
+`703a5dd972cd3e7da63fbd547233306caa7dc6183cd307af5dce918babbf8a98`,
+`0d3059779c49f826390a8999e5e44022a758d2a326c7ac9f6b6e0faa1176d484`.
+Run11 separately declares a no-adaptive-extra-Q ablation over the run9 targets
+and future proposals; it is source/private work only at this checkpoint.
