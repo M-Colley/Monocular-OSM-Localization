@@ -1,0 +1,5 @@
+# Keep the reviewed geometry kernel byte-identical across checkouts.
+monocular_osm/multiview_motion.py text eol=lf
+monocular_osm/multiview_motion_inputs.py text eol=lf
+scripts/prepare_multiview_motion_inputs.py text eol=lf
+scripts/multiview_motion_probe.py text eol=lf

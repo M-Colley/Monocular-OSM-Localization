@@ -151,6 +151,17 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   `scripts/reference_snapshot_high_particle_probe.py` binds its separate run13
   declaration and external 16 GiB RSS bound before inputs. Case execution is
   complete for all four controls; none passed 200 m.
+- `multiview_motion.py` is an opt-in seven-frame geometric frontend promoted
+  byte-for-byte from a reviewed prototype. It estimates FIT-only anchor E/PnP
+  poses with held-out later-view checks and preserves unknown translation.
+  `multiview_motion_inputs.py`, `scripts/prepare_multiview_motion_inputs.py` and
+  `scripts/multiview_motion_probe.py` form a separate two-phase native-window
+  diagnostic. The first phase verifies the full original pixel/clock stream
+  and freezes all 32 packets; the numerical phase uses those closed packets
+  while original video/cache assets remain opaque historical proof. Full raw
+  tracking arrays, lost IDs and every outcome are retained. Each window has an
+  independent unit gauge, without a global route, calibrated covariance or
+  metric-scale claim. These entries do not change pipeline defaults.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -465,7 +476,17 @@ consistent synthetic image fixture passes, while a negative image fixture
 remains refused. The source-only next plan freezes 32 uniform seven-row native
 windows with exact ordinal/PTS lineage, one window resident and no GT use.
 No actual-window replay, continuous gauge connection or localization result
-is established by those private checks.
+is established by those private checks. The separate prospective native pilot is under
+`E:/monocular-osm-multiview-motion-proof/run1`. Root derived the fixed schedule
+from 3,360 accepted ordinal/clock witnesses: 4,441 original READ rows, first
+video ordinal 119, stride four, last 17,879. This is not a timestamp-to-frame
+inference. The 32 interior centres include first/last READ rows through their
+seven-row windows and include formerly pose-invalid rows. New replay must
+match positive OpenCV-reported times and the original dense pixel hash; no
+independent container-PTS or camera-calibration upgrade is implied. Source
+validation passed 71 focused checks (16 frontend, 34 input, 21 numerical),
+repeated by Root and independent peers. No actual pilot pixels or geometry
+have been processed at this source checkpoint.
 
 ## Evaluation and operating constraints
 
