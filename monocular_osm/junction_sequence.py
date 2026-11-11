@@ -676,10 +676,37 @@ def align_with_snapshot_normalized_heading_future_guide_no_adaptive_q(net: RoadN
                   normalized_heading=True, future_proposal=True, no_adaptive_heading_q=True)
 
 
+def align_with_snapshot_future_guide_adaptive_resampling(net: RoadNetwork, odometry: Odometry, motion_status,
+                                                        native_times, matched, evidence, native_facts, *,
+                                                        config: Config | None = None, check=lambda: None, clock=time.monotonic):
+    """Explicit legacy-heading future target with target-ESS-triggered auxiliary resampling."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("adaptive resampling requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  future_proposal=True, adaptive_resampling=True)
+
+
+def align_with_snapshot_normalized_heading_future_guide_adaptive_resampling(net: RoadNetwork, odometry: Odometry,
+                                                                          motion_status, native_times, matched,
+                                                                          evidence, native_facts, *, config: Config | None = None,
+                                                                          check=lambda: None, clock=time.monotonic):
+    """Explicit normalized-heading future target with target-ESS-triggered auxiliary resampling."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("adaptive resampling requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  normalized_heading=True, future_proposal=True, adaptive_resampling=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
            appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False,
-           common_null=False, no_adaptive_heading_q=False):
+           common_null=False, no_adaptive_heading_q=False, adaptive_resampling=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -694,6 +721,9 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
     if no_adaptive_heading_q and (appearance_input is None or not snapshot_appearance or not future_proposal
                                  or common_null or compatible_appearance):
         raise ValueError("no-adaptive-Q requires original snapshot visual target and explicit future proposal")
+    if adaptive_resampling and (appearance_input is None or not snapshot_appearance or not future_proposal
+                               or common_null or compatible_appearance or no_adaptive_heading_q):
+        raise ValueError("adaptive resampling requires original run9 snapshot/future/native-Q target")
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
     if appearance_input is not None:
         if common_null:
@@ -765,6 +795,17 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "native_heading_extra_Q_changed": True, "motion_means_status_clock_unchanged": True,
             "unknown_motion_variance_unchanged": True, "fixed_bias_random_walk_unchanged": True,
             "measured_covariance": False, "calibrated_covariance": False}
+    if adaptive_resampling:
+        from . import adaptive_auxiliary_resampling as resampling_core
+        profile = {**profile,
+            "method": ("offline-snapshot-normalized-heading-future-adaptive-resampling-v1" if normalized_heading else
+                       "offline-snapshot-legacy-heading-future-adaptive-resampling-v1"),
+            "resampling_mode": "target-ess-half-v1", "adaptive_resampling_profile": dict(resampling_core.PROFILE),
+            "adaptive_resampling_profile_sha256": resampling_core.PROFILE_SHA256,
+            "target_ESS_precedes_guide": True, "native_heading_variance_unchanged": True,
+            "no_trigger": "identity ancestry; PF/logw/RNG unchanged; no auxiliary guide computation",
+            "initial_ancestor_count_scope": "distinct initial particle labels in stored cloud BEFORE resampling-after-step",
+            "resampling_diagnostics_extra_payload": "P int32 labels plus O(P) bincount scratch; two O(T) output arrays"}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -834,6 +875,11 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
         parent = np.empty((t_count + 1, p), dtype=np.int32)
         edges = np.empty_like(parent)
         offsets = np.empty((t_count + 1, p), dtype=np.float64)
+        resampling_arrays = {}
+        if adaptive_resampling:
+            initial_labels = np.arange(p, dtype=np.int32)
+            resampling_arrays = {"resampled_after_step": np.zeros(t_count + 1, dtype=np.bool_),
+                                 "initial_ancestor_count": np.zeros(t_count + 1, dtype=np.int32)}
         if appearance is None:
             pf.initialise_offline()
         else:
@@ -883,11 +929,20 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             mode_mass.append(summary["confidence"])
             scale_modes.append(summary["k_mode"])
             edges[t], offsets[t], parent[t] = pf.edge, pf.offset, ancestry
+            if adaptive_resampling:
+                resampling_arrays["initial_ancestor_count"][t] = np.count_nonzero(np.bincount(initial_labels, minlength=p))
             if t < t_count:
-                guide = pf.guide(pf.edge, pf.offset, pf.logk + pf.eps)
-                if future_proposal:
-                    guide = future_core.defensive_auxiliary_guide(weights, guide)
-                ancestry = auxiliary_resample(pf, weights, guide).astype(np.int32)
+                if adaptive_resampling and not resampling_core.decision(weights)["resample"]:
+                    ancestry = np.arange(p, dtype=np.int32)
+                else:
+                    guide = pf.guide(pf.edge, pf.offset, pf.logk + pf.eps)
+                    if future_proposal:
+                        guide = future_core.defensive_auxiliary_guide(weights, guide)
+                    ancestry = auxiliary_resample(pf, weights, guide).astype(np.int32)
+                    if adaptive_resampling:
+                        resampling_arrays["resampled_after_step"][t] = True
+                if adaptive_resampling:
+                    initial_labels = initial_labels[ancestry]
         # A representative lineage in the heaviest final spatial mode, not
         # a MAP path or an isolated high-importance-weight tail particle.
         mx, my = modes[-1]
@@ -904,6 +959,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
         poll()
         return {**base, "status": "complete_diagnostic_only", "times": motion.times,
                 **variance_arrays,
+                **resampling_arrays,
                 **({"appearance_events": appearance_records} if appearance is not None else {}),
                 "route_latlon": net.local_to_latlon(np.column_stack([x, y])),
                 "route_edge": route_edge, "route_offset_m": route_offset,

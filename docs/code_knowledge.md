@@ -125,14 +125,21 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   mixes each with the same uniform background, and returns direct F32 log-ratios
   with neutral value zero outside coverage. Its sampler adapter verifies the
   original snapshot/native schedule. Explicit common-null entries and
-  `scripts/reference_snapshot_common_null_probe.py` keep future appearance
-  guidance and the heading-variance model unchanged.
+  `scripts/reference_snapshot_common_null_probe.py` use EXIT-only proposals
+  and preserve the original heading-variance model.
 - `no_adaptive_heading_variance.py` provides independent motion copies with
   only native residual-derived heading variance replaced by zero. The explicit
   future-guided Q-ablation entries and
   `scripts/reference_snapshot_no_adaptive_q_probe.py` preserve original native
   variance separately from effective zero and composed unknown-motion variance.
   The fixed drift and observation noise remain; this is not measured covariance.
+- `adaptive_auxiliary_resampling.py` supplies a fixed pre-guide target-ESS
+  decision. New explicit future-guide entries and
+  `scripts/reference_snapshot_adaptive_resampling_probe.py` use the half-particle
+  threshold; skipped steps retain weights, state and identity ancestry. Triggered
+  steps retain the original defensive guided proposal and importance correction.
+  They export resampling decisions and distinct initial-label counts. No target,
+  native heading variance or default pipeline policy changes.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -285,8 +292,8 @@ correction does not repair these routes or improve the fleet. Proofs are under
 the heading model gives zero residual throughout a junction arc while keeping
 point-Gaussian normalization. Private integration gives total factor mass
 1.000, 2.593 and 4.187 for point, 90-degree and 180-degree expectations with the
-same variance/outlier settings. A normalized heading model is a separate future
-experiment, prospectively declared under
+same variance/outlier settings. A normalized heading model was separately
+prospectively declared under
 `E:/monocular-osm-joint-vpr-proof/run8/heading_study_contract.json`. The explicit
 source/private implementation passed 199 relevant tests, including 48 pure
 kernel and 17 new integration/worker tests. Root repeated those 65 tests and
@@ -299,9 +306,9 @@ target profile; both predictions closed before either score. Baseline scored
 the earlier snapshot controls and retained v4 Answer. The normalized target
 remains off by default, with no policy admission or fleet improvement.
 The mathematical normalization finding did not repair these routes. Run8
-retains all immutable output and closure records. The next separately declared
-proposal experiment will test future appearance guides and defensive auxiliary
-sampling over both fixed heading targets; no such case execution has run yet.
+retains all immutable output and closure records. Run9 then tested separately
+declared future appearance guides and defensive auxiliary sampling over both
+fixed heading targets.
 The proposal implementation passed 267 relevant tests, including 44 pure-guide
 and 24 new integration/worker tests; Root repeated those 68 tests. Peers verified
 exact old-entry outputs, particle states and RNG for both heading targets.
@@ -346,13 +353,11 @@ model stays experimental, with no adoption or fleet improvement.
 A separate heading-process audit found that inlier counts
 do not affect the current yaw-derived variance; an abrupt 90-degree jump is
 confounded with noise, whereas a smooth three-second turn receives small
-variance. Neither a measured geometric covariance nor a no-extra-Q ablation
-has been run on the case. A pure no-adaptive-extra-Q view and its tests are in
-source/private review; a separate run11 declaration preserves the old run9
-visual target and future proposals while removing only native residual-derived
-heading variance. It retains fixed yaw drift, unknown-motion uncertainty and
-all original motion means. No Q-ablation case result exists yet. Its source and
-model change must remain separate from run9/run10 results. The explicit
+variance. No measured geometric covariance has been replayed on the case.
+The separate run11 ablation preserved the run9 visual target and future
+proposals while removing only native residual-derived heading variance. It
+retained fixed yaw drift, unknown-motion uncertainty and all original motion
+means. This model change remains separate from run9/run10 results. Its explicit
 implementation passed 367 relevant private tests. Root repeated 32 pure and
 34 integration tests; both peers approved, including exact old future/common-null
 entry outputs, particle states and RNG. Fresh 33-source case preparation and
@@ -381,6 +386,27 @@ The source/private audit is under
 resampling also has a demonstrated ancestry-variance risk under changing guides,
 but constant uniform weights/guides resample identically; collapse is not
 inevitable. No motion or resampling change is part of the summary correction.
+
+Run12 separately declares a fixed adaptive-resampling study over the run9
+parents. All four bank/heading controls, 50,000 particles, seed zero and a strict
+pre-guide ESS threshold of half the particle count are fixed before new values.
+The parent runs resampled all 1,110 endpoints despite high target ESS at most
+steps; that is motivation, not proof of a failure mechanism. The new diagnostic
+counts unweighted initial labels, not correct routes or posterior confidence.
+Root repeated 24 pure and 52 integration/worker checks. Historical-source
+comparison also preserved all six existing future/common-null/Q entry outputs,
+final particle arrays and RNG exactly. Its case execution and accuracy remain
+pending at this source checkpoint.
+
+A source/synthetic motion review under
+`output/multiview_motion_audit_20261111` also distinguishes observable rotation
+from observable translation. A pure-rotation fixture can fail essential-pose
+cheirality while preserving accurately recoverable rotation. The current cache
+loses that rotation and resets each accepted translation to unit length. A
+persistent multi-view shared-scale front end is a proposed new direction; no
+actual-video gain, measured metric scale or covariance is established by these
+fixtures. The earlier depth, XFeat, LingBot and fixed-height controls remain
+closed separately.
 
 ## Evaluation and operating constraints
 

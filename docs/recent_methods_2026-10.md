@@ -58,8 +58,13 @@ sampling of unnormalized targets. These are generative sampling papers, not
 released OSM localizers. The inferred project experiment is a bounded backward
 appearance guide for initial/turn/ancestor proposals with exact importance
 corrections, preserving each target observation once. It needs no new model,
-but runtime and localization gains remain unmeasured. Correctness review of
-the existing mode readout and heading factors takes priority. The bounded
+and the four registered controls have now completed at `05b06c5`. Their
+baseline/expanded errors were 4,910.15/6,041.08 m with the original heading
+target and 3,605.82/1,058.16 m with normalized heading. All fail 200 m. The
+1,058.16 m route also has endpoint errors above five kilometres and covers
+only part of the drive. Later common-null visual-target and heading-variance
+controls also failed; none was adopted. The shared mode-readout bug was fixed
+and tested, but its correction reproduced the same failed routes. The bounded
 research receipt is `output/reference_snapshot_next_methods_20261111/research.json`.
 
 The official [NeurIPS 2025](https://neurips.cc/Downloads/2025) and
