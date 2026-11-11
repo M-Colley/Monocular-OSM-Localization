@@ -1,7 +1,8 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including adaptive-resampling trial source `54a85e4`, earlier heading-variance
+records, including 500k trial source `fcc3203`, adaptive-resampling source
+`54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
@@ -149,7 +150,7 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   clock, ESS, ancestry diagnostics and edge/F64-offset genealogy remain intact.
   `scripts/reference_snapshot_high_particle_probe.py` binds its separate run13
   declaration and external 16 GiB RSS bound before inputs. Case execution is
-  still pending after completed source/private review.
+  complete for all four controls; none passed 200 m.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -423,7 +424,7 @@ can dominate a larger sampler: diffuse 500k summaries took 5.08 s each in its
 fixed synthetic fixture. That is not an actual-city runtime. A proposed larger
 budget should preserve the entire native window and exact edge/offset genealogy
 while computing only the final pure summary used for route readout. This needs
-separate source/prospective validation; no larger-budget case has run. Run13
+separate source/prospective validation. Run13
 prospectively fixes four 500k/seed-zero controls, an 1,800-second inner limit,
 12 GiB genealogy payload cap and separate 16 GiB external RSS cap with 8 GiB
 physical/commit headroom. A private AST comparison verifies that final-only
@@ -432,8 +433,22 @@ failed outcome must close before scoring complete routes; none may disappear
 from the experiment inventory. The pure helper passed 52 checks and an
 independent peer; Root repeated 68 integration/worker checks. Peers verified
 all eight older entry outputs, final PF arrays and RNG exactly, genuine 500k
-chunk cache/order, and all worker source/declaration gates. No actual-city
-500k prediction exists at this checkpoint.
+chunk cache/order, and all worker source/declaration gates. The four actual
+controls at `fcc3203` then completed after fresh 33-source preparation in
+20.563 s. Root verified unchanged parent filter parameters except particle
+count, complete fields/backward guides, original motion/Q, observations, road
+points, strict ESS decisions and sparse final-summary indices. All four full
+predictions and workers closed before any score. Errors were
+**2,289.2568063537246 / 13,752.969619377378 m** with original heading and
+**1,136.6058158505887 / 3,529.6162976527376 m** with normalized heading,
+baseline/expanded respectively. Runtimes were 283.640/230.672/272.282/237.328 s;
+peak sampled aggregate RSS stayed below 9.39 billion bytes, within the separate
+16 GiB cap. Resampling counts were 203/60/341/191, with 52/39/6/13 initial
+labels remaining. These are unweighted genealogy counts, not correct-route
+support. All fail 200 m. The lowest mean also has 5.2/5.7 km endpoint errors and
+a 2.43 km route versus the 10.37 km GT. No larger-budget policy is adopted;
+validated development stays **14/15**. Proofs:
+`E:/monocular-osm-joint-vpr-proof/run13`.
 
 A source/synthetic motion review under
 `output/multiview_motion_audit_20261111` also distinguishes observable rotation
@@ -443,7 +458,14 @@ loses that rotation and resets each accepted translation to unit length. A
 persistent multi-view shared-scale front end is a proposed new direction; no
 actual-video gain, measured metric scale or covariance is established by these
 fixtures. The earlier depth, XFeat, LingBot and fixed-height controls remain
-closed separately.
+closed separately. A subsequent private estimated-motion frontend uses
+FIT-only essential geometry and PnP with fixed held-out tracks. It retains
+relative translation magnitudes and refuses weak geometry. One physically
+consistent synthetic image fixture passes, while a negative image fixture
+remains refused. The source-only next plan freezes 32 uniform seven-row native
+windows with exact ordinal/PTS lineage, one window resident and no GT use.
+No actual-window replay, continuous gauge connection or localization result
+is established by those private checks.
 
 ## Evaluation and operating constraints
 

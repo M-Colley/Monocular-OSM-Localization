@@ -868,3 +868,41 @@ Score SHA256 values in table order:
 `0c12a8e17694b241b1a274bb0defdf23e387274d459b8a2fd08210c63f9554c2`
 `6e65d960bc3bba3b0d2043bb922d2029fb8539ea926267a0ce8f2510f41b2096`
 `f9181251a2c301271a510357d490c87bef9b677905444b8531fe0372fea597ea`
+
+## Fixed 500k particle budget (11 November 2026; negative)
+
+Source `fcc3203` tests a separate fixed 500k configuration, preserving run9
+visual/heading targets, original native Q, future proposals and strict half-ESS
+resampling. Original helpers retain their caps: pointwise future/heading work
+is chunked, but auxiliary normalization uses one global weighted guide mean.
+Only the final pure summary is computed; full timings, ESS, ancestry and exact
+edge/F64-offset genealogy remain. Old public caps/defaults remain unchanged.
+
+The pure module passed 52 checks and an independent peer. Root repeated 68
+integration/worker checks; peers verified all eight old entry outputs, PF arrays
+and RNG plus genuine 500k cache/order. Fresh 33-source preparation reproduced
+all geometry/cues in 20.563 s. Root rebuilt complete fields/backward guides,
+verified unchanged effective filter parameters except particle count, native
+motion/Q, all factors, road points, strict decisions and sparse summary indices.
+All predictions/workers closed before scoring. The explicit external bound was
+CPU2/RSS16GiB/headroom8GiB/outer1830s; 12GiB is a separate genealogy payload cap.
+
+| References | Heading | Symmetric mean (m) | Runtime (s) | Peak RSS (bytes) | Resamples | Initial labels |
+|---|---|---:|---:|---:|---:|---:|
+| Baseline | Original | 2,289.2568063537246 | 283.640 | 9,338,925,056 | 203 | 52 |
+| Expanded | Original | 13,752.969619377378 | 230.672 | 9,386,422,272 | 60 | 39 |
+| Baseline | Normalized | 1,136.6058158505887 | 272.282 | 9,330,925,568 | 341 | 6 |
+| Expanded | Normalized | 3,529.6162976527376 | 237.328 | 9,382,625,280 | 191 | 13 |
+
+All four fail 200 m. The 1,136.61 m diagnostic has 5.2/5.7 km endpoint errors
+and a 2.43 km path against the 10.37 km GT. It is not complete localization.
+No budget policy or diagnostic Answer is adopted; the validated selected-Answer
+fleet remains **14/15**. TEST4 remains frozen and unlocalized.
+
+Proof: `E:/monocular-osm-joint-vpr-proof/run13`; completion SHA256
+`ee03f96a60459a75185ecce092a128166ecce776df8a294fd88fa6d8119ac889`.
+Score SHA256 values in table order:
+`1738c6e11be0677c2cb881e5d121b0fb3f4b3a0647d78b7b2660e4d1459e6faf`
+`50cc2c6f82091e9523c0bc6ecc1496026ed49bb09d3f731e2cec02e9693660b2`
+`1a10d3a4743702415e347cb98bbb7bc1b96d0a04a4940553da5c6eac4e58af97`
+`0daaf71555d09d36f79c5b786b79a74f73dd063a68f47f0a057c1215700a1dda`

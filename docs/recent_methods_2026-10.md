@@ -24,6 +24,12 @@ four negative controls: 1,619.89/6,040.93 m with original heading and
 3,603.44/20,274.61 m with normalized heading. Fewer resampling events did not
 repair full-route localization. No new Answer policy or fleet gain is claimed.
 
+The subsequent fixed500k study at `fcc3203` also failed all four controls:
+2,289.26/13,752.97 m with original heading and 1,136.61/3,529.62 m with
+normalized heading. Computing only the final pure summary made the budget
+feasible while retaining full genealogy. It did not establish accurate
+localization or a new selected-Answer fleet result.
+
 At the 30 October 2026 checkpoint, the complete cold development baseline was
 **9/15 within 200 m symmetric mean route error**. These experiments did not
 establish a new complete fleet result. They used development clips; the
