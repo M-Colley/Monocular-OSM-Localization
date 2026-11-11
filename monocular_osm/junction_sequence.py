@@ -364,7 +364,7 @@ class _OfflineFilter(GraphParticleFilter):
         speed = np.exp(logk) / self.unit_seconds
         return sign_factor(self.net, future.targets, edge, offset, speed, travel=travel)
 
-    def initialise_offline(self):
+    def initialise_offline(self, appearance=None):
         net = self.net
         nc = np.ceil(net.edge_len / 100.).astype(np.int64)
         if int(nc.sum()) > 200_000:
@@ -373,6 +373,8 @@ class _OfflineFilter(GraphParticleFilter):
         starts = np.concatenate([np.arange(k) * (length / k) for k, length in zip(nc, net.edge_len)])
         lengths = np.repeat(net.edge_len / nc, nc)
         guide = self.guide(edges, starts + lengths / 2, np.full(len(edges), math.log(8. * self.unit_seconds)))
+        if appearance is not None:
+            guide = guide * appearance.initial_weight(net, edges, starts + lengths / 2)
         q, ratio = initial_proposal(lengths, guide)
         pick = self.rng.choice(len(q), size=self.cfg.n_particles, p=q)
         self.edge = edges[pick]
@@ -436,6 +438,26 @@ def auxiliary_resample(pf, weights, guide):
 
 def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
           *, config: Config | None = None, check=lambda: None, clock=time.monotonic):
+    """Original road/OCR-only entry; appearance fusion is explicitly separate."""
+    return _align(net, odometry, motion_status, native_times, matched,
+                  config=config, check=check, clock=clock)
+
+
+def align_with_appearance(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
+                          bank, native_facts, *, config: Config | None = None,
+                          check=lambda: None, clock=time.monotonic):
+    """Off-default fixed raw-appearance research experiment; never an Answer."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("appearance experiment requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config,
+                  check=check, clock=clock, appearance_input=(bank, native_facts))
+
+
+def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
+           *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
+           appearance_input=None):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -446,6 +468,13 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
     config = config or Config()
     config.validate()
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
+    if appearance_input is not None:
+        from . import raw_vpr_appearance
+        profile = {**profile, "method": "offline-all-junction-raw-vpr-appearance-v1",
+                   "base_method": PROFILE_V3["method"], "appearance_profile": dict(raw_vpr_appearance.PROFILE),
+                   "appearance_profile_sha256": raw_vpr_appearance.PROFILE_SHA256,
+                   "appearance_initial_guide": "EXIT guide times first appearance factor to group power; exact initial p/q",
+                   "turn_and_ancestor_guides": "unchanged EXIT-only guides with exact corrections"}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -482,11 +511,23 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
             # node IDs and successor topology are shared with original inputs.
             net = net.with_turn_prior(0., normalise=True)
         cues = prepare_cues(net, matched, motion.times, poll)
+        appearance = None
+        appearance_records = []
+        if appearance_input is not None:
+            try:
+                appearance = raw_vpr_appearance.prepare(appearance_input[0], net, appearance_input[1],
+                    native_times, motion.times, check=poll)
+            except ValueError as error:
+                raise Unavailable("appearance inputs refused: " + str(error)) from error
+            base["appearance"] = appearance.receipt
         pf = _OfflineFilter(net, cfg, motion, cues, poll)
         parent = np.empty((t_count + 1, p), dtype=np.int32)
         edges = np.empty_like(parent)
         offsets = np.empty((t_count + 1, p), dtype=np.float64)
-        pf.initialise_offline()
+        if appearance is None:
+            pf.initialise_offline()
+        else:
+            pf.initialise_offline(appearance)
         ancestry = np.full(p, -1, dtype=np.int32)
         ess, cue_records, modes, mode_counts, mode_mass, scale_modes = ([] for _ in range(6))
         for t in range(t_count + 1):
@@ -510,6 +551,16 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
                                     "junction_ids": [j.identity for j in cue.targets],
                                     "no_matches_outlier_only": not bool(cue.targets),
                                     "factor_min": float(factor.min()), "factor_max": float(factor.max())})
+            if appearance is not None:
+                for query in np.flatnonzero(appearance.steps == t):
+                    query = int(query)
+                    stamp = appearance.field.query_times[query]
+                    log_factor = appearance.log_factor(query, net, np.column_stack([pf.x, pf.y]), time=stamp)
+                    pf.logw += appearance.powers[query] * log_factor
+                    appearance_records.append({"query_row": query, "t_sec": float(stamp),
+                        "applied_time": float(motion.times[t]), "composition_lag_s": float(motion.times[t] - stamp),
+                        "group_id": int(appearance.groups[query]), "power": float(appearance.powers[query]),
+                        "log_factor_min": float(log_factor.min()), "log_factor_max": float(log_factor.max())})
             norm = logsumexp(pf.logw)
             if not math.isfinite(norm):
                 raise Unavailable("all full-window graph hypotheses died; no automatic restart")
@@ -536,8 +587,11 @@ def align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, mat
             route_edge[t], route_offset[t] = edges[t, choice], offsets[t, choice]
             choice = int(parent[t, choice])
         x, y, heading, _ = net.locate(route_edge, route_offset)
+        if appearance is not None and [row["query_row"] for row in appearance_records] != list(range(80)):
+            raise Unavailable("appearance did not consume every original query exactly once")
         poll()
         return {**base, "status": "complete_diagnostic_only", "times": motion.times,
+                **({"appearance_events": appearance_records} if appearance is not None else {}),
                 "route_latlon": net.local_to_latlon(np.column_stack([x, y])),
                 "route_edge": route_edge, "route_offset_m": route_offset,
                 "road_heading": heading, "mode_xy": net.local_to_crs(np.asarray(modes)),
