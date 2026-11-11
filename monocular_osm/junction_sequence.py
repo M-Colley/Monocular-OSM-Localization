@@ -425,6 +425,42 @@ class _OfflineFilter(GraphParticleFilter):
         return out, correction, dead
 
 
+class _NormalizedHeadingOfflineFilter(_OfflineFilter):
+    """Normalized predictive kernel with the existing approximate bias KF.
+
+    Nearest-arc signed innovation/ties and first-heading initialization remain.
+    This is not exact marginalization or an exact posterior bias-moment update.
+    """
+    def update_heading(self, heading, dt):
+        from . import junction_heading_likelihood as heading_core
+        from .graph_filter import wrap_angle
+        c = self.cfg
+        if not np.isfinite(heading) or dt <= 0:
+            return
+        if not self.delta_ready:
+            self._init_delta(heading)
+            return
+        inflate = max(1.0, c.heading_corr_time_s / dt) if c.heading_corr_time_s > 0 else 1.0
+        R = np.deg2rad(c.heading_sigma_deg) ** 2 * inflate
+        nu = self._heading_innovation(heading + self.delta)
+        S = self.delta_var + R
+        width = heading_core.arc_union_width(self.net, self.edge, self.offset,
+                                            self.prev_head, c.junction_zone_m)
+        l_in = heading_core.normalized_loglike(nu, S, width, 0.)
+        eps = c.heading_outlier
+        if eps > 0:
+            a = math.log1p(-eps) + l_in
+            ll = np.logaddexp(a, math.log(eps / (2 * math.pi)))
+            rho = np.exp(a - ll)
+        else:
+            ll, rho = l_in, np.ones_like(l_in)
+        # NEW normalized responsibility enters the retained robust-KF update.
+        gain = rho * self.delta_var / S
+        self.delta = wrap_angle(self.delta + gain * nu)
+        self.delta_var = (1.0 - gain) * self.delta_var
+        self.logw = self.logw + ll
+
+
 def auxiliary_resample(pf, weights, guide):
     """Sample ancestors q_i∝w_i*g_i, then correct by 1/g_i (up to common Z)."""
     tilted = weights * guide
@@ -479,9 +515,23 @@ def align_with_snapshot_appearance(net: RoadNetwork, odometry: Odometry, motion_
                   check=check, clock=clock, appearance_input=(evidence, native_facts), snapshot_appearance=True)
 
 
+def align_with_snapshot_normalized_heading(net: RoadNetwork, odometry: Odometry, motion_status,
+                                           native_times, matched, evidence, native_facts, *,
+                                           config: Config | None = None, check=lambda: None,
+                                           clock=time.monotonic):
+    """Explicit off-default target study; same snapshot inputs and fixed sampler."""
+    config = config or Config(junction_prior="conditional-uniform-v3")
+    config.validate()
+    if config.junction_prior != "conditional-uniform-v3" or config.particles != 50_000 or config.seed != 0:
+        raise ValueError("normalized heading requires conditional-uniform-v3 / 50k / seed0")
+    return _align(net, odometry, motion_status, native_times, matched, config=config,
+                  check=check, clock=clock, appearance_input=(evidence, native_facts),
+                  snapshot_appearance=True, normalized_heading=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
-           appearance_input=None, compatible_appearance=False, snapshot_appearance=False):
+           appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
@@ -514,6 +564,16 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
         if snapshot_appearance:
             profile["descriptor_equivalence_assumed"] = False
             profile["historical_encoder_verified"] = False
+    if normalized_heading:
+        if not snapshot_appearance:
+            raise ValueError("normalized-heading target requires explicit snapshot entry")
+        from . import junction_heading_likelihood as heading_core
+        profile = {**profile, "method": "offline-all-junction-snapshot-normalized-heading-v1",
+            "heading_mode": "normalized-junction-v1", "heading_profile": dict(heading_core.PROFILE),
+            "heading_profile_sha256": heading_core.PROFILE_SHA256,
+            "heading_predictive_kernel_normalized": True,
+            "heading_bias_update": "nearest-branch robust scalar KF approximation with normalized responsibility",
+            "exact_marginalized_arc_convolution": False, "exact_bias_posterior_moments": False}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -559,7 +619,8 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             except ValueError as error:
                 raise Unavailable("appearance inputs refused: " + str(error)) from error
             base["appearance"] = appearance.receipt
-        pf = _OfflineFilter(net, cfg, motion, cues, poll)
+        filter_class = _NormalizedHeadingOfflineFilter if normalized_heading else _OfflineFilter
+        pf = filter_class(net, cfg, motion, cues, poll)
         parent = np.empty((t_count + 1, p), dtype=np.int32)
         edges = np.empty_like(parent)
         offsets = np.empty((t_count + 1, p), dtype=np.float64)

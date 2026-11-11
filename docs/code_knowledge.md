@@ -105,6 +105,13 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   IO. V2 checks every ZIP member's declared size before reading any compressed
   NPY header. The preserved V1 numerical worker remains on hold. Neither
   representation asserts descriptor equivalence or verified encoder history.
+- `junction_heading_likelihood.py` computes the complete active junction-arc
+  union width and a circle-normalized predictive heading kernel. The explicit
+  `junction_sequence.align_with_snapshot_normalized_heading` entry and
+  `scripts/reference_snapshot_normalized_heading_probe.py` test that target
+  separately. Existing entries and configuration stay unchanged. The new worker
+  binds both snapshot-data and heading-model declarations before numerical
+  inputs; its robust yaw-bias KF update remains approximate.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -259,8 +266,12 @@ point-Gaussian normalization. Private integration gives total factor mass
 1.000, 2.593 and 4.187 for point, 90-degree and 180-degree expectations with the
 same variance/outlier settings. A normalized heading model is a separate future
 experiment, prospectively declared under
-`E:/monocular-osm-joint-vpr-proof/run8/heading_study_contract.json`; source/private
-implementation is pending, with no normalized-heading trial or accuracy result.
+`E:/monocular-osm-joint-vpr-proof/run8/heading_study_contract.json`. The explicit
+source/private implementation passed 199 relevant tests, including 48 pure
+kernel and 17 new integration/worker tests. Root repeated those 65 tests and
+60 independent scalar quadrature checks. Final integration peer review and
+fresh-source case execution are pending; there is no normalized-heading
+localization or accuracy result yet.
 The normalization issue is not proven to explain the actual failed routes.
 The source/private audit is under
 `output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
