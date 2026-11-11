@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including appearance prototype source `2e0f169` and dataset addition `fa7df5e`. Read this alongside the
+records, including fused trial source `f699182` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -88,6 +88,9 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   factor per query, fixed 30-second correlation groups and corrected initial
   proposal guidance. All visual alternatives remain in the field. The
   original road-only entry remains the default; no Answer policy uses this.
+- `scripts/raw_vpr_junction_probe.py` runs that fixed diagnostic from Root's
+  accepted bank and fresh preparation at the same source, without selecting
+  an Answer. It binds the complete original native clock and input chain.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -165,12 +168,31 @@ peak sampled aggregate RSS. Root acceptance is
 `E:/monocular-osm-joint-vpr-proof/run3/bank_root_acceptance.json`, SHA256
 `84bcf5f54932eaee5622cc61b6d8061286bffe81101538b2d6cfbab00503156a`.
 
-Historical reference encoding remains **UNVERIFIED**. A two-control fusion
-profile was declared before loading reference/score arrays. Its off-default
-source prototype passed 83 focused tests and independent review, but no actual
-visual-field/fused-sampler trial or new accuracy result has run. The next run
-can use the admitted complete baseline bank; the expanded control stays
-unavailable. Development remains **14/15**.
+Historical reference encoding remains **UNVERIFIED**. The two-control fusion
+profile was declared before loading reference/score arrays. Root ran the
+complete baseline-bank control at `f699182` after fresh same-source map
+preparation. All typed geometry, topology and cue records matched the earlier
+graph trial. The 50,000-particle/1,110-step trial closed in 47.047 s at
+1,182,334,976 bytes peak sampled aggregate RSS. Root rebuilt the entire
+6,573,600-value field exactly and checked all 80 query events, 20 correlation
+groups, original cue powers and native endpoints before scoring.
+
+The unchanged lineage scored **7,152.842366478733 m**, worse than v4's
+retained Answer. This is another negative diagnostic, with no policy adoption
+or fleet improvement. Its score is
+`E:/monocular-osm-joint-vpr-proof/run4/component_score.json`, SHA256
+`02b0f30a9ac8ce5d6099cee49fe1ea84f8ea7f8a5b15e23e702f24db36044188`.
+The expanded strict control stays unavailable. Development remains **14/15**.
+
+A report-only check found that the first rejected expanded overlap differs
+by Float64 L2 **1.3859061218023863e-7**, with exactly equal coordinates and raw
+score spread **2.2351741790771484e-8**. This does not establish compatibility
+for the remaining bank or verify historical encoding. A separately declared
+research study will apply the project's earlier **L2 <= 1e-6 against the
+lexical canonical vector** rule, preserving exact per-pool tensors, receipts,
+query/model/clock/coordinate checks and full raw-score envelopes. It requires
+a new compatibility status/profile; old strict failures and production
+identity gates remain unchanged. This variant has no actual result yet.
 
 ## Evaluation and operating constraints
 

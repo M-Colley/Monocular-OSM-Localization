@@ -492,6 +492,66 @@ Source `2e0f169` implements the separately invoked visual/road prototype with
 the predeclared all-reference field, robust mixture, 30-second correlation
 powers and corrected initial guidance. Root and the independent peer each
 passed 83 focused tests, including the existing road-only/probe controls.
-Historical reference encoding remains **UNVERIFIED**. No actual fused trial
-or new localization accuracy is established yet; the next trial uses the
-complete admitted baseline bank. Development is still **14/15**.
+Historical reference encoding remains **UNVERIFIED**. At this input-check
+checkpoint no actual fused trial or new localization accuracy was established.
+The subsequent baseline-bank trial is recorded below.
+
+## Raw appearance/road fusion (11 November 2026; negative)
+
+Clean `f699182` ran the predeclared complete baseline-bank control. Genuine
+map preparation was repeated at that source, closing in **20.875 s** with
+**2,585,473,024 bytes** peak sampled aggregate RSS. Every typed network array,
+complete network metadata, matched/correlated cue record, topology receipt
+and public plan matched the earlier conditional-uniform trial. The expanded
+strict control stayed unavailable; none of its cells were selected or dropped
+to rescue it.
+
+The fixed 50,000-particle, seed-0 trial consumed all 4,441 native VO samples,
+1,110 composed steps, 2,606 references and all 80 visual factors. Its field
+contains 6,573,600 F32 values (26,294,400 bytes). Fixed 30-second groups give
+20 effective groups; original EXIT powers remain 1, 0.5, 0.5, 1. Initial p/q,
+legal-turn prior/q and ancestor 1/g corrections remain explicit. The numerical
+worker closed in **47.047 s**, at **1,182,334,976 bytes** peak sampled aggregate
+RSS. Root rebuilt the exact field and checked every query event, native
+endpoint and returned edge/offset point before GT. All observed workers closed
+and protected hashes remained unchanged.
+
+| Single frozen diagnostic | Unrounded error (m) |
+|---|---:|
+| Symmetric mean | 7,152.842366478733 |
+| Start | 13,296.185461995614 |
+| End | 4,374.377619451206 |
+
+This improves on the conditional-uniform road/sign-only diagnostic's
+18,281.58 m, but is worse than v4's retained **1,387.2377579105248 m** Answer.
+It is not adopted and supports no full-fleet improvement. Development remains
+**14/15**. Posterior mass is uncalibrated. Complete sampled transition-path
+witnesses are not exported, so the point-on-edge check is not a production
+route-admission proof.
+
+Proof directory: `E:/monocular-osm-joint-vpr-proof/run4`.
+Prediction closure SHA256:
+`a0e65cb797f860d5e0bfe915bd94424867bd08e915951d895316ff595acbde23`.
+Exact output-integrity check SHA256:
+`e10e93d9036799b35f913babd52851fc37a73f29d8e8b11d20d236698f3ba95f`.
+Component score SHA256:
+`02b0f30a9ac8ce5d6099cee49fe1ea84f8ea7f8a5b15e23e702f24db36044188`.
+The first setup attempt stopped before launch on Windows text decoding.
+Root's verifier corrections (composition end indices exclude the initial
+sample; JSON converts tuple config values to lists) are preserved separately.
+No prediction, source method or parameter changed or reran for scoring.
+
+The first expanded overlap conflict was quantified from the already consumed
+frozen receipts: descriptor Float64 L2 **1.3859061218023863e-7**, maximum
+component difference **7.450580596923828e-9**, exactly equal coordinates and
+raw-cosine spread **2.2351741790771484e-8**. This report covers the first
+conflict, not the whole bank. The strict bank remains unavailable.
+
+The next prospectively declared research variant uses the earlier all-fifteen
+study's **L2 <= 1e-6 against the lexical canonical descriptor** rule. Every
+physical call, exact per-pool consumed tensor, native query/model/clock,
+public receipt, coordinate and raw-score envelope gate remains required.
+Numerical compatibility needs its own status/profile and does not assert
+bitwise identity or verify historical encoding. Original strict failures and
+production identity gates stay unchanged; any other conflict refuses the
+whole bank. This post-hoc development variant has no result yet.
