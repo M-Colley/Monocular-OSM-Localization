@@ -472,6 +472,61 @@ class _NormalizedHeadingSnapshotFutureGuideFilter(_SnapshotFutureGuideFilter, _N
     """Same proposal guide with the separately declared normalized target."""
 
 
+class _HighParticleFutureGuideFilter(_SnapshotFutureGuideFilter):
+    """Pointwise batches preserve genuine <=200k future-guide calls/cache."""
+    def guide(self, edge, offset, logk):
+        values = np.broadcast_arrays(np.asarray(edge), np.asarray(offset), np.asarray(logk))
+        shape, count = values[0].shape, values[0].size
+        if not 1 <= count <= 500_000:
+            raise ValueError("bounded high-particle guide positions required")
+        flat = [np.ravel(value) for value in values]
+        out = np.empty(count, np.float64)
+        for lo in range(0, count, 200_000):
+            hi = min(count, lo + 200_000)
+            out[lo:hi] = super().guide(flat[0][lo:hi], flat[1][lo:hi], flat[2][lo:hi])
+        return out.reshape(shape)
+
+
+class _HighParticleNormalizedHeadingFilter(_NormalizedHeadingOfflineFilter):
+    """Same signed innovation/normalized responsibility; bounded pure calls."""
+    def update_heading(self, heading, dt):
+        from . import junction_heading_likelihood as heading_core
+        from .graph_filter import wrap_angle
+        c = self.cfg
+        if not 1 <= len(self.edge) <= 500_000:
+            raise ValueError("bounded high-particle heading state required")
+        if not np.isfinite(heading) or dt <= 0:
+            return
+        if not self.delta_ready:
+            self._init_delta(heading)
+            return
+        inflate = max(1.0, c.heading_corr_time_s / dt) if c.heading_corr_time_s > 0 else 1.0
+        R = np.deg2rad(c.heading_sigma_deg) ** 2 * inflate
+        nu = self._heading_innovation(heading + self.delta)
+        S = self.delta_var + R
+        l_in = np.empty_like(nu)
+        for lo in range(0, len(nu), 50_000):
+            sl = slice(lo, min(len(nu), lo + 50_000))
+            width = heading_core.arc_union_width(self.net, self.edge[sl], self.offset[sl],
+                                                self.prev_head[sl], c.junction_zone_m)
+            l_in[sl] = heading_core.normalized_loglike(nu[sl], S[sl], width, 0.)
+        eps = c.heading_outlier
+        if eps > 0:
+            a = math.log1p(-eps) + l_in
+            ll = np.logaddexp(a, math.log(eps / (2 * math.pi)))
+            rho = np.exp(a - ll)
+        else:
+            ll, rho = l_in, np.ones_like(l_in)
+        gain = rho * self.delta_var / S
+        self.delta = wrap_angle(self.delta + gain * nu)
+        self.delta_var = (1.0 - gain) * self.delta_var
+        self.logw = self.logw + ll
+
+
+class _HighParticleNormalizedHeadingFutureGuideFilter(_HighParticleFutureGuideFilter, _HighParticleNormalizedHeadingFilter):
+    """Separate highN pointwise adapters; original target and raw guide math."""
+
+
 def auxiliary_resample(pf, weights, guide):
     """Sample ancestors q_i∝w_i*g_i, then correct by 1/g_i (up to common Z)."""
     tilted = weights * guide
@@ -703,18 +758,55 @@ def align_with_snapshot_normalized_heading_future_guide_adaptive_resampling(net:
                   normalized_heading=True, future_proposal=True, adaptive_resampling=True)
 
 
+def align_with_snapshot_future_guide_high_particle_budget(net: RoadNetwork, odometry: Odometry, motion_status,
+                                                         native_times, matched, evidence, native_facts, *,
+                                                         config=None, check=lambda: None, clock=time.monotonic):
+    """Separate fixed500k legacy-heading target/proposal and final-only readout."""
+    from .high_particle_budget import HighParticleConfig
+    config = HighParticleConfig() if config is None else config
+    if type(config) is not HighParticleConfig:
+        raise ValueError("dedicated genuine HighParticleConfig required")
+    config.validate()
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  future_proposal=True, adaptive_resampling=True, high_particle_budget=True)
+
+
+def align_with_snapshot_normalized_heading_future_guide_high_particle_budget(net: RoadNetwork, odometry: Odometry,
+                                                                           motion_status, native_times, matched,
+                                                                           evidence, native_facts, *, config=None,
+                                                                           check=lambda: None, clock=time.monotonic):
+    """Separate fixed500k normalized-heading target/proposal and final-only readout."""
+    from .high_particle_budget import HighParticleConfig
+    config = HighParticleConfig() if config is None else config
+    if type(config) is not HighParticleConfig:
+        raise ValueError("dedicated genuine HighParticleConfig required")
+    config.validate()
+    return _align(net, odometry, motion_status, native_times, matched, config=config, check=check, clock=clock,
+                  appearance_input=(evidence, native_facts), snapshot_appearance=True,
+                  normalized_heading=True, future_proposal=True, adaptive_resampling=True, high_particle_budget=True)
+
+
 def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, matched,
            *, config: Config | None = None, check=lambda: None, clock=time.monotonic,
            appearance_input=None, compatible_appearance=False, snapshot_appearance=False, normalized_heading=False, future_proposal=False,
-           common_null=False, no_adaptive_heading_q=False, adaptive_resampling=False):
+           common_null=False, no_adaptive_heading_q=False, adaptive_resampling=False, high_particle_budget=False):
     """Return a diagnostic offline lineage or explicit unavailable; never select.
 
     Genealogy is EXACTLY 16*P*(T+1) payload bytes: int32 parent, int32 road
-    edge, float64 offset. Worst admitted 50k*1201 =960,800,000 B (<1GiB).
+    edge, float64 offset. Original50k max960,800,000 B; explicithighN
+    max500k*1201 =9,608,000,000 B within its separate12GiB payload cap.
     No thinning/interpolating of the composed path, automatic restart or MAP
     optimality claim. Root must externally enforce CPU/RSS/headroom/outer time.
     """
-    config = config or Config()
+    if high_particle_budget:
+        from . import high_particle_budget as budget_core
+        if type(config) is not budget_core.HighParticleConfig:
+            raise ValueError("dedicated genuine HighParticleConfig required")
+    else:
+        config = config or Config()
+        if config.particles > 50_000 or config.genealogy_bytes > PROFILE["genealogy_bytes"]:
+            raise ValueError("original entries retain their50k/1GiB budget")
     config.validate()
     if common_null and (appearance_input is None or not snapshot_appearance or compatible_appearance or future_proposal):
         raise ValueError("common-null requires separate snapshot inputs and EXIT-only proposals")
@@ -724,6 +816,8 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
     if adaptive_resampling and (appearance_input is None or not snapshot_appearance or not future_proposal
                                or common_null or compatible_appearance or no_adaptive_heading_q):
         raise ValueError("adaptive resampling requires original run9 snapshot/future/native-Q target")
+    if high_particle_budget and not adaptive_resampling:
+        raise ValueError("high-particle budget requires explicit adaptive run9 target/proposal")
     profile = PROFILE_V3 if config.junction_prior == "conditional-uniform-v3" else PROFILE
     if appearance_input is not None:
         if common_null:
@@ -796,7 +890,10 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "unknown_motion_variance_unchanged": True, "fixed_bias_random_walk_unchanged": True,
             "measured_covariance": False, "calibrated_covariance": False}
     if adaptive_resampling:
-        from . import adaptive_auxiliary_resampling as resampling_core
+        if high_particle_budget:
+            resampling_core = budget_core
+        else:
+            from . import adaptive_auxiliary_resampling as resampling_core
         profile = {**profile,
             "method": ("offline-snapshot-normalized-heading-future-adaptive-resampling-v1" if normalized_heading else
                        "offline-snapshot-legacy-heading-future-adaptive-resampling-v1"),
@@ -806,6 +903,16 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             "no_trigger": "identity ancestry; PF/logw/RNG unchanged; no auxiliary guide computation",
             "initial_ancestor_count_scope": "distinct initial particle labels in stored cloud BEFORE resampling-after-step",
             "resampling_diagnostics_extra_payload": "P int32 labels plus O(P) bincount scratch; two O(T) output arrays"}
+    if high_particle_budget:
+        profile = {**profile,
+            "method": ("offline-snapshot-normalized-heading-future-high-particle-v1" if normalized_heading else
+                       "offline-snapshot-legacy-heading-future-high-particle-v1"),
+            "particle_budget_mode": budget_core.BUDGET_MODE, "high_particle_budget_profile": dict(budget_core.PROFILE),
+            "high_particle_budget_profile_sha256": budget_core.PROFILE_SHA256,
+            "max_particles": 500_000, "genealogy_bytes": 12 << 30, "external_rss_bytes": 16 << 30,
+            "summary_schedule": "final-only-v1", "summary_indices": "int32 indices into full stored times; finalT only",
+            "future_pointwise_batch_max": 200_000, "normalized_heading_pointwise_batch_max": 50_000,
+            "auxiliary_defense": "ONE global highN weighted mean; unchanged global ancestor draw/inverse-guide correction"}
     cfg = FilterConfig(n_particles=config.particles, seed=config.seed, path_storage=False,
                        turn_prior_kappa=0., normalise_turn_prior=profile["normalise_turn_prior"],
                        speed_median_mps=8., speed_log_sigma=.75, speed_range_mps=(.5, 55.),
@@ -869,6 +976,8 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             filter_class = _NormalizedHeadingSnapshotFutureGuideFilter if normalized_heading else _SnapshotFutureGuideFilter
         else:
             filter_class = _NormalizedHeadingOfflineFilter if normalized_heading else _OfflineFilter
+        if high_particle_budget:
+            filter_class = _HighParticleNormalizedHeadingFutureGuideFilter if normalized_heading else _HighParticleFutureGuideFilter
         pf = filter_class(net, cfg, motion, cues, poll)
         if future_proposal:
             pf.future_guide = future
@@ -886,6 +995,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             pf.initialise_offline(appearance)
         ancestry = np.full(p, -1, dtype=np.int32)
         ess, cue_records, modes, mode_counts, mode_mass, scale_modes = ([] for _ in range(6))
+        summary_step_indices = []
         for t in range(t_count + 1):
             poll()
             pf.index = t
@@ -923,11 +1033,14 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
             pf.logw -= norm
             weights = np.exp(pf.logw)
             ess.append(float(1 / np.sum(weights * weights)))
-            summary = pf.summary(weights)
-            modes.append(summary["mode"])
-            mode_counts.append(summary["n_modes"])
-            mode_mass.append(summary["confidence"])
-            scale_modes.append(summary["k_mode"])
+            if not high_particle_budget or t == t_count:
+                summary = pf.summary(weights)
+                modes.append(summary["mode"])
+                mode_counts.append(summary["n_modes"])
+                mode_mass.append(summary["confidence"])
+                scale_modes.append(summary["k_mode"])
+                if high_particle_budget:
+                    summary_step_indices.append(t)
             edges[t], offsets[t], parent[t] = pf.edge, pf.offset, ancestry
             if adaptive_resampling:
                 resampling_arrays["initial_ancestor_count"][t] = np.count_nonzero(np.bincount(initial_labels, minlength=p))
@@ -937,7 +1050,8 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
                 else:
                     guide = pf.guide(pf.edge, pf.offset, pf.logk + pf.eps)
                     if future_proposal:
-                        guide = future_core.defensive_auxiliary_guide(weights, guide)
+                        guide = (budget_core.defensive_auxiliary_guide(weights, guide) if high_particle_budget else
+                                 future_core.defensive_auxiliary_guide(weights, guide))
                     ancestry = auxiliary_resample(pf, weights, guide).astype(np.int32)
                     if adaptive_resampling:
                         resampling_arrays["resampled_after_step"][t] = True
@@ -960,6 +1074,7 @@ def _align(net: RoadNetwork, odometry: Odometry, motion_status, native_times, ma
         return {**base, "status": "complete_diagnostic_only", "times": motion.times,
                 **variance_arrays,
                 **resampling_arrays,
+                **({"summary_step_indices": np.asarray(summary_step_indices, np.int32)} if high_particle_budget else {}),
                 **({"appearance_events": appearance_records} if appearance is not None else {}),
                 "route_latlon": net.local_to_latlon(np.column_stack([x, y])),
                 "route_edge": route_edge, "route_offset_m": route_offset,

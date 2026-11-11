@@ -141,6 +141,15 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   steps retain the original defensive guided proposal and importance correction.
   They export resampling decisions and distinct initial-label counts. No target,
   native heading variance or default pipeline policy changes.
+- `high_particle_budget.py` defines a separate fixed 500k configuration and
+  global ESS/defensive-guide calculations; it does not widen the original
+  configuration or helper caps. Explicit high-budget entries use pointwise
+  batches for future/normalized-heading helpers and retain one global auxiliary
+  normalization. Only the final pure spatial summary is computed; the entire
+  clock, ESS, ancestry diagnostics and edge/F64-offset genealogy remain intact.
+  `scripts/reference_snapshot_high_particle_probe.py` binds its separate run13
+  declaration and external 16 GiB RSS bound before inputs. Case execution is
+  still pending after completed source/private review.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -414,7 +423,17 @@ can dominate a larger sampler: diffuse 500k summaries took 5.08 s each in its
 fixed synthetic fixture. That is not an actual-city runtime. A proposed larger
 budget should preserve the entire native window and exact edge/offset genealogy
 while computing only the final pure summary used for route readout. This needs
-separate source/prospective validation; no larger-budget case has run.
+separate source/prospective validation; no larger-budget case has run. Run13
+prospectively fixes four 500k/seed-zero controls, an 1,800-second inner limit,
+12 GiB genealogy payload cap and separate 16 GiB external RSS cap with 8 GiB
+physical/commit headroom. A private AST comparison verifies that final-only
+summaries preserve full PF state/RNG and final routes. Every unavailable or
+failed outcome must close before scoring complete routes; none may disappear
+from the experiment inventory. The pure helper passed 52 checks and an
+independent peer; Root repeated 68 integration/worker checks. Peers verified
+all eight older entry outputs, final PF arrays and RNG exactly, genuine 500k
+chunk cache/order, and all worker source/declaration gates. No actual-city
+500k prediction exists at this checkpoint.
 
 A source/synthetic motion review under
 `output/multiview_motion_audit_20261111` also distinguishes observable rotation
