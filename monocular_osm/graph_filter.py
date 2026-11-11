@@ -177,6 +177,26 @@ def _edge_coords(G: nx.MultiDiGraph, u, v, data) -> np.ndarray:
     return c
 
 
+def _construction_trace_row(G, u, v, key, data, oriented, keep, compact, synthetic, index):
+    """Copy exact construction witnesses; never participates in network math."""
+    geometry = data.get("geometry")
+    if geometry is None:
+        raw = np.array([[float(G.nodes[u]["x"]), float(G.nodes[u]["y"])],
+                        [float(G.nodes[v]["x"]), float(G.nodes[v]["y"])]], dtype=np.float64)
+    else:
+        raw = np.asarray(geometry.coords, dtype=np.float64)[:, :2]
+    fallback = geometry is not None and len(raw) < 2
+    reversed_geometry = (not fallback and not np.array_equal(oriented, raw)
+                         and np.array_equal(oriented, raw[::-1]))
+    return {"schema": "road-network-construction-trace-v1", "edge_index": index,
+            "edge_key": (u, v, key), "raw_vertices": raw.copy(),
+            "oriented_vertices": oriented.copy(),
+            "keep_indices": np.flatnonzero(keep).astype(np.int64),
+            "compact_vertices": compact.copy(), "geometry_present": geometry is not None,
+            "geometry_reversed": bool(reversed_geometry), "geometry_fallback": bool(fallback),
+            "synthetic": bool(synthetic)}
+
+
 def _turn_logprior(succ_table, succ_head, head_end, kappa: float,
                    normalise: bool = False) -> np.ndarray:
     """Log transition weight of each successor; -inf on padding.
@@ -249,6 +269,7 @@ class RoadNetwork:
         uturn_at_dead_ends: bool = True,
         turn_prior_kappa: float = 0.0,
         normalise_turn_prior: bool = False,
+        construction_trace: list | None = None,
     ) -> "RoadNetwork":
         """Build the arrays from an osmnx-style MultiDiGraph.
 
@@ -264,7 +285,17 @@ class RoadNetwork:
         ``normalise_turn_prior`` set the transition weight
         (:func:`_turn_logprior`); the default (0, unnormalised) weighs every
         feasible branch equally, so junction topology is not evidence.
+
+        An optional empty built-in ``construction_trace`` list receives copied
+        per-edge witnesses only after successful construction. It is not a
+        callback and does not affect network arrays or particle state.
         """
+        if construction_trace is not None and (type(construction_trace) is not list or construction_trace):
+            raise ValueError("construction_trace requires an empty built-in list")
+        trace_rows = [] if construction_trace is not None else None
+        if trace_rows is not None and G.number_of_edges() > 100_000:
+            raise ValueError("construction trace exceeds compact edge cap")
+        trace_vertices = trace_segments = 0
         crs = G.graph.get("crs")
         projected = True
         try:
@@ -280,13 +311,26 @@ class RoadNetwork:
         keys: list = []
         polys: list[np.ndarray] = []
         for u, v, k, data in G.edges(keys=True, data=True):
+            if trace_rows is not None:
+                geometry = data.get("geometry")
+                trace_vertices += max(2, len(geometry.coords)) if geometry is not None else 2
+                if trace_vertices > 1_100_000:
+                    raise ValueError("construction trace exceeds vertex/member cap")
             c = _edge_coords(G, u, v, data)
+            oriented = c if trace_rows is not None else None
             # drop repeated vertices (zero-length segments)
             d = np.hypot(*np.diff(c, axis=0).T)
             keep = np.concatenate([[True], d > 1e-6])
             c = c[keep]
-            if len(c) < 2:  # degenerate edge: give it a tiny length
+            synthetic = len(c) < 2
+            if synthetic:  # degenerate edge: give it a tiny length
                 c = np.vstack([c[:1], c[:1] + [0.05, 0.0]])
+            if trace_rows is not None:
+                trace_segments += len(c) - 1
+                if trace_segments > 500_000:
+                    raise ValueError("construction trace exceeds segment cap")
+                trace_rows.append(_construction_trace_row(
+                    G, u, v, k, data, oriented, keep, c, synthetic, len(keys)))
             keys.append((u, v, k))
             polys.append(c)
         if not keys:
@@ -360,7 +404,7 @@ class RoadNetwork:
         succ_logprior = _turn_logprior(succ_table, succ_head, head_end, turn_prior_kappa,
                                        normalise_turn_prior)
 
-        return cls(
+        network = cls(
             crs=str(crs), origin=origin, edge_keys=keys, edge_len=edge_len,
             edge_base=edge_base, seg_lo=seg_lo, seg_hi=seg_hi,
             seg_gstart=seg_gstart, seg_xy0=xy0, seg_dir=sdir, seg_heading=shead,
@@ -371,6 +415,9 @@ class RoadNetwork:
             normalise_turn_prior=normalise_turn_prior,
             xy_max=allxy.max(axis=0) - origin,
         )
+        if construction_trace is not None:
+            construction_trace.extend(trace_rows)
+        return network
 
     def with_turn_prior(self, kappa: float, normalise: bool = False) -> "RoadNetwork":
         """A copy sharing all arrays but with a different transition weight."""

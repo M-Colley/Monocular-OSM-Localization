@@ -3,3 +3,14 @@ monocular_osm/multiview_motion.py text eol=lf
 monocular_osm/multiview_motion_inputs.py text eol=lf
 scripts/prepare_multiview_motion_inputs.py text eol=lf
 scripts/multiview_motion_probe.py text eol=lf
+# Keep reviewed semantic preparation and trace sources stable on Windows.
+monocular_osm/graph_filter.py text eol=lf
+monocular_osm/junction_inputs.py text eol=lf
+monocular_osm/road_segment_semantics.py text eol=lf
+monocular_osm/road_segment_semantics_io.py text eol=lf
+scripts/prepare_road_segment_semantics.py text eol=lf
+tests/test_graph_filter_construction_trace.py text eol=lf
+tests/test_junction_inputs_semantics.py text eol=lf
+tests/test_road_segment_semantics.py text eol=lf
+tests/test_road_segment_semantics_io.py text eol=lf
+tests/test_prepare_road_segment_semantics.py text eol=lf

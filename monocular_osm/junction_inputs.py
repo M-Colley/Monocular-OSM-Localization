@@ -135,6 +135,37 @@ def preflight_network(graph):
 
 
 def prepare_graph(raw_graph, inventory, matched, plan, *, copy_graph=True, simplify_fn=None, project_fn=None):
+    """Prepare the original compact network without semantic sidecar work."""
+    # Do not retain an outer-frame raw-graph reference across projection when
+    # a caller explicitly consumes its disposable graph with copy_graph=False.
+    owned = [raw_graph]
+    del raw_graph
+    return _prepare_graph(owned.pop(), inventory, matched, plan, copy_graph=copy_graph,
+                          simplify_fn=simplify_fn, project_fn=project_fn)
+
+
+def prepare_graph_with_semantics(raw_graph, inventory, matched, plan, *, emit_record,
+                                 copy_graph=True, simplify_fn=None, project_fn=None):
+    """Opt-in exact original-edge sidecar; original network/receipt unchanged.
+
+    ``emit_record`` streams bounded catalog records to an owned sink. All
+    original edge records are emitted before private lineage tokens are added.
+    With ``copy_graph=False`` the caller consumes/discards its private graph;
+    tokens and kept-node marks may remain on it, as stated by the old receipt.
+    No source acquisition/history or legal-speed applicability is inferred.
+    """
+    if not callable(emit_record):
+        raise ValueError("semantic catalog requires an explicit record sink")
+    from . import road_segment_semantics
+    owned = [raw_graph]
+    del raw_graph
+    return _prepare_graph(owned.pop(), inventory, matched, plan, copy_graph=copy_graph,
+                          simplify_fn=simplify_fn, project_fn=project_fn,
+                          semantics=road_segment_semantics, emit_record=emit_record)
+
+
+def _prepare_graph(raw_graph, inventory, matched, plan, *, copy_graph=True,
+                   simplify_fn=None, project_fn=None, semantics=None, emit_record=None):
     """Mark ALL present inventory nodes; REQUIRE all matched exact hypotheses.
 
     Unmatched missing inventory nodes are reported, not silently erased and not
@@ -198,11 +229,19 @@ def prepare_graph(raw_graph, inventory, matched, plan, *, copy_graph=True, simpl
     raw_nodes, raw_edges = len(raw_graph), raw_graph.number_of_edges()
     original_crs = raw_graph.graph["crs"]
     graph = raw_graph.copy() if copy_graph else raw_graph
+    if semantics is not None:
+        catalog = semantics.attach(graph, emit_record=emit_record)
     original = {}
     for identity, node in present.items():
         graph.nodes[node][KEEP_NODE] = True
         original[node] = (float(graph.nodes[node]["x"]), float(graph.nodes[node]["y"]))
-    graph = simplify_fn(graph, node_attrs_include=[KEEP_NODE], remove_rings=False)
+    if semantics is None:
+        graph = simplify_fn(graph, node_attrs_include=[KEEP_NODE], remove_rings=False)
+    else:
+        graph = simplify_fn(graph, node_attrs_include=[KEEP_NODE], remove_rings=False,
+                            track_merged=True, edge_attr_aggs={
+                                "length": sum, "travel_time": sum,
+                                semantics.TOKEN: semantics.concat_paths})
     del raw_graph
     if not isinstance(graph, nx.MultiDiGraph) or not set(present.values()) <= set(graph):
         raise ValueError("simplification removed retained inventory topology IDs")
@@ -221,7 +260,13 @@ def prepare_graph(raw_graph, inventory, matched, plan, *, copy_graph=True, simpl
                     or math.hypot(px - nx_, py - ny) > 5.):
                 raise ValueError("matched topology incidence/public coordinate proof failed")
     allocation = preflight_network(graph)
-    net = RoadNetwork.from_graph(graph)
+    if semantics is None:
+        net = RoadNetwork.from_graph(graph)
+    else:
+        trace = []
+        net = RoadNetwork.from_graph(graph, construction_trace=trace)
+        for row in trace:
+            row["source_keyed_path"] = graph.edges[row["edge_key"]][semantics.TOKEN]
     if len(net.seg_gstart) != allocation["segments"]:
         raise ValueError("preflight/builder segment counts disagree")
     receipt = {"schema": "junction-sequence-preserved-city-topology-v1", "status": "complete",
@@ -238,4 +283,7 @@ def prepare_graph(raw_graph, inventory, matched, plan, *, copy_graph=True, simpl
                "overlapping_graph_copies_and_projection_temporaries_possible": True,
                "preflight_allocation": allocation,
                "graph_stats": net.stats()}
+    if semantics is not None:
+        packet = semantics.bind_mapping(catalog, trace, net)
+        return net, receipt, packet
     return net, receipt

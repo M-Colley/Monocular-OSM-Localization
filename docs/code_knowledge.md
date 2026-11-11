@@ -161,6 +161,12 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
   tail coverage. The separate run16 integration conditions the initial road
   position proposal on these bins, preserving actual continuous speed draws
   and the original target through the exact conditional importance ratio.
+- `road_segment_semantics.py` preserves loaded graph-artifact attributes,
+  exact directed raw keys, keyed paths and mapped/neutral segment status.
+  `road_segment_semantics_io.py` provides separate bounded storage, and
+  `scripts/prepare_road_segment_semantics.py` is the opt-in producer. The old
+  network remains an exact 18-array archive; no speed model or Answer policy
+  consumes the sidecar yet.
 - `multiview_motion.py` is an opt-in seven-frame geometric frontend promoted
   byte-for-byte from a reviewed prototype. It estimates FIT-only anchor E/PnP
   poses with held-out later-view checks and preserves unknown translation.
@@ -640,6 +646,27 @@ proposal can have unstable weights; direct target sampling or a declared
 defensive mixture needs private validation. No road-speed parameters have
 been fitted and no model is implemented. Designs and private proofs are in
 `output/road_conditioned_speed_design_20261111/`.
+
+## Active original-segment semantics preparation
+
+Run18 separately declares semantic preparation under
+`E:/monocular-osm-joint-vpr-proof/run18/segment_semantics_study_contract.json`.
+It preserves the old 18-array network and full topology/match/plan metadata,
+while exporting a separate catalog and exact keyed-path/segment mapping.
+The opt-in core, geometry trace, preparation wrapper and separate worker are
+implemented. Root repeated 225 focused/new and existing checks. Independent
+reviews preserve all old construction math and particle state/RNG. The Root
+validator passed 12 private end-to-end probes, including resealed corruption
+checks; it independently replays keyed simplification because geometry alone
+cannot distinguish coincident parallel paths. No actual Run18 preparation or
+Root acceptance exists yet. Caps are 500k raw directed
+edges, 100k compact edges, 500k segments, one million path memberships,
+192 MiB of catalog bytes and 64 MiB of semantic arrays. The actual preparer
+must remain within CPU2/RSS3GiB and the existing deadlines; source-only tests
+cannot establish that. Root must close the producer and independently verify
+every catalog record, disposition and mapped/neutral segment before any model
+consumes the packet. No road-conditioned speed model or new accuracy result
+exists yet.
 
 ## Evaluation and operating constraints
 
