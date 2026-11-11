@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including normalized-heading trial source `d4266f5` and dataset addition `fa7df5e`. Read this alongside the
+records, including future-guided trial source `05b06c5` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -298,8 +298,32 @@ RSS, not an absolute peak guarantee. The guide is query-spacing dependent and
 is not a physical motion posterior. Gaussian sigma above eight cells refuses
 the whole control before allocation; it is never clipped or cropped. Run9's
 final prospective contract is `future_guide_study_contract_v2.json`; the first
-contract is preserved unlaunched. Four fixed controls are pending, with every
-prediction to close before any new offline scoring.
+contract is preserved unlaunched. All four fixed controls at `05b06c5` completed
+after fresh 31-source preparation. Root rebuilt each entire visual field and
+backward guide volume, checked native/event/road-point integrity and closed
+every prediction before any score. Symmetric means were:
+
+| Heading target | Baseline references (m) | Expanded references (m) |
+|---|---:|---:|
+| Original junction heading | 4,910.147300513726 | 6,041.076373316711 |
+| Normalized junction heading | 3,605.817422391153 | 1,058.1609295408853 |
+
+The expanded normalized control improves on the retained 1,387.24 m diagnostic
+comparison, but still fails 200 m. Its start/end errors are 5,200/5,913 m and
+its predicted-to-GT mean is 91.54 m: the lower symmetric mean does not establish
+a complete correct route. No per-clip control selection, Answer policy adoption
+or fresh fleet gain follows. Development remains **14/15**. Proofs are under
+`E:/monocular-osm-joint-vpr-proof/run9`.
+
+Source/private review also found that the current visual compatibility
+potential strongly rewards reference coverage even for a flat query; this is a
+model effect, not an arithmetic bug. A separately declared common-null density
+ratio could make flat queries and unsupported regions neutral. Its source/private
+prototype is pending. A separate heading-process audit found that inlier counts
+do not affect the current yaw-derived variance; an abrupt 90-degree jump is
+confounded with noise, whereas a smooth three-second turn receives small
+variance. Neither a measured geometric covariance nor a no-extra-Q ablation
+has been run on the case. Future target changes must stay separate from run9.
 The source/private audit is under
 `output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
 resampling also has a demonstrated ancestry-variance risk under changing guides,

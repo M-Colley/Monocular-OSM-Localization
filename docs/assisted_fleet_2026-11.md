@@ -708,3 +708,48 @@ expanded `ec19c8c8b4bf85e8ad3a391958a72971657801effc75120927f75cbc8f51f6b3`.
 The next source/private study tests future appearance proposal guidance,
 preserving each target and exact importance corrections. It is not a parameter
 retuning or policy adoption of these negative routes.
+
+## Future appearance proposals (11 November 2026; no goal pass)
+
+Source `05b06c5` adds explicit future-guided entries over each existing heading
+target. Full-grid backward messages retain all 80 original query factors and
+their powers. Fixed Gaussian reachability is a proposal heuristic; it is
+query-spacing dependent, not a physical motion posterior. Initial and turn
+ratios stay unchanged. A defensive auxiliary mixture retains at least one
+quarter of current target mass and uses the exact inverse effective-guide
+correction. Existing entries preserve their outputs, particle state and RNG.
+
+Source/private validation passed **267 tests**, including 44 new pure-guide and
+24 integration/worker tests that Root independently repeated. Both peers
+approved. The maximum private 16M-value/1,201-endpoint CPU2 benchmark took
+4.01 s with 66.65 MB additional traced memory; actual inference retained the
+external CPU2/RSS3GiB/headroom8GiB/1,830s guard. Sigma above eight cells refuses
+the full control before allocation. The unlaunched first declaration is
+preserved; the final `future_guide_study_contract_v2.json` adds that resource
+bound and explicit approximation limits before any case execution.
+
+Fresh preparation bound all **31** required source roles and reproduced prior
+geometry/cues. Root rebuilt every complete appearance field and backward guide
+volume, verified native clocks, query and sign powers and output road points,
+then closed **all four** predictions and workers before any new offline score.
+
+| Reference bank | Heading target | Symmetric mean (m) | Runtime (s) | Peak sampled RSS (bytes) |
+|---|---|---:|---:|---:|
+| Baseline | Original | 4,910.147300513726 | 70.813 | 1,240,473,600 |
+| Expanded | Original | 6,041.076373316711 | 76.515 | 1,289,461,760 |
+| Baseline | Normalized | 3,605.817422391153 | 71.687 | 1,241,530,368 |
+| Expanded | Normalized | 1,058.1609295408853 | 75.453 | 1,289,867,264 |
+
+The last control has lower mean error than retained v4's 1,387.24 m, but remains
+well above 200 m. Its start/end errors are **5,200.04 / 5,912.70 m**; the
+predicted-to-GT mean is **91.54 m** while GT-to-predicted mean is **2,024.78 m**.
+It follows a limited part of the route rather than establishing correct complete
+localization. No per-clip winning-control choice, new Answer policy, selected
+fleet evaluation or goal pass is claimed. Development remains **14/15**.
+
+Proof: `E:/monocular-osm-joint-vpr-proof/run9`. Four score SHA256 values in table
+order: `4356bafcf3871fa40624de23892107cf928670f2dfb7f42ec8aefc0a3e6bb424`,
+`725bc0c09a89d2be1755836734aab0659e080529e8ab4a4f6b3c83a826758975`,
+`e0696a0fd4f9314d09e56e89c71f27a0bbb6dcf509dc19330083dcdb65f98e43`,
+`1857fc5a9a225bb2faeac54efd36f7771d6b90a79e19f57ae0ffc894758fdab9`.
+All historical reference-encoding and calibration limitations remain.
