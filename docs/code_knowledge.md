@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
+records, including joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
 `54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
@@ -560,7 +560,7 @@ coordinate-like row while preserving all four EXIT refs, times, confidences
 and pairings. This is an exclusion fix, not an accuracy gain; old artifacts
 and the last validated 14/15 remain historical evidence.
 
-## Next source-validated proposal study
+## Closed joint speed-position initial proposal
 
 The current initial position guide assumes 8 m/s, then independently draws
 continuous cruising scale and its deviation. That is a valid importance
@@ -586,9 +586,25 @@ once and one active future raster was reused; this is an initializer-only
 benchmark, not a full-filter RSS guarantee. Root repeated 106 new and 98
 existing private tests; independent review preserved complete old particle
 state and RNG. The separate worker pins 33 source roles and all four study
-declarations before values. The actual four-control run is pending; no
-joint-initial route or accuracy result exists yet. The declaration is
-`E:/monocular-osm-joint-vpr-proof/run16/joint_initial_proposal_study_contract.json`.
+declarations before values. Source `ad9cd96` then completed all four actual
+controls. Fresh preparation preserved all 18 network arrays and full metadata.
+Root independently reconstructed the full 180,027-cell partition and every
+one of 50,000 initial weights per control, with exactly zero difference. All
+four outcomes and worker births closed before any new ground-truth score.
+
+| Bank / heading | Parent run9 error (m) | Joint-initial error (m) |
+| --- | ---: | ---: |
+| Baseline / legacy | 4,910.15 | 1,998.79 |
+| Expanded / legacy | 6,041.08 | 7,155.23 |
+| Baseline / normalized | 3,605.82 | 5,174.74 |
+| Expanded / normalized | 1,058.16 | 1,065.79 |
+
+All four fail 200 m at raw precision. The best still predicts a partial
+2,586 m route against 10,368 m of ground truth, with start/end errors of
+5,250/5,896 m. No proposal was adopted and no selected-Answer fleet ran.
+Prediction runtimes were 73.19–80.22 s and maximum sampled aggregate
+RSS was 1,296,850,944 bytes, below the 3 GiB bound. Complete records:
+`E:/monocular-osm-joint-vpr-proof/run16/study_completion.json`.
 
 ## Frozen map tag availability
 
@@ -601,8 +617,29 @@ all tested destination fields are absent. No numeric speed values, images,
 OCR, ground truth or route inference were used. This supports investigating
 an exact original-segment road-class sidecar; it cannot support destination
 associations from these absent tags. Legal maxspeed is not observed speed or
-a hard motion bound. A normalized persistent physical-speed model, missing-tag
-behavior and congestion/stopping support are still unimplemented.
+a hard motion bound. Directional/conditional fields were not requested by the
+current useful-tag list; their zero coverage does not establish absence in
+OSM. A `reversed=False` value also cannot certify original way-forward
+orientation for `oneway=-1`.
+
+Source/private design found a public simplification aggregation seam that can
+preserve ordered original `(u,v,key)` tokens before attribute deduplication.
+Five fabricated-graph checks preserve all 18 compact arrays exactly, directed
+orientation, EXIT boundaries and explicit parallel-key loss. The sidecar must
+retain exact identities and missing/ambiguous values, with no nearest-road
+association or averaging of speed tags across merged segments. It remains a
+design, not a new runtime input.
+
+Two independent designs support a normalized, persistent speed transition
+using the previous physical segment and measured `step/dt`. The existing
+`exp(logk+eps)/unit_seconds` is only a cruising-rate proxy. Unknown, stationary,
+mixed and missing-tag intervals must stay neutral. The same clipped log-scale
+kernel cancels, including its boundary atoms; a normalized epsilon mixture
+needs an exact target/proposal ratio once. A broad target with the old narrow
+proposal can have unstable weights; direct target sampling or a declared
+defensive mixture needs private validation. No road-speed parameters have
+been fitted and no model is implemented. Designs and private proofs are in
+`output/road_conditioned_speed_design_20261111/`.
 
 ## Evaluation and operating constraints
 
