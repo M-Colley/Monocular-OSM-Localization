@@ -641,3 +641,34 @@ expanded `a48fe5f0b10ef2919ec7cb741273c0dedb1b69dca2d3028c213d64662a87698d`.
 Root's first native-array equality check rejected NaN headings despite exact
 typed bytes; the recorded verifier correction compares typed hashes, including
 NaN payloads. Neither prediction nor numerical source was changed or rerun.
+
+## Complete-neighbourhood mode readout (11 November 2026; correctness fix)
+
+Private review found that selecting the 64 heaviest individual cells before
+summing 3x3 neighbourhood mass can omit a heavier broad mode. Source `3001550`
+now ranks complete neighbourhoods first, including empty neighbouring centres,
+with signed-coordinate handling and deterministic ties. Root passed all 22 new
+tests and reproduced the failure using the previous implementation. The author
+passed 165 relevant regressions; both peers independently passed the new tests,
+and one added 36 scalar-oracle cases. Only mode/readout functions changed.
+
+The separate run7 control used the complete accepted snapshot evidence and
+fresh same-source preparation. Baseline and expanded trials closed in
+**65.312 s / 68.062 s**, at **1,215,709,184 / 1,244,946,432 bytes** peak sampled
+aggregate RSS. Root verified full fields, native arrays and output road points.
+Every saved target ESS byte, complete field receipt, query event and sign-factor
+record matches its previous control. Both selected coordinate lineages match
+exactly too. Both predictions closed before either new offline score, which
+therefore remained **7,152.842366478733 / 6,338.264241249098 m**.
+
+The readout bug is corrected, but it does not explain these two failed routes.
+No selected-Answer fleet evaluation or policy adoption followed; the last valid
+fleet result remains **14/15**. Proof: `E:/monocular-osm-joint-vpr-proof/run7`.
+
+A separate source/private audit found a heading-factor normalization issue:
+zero residual across a junction arc retains point-Gaussian density normalization.
+Private integration gives extra state-dependent mass at wide arcs. Run8 declares
+a normalized circular predictive kernel while retaining genuine signed
+innovations and explicitly approximate robust KF bias updates. It is a separate
+target experiment; no normalized-heading case trial or accuracy result exists
+yet. Conditional resampling and future appearance guides remain deferred.

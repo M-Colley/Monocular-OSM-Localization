@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including snapshot trial source `e344755` and dataset addition `fa7df5e`. Read this alongside the
+records, including summary-correction trial source `3001550` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -247,13 +247,21 @@ summary-only correction passed 22 new tests and 165 relevant regressions; Root
 also reproduced the old failure using the previous implementation. A private
 50,000-particle benchmark took 0.189 s and about 42 MB additional traced peak
 allocation, without a full dense-grid allocation. This is not a certified RSS
-peak. A separately declared run7 replay is pending; it leaves the particle
-target, motion, likelihoods, resampling and RNG untouched. Separately,
+peak. The separately declared run7 replay at `3001550` completed both controls
+in 65.312 and 68.062 seconds. All saved ESS bytes, complete fields, query events
+and sign-factor records match their pre-correction controls exactly. Both
+selected lineages also match exactly, and their single offline scores remain
+7,152.842366478733 and 6,338.264241249098 m. The bug is fixed, but this readout
+correction does not repair these routes or improve the fleet. Proofs are under
+`E:/monocular-osm-joint-vpr-proof/run7`. Separately,
 the heading model gives zero residual throughout a junction arc while keeping
 point-Gaussian normalization. Private integration gives total factor mass
 1.000, 2.593 and 4.187 for point, 90-degree and 180-degree expectations with the
 same variance/outlier settings. A normalized heading model is a separate future
-experiment. Neither finding is proven to explain the actual failed routes.
+experiment, prospectively declared under
+`E:/monocular-osm-joint-vpr-proof/run8/heading_study_contract.json`; source/private
+implementation is pending, with no normalized-heading trial or accuracy result.
+The normalization issue is not proven to explain the actual failed routes.
 The source/private audit is under
 `output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
 resampling also has a demonstrated ancestry-variance risk under changing guides,
