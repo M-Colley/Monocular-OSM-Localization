@@ -831,3 +831,40 @@ order: `6d3c656831dff4745cef299ac87262a050d706d716b1490763a006e873f6c7e9`,
 `ed25d7ad56c097d4101ab12ac203a51d6965821493b7b41e1a5cb220578db26c`,
 `4a89ea010aaa44b7d7eb4b94270e72736e401b2df4a818fddad59244f460417c`,
 `2cc2aaf83adc11043f94beb9b8055f8e63baf55c9a760ae2649c24eb8aa64653`.
+
+## Adaptive target-ESS resampling (11 November 2026; negative)
+
+Source `54a85e4` isolates a strict pre-guide target ESS threshold of half the
+50,000 particles over the run9 visual/future proposal parents. Skips preserve
+weights, state and identity ancestry without a guide correction or resampling
+RNG draw. Triggers retain the original defensive guided proposal and inverse
+guide correction. Native heading variance, all target factors, full-window
+lineage and final mode/readout are unchanged. New entries remain off by default.
+
+Root repeated 76 new private checks; peers independently reviewed the helper,
+sampler and worker. Six historical entry points preserved their returned
+outputs, final PF arrays and RNG exactly. Fresh 33-source preparation reproduced
+the complete geometry/cues in 20.860 s. Root rebuilt all fields/backward guides
+and verified original motion/Q, events, road points, strict decisions and label
+invariants. All four predictions and workers closed before any new score.
+
+| References | Heading | Symmetric mean (m) | Runtime (s) | Resamples / 1,110 | Final initial labels |
+|---|---|---:|---:|---:|---:|
+| Baseline | Original | 1,619.8912780797152 | 60.672 | 193 | 15 |
+| Expanded | Original | 6,040.932357636948 | 68.078 | 64 | 6 |
+| Baseline | Normalized | 3,603.439024702106 | 55.828 | 175 | 1 |
+| Expanded | Normalized | 20,274.605749613336 | 59.391 | 111 | 1 |
+
+All four fail 200 m and do not improve the retained Answer. Label counts are
+unweighted genealogy diagnostics; no old-parent label counts or correct-route
+support are inferred. Reduced resampling alone does not establish a repair.
+No diagnostic is adopted, and the last valid selected-Answer fleet remains
+**14/15**. TEST4 stays frozen and unlocalized.
+
+Proof: `E:/monocular-osm-joint-vpr-proof/run12`; completion SHA256
+`e598e0ae512d64c9c7e86b3f3044578228d38f6f21eb3c9fd03a3218a2f10f07`.
+Score SHA256 values in table order:
+`192425d3c28a0a2adebda44e39ceac09fa45d52621e8c64457165ca720078cef`
+`0c12a8e17694b241b1a274bb0defdf23e387274d459b8a2fd08210c63f9554c2`
+`6e65d960bc3bba3b0d2043bb922d2029fb8539ea926267a0ce8f2510f41b2096`
+`f9181251a2c301271a510357d490c87bef9b677905444b8531fe0372fea597ea`

@@ -19,6 +19,11 @@ preceded scoring. No policy or fleet gain follows. Full source/proof details
 are in the fleet record linked above; older running-status entries below
 retain their original historical context.
 
+The separately registered adaptive-resampling study at `54a85e4` also completed
+four negative controls: 1,619.89/6,040.93 m with original heading and
+3,603.44/20,274.61 m with normalized heading. Fewer resampling events did not
+repair full-route localization. No new Answer policy or fleet gain is claimed.
+
 At the 30 October 2026 checkpoint, the complete cold development baseline was
 **9/15 within 200 m symmetric mean route error**. These experiments did not
 establish a new complete fleet result. They used development clips; the

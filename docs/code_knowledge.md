@@ -1,7 +1,8 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including heading-variance trial source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
+records, including adaptive-resampling trial source `54a85e4`, earlier heading-variance
+source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -395,8 +396,25 @@ steps; that is motivation, not proof of a failure mechanism. The new diagnostic
 counts unweighted initial labels, not correct routes or posterior confidence.
 Root repeated 24 pure and 52 integration/worker checks. Historical-source
 comparison also preserved all six existing future/common-null/Q entry outputs,
-final particle arrays and RNG exactly. Its case execution and accuracy remain
-pending at this source checkpoint.
+final particle arrays and RNG exactly. Fresh same-source preparation and all
+four controls completed at `54a85e4`; all predictions closed before scoring.
+Root verified complete fields and backward guides, original native motion and
+Q, all observations, road points, strict ESS decisions and label-count invariants.
+Baseline/expanded errors were **1,619.8912780797152 / 6,040.932357636948 m**
+with original heading, and **3,603.439024702106 / 20,274.605749613336 m**
+with normalized heading. Resampling occurred 193/64/175/111 times rather than
+1,110; final distinct initial-label counts were 15/6/1/1. This does not measure
+correct-route support or establish a parent ancestry comparison. All four fail
+200 m, so no policy is admitted and the validated fleet stays **14/15**.
+Proofs: `E:/monocular-osm-joint-vpr-proof/run12`.
+
+A bounded private 50k/500k feasibility study under
+`output/high_particle_budget_feasibility_20261111` found that full summaries
+can dominate a larger sampler: diffuse 500k summaries took 5.08 s each in its
+fixed synthetic fixture. That is not an actual-city runtime. A proposed larger
+budget should preserve the entire native window and exact edge/offset genealogy
+while computing only the final pure summary used for route readout. This needs
+separate source/prospective validation; no larger-budget case has run.
 
 A source/synthetic motion review under
 `output/multiview_motion_audit_20261111` also distinguishes observable rotation
