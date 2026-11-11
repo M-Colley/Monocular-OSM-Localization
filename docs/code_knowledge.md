@@ -192,7 +192,19 @@ research study will apply the project's earlier **L2 <= 1e-6 against the
 lexical canonical vector** rule, preserving exact per-pool tensors, receipts,
 query/model/clock/coordinate checks and full raw-score envelopes. It requires
 a new compatibility status/profile; old strict failures and production
-identity gates remain unchanged. This variant has no actual result yet.
+identity gates remain unchanged. That separate `b74f18d` study also refused
+the expanded bank: another duplicate has L2 **9.086784224324718e-6** and raw
+score spread **4.023313522338867e-7**, with equal coordinates. The complete
+baseline's five arrays are exactly identical to the previously scored strict
+control. No new sampler or accuracy score ran. The guarded study closed in
+58.344 s at 324,284,416 bytes peak sampled aggregate RSS.
+
+The next separately declared representation retains distinct protected
+reference-feature snapshots as alternatives. Each provider image has total
+weight one, split uniformly over its distinct descriptor/raw-column snapshots;
+exact physical copies add no weight. It retains every original per-pool and
+native-input gate and makes no descriptor-equivalence or encoding-history
+claim. This snapshot-mixture study is source/private work only so far.
 
 ## Evaluation and operating constraints
 

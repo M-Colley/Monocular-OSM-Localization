@@ -555,3 +555,43 @@ Numerical compatibility needs its own status/profile and does not assert
 bitwise identity or verify historical encoding. Original strict failures and
 production identity gates stay unchanged; any other conflict refuses the
 whole bank. This post-hoc development variant has no result yet.
+
+## Numerical-compatibility input study (11 November 2026; expanded unavailable)
+
+Clean `b74f18d` ran the independently registered L2 study using the earlier
+fixed **1e-6** bound. Root passed 31 pure-bank tests and 152 compatible/existing
+regressions; independent peers approved the IO and field/math paths. Every
+original native/OWN/payload, acquisition, query/model, per-pool consumed-tensor,
+coordinate and raw-score gate remained required. The source uses a distinct
+compatibility type and leaves strict gates/statuses unchanged.
+
+The guarded input job closed in **58.344 s**, with **324,284,416 bytes** peak
+sampled aggregate RSS. Baseline remained complete (2,606 unique images), and
+Root verified all five array values/headers exactly equal to the earlier
+strict baseline control. Expanded remained **UNAVAILABLE** at a later
+duplicate. A report-only check of the already consumed prefix measured L2
+**9.086784224324718e-6**, maximum component difference
+**4.256144165992737e-7**, raw-score spread **4.023313522338867e-7**, and exactly
+equal coordinates. This is not a full-bank qualification. No tolerance was
+raised, no subset was rescued, and no new sampler/accuracy result followed.
+
+Proof: `E:/monocular-osm-joint-vpr-proof/run5`.
+Admission report SHA256:
+`ca1b8462fb75149f4653bf7eb8d36752c60f2928c72f4b40bbf65fe02d9f225a`.
+Root acceptance SHA256:
+`ec79c80777a4515f9620f19a57cefda34046db0ad9b7d4106875dd1c9414544f`.
+All observed workers closed; protected sources, inputs and outputs stayed
+unchanged. Historical encoding remains **UNVERIFIED**; development is **14/15**.
+
+The next distinct research representation models multiple protected feature
+snapshots of one public image as alternatives. A snapshot is identified by
+provider ID, computed descriptor-row hash and original raw80-column hash.
+Every original physical call is validated before grouping exact copies.
+Each image contributes total weight one across its K distinct snapshots, with
+weight 1/K each. No descriptor or raw-score equivalence is asserted between
+different snapshots; all versions remain in one spatial mixture per query.
+Provider coordinates must still agree exactly, and all original per-pool and
+native-input gates remain required. Strict and L2 failures are preserved.
+Its prospective registration is under
+`E:/monocular-osm-joint-vpr-proof/run6`; source/private work has started, with
+no actual snapshot-field trial or accuracy result yet.
