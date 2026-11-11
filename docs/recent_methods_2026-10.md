@@ -1,11 +1,12 @@
 # Recent methods: research and controlled tests
 
-Current status (10 November 2026): the completed assisted v4 development
+Current status (11 November 2026): the completed assisted v4 development
 fleet reached **14/15**, with Detroit `g5lnpYCk1Ec` still failing. See
 [code knowledge](code_knowledge.md) and the [fleet record](assisted_fleet_2026-11.md).
 The October 30 live-run statements below are historical, not current process
 claims. The former held-out cohorts have since been scored and used to
-inform development; a new TEST4 cohort is being acquired separately.
+inform development. Six new TEST4 videos are registered and frozen separately;
+their localization has not run and their method binding remains pending.
 
 At the 30 October 2026 checkpoint, the complete cold development baseline was
 **9/15 within 200 m symmetric mean route error**. These experiments did not
