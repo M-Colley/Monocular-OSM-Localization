@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including 500k trial source `fcc3203`, adaptive-resampling source
+records, including native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
 `54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
@@ -485,8 +485,27 @@ seven-row windows and include formerly pose-invalid rows. New replay must
 match positive OpenCV-reported times and the original dense pixel hash; no
 independent container-PTS or camera-calibration upgrade is implied. Source
 validation passed 71 focused checks (16 frontend, 34 input, 21 numerical),
-repeated by Root and independent peers. No actual pilot pixels or geometry
-have been processed at this source checkpoint.
+repeated by Root and independent peers. The actual pilot at `a902b8f` then
+completed both guarded phases. Input replay verified all 4,441 original native
+frames/clocks and saved all 224 selected frames in 32 packets: 157.750 s,
+116,174,848 B peak sampled aggregate RSS. Root independently checked every
+packet/header/frame hash and closed all input actors before geometry. Numerical
+evaluation took 7.187 s at 89,292,800 B peak sampled aggregate RSS, with original
+raw assets remaining opaque. Every raw tracking record and all 32 outcomes
+were retained. **All 32 windows were unavailable**: 26 failed triangulation or
+held-out cheirality, five failed the parallax floor and one failed later-view
+held-out geometry. No thresholds, windows or source changed after pixels.
+Root verified typed outputs, fixed seed splits, clock/ordinal bindings and
+actor closure. These counts locate refusals; they do not identify true pose,
+intrinsics, outlier cause or calibration. No new motion/gauge/route/accuracy
+is adopted, and development remains **14/15**. Completion proof:
+`E:/monocular-osm-multiview-motion-proof/run1/study_completion.json`.
+
+A source-only title audit under `output/title_route_intent_audit_20261111`
+confirms expanded search already uses multiple named places and undirected MST
+corridors. It loses ordered origin/destination roles. A soft directed intent
+model remains unimplemented; city-centre attraction or shortest corridors can
+miss a cropped drive, as earlier negative coverage studies already show.
 
 ## Evaluation and operating constraints
 

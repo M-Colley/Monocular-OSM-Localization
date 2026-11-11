@@ -30,6 +30,11 @@ normalized heading. Computing only the final pure summary made the budget
 feasible while retaining full genealogy. It did not establish accurate
 localization or a new selected-Answer fleet result.
 
+A subsequent native32-window geometric motion pilot at `a902b8f` verified its
+full original pixel/clock stream, then refused all32 independent windows under
+fixed triangulation, parallax and held-out gates. Synthetic-image feasibility
+did not establish useful actual-video motion; no new pose or route is adopted.
+
 At the 30 October 2026 checkpoint, the complete cold development baseline was
 **9/15 within 200 m symmetric mean route error**. These experiments did not
 establish a new complete fleet result. They used development clips; the

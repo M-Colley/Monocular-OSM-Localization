@@ -906,3 +906,33 @@ Score SHA256 values in table order:
 `50cc2c6f82091e9523c0bc6ecc1496026ed49bb09d3f731e2cec02e9693660b2`
 `1a10d3a4743702415e347cb98bbb7bc1b96d0a04a4940553da5c6eac4e58af97`
 `0daaf71555d09d36f79c5b786b79a74f73dd063a68f47f0a057c1215700a1dda`
+
+## Native seven-frame shared-gauge pilot (11 November 2026; unavailable)
+
+Source `a902b8f` promotes the reviewed geometric frontend unchanged and runs a
+separate two-phase diagnostic. A Root ledger derived exact native ordinals from
+3,360 accepted query/VO witnesses: 4,441 READ rows, first ordinal119, stride4,
+last17,879. Exactly32 interior centres and seven original READ rows perwindow
+were fixed before new pixels, including originally pose-invalid rows.
+
+The input phase replayed the whole native stream, requiring positive
+OpenCV-reported times equal to the cached F64 clock and the original dense
+pixel hash. Native BGR/K were preserved; generic70-degree K remains uncalibrated.
+All224 selected frames were frozen in32 packets. Root independently verified
+every typed packet/per-frame hash and closed all input actors. Numerical
+evaluation used only closed packets and metadata; old raw assets stayed opaque.
+
+| Phase | Runtime (s) | Peak sampled aggregate RSS (bytes) | Outcome |
+|---|---:|---:|---|
+| Full native input proof |157.750|116,174,848|All32 packets closed, no geometry|
+| Independent-window geometry |7.187|89,292,800|32 unavailable, zero candidates|
+
+All32 raw tracking windows, lost-seed IDs, errors and rejection reasons remain
+recorded. Refusals:26 triangulation/held-out-cheirality,5 weak parallax,1 later
+held-out geometry. The fixed gates were not relaxed and no window was replaced.
+Refusal counts do not establish the true motion or cause. No cross-window
+gauge, metric scale, covariance, static-world or localization claim follows.
+No new motion or Answer is adopted; validated development stays **14/15**.
+
+Proof: `E:/monocular-osm-multiview-motion-proof/run1`; completion SHA256
+`4ae691f2bf5c6aa7bc177c5d8a03298b3513a8949b99dfdb078612237ebf6109`.
