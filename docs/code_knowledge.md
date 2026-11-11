@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including fused trial source `f699182` and dataset addition `fa7df5e`. Read this alongside the
+records, including snapshot trial source `e344755` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -91,6 +91,15 @@ Sources: [assisted fleet](assisted_fleet_2026-11.md),
 - `scripts/raw_vpr_junction_probe.py` runs that fixed diagnostic from Root's
   accepted bank and fresh preparation at the same source, without selecting
   an Answer. It binds the complete original native clock and input chain.
+- `reference_snapshot_evidence.py` retains distinct protected descriptor/raw
+  feature versions as alternatives, with total weight one per provider image.
+  Every original call passes its own per-pool checks before exact copies fold.
+  `reference_snapshot_appearance.py` builds the corresponding weighted field.
+  `scripts/admit_reference_snapshots.py` and the separate
+  `scripts/reference_snapshot_junction_probe_v2.py` implement guarded research
+  IO. V2 checks every ZIP member's declared size before reading any compressed
+  NPY header. The preserved V1 numerical worker remains on hold. Neither
+  representation asserts descriptor equivalence or verified encoder history.
 - `scripts/overlay_clips.py`, `scripts/build_overlay_fleet.py`,
   `benchmarks/build_manifest.py`, and `scripts/check_overlay_gt.py` manage
   video registration and offline label acquisition/quality checks.
@@ -204,7 +213,28 @@ reference-feature snapshots as alternatives. Each provider image has total
 weight one, split uniformly over its distinct descriptor/raw-column snapshots;
 exact physical copies add no weight. It retains every original per-pool and
 native-input gate and makes no descriptor-equivalence or encoding-history
-claim. This snapshot-mixture study is source/private work only so far.
+claim. The producer at `bb299e5` completed all 42 physical calls in 112.547 s
+at 172,994,560 bytes peak sampled aggregate RSS. Root independently verified
+every original occurrence, raw column, coordinate, actual descriptor row and
+consumed tensor, exact-key folding and per-provider weights. Baseline contains
+2,606 snapshots/provider images; expanded contains 16,072 snapshots of 13,164
+provider images across all 25,631 original occurrences. Its separate acceptance
+is `E:/monocular-osm-joint-vpr-proof/run6/evidence_root_acceptance.json`, SHA256
+`62523a86ce98b4b5fb0190784bcfe717ead1d89900ca367f585c9db1750aa90a`.
+
+Both fixed 50,000-particle controls then ran at `e344755`, after fresh preparation
+with exactly equal typed geometry and cue/topology records. Root rebuilt their
+entire fields (6,573,600 and 10,568,560 F32 values), checked all native motion
+arrays, 80 query events, correlation powers, original cues and reconstructed
+road points, and closed both predictions before scoring either. Baseline
+exactly reproduced the prior **7,152.842366478733 m** error. Expanded scored
+**6,338.264241249098 m**. Both are negative against the retained v4 Answer;
+neither changes policy or the **14/15** fleet result. Trial directories are
+`E:/monocular-osm-joint-vpr-proof/run6/trial_baseline_v2` and
+`E:/monocular-osm-joint-vpr-proof/run6/trial_expanded_v2`. These checks do not
+replay every particle or prove directed transition paths, MAP optimality or
+calibrated confidence. The next source review concerns motion/scale support
+and posterior collapse before declaring another fixed experiment.
 
 ## Evaluation and operating constraints
 

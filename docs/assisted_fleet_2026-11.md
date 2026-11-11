@@ -593,5 +593,51 @@ different snapshots; all versions remain in one spatial mixture per query.
 Provider coordinates must still agree exactly, and all original per-pool and
 native-input gates remain required. Strict and L2 failures are preserved.
 Its prospective registration is under
-`E:/monocular-osm-joint-vpr-proof/run6`; source/private work has started, with
-no actual snapshot-field trial or accuracy result yet.
+`E:/monocular-osm-joint-vpr-proof/run6`. The closed results follow below.
+
+## Protected snapshot-mixture controls (11 November 2026; negative)
+
+Producer `bb299e5` validated all 42 physical calls in **112.547 s**, at
+**172,994,560 bytes** peak sampled aggregate RSS. Root independently checked
+every original occurrence, exact coordinate/raw column, actual descriptor row
+and consumed tensor, lexical exact-key folding and uniform 1/K provider weights.
+Baseline has **2,606 snapshots of 2,606 images** from 2,699 occurrences.
+Expanded has **16,072 snapshots of 13,164 images** from all 25,631 occurrences.
+Neither old strict nor numerical-compatibility status is upgraded; historical
+encoding remains **UNVERIFIED**. Producer acceptance SHA256:
+`62523a86ce98b4b5fb0190784bcfe717ead1d89900ca367f585c9db1750aa90a`.
+
+The V1 numerical worker was held before execution after source review found
+that ZIP member size checks followed NPY header reads. Separate V2 source
+`e344755` checks every member and total declared uncompressed size before the
+first header. Root's 38 focused tests passed, including the compressed-header
+negative; two independent peers approved the narrow fix. V1 source and
+unlaunched registrations remain preserved. Data, field, sampler and scoring
+rules did not change.
+
+Fresh same-source map preparation closed in **20.781 s** with all 18 typed
+network arrays, complete geometry metadata and cue/topology/plan records equal
+to the earlier preparation. Both fixed 50,000-particle, seed-zero controls
+completed all 4,441 native frames and 1,110 composed steps. Root rebuilt their
+complete fields and verified all 80 query events, 20 correlation groups,
+original cue powers, native arrays and output road points. Both predictions
+and all workers were closed before either single unmodified lineage was scored.
+
+| Control | Symmetric mean error (m) | Trial runtime (s) | Peak sampled RSS (bytes) |
+|---|---:|---:|---:|
+| Baseline snapshot bank | 7,152.842366478733 | 46.203 | 1,215,549,440 |
+| Expanded snapshot bank | 6,338.264241249098 | 48.750 | 1,288,372,224 |
+
+Both are worse than v4's retained **1,387.2377579105248 m** Answer. Baseline
+exactly reproduces the prior strict-bank control. No policy adoption or fleet
+gain follows; development remains **14/15**. Point reconstruction does not
+prove complete directed transition paths, particle importance corrections,
+MAP optimality or calibrated confidence.
+
+The immutable trial subdirectories are `trial_baseline_v2` and
+`trial_expanded_v2` under the run6 proof directory. Score SHA256 values:
+baseline `821f77b5ab0f977e320abc707edd56164c5129050c2c013097e624de260fe0d2`;
+expanded `a48fe5f0b10ef2919ec7cb741273c0dedb1b69dca2d3028c213d64662a87698d`.
+Root's first native-array equality check rejected NaN headings despite exact
+typed bytes; the recorded verifier correction compares typed hashes, including
+NaN payloads. Neither prediction nor numerical source was changed or rerun.
