@@ -792,3 +792,42 @@ order: `a7e48dd1362f26ab5d5884cada25008a303bc233554afd8271b490bf4796a034`,
 `0d3059779c49f826390a8999e5e44022a758d2a326c7ac9f6b6e0faa1176d484`.
 Run11 separately declares a no-adaptive-extra-Q ablation over the run9 targets
 and future proposals; it is source/private work only at this checkpoint.
+
+## No adaptive native heading extra-Q (11 November 2026; negative)
+
+Source `6d2768c` tests only removal of the yaw-residual-derived native heading
+variance, over the same run9 visual compatibility target and future proposals.
+It is not a measured-covariance estimate. Original native means, time, frame
+indices, statuses and source variance remain intact; the effective native
+variance is separately exported as zero. Genuine coarsening retains the unknown
+motion contribution, and the fixed two-degree bias drift and observation model
+remain unchanged. The common-null target is not used.
+
+Private validation passed 367 regressions. Root repeated 32 pure and 34
+integration tests. Peers verified the implementation and exact prior
+future/common-null entry outputs, final PF state and RNG. Four study declarations
+preceded numerical inputs; fresh preparation bound all 33 source roles and
+reproduced the prior complete geometry/cues.
+
+Root independently verified original/effective/composed variance arrays,
+unchanged native means/clock and SE2, complete visual fields and backward guide
+volumes, all 80 scheduled query powers, original signs and road points. All four
+predictions and workers closed before any new offline scoring.
+
+| References | Heading target | Symmetric mean (m) | Runtime (s) | Peak sampled RSS (bytes) |
+|---|---|---:|---:|---:|
+| Baseline | Original | 2,210.963842246671 | 70.282 | 1,238,323,200 |
+| Expanded | Original | 2,991.919359098665 | 73.375 | 1,288,908,800 |
+| Baseline | Normalized | 1,421.750511279427 | 71.141 | 1,240,682,496 |
+| Expanded | Normalized | 19,686.662627628422 | 72.234 | 1,293,324,288 |
+
+All fail 200 m. Removing the heuristic term changes the result but does not
+establish a repair; no variance policy or diagnostic route is adopted. The
+actual selected v4 Answer is retained and the last valid fleet result remains
+**14/15**. The earlier 1,058.16 m diagnostic is also not a goal pass.
+
+Proof: `E:/monocular-osm-joint-vpr-proof/run11`. Score SHA256 values in table
+order: `6d3c656831dff4745cef299ac87262a050d706d716b1490763a006e873f6c7e9`,
+`ed25d7ad56c097d4101ab12ac203a51d6965821493b7b41e1a5cb220578db26c`,
+`4a89ea010aaa44b7d7eb4b94270e72736e401b2df4a818fddad59244f460417c`,
+`2cc2aaf83adc11043f94beb9b8055f8e63baf55c9a760ae2649c24eb8aa64653`.

@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 11 November 2026 from the current checkout and closed experiment
-records, including common-null trial source `7168b55` and dataset addition `fa7df5e`. Read this alongside the
+records, including heading-variance trial source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
 route being produced does not establish localization accuracy.
 
@@ -356,8 +356,26 @@ model change must remain separate from run9/run10 results. The explicit
 implementation passed 367 relevant private tests. Root repeated 32 pure and
 34 integration tests; both peers approved, including exact old future/common-null
 entry outputs, particle states and RNG. Fresh 33-source case preparation and
-four fixed controls are pending. Original and effective variance are never
-relabelled as each other.
+four fixed controls completed at `6d2768c`. Original and effective variance are
+never relabelled as each other. Root verified unchanged original motion and
+variance, effective native zeros, preserved unknown-motion composed variance,
+complete fields/backward guides, native schedules, signs and road points. All
+four predictions closed before scoring. Errors were **2,210.963842246671 /
+2,991.919359098665 m** for baseline/expanded with original heading and
+**1,421.750511279427 / 19,686.662627628422 m** with normalized heading.
+All fail 200 m; no variance-policy or fleet gain is established. Proofs are
+under `E:/monocular-osm-joint-vpr-proof/run11`. Development remains **14/15**.
+
+The offline study workers still use fixed research declarations and historical
+input-auditor modules. They are not a generic pipeline integration. The
+source-only design under `output/snapshot_joint_runtime_design_20261111`
+describes tracked native proof, immutable OWN-call packets, a new opt-in
+post-v4 fallback child, exact Answer/audit binding and a shared parent deadline.
+Post-v4 work needs a prospective time reserve inside the same 14,400 seconds;
+it cannot create a fresh per-phase budget. The cosine admission proof cannot
+certify a PF route, and posterior concentration is not calibrated accuracy.
+Any useful method still needs one globally frozen policy and a fresh original
+fifteen-clip selected-Answer evaluation. No tested diagnostic is adopted here.
 The source/private audit is under
 `output/sequence_motion_source_audit_20261111`. Unconditional auxiliary
 resampling also has a demonstrated ancestry-variance risk under changing guides,
