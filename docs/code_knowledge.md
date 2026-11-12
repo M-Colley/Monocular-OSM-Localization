@@ -962,6 +962,34 @@ seconds at 202,436,608 bytes. Both workers and their registered inputs closed.
 Acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/reference_cohort_root_acceptance.json`,
 SHA256 `74208b46f850d3a41a07c70542e6f5549db45f8da6eb259fdbb0ded1cce04d20`.
 
+The 13,975 lossless reference NPY packets are now exported and independently
+verified: 10,992,176,000 bytes. They contain 13,973 distinct typed pixel bodies;
+identical pixels under different provider IDs still retain separate gallery
+rows. Export took 112.515 seconds; independent packet QA took 15.843 seconds.
+Acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/reference_packets_root_acceptance.json`,
+SHA256 `3de2a1f5e97d751d04be35d26cc5b56e033f3131195ac3e87abf9e53ed67cacf`.
+
+All 80 original native query frames are also exported, with 221,184,000 full
+BGR pixel bytes and separate original-local, dense and native-ordinal bindings.
+The producer executes the unchanged historical `9901` native-grid AST through
+a capture wrapper that requires positive timestamps after every retained read.
+It preserves the exact original query indices, including dense-index cases,
+and exports three clock arrays. Its 27 private tests and independent peer pass.
+The actual CPU2/512MiB worker took 57.813 seconds at 146,485,248 bytes peak
+sampled aggregate RSS. Independent Root QA took 1.063 seconds at 49,098,752
+bytes, matching both index-tagged pixel aggregates, all clock headers and all
+42 original call bindings. Both actors and their registered inputs closed.
+Acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/native_query_packets_root_acceptance.json`,
+SHA256 `66fe7961639d7b79cf9be8e248d87ea2f0c6b46a6b6a6ef2b47cda534e66a4c3`.
+
+The combined real-input assembler V1 remains unadmitted. Independent source
+review found missing per-bank native membership and cross-input query-clock
+checks. Its pending output is preserved; a distinct V2 adds those gates. This
+is a source-admission issue, with no actual dataset mismatch asserted. No real
+query/gallery neural inference has run. The separately held feature worker has
+32 private cases and a Python 3.11 syntax check; complete runtime, source-peer
+and whole-method controls are still required.
+
 One separate source/private Pair-to-road proposal has passed independent review.
 Full-gallery global distances select the fixed top100 only. Both ordered learned
 logits define an explicitly uncalibrated compatibility energy; the geographic
@@ -972,10 +1000,10 @@ are output-only prototypes, with no production policy change. The prospective
 search uses blocked F64 squared L2 on F32 globals with deterministic image-key
 ties; it does not claim numerical identity to FAISS F32 search.
 
-Next, close lossless reference/query packets and implement the separately
-registered real-input model worker. No actual native/gallery neural forward,
-ranking, route, selected Answer or new fleet result follows from these data and
-private-source checks. The validated original fleet remains 14/15, with the
+Next, close the V2 combined input gate and freeze the complete real-input
+feature/road workers and shared parent budget before actual case inference.
+No ranking, route, selected Answer or new fleet result follows from these data
+and private-source checks. The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; TEST4 remains blind.
 
 ## Evaluation and operating constraints
