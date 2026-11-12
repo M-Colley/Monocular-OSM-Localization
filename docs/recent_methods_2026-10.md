@@ -123,6 +123,20 @@ exact revisions and resource caveats are in
 `output/dvlt_native_pilot_design_20261112/next_methods_algorithm.json`, SHA256
 `c69177531e2fc59e273892cf7e43904ab6a75438df5c5a39c8586612562a03d5`.
 
+Pair-VPR subsequently passed a separately registered genuine generated-input
+CPU profile. The complete official checkpoint, both local DINO constructions,
+global/dense stages and both learned pair directions ran with F32/eval/seed0,
+intra16/inter1 and the reviewed no-xformers path. Root matched all 480 stored
+tensors and 202,670,413 F32 state elements, checked all 20 retained arrays and
+closed the actual actor. Eight forwards, including repeats, took 40.453 seconds
+guarded total and peaked at 2,290,393,088 bytes sampled aggregate RSS. All
+repeats were bit-exact. Per-global timings were 0.109–0.171 seconds and
+per-directional-pair timings 0.171–0.188 seconds on these generated images.
+No real query/reference image, gallery, GT or localization was used. This
+removes the measured generated-profile CPU blocker; it does not establish
+full-gallery cost, ranking accuracy or a new fleet result. Exact admission is
+linked from [code knowledge](code_knowledge.md#pair-vpr-cpu-feasibility).
+
 An additional focused primary-source check on 10 November found the
 following candidates. This supplements the earlier bounded conference scan;
 it is not a claim to have read every newly published paper. No model from

@@ -883,14 +883,54 @@ backend needs separate rotation/translation validity, a new cache identity,
 exact native timing and independently checked connected gauges; disjoint
 unit-normalized windows cannot be concatenated into a continuous trajectory.
 
+## Pair-VPR CPU feasibility
+
 A bounded fresh source scan adds Pi3X and Pair-VPR to the research notes.
-Pair-VPR's two CPU compatibility fixes passed independent tiny private tests;
-that proves source logic only. Root froze clean Pair-VPR `fd764f9` and the
-prospective DINOv2 dependency `4d83ffd` and matched all 18 reviewed source
-snapshots to official Git objects. The publisher's historical unpinned DINO
-revision is unknown. Pair-VPR weights, environment and genuine CPU forward
-remain unverified; neither alternative is adopted. See
-[research notes](recent_methods_2026-10.md) for exact public sources and limits.
+Root froze clean Pair-VPR `fd764f9` and the prospective DINOv2 dependency
+`4d83ffd`, matching all 18 reviewed source snapshots to official Git objects.
+The publisher's historical unpinned DINO revision remains unknown. The runtime
+source applies the reviewed CPU device/fallback fixes and a separate localHub
+wrapper: both original DINO constructors use the pinned local source with
+`pretrained=False`, followed by complete strict Pair checkpoint loading. The
+architecture and published attention math are retained.
+
+The publisher's 810,860,658-byte checkpoint matches SHA256
+`18e7b95ba57d4d578fbf0a06a1846fc2dfb976c74da56bfd7d6a68afbcea8423`.
+Static raw-tensor inventory V3 and the genuine CPU SDK independently matched
+all 480 F32 tensors: 202,670,413 stored elements, including 201,857,101
+parameter elements and two fixed positional buffers. V1's insufficient
+post-unpickle validation and V2's refusal of a legitimate nested metadata key
+remain preserved; neither historical result was upgraded. V3 passed 33
+private tests plus 16 subtests; the parameterized CPU guard passed 17 checks.
+
+A separately registered generated-image profile now completes the genuine
+whole Pair-VPR model in isolated Python 3.11.18 with Torch 2.5.0+cpu,
+TorchVision 0.20.0+cpu and 18 frozen distributions. The project and DVLT
+environments are unchanged. All 21,470 site-package files, including pyc, are
+bound. Source/private runner tests and independent peers passed all 36 cases
+after fixing live-input identity checks.
+
+The profile uses two fixed 322-square RGB patterns, full public preprocessing,
+512D globals, 529x768 dense features and both batch1 pair directions, repeated
+twice. All eight forwards completed in 40.453 seconds guarded total, with
+2,290,393,088 bytes peak sampled aggregate RSS under CPU16/3GiB/8GiB-headroom
+limits. Observed global forwards took 0.109–0.171 seconds; directional pair
+forwards took 0.171–0.188 seconds. Root independently checked all 20 arrays
+(12,107,504 bytes), exact generated/preprocessed pixels, F32 score sums,
+bit-exact repeats, and complete raw/prepared/loaded and post-forward state.
+The public positional preparation was actually byte-identical at this fixed
+resolution. State, buffers, plain attributes and recorded live tensors stayed
+unchanged; all observed actor births closed.
+
+This establishes that generated-input profile only. It is not an empirical
+ranking, native/gallery accuracy, calibrated probability or full-gallery
+CPU16/four-hour result. No policy or selected Answer changed. The next test
+must encode fresh actual query/reference pixels, retain every fixed Top100
+pair in both directions and preserve physical IDs, coordinates and exact
+native timing; incompatible old descriptors cannot stand in for new inputs.
+Acceptance: `E:/monocular-osm-pair-vpr-feasibility/run1/synthetic322_root_acceptance.json`,
+SHA256 `4719f7edca4b06f728863f92d07b43f3e96ecd6664d1f67d92bda997db1cd01c`.
+See [research notes](recent_methods_2026-10.md) for public sources and limits.
 
 ## Evaluation and operating constraints
 
