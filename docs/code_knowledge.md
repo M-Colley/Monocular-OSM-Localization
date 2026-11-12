@@ -1230,8 +1230,16 @@ has SHA256 `16b2e7aedcfc3af9bb857ab6c17e4d545fca1f85636e15f465dfd9c236843d22`.
 This accepts compiler probes only, not a full decoder, actual clock, cold
 runtime, localization or policy. Follow
 `latest_checkpoint_20261112_corrected_real_compiler_DATA_passed` and later
-checkpoints in `output/goal_progress.json`. The minimal global-trial worker
-and lossless native-clock walk sampler still need their source/private gates.
+checkpoints in `output/goal_progress.json`. The lossless native-clock RLE
+sampler (`a31e44e9`) passed 27 private fixtures plus three independent
+curved-road, endpoint and clock-origin checks. Its output coordinates already
+use absolute `net.crs`; convert to latitude/longitude through
+`net.local_to_latlon(xy - net.origin)`. Peer receipt:
+`output/road_rle_sampling_design_20261112/review_engineering.json`
+(`5c56d0f5e545df12d40d1acb84d752508c5f77e538c185b6e4e17bae0c6a9eab`).
+The minimal global-trial worker still needs its complete source/private gate.
+Its Root registrar supports a read-only check before creating the new warm
+numerical budget; no actual global trial or new prediction exists yet.
 The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
