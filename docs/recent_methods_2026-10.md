@@ -88,6 +88,41 @@ measured; native-video geometric/metric validity remains unverified. Internal co
 Sim(3)-aligned benchmark results would not independently certify metric
 speed or covariance on the project video.
 
+The separate masked native pilot at `3823286` then completed all32 model
+windows and all224 detector frames in 1978.656 seconds. Model state, retained
+outputs, pure geometry recomputation and process closure passed. Primary
+full-extracted-CHECK pose-only and model-depth/pose results were both **0/32**.
+The persistent-CHECK secondary comparison accepted two pose-only windows and
+no model-depth/pose window; both positives fail the primary coverage rule.
+Peak numerical actor RSS was 2,145,640,448 bytes. This is native runtime
+feasibility with a negative primary geometry result, not a route or fleet
+improvement. See [code knowledge](code_knowledge.md#masked-native-dvlt-diagnostic)
+for the complete gate and closed artifact identities.
+
+A bounded 12 November source check added two candidates to these notes. It
+does not establish exhaustive NeurIPS coverage or another ready CPU localizer.
+Neither candidate has run on project inputs:
+
+| Candidate | Verified source finding | Next feasibility gate |
+|---|---|---|
+| [Pi3X / Pi3](https://github.com/yyfz/Pi3), ICLR 2026 paper with a December 2025 Pi3X update | Reference-free geometry; upstream has a PyTorch RoPE fallback and an F32 attention path. The inspected `9fa3ddb` model is substantially heavier than DVLT. | Pin complete weights/config/state and public camera readout, then measure a separate generated-input CPU profile. Learned scale remains uncalibrated. |
+| [Pair-VPR](https://github.com/csiro-robotics/Pair-VPR), [RA-L 2025](https://arxiv.org/abs/2410.06614v2) | Learned pair classification reranks global retrieval. At `fd764f9`, the CPU evaluator leaves `device` undefined and the no-xformers cross-attention fallback has an argument mismatch. | Review a narrow CPU compatibility repair, strict complete-state loading and both reranking orders before a generated-input timing test. Global-only encoding would not reproduce the method. |
+
+Pair-VPR's published speed control uses 322-pixel ViT-B inputs and top100
+bidirectional reranking. Its dense F32 features would occupy about 45.4 GiB
+for 30,000 images; 80 queries imply 16,000 pair directions at that TopK.
+CPU16/four-hour capacity is unmeasured. The released research license and
+model/dependency identities must be retained. Reranking cannot recover a
+place absent from the retrieved candidate set.
+
+The known [MapAnything](https://github.com/facebookresearch/map-anything)
+method also has an explicit public CPU path with AMP disabled; this is newly
+verified feasibility information, not a newly discovered approach. Its full
+runtime/dependency/weight gate remains separate. The bounded source receipt,
+exact revisions and resource caveats are in
+`output/dvlt_native_pilot_design_20261112/next_methods_algorithm.json`, SHA256
+`c69177531e2fc59e273892cf7e43904ab6a75438df5c5a39c8586612562a03d5`.
+
 An additional focused primary-source check on 10 November found the
 following candidates. This supplements the earlier bounded conference scan;
 it is not a claim to have read every newly published paper. No model from

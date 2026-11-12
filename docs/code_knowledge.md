@@ -838,12 +838,59 @@ DVLT lifetimes are separate, with CPU2/3GiB/8GiB-headroom/1800-second inner and
 the completion record reports actual elapsed time and whether it was met.
 Unrun or failed actors remain operational outcomes, not geometry negatives.
 
-The native study is registered and masking has started; the complete native
-results are pending. This pilot establishes no metric scale, measured native
-calibration, shared cross-window gauge, calibrated covariance or localization
-accuracy. The validated fleet remains 14/15; TEST4 remains six blind additions.
+The native study completed all 32 mask actors and all 32 model actors in
+1978.656 seconds, within its parent deadline. Every one of the 224 detector
+frames and every model state/output packet passed the independent checks.
+All 32 pure geometry reports were independently recomputed. Peak sampled
+aggregate actor RSS was 339,275,776 bytes for masking and 2,145,640,448 bytes
+for DVLT; numerical actors took 44.875–49.171 seconds including their gates.
+
+| Native diagnostic | Passes / fixed32 |
+|---|---:|
+| Primary pose-only, full extracted CHECK | 0/32 |
+| Secondary model-depth/pose, full extracted CHECK | 0/32 |
+| Secondary pose-only, strict persistent CHECK | 2/32 |
+| Secondary model-depth/pose, strict persistent CHECK | 0/32 |
+
+The two persistent-support positives were windows 7 and 20, with respectively
+76/169 and 73/127 original CHECK tracks eligible. They fail the primary 90%
+full-CHECK coverage gate. The controller records 30 `check_unavailable` and
+two `complete_local_diagnostic` outcomes, with no detector, model, resource,
+input, actor or deadline-unrun failure. Do not turn those two conditional
+results into primary successes, select them as a subset or compare them
+causally with the differently masked/seeded classical pilot.
+
+Root's final audit closed all 130 observed actor births and rechecked all
+1,956 unique current numerical consumed-file hashes. Original NoNN authority
+and prior negative studies remain unchanged. This pilot establishes no metric
+scale, measured native calibration, shared cross-window gauge, calibrated
+covariance, route accuracy or policy adoption. The validated fleet remains
+14/15; TEST4 remains six blind additions.
 Study: `E:/monocular-osm-dvlt-native-proof/run1/study_contract.json`, SHA256
 `7d3bd4170458d24ed3a0ed1f14b7f4a4e77e135fce9be58d099438706aa290d9`.
+Completion: `E:/monocular-osm-dvlt-native-proof/run1/study_completion.json`,
+SHA256 `5ed5eddf6f81dc256c3386a6aae7409a959ee323d48240759e096dd4557a9a2f`.
+Independent final audit:
+`E:/monocular-osm-dvlt-native-proof/run1/independent_final_audit.json`, SHA256
+`09dd4a611226fc3e2d858cf0c99d79e677ea653590491a53fa3c471281f5f43f`.
+
+Integration is still separate work. `Trajectory` and
+`graph_filter.odometry_from_trajectory` currently couple heading validity to
+usable translation. The staged matcher shortcut in `stages/trajectory.py`
+keeps XZ only and uniformly remaps time when row counts differ. It cannot
+preserve these native orientation/observability/clock contracts. A future
+backend needs separate rotation/translation validity, a new cache identity,
+exact native timing and independently checked connected gauges; disjoint
+unit-normalized windows cannot be concatenated into a continuous trajectory.
+
+A bounded fresh source scan adds Pi3X and Pair-VPR to the research notes.
+Pair-VPR's two CPU compatibility fixes passed independent tiny private tests;
+that proves source logic only. Root froze clean Pair-VPR `fd764f9` and the
+prospective DINOv2 dependency `4d83ffd` and matched all 18 reviewed source
+snapshots to official Git objects. The publisher's historical unpinned DINO
+revision is unknown. Pair-VPR weights, environment and genuine CPU forward
+remain unverified; neither alternative is adopted. See
+[research notes](recent_methods_2026-10.md) for exact public sources and limits.
 
 ## Evaluation and operating constraints
 
