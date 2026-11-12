@@ -26,6 +26,10 @@ failed development clips or change that denominator.
   passed the recorded evidence audit. Detroit `g5lnpYCk1Ec` remains at
   **1,387.24 m**. These are development results; v4 has no clean held-out
   validation.
+- The November 12 full-map, constant-speed sum-product experiment completed
+  both recorded Detroit banks and selected NULL in both. Independent saved
+  output QA passed; it produced no route and no new accuracy result. The
+  retained fleet remains **14/15**, with Detroit at **1,387.2377579105248 m**.
 - The manifest now contains **48 entries, 45 available**: 18 development
   clips (15 available), 24 across `test`, `test2`, and `test3`, and six new
   `test4` clips. The three unavailable development entries remain documented.
@@ -1237,9 +1241,9 @@ use absolute `net.crs`; convert to latitude/longitude through
 `net.local_to_latlon(xy - net.origin)`. Peer receipt:
 `output/road_rle_sampling_design_20261112/review_engineering.json`
 (`5c56d0f5e545df12d40d1acb84d752508c5f77e538c185b6e4e17bae0c6a9eab`).
-The minimal global-trial worker still needs its complete source/private gate.
-Its Root registrar supports a read-only check before creating the new warm
-numerical budget; no actual global trial or new prediction exists yet.
+The subsequent global-trial worker and both real-bank outcomes are closed;
+see the November 12 result below. Its warm numerical budget does not establish
+full cold extraction or end-to-end capacity.
 The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
@@ -1258,6 +1262,87 @@ and none of these methods ran on project videos:
   adds sequence-match verification. It requires coherent reference windows and
   independent labelled calibration; the present unordered gallery does not
   provide that contract, and full CPU extraction remains unmeasured.
+
+## Closed full-map trial and next visual model
+
+The held global worker (`ac8680ae`) completed the baseline and expanded banks
+in their registered order, using the original Pair-VPR global512 features,
+all 80 original queries, all four literal EXIT cues, the complete 4,441-row
+native clock, and the 1,650,183-state 10 m road mesh. It marginalized all 111
+constant-speed prior atoms, including the tail, then sampled 32 joint
+speed/arc paths per bank. The fixed whole-path medoid selected NULL in both
+banks; all 32 samples in each bank contained NULL. Neither bank supplied a
+full-window route. No physical-path retry, bank winner, GT score, production
+policy change, or new fleet pass follows.
+
+The actual worker took 11,785.672 seconds with 2,055,778,304 bytes sampled
+aggregate peak RSS under CPU16/3 GiB/8 GiB headroom. It finished within the
+original parent deadline. An earlier three-second attempt rejected an exact
+query/VO metadata join; the repaired worker retained all original clock values
+and compared the complete enriched provenance rows. Both attempts and sources
+remain preserved, and the parent timer was never restarted. The closed
+two-bank attempt has child return code 2 because both numerical outcomes have
+no route; do not rewrite it as a successful localization.
+
+Root closure at
+`E:/monocular-osm-pair-vpr-native-proof/global_trial2/external_closed.json`
+has SHA256 `aeeed22ea3ae39e2f8213b0b2701a4ecbfb74a29f425174702ba924015998f48`.
+All 381 registered subjects remained unchanged and all observed births closed.
+Separate post-closure numerical QA took 109.578 seconds at 1,123,454,976 bytes
+sampled peak RSS. Its independent field oracle exactly matched all 6,573,600
+baseline and 10,568,560 expanded grid values. Native yaw/exposure, query and
+EXIT timing, all prior/posterior speed bookkeeping, 32 speed draws, sampled arc
+labels, loss/readout and NULL accounting passed. This QA does not recompute
+the complete forward evidence or conditional FFBS distribution. Its closure at
+`E:/monocular-osm-pair-vpr-native-proof/global_trial2_QA1/external_closed.json`
+has SHA256 `e66b7344c2f48f5e588bbda7e5583c4f5f8a642d159e5b414b597d1553f6f089`;
+scoring admission is false because neither outcome has a route.
+
+Two source-level ideas remain prospective. A shared, normalized road-turn
+reference can change road-versus-NULL odds but cannot change conditional
+never-NULL route rankings. It assumes a fresh map-independent turn background;
+it is not a complete persistent-route likelihood or an EXIT calibration.
+A joint time-varying speed model needs a new immutable transition pool and
+measured file I/O; a 15-bin grid or arbitrary speed refresh time does not
+guarantee 200 m accuracy. Neither changed this trial. A separate Root native
+axis diagnostic found full-rank inputs and zero yaw sign disagreements against
+the exact producer, ruling out the suspected rank-erasure conversion for this
+input without establishing metric VO accuracy. Scalar maxspeed/weak OU was
+already tested negatively in R19; do not reintroduce it as an untested approach.
+
+The next executable visual candidate is the author's
+[EDTformer release](https://github.com/Tong-Jin01/EDTformer), commit
+`d0b85da3475e776b7baf87fbab5d5bfa6b50d723`. The released 471,004,018-byte
+checkpoint has SHA256
+`57406a40806e4effb9320b593f0eeda02e493cf3aaf3b37d9cb152112bf1154d`.
+Root's inert raw inventory verified 254 model tensors (387,826,944 bytes) and
+all 491 storage bodies without executing pickle globals or constructing a
+model. The archive lacks a byteorder marker; the caller explicitly declared
+legacy little-endian interpretation before scanning values. Raw DATA closure
+is at `E:/monocular-osm-pair-vpr-native-proof/edtformer_raw_inventory1/external_closed.json`
+(`f387fe466c0174c9ec5dd79b0fd5255ba17bd324009ab1447624325aa209d48f`).
+
+The CPU backend (`6e068bbc`) passed source/private review, including complete
+raw-to-loaded state and original module metadata handling. Its genuine path
+uses ordinary CPU F32 attention with xFormers absent, RGB ToTensor then
+ImageNet normalization then Tensor bilinear resize to 322 with antialias false,
+and a unit 4096-dimensional descriptor. No Faiss or environment change is
+needed for this model-only path. Genuine model runtime and capacity are still
+pending the fixed 32-generated-frame Root smoke; source tests and raw inventory
+are not evidence of recognition accuracy. A subsequent producer must recompute
+every unique query/gallery descriptor and both complete distance matrices;
+Pair-VPR embeddings, old thresholds and old model-input authority do not become
+EDTformer evidence. TEST4 remains frozen and blind.
+
+A further bounded primary-source refresh checked EfficientVPR (CVPR 2026):
+its [author repository](https://github.com/WiniTang/EfficientVPR) at
+`2712c1338ab72144113b183baf0417c664c63660` contains only `.gitignore` and
+`README.md`, with no GitHub releases. TokenReduction4VPR's author-declared
+repository returned 404 through the connected API. The NeurIPS 2026 program
+lists RelaVPR, SFPR and OLA-Place, but their posters/releases remain unverified
+through the available access. These are release/access observations, not proof
+that no implementations exist, and no published GPU speed is a project CPU
+measurement. Details: `output/vpr_release_refresh_root_20261112/receipt.json`.
 
 ## Evaluation and operating constraints
 
