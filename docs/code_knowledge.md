@@ -1084,16 +1084,37 @@ all five observed births. The final normal path matches that smoke, with final
 exception changes covered by fault tests. Limits remain unchanged; masks are
 never silently healed. This does not establish the actual run2 failure cause.
 
-A separate road-only engineering replay is active at
+A separate road-only engineering replay completed at
 `E:/monocular-osm-pair-vpr-native-proof/road_replay1`, registration SHA256
 `804c9cf5e9d9cd336a8f535cf03092b6456f3a13594c7ce720bffa6d716fd2f7`.
 It keeps the original control/study/feature subjects and ORIGINAL absolute
 lease unchanged, changes only the worker output directory, and performs no new
 NN. It must not renew that lease or claim successful same-parent/end-to-end/
-fleet execution. The failed full attempt is never promoted. Follow
-`latest_checkpoint_20261112_pair_vpr_road_engineering_replay1` in
-`output/goal_progress.json`; both old full-method actors have closed.
-There is still no new route, selected Answer or fleet accuracy result.
+fleet execution. Both full-window controls completed in 532.407 seconds at
+1,410,306,048 bytes peak aggregate RSS, within the original absolute deadline.
+All five observed replay births and all score births closed. Replay closure
+SHA256: `ed740cd118b17d9f4dd66d1d670a4e0a2f8b9e58b46e135adeb778e48f2dd759`.
+
+Only after both predictions closed, Root scored each complete 1,111-vertex
+route against the same original 20 GT waypoints with the official unrounded
+metric and no alignment or trimming. Baseline symmetric mean error is
+**1,464.384736710535 m**; expanded error is **8,820.403901618662 m**. Neither
+passes 200 m or improves the retained Detroit result. Predicted path lengths
+are 1,852.477 m and 2,112.658 m versus GT 10,368.201 m; this is an evaluation
+observation, not proof of a specific scale bug or an inference input.
+Scores: `E:/monocular-osm-pair-vpr-native-proof/road_replay1/raw_two_control_scores.json`,
+SHA256 `08931aeebe4413abecf3970493824de89b0937ee12375074ff28e71dff878fdf`.
+Score closure SHA256:
+`6e98a6537208322b144651580c45e10862933e46a1569c20a0aa9ea7a6e48218`.
+The failed full attempt is never promoted; neither diagnostic selects a bank
+or counts as a selected Answer/fleet result. Follow
+`latest_checkpoint_20261112_pair_vpr_closed_negative_diagnostics` in
+`output/goal_progress.json`; all these actors have closed.
+
+Next work is source/private: audit nonmetric arc/time/metric-gauge consistency,
+test fixed full-token and central-token mean descriptors on the already
+verified dense cache, and assess a distinct global sequence decoder. These are
+pending hypotheses, with no new NN or production policy adoption.
 The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
