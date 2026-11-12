@@ -932,6 +932,52 @@ Acceptance: `E:/monocular-osm-pair-vpr-feasibility/run1/synthetic322_root_accept
 SHA256 `4719f7edca4b06f728863f92d07b43f3e96ecd6664d1f67d92bda997db1cd01c`.
 See [research notes](recent_methods_2026-10.md) for public sources and limits.
 
+## Pair-VPR matched reference data
+
+The separate November 12 input gate now accepts the complete current reference
+pixel cohort as **data only**. All 37 explicitly declared cache archives match
+their protected encoded hashes (16,623,818,342 bytes). Their 21,136 stored
+512-square BGR rows were streamed through member EOF/CRC and hashed individually.
+All 42 physical calls and 28,330 reference occurrences join exactly by provider
+ID and F64 latitude/longitude, with all 80 query times bound to the prior native
+replay receipts. Native query pixels have not yet been exported by this gate.
+
+The baseline bank has 2,606 current images; the expanded bank has 13,164. Their
+union contains 13,975 images. Every provider has one actual current pixel version
+in each bank. The expanded bank's 16,072 old descriptor/score associations remain
+in the alias ledger; they do not invent additional current images. Fresh image
+identity is provider ID plus the actual typed cached-pixel SHA. Exact aliases
+fold, and weights are recomputed as uniform 1/K over actual fresh pixel versions.
+This does not reconstruct which historical pixels created the old descriptors,
+or support a model-only causal comparison. Original JPEG bytes are unavailable.
+
+V1 stopped on a legitimate cache-reuse metadata format and remains a closed
+failed run. Separate V2 handles explicit reuse receipts and directly frozen
+current caches, without fabricating a historical seal. Exact per-bank membership
+and the complete 42-call union are checked before pixel bodies. Its independent
+source review passed 17 private cases. The actual V2 gate completed in 27.531
+seconds at 141,729,792 bytes peak sampled aggregate RSS. Independent Root QA
+then rehashed all 21,136 rows and rejoined every original association in 31.719
+seconds at 202,436,608 bytes. Both workers and their registered inputs closed.
+Acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/reference_cohort_root_acceptance.json`,
+SHA256 `74208b46f850d3a41a07c70542e6f5549db45f8da6eb259fdbb0ded1cce04d20`.
+
+One separate source/private Pair-to-road proposal has passed independent review.
+Full-gallery global distances select the fixed top100 only. Both ordered learned
+logits define an explicitly uncalibrated compatibility energy; the geographic
+factor is `log(.1 + .9*N/D)`, with a full-gallery density denominator, uniform
+fresh-version weights, and the original temporal power applied once. The new
+direct-log/future-guide adapter preserves the sampler's numerical tail. These
+are output-only prototypes, with no production policy change. The prospective
+search uses blocked F64 squared L2 on F32 globals with deterministic image-key
+ties; it does not claim numerical identity to FAISS F32 search.
+
+Next, close lossless reference/query packets and implement the separately
+registered real-input model worker. No actual native/gallery neural forward,
+ranking, route, selected Answer or new fleet result follows from these data and
+private-source checks. The validated original fleet remains 14/15, with the
+retained Detroit error 1,387.2377579105248 m; TEST4 remains blind.
+
 ## Evaluation and operating constraints
 
 - Inference uses the video and declared city/title cues. Burned-in coordinate
