@@ -1073,6 +1073,22 @@ No ranking, route, selected Answer or new fleet result follows from these data
 and private-source checks. The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
+A bounded November 12 paper/repository refresh added three source-only leads;
+it is not an exhaustive NeurIPS survey. No new CPU16/4h replacement was verified,
+and none of these methods ran on project videos:
+
+- [BevSplat, NeurIPS 2025](https://papers.nips.cc/paper_files/paper/2025/hash/e5ba3d6d93213db6b1d1931c6517fe1a-Abstract-Conference.html)
+  adds satellite-based absolute geometry, but needs new imagery/calibration and
+  initialization inputs; its published pipeline uses CUDA rasterizers.
+- [VGGT-SLAM 1.0](https://github.com/MIT-SPARK/VGGT-SLAM/tree/1c548f7dd72e9ae418bbbd74e7f9c16a886405bc)
+  adds global submap alignment and loop closure. Its reviewed CPU branch still
+  invokes CUDA, and reconstruction alone does not georeference a road route.
+  Do not substitute the later 2.0 system for the reviewed NeurIPS 2025 version.
+- [SAFEVPR](https://arxiv.org/abs/2605.28048v2), an adjacent RA-L 2026 release,
+  adds sequence-match verification. It requires coherent reference windows and
+  independent labelled calibration; the present unordered gallery does not
+  provide that contract, and full CPU extraction remains unmeasured.
+
 ## Evaluation and operating constraints
 
 - Inference uses the video and declared city/title cues. Burned-in coordinate
