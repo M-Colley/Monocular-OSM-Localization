@@ -11,7 +11,7 @@ import zipfile
 from monocular_osm import multiview_motion_inputs as old
 
 ROOT = Path(__file__).resolve().parents[1]
-STUDY_REF = None
+STUDY_REF = {'path': 'E:\\monocular-osm-dvlt-native-proof\\run1\\study_contract.json', 'sha256': '7d3bd4170458d24ed3a0ed1f14b7f4a4e77e135fce9be58d099438706aa290d9'}
 STUDY_SCHEMA = "root-prospective-dvlt-native-fixed32-local-geometry-study-v1"
 SOURCE_PATHS = (
     "monocular_osm/multiview_motion_inputs.py", "monocular_osm/native_pixel_mask.py",
