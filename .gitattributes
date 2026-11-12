@@ -25,3 +25,16 @@ tests/test_road_speed_context.py text eol=lf
 tests/test_junction_sequence_road_speed.py text eol=lf
 tests/test_graph_filter_epsilon_hook.py text eol=lf
 tests/test_reference_snapshot_road_speed_probe.py text eol=lf
+# Preserve reviewed native masked-DVLT sources and private checks.
+monocular_osm/native_pixel_mask.py text eol=lf
+monocular_osm/native_text_detection.py text eol=lf
+monocular_osm/dvlt_native_geometry.py text eol=lf
+monocular_osm/dvlt_native_protocol.py text eol=lf
+monocular_osm/dvlt_native_runtime.py text eol=lf
+scripts/prepare_dvlt_native_masks.py text eol=lf
+scripts/dvlt_native_window_probe.py text eol=lf
+tests/test_native_pixel_mask.py text eol=lf
+tests/test_native_text_detection.py text eol=lf
+tests/test_dvlt_native_geometry.py text eol=lf
+tests/test_dvlt_native_protocol.py text eol=lf
+tests/test_dvlt_native_workers.py text eol=lf
