@@ -1217,10 +1217,21 @@ negative projected progress and an incoming-context index failure. No compiler
 acceptance or localization ran. Conversion stayed within 14 nm endpoint shifts
 and 9 nm edge-length drift, with no cell-count changes. Generated cycle fixtures
 reproduced context-boundary floating-point cancellation; a separate numeric
-repair is pending independent peer and a fresh two-width preflight. Original
-compiler/cache/worker paths remain immutable. Follow
-`latest_checkpoint_20261112_real_compiler_unavailable_numeric_repair` and later
-checkpoints in `output/goal_progress.json`.
+repair passed 98 regression and 17 independent checks. Original
+compiler/cache/worker paths remain immutable.
+
+The corrected compiler (`7a31f2ee`) then passed BOTH real-map widths and all
+eight probes in 29.797 seconds, at 695,300,096 bytes sampled peak RSS. Shared
+walk programs contain 289,702 records per width; the 10/20 m candidate-pair
+counts are 1,902,031/968,631. All original geometry and source hashes remain
+unchanged. DATA acceptance at
+`E:/monocular-osm-pair-vpr-native-proof/full_geometry_compiler2/data_acceptance.json`
+has SHA256 `16b2e7aedcfc3af9bb857ab6c17e4d545fca1f85636e15f465dfd9c236843d22`.
+This accepts compiler probes only, not a full decoder, actual clock, cold
+runtime, localization or policy. Follow
+`latest_checkpoint_20261112_corrected_real_compiler_DATA_passed` and later
+checkpoints in `output/goal_progress.json`. The minimal global-trial worker
+and lossless native-clock walk sampler still need their source/private gates.
 The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
