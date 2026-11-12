@@ -1200,6 +1200,27 @@ storage is about 906/468 MiB; this is not an actual-clock or decoder-capacity
 guarantee. Actual typed compiler/arc and workspace costs remain to be measured.
 Count closure: `E:/monocular-osm-pair-vpr-native-proof/full_geometry_count1/external_closed.json`,
 SHA256 `3e9d9bcfec6122b89918d8564c93ffa18334f52e17e1008a3110cea3e0a40981`.
+
+The first typed compiler passed small fixtures but rebuilding full CSR per
+varying distance exceeded the four-hour projection. A separate exact two-entry
+operator cache and declared one-second observation model passed source/private
+reviews. The latter preserves 111 physical-speed prior masses/tail, all 80
+visual factors and literal events, known-yaw time exposure, and coherent
+speed/arc posterior paths with NULL. Its generated two-bank projection is
+9,884 seconds, excluding actual geometry, raster/disk and final QA costs; no
+actual localization or full-method budget claim follows.
+
+A real compiler-only preflight closed in 18.953 seconds at 328,871,936 bytes
+sampled peak RSS, with every original geometry/source hash unchanged. Both
+10/20 m outcomes were **unavailable at the zero-distance probe**, respectively
+negative projected progress and an incoming-context index failure. No compiler
+acceptance or localization ran. Conversion stayed within 14 nm endpoint shifts
+and 9 nm edge-length drift, with no cell-count changes. Generated cycle fixtures
+reproduced context-boundary floating-point cancellation; a separate numeric
+repair is pending independent peer and a fresh two-width preflight. Original
+compiler/cache/worker paths remain immutable. Follow
+`latest_checkpoint_20261112_real_compiler_unavailable_numeric_repair` and later
+checkpoints in `output/goal_progress.json`.
 The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
