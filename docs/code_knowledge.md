@@ -1038,17 +1038,29 @@ are output-only prototypes, with no production policy change. The prospective
 search uses blocked F64 squared L2 on F32 globals with deterministic image-key
 ties; it does not claim numerical identity to FAISS F32 search.
 
-The actual fixed two-bank method has subsequently started under the common
+The first actual fixed two-bank method ran under the common
 CPU16/3 GiB/14,400-second watcher. It freezes 36,094 current input files and
 305 current project Python sources; all runtime templates were filled before
 launch. Registration: `E:/monocular-osm-pair-vpr-native-proof/run1/real_method_registration.json`,
 SHA256 `5fbb0c4cdd57d15e2c462641b9f6ffc14ce66e56955dcfe97841dbbb0027c64b`.
-Real query/reference neural forwards are now in progress. This is not a
-completed or accepted feature, route or accuracy result. Follow
-`latest_checkpoint_20261112_pair_vpr_real_method` in `output/goal_progress.json`
-and monitor the existing actor rather than launching a second run. It must
-retain both banks, close model-output QA and road outcomes under the original
-deadline, and close all observed processes before GT scoring.
+It closed **failed**, after 14,053 genuine global forwards and before any Pair
+forward. `RealBackend.__init__` sets `self.pair` to a source `Path`, shadowing the
+matched subclass's `pair(...)` method. All saved features and the failed result
+are preserved; final model-state and input/output integrity checks passed, but
+there is no complete feature acceptance, road outcome or GT score. The outer
+actor took 2,765.390 seconds at 2,430,246,912 bytes peak sampled aggregate RSS.
+Closure: `E:/monocular-osm-pair-vpr-native-proof/run1/real_method_external_closed.json`,
+SHA256 `19881e73901c526470a3fb13266e9d7880bebb78cedf6a20388191ccf8824057`.
+
+A separate source V2 renames only the matched transport method and its caller
+to `ordered_pair`, preserving the literal original model backend. Its new
+regression uses the genuine constructor layout with a Path-valued `pair`;
+33 private cases pass, with independent review and dependent source pins next.
+The fresh full rerun must register its own source and single 14,400-second
+budget, recompute all globals and pairs, retain both banks, and close all
+predictions before GT scoring. Prior neural outputs are not carry-in features,
+and the failed attempt is never promoted or given a renewed lease. Follow
+`latest_checkpoint_20261112_pair_vpr_transport_failure` in `output/goal_progress.json`.
 No ranking, route, selected Answer or new fleet result follows from these data
 and private-source checks. The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
