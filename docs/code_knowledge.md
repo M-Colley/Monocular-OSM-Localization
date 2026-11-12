@@ -1,7 +1,7 @@
 # Project code knowledge
 
 Refreshed 12 November 2026 from the current checkout and closed experiment
-records, including road-context source `67be7cb`, semantic-sidecar source `f2e8ee5`, joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
+records, including masked-native DVLT source `3823286`, road-context source `67be7cb`, semantic-sidecar source `f2e8ee5`, joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
 `54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
@@ -776,7 +776,7 @@ profiles. Other batch/long-video capacity, native-video geometry, calibration,
 metric scale, covariance and localization accuracy remain unverified.
 No actual video/GT, new selected
 Answer or fleet run was used; R19 stays closed negative and TEST4 stays blind.
-Next is a separately declared masked native-window pilot with completed
+The separately declared masked native-window pilot below requires completed
 detection-only quads, independent track/reprojection support and an explicit
 unknown scale. The original isolated windows cannot prove a common global
 gauge. Two-view acceptance:
@@ -785,6 +785,65 @@ SHA256 `a2c3f29dfb058c605344402dd5f03b3b5cbbcc85b2ae2ec398ff80e8ab665351`.
 Seven-view acceptance:
 `E:/monocular-osm-dvlt-feasibility/run1/synthetic_seven_view_acceptance.json`,
 SHA256 `186b1a0241d8a191b0bd65082b16bfe777c533ebc0f4b1090c95b93a1e8373a2`.
+
+## Masked native DVLT diagnostic
+
+Source `0f4f0ec` adds diagnostic workers; `3823286` binds their prospective
+fixed32 study. Root's 147 focused tests passed after binding, and 34 private
+mask/controller checks passed separately. This code does not select a route
+or change an assisted policy.
+
+- `native_text_detection.py` witnesses genuine detection-only RapidOCR
+  session, postprocessing and native-output completion. It preserves all raw
+  quadrilaterals and separate, explicitly bounded mask operands. Completed
+  empty output is distinct from an unavailable detector. Recognition is off.
+  The unchanged `native_pixel_mask.py` applies quarter-height edge bands and
+  all padded text rectangles on the original pixel grid. Neither certifies
+  detector recall or complete removal of location text.
+- `dvlt_native_protocol.py` and `prepare_dvlt_native_masks.py` separate new NN
+  study authority from the old packets' pixel/ordinal/clock DATA provenance.
+  Root independently reconstructs every accepted mask and BGR byte. Numerical
+  actors consume only Root-closed masked packets; original unmasked NPZs,
+  video, caches and historical protected maps remain opaque to them.
+- `dvlt_native_runtime.py` uses the genuine pinned public K12/F32/CPU2/seed0
+  path, complete raw-to-loaded state equality and unchanged CPU/eval buffers.
+  The actual preprocessing tensor and every public prediction are retained.
+  Its complete live environment and official core pins are verified. The
+  clean E checkout has 112 distributions; the historical 113-entry record
+  also discovered C working-directory project egg-info. Both records remain
+  preserved, with that context difference explicit and no package changes.
+- `dvlt_native_geometry.py` extracts independent masked-support GFTT/LK
+  tracks, retaining original seed IDs/parity and all invalid/rejected rows.
+  It maps native indices to the official processed pixel centers exactly.
+  Fixed views 0/3 condition landmarks; observed views 1/2/4/5/6 test poses
+  without CHECK fitting. A FIT-only rotation alternative refuses observable
+  translation when rotation explains the held CHECK tracks. CHECK is held
+  out of post-fit geometry; all seven images are seen by DVLT.
+- `dvlt_native_window_probe.py` preserves pose-only and model-depth/pose
+  reports separately, including failed state checks and nonfinite arrays.
+  Root independently verifies typed outputs and recomputes pure geometry
+  from retained observations. Continuous comparisons use declared
+  `atol=1e-4`, `rtol=1e-5`; decisions and seed IDs must agree exactly.
+
+The prospective primary diagnostic uses the full extracted CHECK denominator:
+invalid projections count as infinity, with at least 20 valid tracks, 90%
+coverage, median at most 2 and p90 at most 4 native pixels in every later view,
+plus the fixed parallax/rotation refusal. The unchanged stricter persistent
+CHECK comparison is secondary. No outlier removal, CHECK pose/scale fitting,
+window replacement or best-window selection is permitted.
+
+All 32 original seven-frame windows remain in the denominator. Detector and
+DVLT lifetimes are separate, with CPU2/3GiB/8GiB-headroom/1800-second inner and
+1830-second outer actor guards. Root owns the 14400-second parent deadline;
+the completion record reports actual elapsed time and whether it was met.
+Unrun or failed actors remain operational outcomes, not geometry negatives.
+
+The native study is registered and masking has started; the complete native
+results are pending. This pilot establishes no metric scale, measured native
+calibration, shared cross-window gauge, calibrated covariance or localization
+accuracy. The validated fleet remains 14/15; TEST4 remains six blind additions.
+Study: `E:/monocular-osm-dvlt-native-proof/run1/study_contract.json`, SHA256
+`7d3bd4170458d24ed3a0ed1f14b7f4a4e77e135fce9be58d099438706aa290d9`.
 
 ## Evaluation and operating constraints
 
