@@ -1327,9 +1327,17 @@ raw-to-loaded state and original module metadata handling. Its genuine path
 uses ordinary CPU F32 attention with xFormers absent, RGB ToTensor then
 ImageNet normalization then Tensor bilinear resize to 322 with antialias false,
 and a unit 4096-dimensional descriptor. No Faiss or environment change is
-needed for this model-only path. Genuine model runtime and capacity are still
-pending the fixed 32-generated-frame Root smoke; source tests and raw inventory
-are not evidence of recognition accuracy. A subsequent producer must recompute
+needed for this model-only path. The genuine fixed 32-generated-frame Root
+smoke then passed in 24.344 seconds at 1,136,443,392 bytes sampled aggregate
+peak RSS. It included 322, 1080p and 4K native inputs, complete raw-to-loaded
+state checks, unchanged pre/post state, and 32 finite unit descriptors; all
+30 repeated 322 inputs produced bit-identical outputs. Median `infer_rgb`
+time for those generated 322 inputs was 0.156 seconds. Closure at
+`E:/monocular-osm-pair-vpr-native-proof/edtformer_cpu_smoke1/external_closed.json`
+has SHA256 `b70b725a04f57a714cfc8d5cc59c6e725ba434e00e3a381b925b45c5b0bfbc9a`.
+This accepts the generated CPU smoke, not complete gallery/cold-route capacity
+or recognition accuracy. No actual-case EDTformer feature has been computed.
+A subsequent producer must recompute
 every unique query/gallery descriptor and both complete distance matrices;
 Pair-VPR embeddings, old thresholds and old model-input authority do not become
 EDTformer evidence. TEST4 remains frozen and blind.
