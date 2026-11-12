@@ -1055,12 +1055,20 @@ SHA256 `19881e73901c526470a3fb13266e9d7880bebb78cedf6a20388191ccf8824057`.
 A separate source V2 renames only the matched transport method and its caller
 to `ordered_pair`, preserving the literal original model backend. Its new
 regression uses the genuine constructor layout with a Path-valued `pair`;
-33 private cases pass, with independent review and dependent source pins next.
-The fresh full rerun must register its own source and single 14,400-second
-budget, recompute all globals and pairs, retain both banks, and close all
-predictions before GT scoring. Prior neural outputs are not carry-in features,
-and the failed attempt is never promoted or given a renewed lease. Follow
-`latest_checkpoint_20261112_pair_vpr_transport_failure` in `output/goal_progress.json`.
+33 private cases pass independently. The dependent QA, road, controller and
+scaffold copies change only eight source-SHA literals; 91 focused author checks
+and an independent exact-source-delta review pass.
+
+The fresh full rerun is active under `E:/monocular-osm-pair-vpr-native-proof/run2`.
+Its 36,097 frozen inputs include the unchanged accepted DATA, model and 305
+project Python sources. Registration SHA256:
+`e46409f428ba2eaf8a48b8a1c335d2db39f3668f73a52a109f17683c65108d62`.
+It recomputes all globals and pairs under one separately registered CPU16,
+3 GiB, 14,400-second parent, retains both banks, and must close all predictions
+before GT scoring. Prior neural outputs are not carry-in features, and the
+failed attempt is never promoted or given a renewed lease. Follow
+`latest_checkpoint_20261112_pair_vpr_real_method_v2` in `output/goal_progress.json`;
+the old run1 actor has closed. There is still no new localization accuracy result.
 No ranking, route, selected Answer or new fleet result follows from these data
 and private-source checks. The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
