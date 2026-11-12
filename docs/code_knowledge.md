@@ -1,6 +1,6 @@
 # Project code knowledge
 
-Refreshed 11 November 2026 from the current checkout and closed experiment
+Refreshed 12 November 2026 from the current checkout and closed experiment
 records, including road-context source `67be7cb`, semantic-sidecar source `f2e8ee5`, joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
 `54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
@@ -747,10 +747,34 @@ A bounded 11 November primary-source scan also found
 [Déjà View/DVLT](https://research.nvidia.com/labs/dvl/projects/dvlt/), a
 NeurIPS 2026 joint multiview camera/geometry model with
 [official code](https://github.com/nv-tlabs/dvlt) and published weights.
-Its CPU/Windows resource feasibility and metric validity are unverified here.
-Source inspection confirms a standard PyTorch SDPA path; an isolated
-environment and separate synthetic feasibility tests remain pending.
-No neural forward or actual-video test has run, and it changes no R19 control.
+Its official commit `f59bb18259ab446a7585c4f47731a77cfdefa426` now passes two
+separately registered synthetic CPU profiles in an isolated Python 3.12.16
+environment with the exact core dependency pins and PyTorch 2.5.1+cpu.
+The complete publisher checkpoint matches its SHA256; Root independently
+matched all 368 stored tensors and 117,081,731 F32 state elements to the
+actual loaded model. Upstream math is unchanged. A scoped relative-file
+loader call avoids an upstream Windows drive-path bug. All parameters and
+buffers stayed on CPU in eval mode, and the state/buffers remained unchanged.
+
+| Two-view input | Forward time (s) | Guarded total (s) | Peak aggregate RSS (bytes) |
+|---|---:|---:|---:|
+| 224 square | 2.719 | 10.484 | 1,267,519,488 |
+| 504 square | 17.422 | 24.922 | 1,383,497,728 |
+
+Both K12/F32/seed0 profiles returned finite arrays within CPU2/3GiB/8GiB
+headroom guards. All generated pixels, preprocessing tensors, output headers
+and loaded-state witnesses were independently verified, and every actor
+closed. An initial import-validator false refusal for Torch's virtual
+namespaces is retained alongside its corrected successful gate.
+
+This establishes only the measured two-view synthetic runtime. Seven-view
+capacity, native-video geometry, calibration, metric scale, covariance and
+localization accuracy remain unverified. No actual video/GT, new selected
+Answer or fleet run was used; R19 stays closed negative and TEST4 stays blind.
+The next separate capacity test will retain all seven-view outputs before
+any prospectively declared masked native-window pilot. Acceptance:
+`E:/monocular-osm-dvlt-feasibility/run1/synthetic_two_profile_acceptance.json`,
+SHA256 `a2c3f29dfb058c605344402dd5f03b3b5cbbcc85b2ae2ec398ff80e8ab665351`.
 
 ## Evaluation and operating constraints
 

@@ -1,6 +1,6 @@
 # Recent methods: research and controlled tests
 
-Current status (11 November 2026): the completed assisted v4 development
+Current status (12 November 2026): the completed assisted v4 development
 fleet reached **14/15**, with Detroit `g5lnpYCk1Ec` still failing. See
 [code knowledge](code_knowledge.md) and the [fleet record](assisted_fleet_2026-11.md).
 The October 30 live-run statements below are historical, not current process
@@ -72,8 +72,15 @@ dense geometry jointly from multiple views. This suggests a distinct motion
 frontend to examine after the unsuccessful sparse fixed-K window pilot;
 that transfer is a hypothesis, not an accuracy result. Linux/CUDA is the
 publisher-tested environment. Windows/CPU2/3 GiB feasibility, checkpoint
-identity and native-video geometric support remain to be established. No
-model or weights from this check have been run. Internal consistency and
+identity and native-video geometric support were initially unverified.
+On 12 November, two prospectively fixed synthetic profiles ran using the
+official complete checkpoint and unchanged source in a separate pinned CPU
+environment. Two 224-square views took 2.719 s forward / 10.484 s guarded
+total and peaked at 1,267,519,488 bytes RSS; two 504-square views took
+17.422 / 24.922 s and peaked at 1,383,497,728 bytes. Root independently
+verified all 368 raw-to-loaded state tensors, generated/preprocessed inputs,
+finite outputs and actor closure. No actual video or GT was used. Seven-view
+capacity and geometric/metric validity remain unverified. Internal consistency and
 Sim(3)-aligned benchmark results would not independently certify metric
 speed or covariance on the project video.
 
