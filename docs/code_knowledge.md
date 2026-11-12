@@ -30,6 +30,11 @@ failed development clips or change that denominator.
   both recorded Detroit banks and selected NULL in both. Independent saved
   output QA passed; it produced no route and no new accuracy result. The
   retained fleet remains **14/15**, with Detroit at **1,387.2377579105248 m**.
+- The subsequent fresh EDT4096/common-heading experiment completed and passed
+  independent saved-output QA, but its two full-curve errors are
+  **5,743.327672385047 m** and **12,852.939792841216 m**. Both are worse than
+  the retained Detroit Answer and neither passes 200 m. No model, bank or
+  production policy was adopted; the measured fleet remains **14/15**.
 - The manifest now contains **48 entries, 45 available**: 18 development
   clips (15 available), 24 across `test`, `test2`, and `test3`, and six new
   `test4` clips. The three unavailable development entries remain documented.
@@ -1374,9 +1379,9 @@ available gallery support stays 31/77. These approximate image-support counts
 do not score a route or count toward the goal, and no bank winner is selected.
 Diagnostic closure: `E:/monocular-osm-pair-vpr-native-proof/edtformer_retrieval_support1/external_closed.json`
 (`5cff2ea0ead442356e2eb5d67060cb9d6ae104d34cfd71d9e358c97349977186`).
-The fleet remains 14/15 and TEST4 remains frozen and blind. The next prospective
-road consumer uses this accepted full DATA with a new typed geographic field
-and shared heading-reference likelihood; no such actual route trial is complete.
+The fleet remains 14/15 and TEST4 remains frozen and blind. The prospective
+road consumer of this accepted full DATA has now completed and been scored;
+its negative result is recorded below.
 
 A further bounded primary-source refresh checked EfficientVPR (CVPR 2026):
 its [author repository](https://github.com/WiniTang/EfficientVPR) at
@@ -1387,6 +1392,85 @@ lists RelaVPR, SFPR and OLA-Place, but their posters/releases remain unverified
 through the available access. These are release/access observations, not proof
 that no implementations exist, and no published GPU speed is a project CPU
 measurement. Details: `output/vpr_release_refresh_root_20261112/receipt.json`.
+
+### Closed EDT4096/common-heading road trial: no accuracy improvement
+
+The warm full-map trial `edtformer_global1` used worker `e0c46db2`, both
+recorded banks, all 80 image observations, all 4,441 native rows and 596 model
+endpoints, all 111 proper speed atoms and 32 coherent paths per bank. It kept
+h10 geometry, the original clocks and four EXIT events. The new EDT field uses
+uncalibrated temperature 0.1 and the shared normalized heading reference;
+this changes both appearance and road-versus-NULL odds relative to the old
+Pair trial, so its outcome is not an isolated encoder comparison.
+
+Both banks returned complete physical routes. The external run closed in
+11,734.735 seconds, with 1,813,966,848 bytes sampled aggregate peak RSS,
+no registered-subject changes and all observed worker births closed. Root
+execution closure is
+`E:/monocular-osm-pair-vpr-native-proof/edtformer_global1/external_closed.json`
+(`91418138a03ff9776b6c1925794338614e6eb8eda250f215acf848797e32f863`).
+Independent output QA V2 (`673391c1`) passed in 452.157 seconds at
+1,161,302,016 bytes sampled peak RSS. It checked all fields, original clocks,
+common heading reference, saved posteriors/draws/positive arc support, fixed
+whole-path medoids, native predictions and complete road polylines. It does
+not recompute the full forward logZ or conditional FFBS distribution. Root
+also explicitly matched the report's profile to the registered profile before
+closure. QA closure is `edtformer_global1_QA1/external_closed.json`
+(`bcf127460ef14d14b41eeef5a196b2196604b318093fe3d632a9d51a76dd506d`).
+
+Only after closure, Root scored both complete verified curves with the original
+20-waypoint GT and unchanged official `score_route` default. Scorer `724613a7`
+retains raw dataclass precision; it performs no trimming, spatial alignment,
+time fit or bank selection.
+
+| Fixed bank | Raw symmetric mean error (m) | Within 200 m |
+| --- | ---: | --- |
+| baseline-full-recorded-bank | 5743.327672385047 | No |
+| expanded-full-recorded-bank | 12852.939792841216 | No |
+
+Scores: `E:/monocular-osm-pair-vpr-native-proof/edtformer_global1_scores1/raw_two_control_scores.json`
+(`2fb7eab4342d001c6d476e3dca406f8f8df7f9f738067563f587172342c192d3`).
+A complete-curve plot is under `edtformer_global1_visual3`; it is post-hoc only.
+The weighted terminal NULL masses are approximately 0.0003412 and 0.0232731,
+with 0/32 and 1/32 NULL samples respectively. These low masses coexist with
+large geographic errors: producing a physical route or avoiding NULL is not
+correctness calibration. Better top-100 image support did not repair the route.
+The retained Answer remains 1,387.2377579105248 m and the fleet remains 14/15.
+No physical-path retry, winning bank, default model or policy was substituted.
+
+The next isolated input ablation removes only the already-black top/bottom
+bands before a fresh full EDT forward: b=ceil(H/4), keep rows [b:H-b], then
+convert BGR to RGB once and use the unchanged author backend. It preserves
+original provider/source identities and every alias, including equal crops
+from distinct original heights. It has a new composite model-input identity
+and separate feature DATA type; full-canvas authority does not transfer.
+Source/private stages are independently GREEN: producer `f9651203`, feature
+QA `20ccdfe7`, typed field `7088bc83`, admission `6a0517ac`, moving road consumer
+`96990577`, and road-output QA V2 `2baf6136`. Root road-QA coordinators V2
+`7359860d`/`302b8cf6` and cropped scorer `e715055a` are held. Preserved V1
+counterexamples are not eligible actual workers. No actual cropped-input
+feature extraction or route comparison is complete at this checkpoint. Its
+road math, h10, 111/32 counts, original clocks, EXIT model and temperature stay
+fixed. STOP/variable-speed and parallel-scan components remain generated-data
+prototypes with no actual city parameters or capacity established.
+
+A source-only policy integration audit (`output/edt_global_policy_integration_review_20261112`)
+identifies a missing distinct typed child and one global Answer selection rule.
+Shared deadlines, full-route serialization and raw benchmark plumbing are
+reusable. Separate warm feature, road and QA budgets do not establish a
+complete CPU16/four-hour policy. Any policy change still needs the fixed
+fifteen-clip selected-Answer audit; TEST4's six videos remain blind.
+
+A bounded public-source follow-up found that HypeVPR's author repository at
+`4706d74c2eb23da0b9463711c765ead155bb7c4b` still has only README/LICENSE and
+no verified runnable release. The apparent IMAGE candidate is the existing
+[ImAge](https://github.com/Lu-Feng/ImAge), with the same commit and advertised
+GSV checkpoint already recorded in the research notes; no duplicate GSV gate
+was started. Its Merged checkpoint is a distinct published option without a
+new project CPU-capacity or accuracy result. Receipts are under
+`output/vpr_release_followup_20261112` and
+`output/image_vpr_release_review_20261112`. This was a bounded refresh, not an
+exhaustive review of every new paper.
 
 ## Evaluation and operating constraints
 
