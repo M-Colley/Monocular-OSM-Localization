@@ -1152,6 +1152,32 @@ SHA256 `dfadb2a151bc5b38c840d021aa64bd7c61e7e7597fa58c60d503470a9e9c08d8`.
 Neither representation is promoted, and new candidate lists cannot inherit
 Pair logits computed for different original candidates.
 
+A second fixed DATA study also completed: spherical residual VLAD16 and signed
+GeM-p3 on normalized central tokens. The reference-only vocabulary uses 2,048
+hash-selected physical images, 16 fixed tokens each, seed zero and 25 iterations;
+it is shared across both banks. This is an adapted Pair-token readout, not an
+AnyLoc reproduction. All 33 outputs, vocabulary samples/centres, every encoded
+readout/norm and all four indexed full-gallery matrices/top100 lists passed
+independent numerical replay. Producer took 199.515 seconds; accepted QA repeat
+took 169.844 seconds, peak sampled aggregate RSS 604,884,992 bytes. DATA acceptance:
+`E:/monocular-osm-pair-vpr-native-proof/cached_pooling1_qa2/data_acceptance.json`,
+SHA256 `32becce979f10c7013869008810a02064787263721489d983414d95a3adc5969`.
+
+The first numerical QA report passed but its process guard failed when a parent
+exited after returning an empty child list. That attempt remains failed and
+unadmitted. Separate watcher V3 (`bec19e7f`) retires that empty-capture case;
+nonempty ambiguous captures still fail closed, with ownership/kill rules,
+affinity and budgets unchanged. Its 37 private checks pass independently; the
+fresh QA repeat and full-geometry count closed under it. Old watcher bytes and
+all failed artifacts remain intact.
+
+VLAD/GeM are also negative on the unchanged approximate retrieval-support test:
+top100 nearby counts are baseline 16/14 and expanded 7/8, versus original 20/17.
+All four outcomes and 80 query slots remain, with 79 original-clock GT joins;
+neither readout is promoted or passed off as a route result. Closure:
+`E:/monocular-osm-pair-vpr-native-proof/cached_pooling_support1/external_closed.json`,
+SHA256 `1a26e6c66b3b55d45ac6a7bf32e95771c2bc77f71e397a99a4e2b426d0209b68`.
+
 Source/private work now assesses a distinct finite-volume road sum-product
 decoder with persistent physical-speed prior masses and coherent posterior
 paths. Twelve invented-network checks pass; the declared 10/20 m grid adds
@@ -1161,6 +1187,19 @@ continuous motion or the old PF/KF target. Whole-city mesh/context construction,
 tiny-edge handling, yaw correlation and runtime remain unverified; follow
 `output/batch_road_clock_decoder_design_20261112` and its later gates. No new
 production policy is adopted.
+
+The separate incoming-context/walk constructor gate passes 20 author checks and
+6 independent checks. It retains parallel walk/cycle/projection labels and uses
+an explicitly new time-exposed yaw-rate energy. It is still a small private
+model, not a whole-city implementation. A real, count-only geometry preflight
+then verified all 93,004 edges and 330,592 polyline segments without allocating
+mesh states or reading VO/GT/model data. Independent counts are 1,650,183 states
+at 10 m and 851,725 at 20 m, including incoming contexts and one sink. At the
+HYPOTHETICAL 1,201 times/checkpoint32 schedule, one-speed checkpoint plus replay
+storage is about 906/468 MiB; this is not an actual-clock or decoder-capacity
+guarantee. Actual typed compiler/arc and workspace costs remain to be measured.
+Count closure: `E:/monocular-osm-pair-vpr-native-proof/full_geometry_count1/external_closed.json`,
+SHA256 `3e9d9bcfec6122b89918d8564c93ffa18334f52e17e1008a3110cea3e0a40981`.
 The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
