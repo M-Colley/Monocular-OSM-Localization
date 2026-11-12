@@ -1111,10 +1111,30 @@ or counts as a selected Answer/fleet result. Follow
 `latest_checkpoint_20261112_pair_vpr_closed_negative_diagnostics` in
 `output/goal_progress.json`; all these actors have closed.
 
-Next work is source/private: audit nonmetric arc/time/metric-gauge consistency,
-test fixed full-token and central-token mean descriptors on the already
-verified dense cache, and assess a distinct global sequence decoder. These are
-pending hypotheses, with no new NN or production policy adoption.
+A source audit found no double-time-step or missing-Jacobian error. Native VO
+normalizes each pair translation independently, losing relative arc magnitudes;
+a single scale is therefore a prior, not recovery of a preserved metric gauge.
+Thirteen private checks pass. A separate invented example shows endpoint-mode
+readout can prefer concentrated slow hypotheses over equally probable fast
+hypotheses spread across endpoints; this does not establish the actual failure
+cause. See `output/nonmetric_motion_identifiability_audit_20261112`.
+
+Closed post-hoc retrieval support checks retain all 80 native query observations
+(79 lie within the original GT timestamp range). At 200 m from piecewise-linear
+time-interpolated sparse GT, baseline/expanded galleries offer nearby images at
+31/77 queries, but original learned-descriptor top100 contains nearby images at
+only 20/17 queries. Pair reranking cannot change top100 membership; its top1
+nearby counts are 3/5 versus descriptor counts 2/2. These approximate support
+diagnostics use the original clock without fitted offsets and are neither route
+scores nor fleet improvements. All observed births closed and input bytes stayed
+unchanged: `E:/monocular-osm-pair-vpr-native-proof/retrieval_support1`, closure
+SHA256 `55b855d8a72eeb2cb785471a7b2a1b2cbec2235a0e2576840a840aefc78c89b7`.
+
+Next work tests fixed full-token and central-token mean descriptors on the
+already verified dense cache, and assesses a distinct global sequence decoder.
+Both descriptor profiles and both banks remain in the denominator; new candidate
+lists cannot inherit Pair logits computed for different original candidates.
+There is no new neural run or production policy adoption.
 The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
