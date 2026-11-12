@@ -79,8 +79,12 @@ environment. Two 224-square views took 2.719 s forward / 10.484 s guarded
 total and peaked at 1,267,519,488 bytes RSS; two 504-square views took
 17.422 / 24.922 s and peaked at 1,383,497,728 bytes. Root independently
 verified all 368 raw-to-loaded state tensors, generated/preprocessed inputs,
-finite outputs and actor closure. No actual video or GT was used. Seven-view
-capacity and geometric/metric validity remain unverified. Internal consistency and
+finite outputs and actor closure. A separately registered seven-view504/K12
+test then took 83.812 s forward / 91.500 s guarded total, peaking at
+2,882,199,552 bytes sampled aggregate RSS. All nine arrays (90,684,300 bytes)
+were retained, finite and independently checked with the same full weights.
+No actual video or GT was used. These exact synthetic capacities are now
+measured; native-video geometric/metric validity remains unverified. Internal consistency and
 Sim(3)-aligned benchmark results would not independently certify metric
 speed or covariance on the project video.
 

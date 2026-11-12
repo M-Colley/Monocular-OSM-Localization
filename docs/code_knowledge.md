@@ -756,25 +756,35 @@ actual loaded model. Upstream math is unchanged. A scoped relative-file
 loader call avoids an upstream Windows drive-path bug. All parameters and
 buffers stayed on CPU in eval mode, and the state/buffers remained unchanged.
 
-| Two-view input | Forward time (s) | Guarded total (s) | Peak aggregate RSS (bytes) |
+| Synthetic input | Forward time (s) | Guarded total (s) | Peak sampled aggregate RSS (bytes) |
 |---|---:|---:|---:|
-| 224 square | 2.719 | 10.484 | 1,267,519,488 |
-| 504 square | 17.422 | 24.922 | 1,383,497,728 |
+| Two views, 224 square | 2.719 | 10.484 | 1,267,519,488 |
+| Two views, 504 square | 17.422 | 24.922 | 1,383,497,728 |
+| Seven views, 504 square | 83.812 | 91.500 | 2,882,199,552 |
 
-Both K12/F32/seed0 profiles returned finite arrays within CPU2/3GiB/8GiB
+All three separately registered K12/F32/seed0 profiles returned finite arrays within CPU2/3GiB/8GiB
 headroom guards. All generated pixels, preprocessing tensors, output headers
 and loaded-state witnesses were independently verified, and every actor
 closed. An initial import-validator false refusal for Torch's virtual
 namespaces is retained alongside its corrected successful gate.
 
-This establishes only the measured two-view synthetic runtime. Seven-view
-capacity, native-video geometry, calibration, metric scale, covariance and
-localization accuracy remain unverified. No actual video/GT, new selected
+The seven-view test retained all nine arrays (90,684,300 bytes) under its
+prospective 128 MiB payload / 256 MiB archive caps. Root independently
+verified all seven generated frames, exact preprocessing, finite outputs and
+the same complete loaded state. This establishes only the measured synthetic
+profiles. Other batch/long-video capacity, native-video geometry, calibration,
+metric scale, covariance and localization accuracy remain unverified.
+No actual video/GT, new selected
 Answer or fleet run was used; R19 stays closed negative and TEST4 stays blind.
-The next separate capacity test will retain all seven-view outputs before
-any prospectively declared masked native-window pilot. Acceptance:
+Next is a separately declared masked native-window pilot with completed
+detection-only quads, independent track/reprojection support and an explicit
+unknown scale. The original isolated windows cannot prove a common global
+gauge. Two-view acceptance:
 `E:/monocular-osm-dvlt-feasibility/run1/synthetic_two_profile_acceptance.json`,
 SHA256 `a2c3f29dfb058c605344402dd5f03b3b5cbbcc85b2ae2ec398ff80e8ab665351`.
+Seven-view acceptance:
+`E:/monocular-osm-dvlt-feasibility/run1/synthetic_seven_view_acceptance.json`,
+SHA256 `186b1a0241d8a191b0bd65082b16bfe777c533ebc0f4b1090c95b93a1e8373a2`.
 
 ## Evaluation and operating constraints
 
