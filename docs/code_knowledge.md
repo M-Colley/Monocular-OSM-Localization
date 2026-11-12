@@ -940,7 +940,7 @@ their protected encoded hashes (16,623,818,342 bytes). Their 21,136 stored
 512-square BGR rows were streamed through member EOF/CRC and hashed individually.
 All 42 physical calls and 28,330 reference occurrences join exactly by provider
 ID and F64 latitude/longitude, with all 80 query times bound to the prior native
-replay receipts. Native query pixels have not yet been exported by this gate.
+replay receipts. The separate native-query export is described below.
 
 The baseline bank has 2,606 current images; the expanded bank has 13,164. Their
 union contains 13,975 images. Every provider has one actual current pixel version
@@ -982,13 +982,51 @@ bytes, matching both index-tagged pixel aggregates, all clock headers and all
 Acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/native_query_packets_root_acceptance.json`,
 SHA256 `66fe7961639d7b79cf9be8e248d87ea2f0c6b46a6b6a6ef2b47cda534e66a4c3`.
 
-The combined real-input assembler V1 remains unadmitted. Independent source
-review found missing per-bank native membership and cross-input query-clock
-checks. Its pending output is preserved; a distinct V2 adds those gates. This
-is a source-admission issue, with no actual dataset mismatch asserted. No real
-query/gallery neural inference has run. The separately held feature worker has
-32 private cases and a Python 3.11 syntax check; complete runtime, source-peer
-and whole-method controls are still required.
+The combined raw carrier V2 is now Root-accepted as **DATA only**, after exact
+named-bank/native membership and original 80-row query-clock joins. V1 remains
+unadmitted, with its pending output preserved; its missing source checks do not
+establish an actual dataset mismatch.
+Acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/carrier_v2_root_acceptance.json`,
+SHA256 `85ccea8d9bf029a06f38f24fe678192dd801447b3f5ceb7d387d011fe06ab59e`.
+
+The separate geometry DATA V2 completed in 1.687 seconds at 187,224,064 bytes
+peak sampled aggregate RSS. Its first independent QA stopped on a
+leading-start-zero assertion and remains a preserved failed attempt. Separate
+QA V2 completed in 0.516 seconds at 65,695,744 bytes, and the geometry is now
+accepted for input transport, without a route or accuracy claim.
+Acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/geometry_root_acceptance.json`,
+SHA256 `fd084ea48fe6875c9d96e4a4c70d7042cb7689903bd5f92759df55002959cc9e`.
+
+Before any real Pair forward, the fixed `595bd674` view profile blacks the top
+and bottom quarter of **every** reference and query canvas. It preserves all
+13,975 reference keys and 80 query observations, with 14,053 distinct view
+bodies totaling 11,211,797,120 file bytes. This is a uniform band operation,
+with no detector, text-recall or all-text-exclusion claim. The producer closed
+in 151.078 seconds at 158,224,384 bytes peak sampled aggregate RSS; independent
+DATA QA closed in 114.391 seconds at 213,868,544 bytes.
+
+Final metadata projection V2 adds only the already closed video path, size and
+SHA to that view packet; every pixel, alias and clock field stays unchanged.
+Projection closed in 0.781 seconds at 157,339,648 bytes, and independent metadata
+QA closed in 1.125 seconds at 185,417,728 bytes. All four view/projection actors
+and their registered inputs closed. The final input is **admitted** through
+separate Root view-DATA and model-input certificates. Raw and view artifacts
+retain their explicit authority denials; the projection does not self-grant
+model or policy authority.
+Final packet SHA256:
+`cad49be3c187a6795d409b1ab3ee4060e310ab654e68db5feb5d607c061cf097`.
+View DATA acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/masked_views_root_acceptance.json`,
+SHA256 `2fbe0b288f73acd364540829eaf13661d17f22d82bdba637cad370352f554be0`.
+Model-input acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/model_input_root_acceptance.json`,
+SHA256 `4223a7dd60be39daadc6f96e83395bb8614c31d1049c452323f5088946ade63f`.
+
+The held feature worker has 32 private cases plus two independent peer probes;
+the independent saved-output feature QA passed 52 cases. No real query/gallery
+Pair neural forward has run. The common-parent controller V1 remains unadmitted:
+private probes found PID reuse between check and kill, a lost zero-exit road
+resource failure, and feature acceptance written before final input checks.
+Its separate V2 repair (`ad750`) passed 26 independent private cases; actual
+common-parent runtime remains a separate gate.
 
 One separate source/private Pair-to-road proposal has passed independent review.
 Full-gallery global distances select the fixed top100 only. Both ordered learned
@@ -1000,11 +1038,12 @@ are output-only prototypes, with no production policy change. The prospective
 search uses blocked F64 squared L2 on F32 globals with deterministic image-key
 ties; it does not claim numerical identity to FAISS F32 search.
 
-Next, close the V2 combined input gate and freeze the complete real-input
-feature/road workers and shared parent budget before actual case inference.
+Next, freeze the concrete controls and run matched-input neural inference,
+independent feature QA and both road outcomes under one shared CPU16/14,400-second
+budget.
 No ranking, route, selected Answer or new fleet result follows from these data
 and private-source checks. The validated original fleet remains 14/15, with the
-retained Detroit error 1,387.2377579105248 m; TEST4 remains blind.
+retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
 ## Evaluation and operating constraints
 
