@@ -1059,18 +1059,34 @@ regression uses the genuine constructor layout with a Path-valued `pair`;
 scaffold copies change only eight source-SHA literals; 91 focused author checks
 and an independent exact-source-delta review pass.
 
-The fresh full rerun is active under `E:/monocular-osm-pair-vpr-native-proof/run2`.
+The fresh full rerun under `E:/monocular-osm-pair-vpr-native-proof/run2` is closed.
 Its 36,097 frozen inputs include the unchanged accepted DATA, model and 305
 project Python sources. Registration SHA256:
 `e46409f428ba2eaf8a48b8a1c335d2db39f3668f73a52a109f17683c65108d62`.
-It recomputes all globals and pairs under one separately registered CPU16,
-3 GiB, 14,400-second parent, retains both banks, and must close all predictions
-before GT scoring. Prior neural outputs are not carry-in features, and the
-failed attempt is never promoted or given a renewed lease. Follow
-`latest_checkpoint_20261112_pair_vpr_real_method_v2` in `output/goal_progress.json`;
-the old run1 actor has closed. There is still no new localization accuracy result.
-No ranking, route, selected Answer or new fleet result follows from these data
-and private-source checks. The validated original fleet remains 14/15, with the
+It completed all 46,053 genuine forwards (14,053 global and 32,000 ordered Pair),
+all 16,000 comparison receipts, final full-state and input/output checks, and
+independent output QA. The controller issued the feature DATA acceptance after
+closing NN and QA subtrees. Road filtering then stopped on the external watcher's
+CPU-affinity subset assertion before either route completed. The whole attempt
+remains **FAILED and unadmitted**: 10,119.750 seconds, 2,430,930,944 bytes peak
+sampled aggregate RSS, all eleven logged process births closed, no GT read or
+scoring. Closure SHA256:
+`6e5dced58a781b8787ac6a650aa0b184aec5a8a569a6f72380b050442e207cda`.
+
+Private source tests reproduce a possible PID-reuse race inside psutil child
+enumeration that can admit an unrelated process and falsely fail affinity.
+The actual offending identity was not saved, so this is not a proven cause of
+run2. Generated native matrix and two-bank 50k PF probes preserve CPU0..15.
+A separate watcher repair must preserve resource limits and improve birth-scope
+admission and failure records. A separate road-only engineering replay is
+source-compatible with unchanged control/study/feature subjects and the still
+live ORIGINAL absolute lease, a new exclusive output directory and no new NN.
+It must not renew that lease or claim successful same-parent/end-to-end/fleet
+execution. The failed full attempt is never promoted. Follow
+`latest_checkpoint_20261112_pair_vpr_features_verified_road_guard_stop` in
+`output/goal_progress.json`; both old full-method actors have closed.
+There is still no new route, selected Answer or fleet accuracy result.
+The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
 A bounded November 12 paper/repository refresh added three source-only leads;
