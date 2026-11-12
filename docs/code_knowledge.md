@@ -1336,11 +1336,47 @@ time for those generated 322 inputs was 0.156 seconds. Closure at
 `E:/monocular-osm-pair-vpr-native-proof/edtformer_cpu_smoke1/external_closed.json`
 has SHA256 `b70b725a04f57a714cfc8d5cc59c6e725ba434e00e3a381b925b45c5b0bfbc9a`.
 This accepts the generated CPU smoke, not complete gallery/cold-route capacity
-or recognition accuracy. No actual-case EDTformer feature has been computed.
-A subsequent producer must recompute
-every unique query/gallery descriptor and both complete distance matrices;
-Pair-VPR embeddings, old thresholds and old model-input authority do not become
-EDTformer evidence. TEST4 remains frozen and blind.
+or recognition accuracy.
+
+The subsequent genuine full-feature producer (`26b6060c`) completed all 14,053
+unique masked query/gallery pixels, all 80 observations and both complete
+distance matrices. It ran the released encoder once per unique typed view and
+used explicit F64 subtraction/square/sum for all distances; no Pair embeddings,
+dense tokens or pair logits supplied EDT features. Total parent time, including
+setup, was 2,619.406 seconds; the guarded actor took 2,476.735 seconds at
+1,377,755,136 bytes sampled aggregate peak RSS. All 14,137 registered subjects
+remained unchanged and all observed births closed. This establishes full
+feature extraction from the existing closed masked DATA within its budget;
+it does not establish cold acquisition, road decoding or localization accuracy.
+
+Independent full-output QA V2 (`570a77a2`) passed in 75.063 seconds at
+600,567,808 bytes sampled peak RSS. It checked all saved rows and BGR/RGB
+alias bindings, complete original clocks and 13-field joins, raw/initial/final
+model-state witnesses, canonical gallery/cache mappings, and every entry in
+both matrices using a separate oracle. Descriptor F64 norms span
+0.9999997235126529 to 1.0000002641124042. QA does not rerun the encoder or
+numerically reproduce its internal resized tensors. V1 was never run on actual
+data: its mixed final hash order and possible stale bytecode loading were found
+on generated fixtures; V2 uses authenticated source compilation and hashes
+generated outputs before the final input/source pass. V1 remains preserved.
+Root DATA acceptance is
+`E:/monocular-osm-pair-vpr-native-proof/edtformer_features1/data_acceptance.json`
+(`df9f05378d3e039a5390e68287be1a4bfd8e3e04c3f3dced4ccbcdc5f6d163ae`),
+bound to the independent QA closure
+`72814ea3df91a14b376b3610c05fb7caf7d33ba76afee2f1512d7d9218edb7cb`.
+This is new EDT DATA authority; old Pair thresholds/authority do not transfer.
+
+The same sparse-GT-clock diagnostic finds an image within 200 m among the new
+top 100 for 29 baseline and 22 expanded queries, versus the original global512
+20/17. New top-1 counts are 3/5 versus 2/2. Only 79 queries lie within the
+recorded GT time range; all 80 are retained, with no fitted offset. The
+available gallery support stays 31/77. These approximate image-support counts
+do not score a route or count toward the goal, and no bank winner is selected.
+Diagnostic closure: `E:/monocular-osm-pair-vpr-native-proof/edtformer_retrieval_support1/external_closed.json`
+(`5cff2ea0ead442356e2eb5d67060cb9d6ae104d34cfd71d9e358c97349977186`).
+The fleet remains 14/15 and TEST4 remains frozen and blind. The next prospective
+road consumer uses this accepted full DATA with a new typed geographic field
+and shared heading-reference likelihood; no such actual route trial is complete.
 
 A further bounded primary-source refresh checked EfficientVPR (CVPR 2026):
 its [author repository](https://github.com/WiniTang/EfficientVPR) at
