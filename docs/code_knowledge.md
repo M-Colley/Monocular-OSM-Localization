@@ -1077,13 +1077,21 @@ Private source tests reproduce a possible PID-reuse race inside psutil child
 enumeration that can admit an unrelated process and falsely fail affinity.
 The actual offending identity was not saved, so this is not a proven cause of
 run2. Generated native matrix and two-bank 50k PF probes preserve CPU0..15.
-A separate watcher repair must preserve resource limits and improve birth-scope
-admission and failure records. A separate road-only engineering replay is
-source-compatible with unchanged control/study/feature subjects and the still
-live ORIGINAL absolute lease, a new exclusive output directory and no new NN.
-It must not renew that lease or claim successful same-parent/end-to-end/fleet
-execution. The failed full attempt is never promoted. Follow
-`latest_checkpoint_20261112_pair_vpr_features_verified_road_guard_stop` in
+A distinct watcher (`506b5991`) now validates birth identities across direct-child
+admission, records violating identities/masks, and protects cleanup against log
+failures. Its 33 private cases pass; a genuine nested-process CPU16 smoke closes
+all five observed births. The final normal path matches that smoke, with final
+exception changes covered by fault tests. Limits remain unchanged; masks are
+never silently healed. This does not establish the actual run2 failure cause.
+
+A separate road-only engineering replay is active at
+`E:/monocular-osm-pair-vpr-native-proof/road_replay1`, registration SHA256
+`804c9cf5e9d9cd336a8f535cf03092b6456f3a13594c7ce720bffa6d716fd2f7`.
+It keeps the original control/study/feature subjects and ORIGINAL absolute
+lease unchanged, changes only the worker output directory, and performs no new
+NN. It must not renew that lease or claim successful same-parent/end-to-end/
+fleet execution. The failed full attempt is never promoted. Follow
+`latest_checkpoint_20261112_pair_vpr_road_engineering_replay1` in
 `output/goal_progress.json`; both old full-method actors have closed.
 There is still no new route, selected Answer or fleet accuracy result.
 The validated original fleet remains 14/15, with the
