@@ -1021,8 +1021,8 @@ Model-input acceptance: `E:/monocular-osm-pair-vpr-native-proof/run1/model_input
 SHA256 `4223a7dd60be39daadc6f96e83395bb8614c31d1049c452323f5088946ade63f`.
 
 The held feature worker has 32 private cases plus two independent peer probes;
-the independent saved-output feature QA passed 52 cases. No real query/gallery
-Pair neural forward has run. The common-parent controller V1 remains unadmitted:
+the independent saved-output feature QA passed 52 cases. The common-parent
+controller V1 remains unadmitted:
 private probes found PID reuse between check and kill, a lost zero-exit road
 resource failure, and feature acceptance written before final input checks.
 Its separate V2 repair (`ad750`) passed 26 independent private cases; actual
@@ -1038,9 +1038,17 @@ are output-only prototypes, with no production policy change. The prospective
 search uses blocked F64 squared L2 on F32 globals with deterministic image-key
 ties; it does not claim numerical identity to FAISS F32 search.
 
-Next, freeze the concrete controls and run matched-input neural inference,
-independent feature QA and both road outcomes under one shared CPU16/14,400-second
-budget.
+The actual fixed two-bank method has subsequently started under the common
+CPU16/3 GiB/14,400-second watcher. It freezes 36,094 current input files and
+305 current project Python sources; all runtime templates were filled before
+launch. Registration: `E:/monocular-osm-pair-vpr-native-proof/run1/real_method_registration.json`,
+SHA256 `5fbb0c4cdd57d15e2c462641b9f6ffc14ce66e56955dcfe97841dbbb0027c64b`.
+Real query/reference neural forwards are now in progress. This is not a
+completed or accepted feature, route or accuracy result. Follow
+`latest_checkpoint_20261112_pair_vpr_real_method` in `output/goal_progress.json`
+and monitor the existing actor rather than launching a second run. It must
+retain both banks, close model-output QA and road outcomes under the original
+deadline, and close all observed processes before GT scoring.
 No ranking, route, selected Answer or new fleet result follows from these data
 and private-source checks. The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
