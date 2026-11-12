@@ -1130,11 +1130,37 @@ scores nor fleet improvements. All observed births closed and input bytes stayed
 unchanged: `E:/monocular-osm-pair-vpr-native-proof/retrieval_support1`, closure
 SHA256 `55b855d8a72eeb2cb785471a7b2a1b2cbec2235a0e2576840a840aefc78c89b7`.
 
-Next work tests fixed full-token and central-token mean descriptors on the
-already verified dense cache, and assesses a distinct global sequence decoder.
-Both descriptor profiles and both banks remain in the denominator; new candidate
-lists cannot inherit Pair logits computed for different original candidates.
-There is no new neural run or production policy adoption.
+Two fixed DATA transforms of all 14,053 closed dense tensors completed, followed
+by independent recomputation of every pooled descriptor/norm and all four full
+gallery distance matrices/canonical top100 lists. Full-token mean and central
+11-row mean use F64 accumulation and F32 unit descriptors; central tokens still
+contain whole-image attention context. Producer/QA took 124.672/126.312 seconds,
+with peak aggregate RSS 399,089,664/414,019,584 bytes. These are separate DATA
+actors, with no new neural forward or whole-method runtime authority. The fixed
+QA output is a disjoint sibling directory; its generic V1 checker must not be
+used with arbitrary nested output paths. DATA acceptance:
+`E:/monocular-osm-pair-vpr-native-proof/dense_aggregation1_qa/data_acceptance.json`,
+SHA256 `b9c66a6696e5713ecfe10e151ec0ab9bee6b556e63a069b2b4d96b52ae0ef835`.
+
+Both representations are negative on the same fixed retrieval-support check.
+Full/central means put nearby images in top100 at baseline 18/14 queries and
+expanded 8/9, versus original descriptor 20/17. All four outcomes and all 80
+query slots remain recorded, with 79 available original-clock GT joins. These
+are approximate sparse-GT support counts, not route errors or new route runs.
+Closure: `E:/monocular-osm-pair-vpr-native-proof/dense_retrieval_support1/external_closed.json`,
+SHA256 `dfadb2a151bc5b38c840d021aa64bd7c61e7e7597fa58c60d503470a9e9c08d8`.
+Neither representation is promoted, and new candidate lists cannot inherit
+Pair logits computed for different original candidates.
+
+Source/private work now assesses a distinct finite-volume road sum-product
+decoder with persistent physical-speed prior masses and coherent posterior
+paths. Twelve invented-network checks pass; the declared 10/20 m grid adds
+173/300 m free-transport standard deviation over 600 seconds at the toy's
+10 m/s. Mean progress is preserved. This is an approximate new target, not exact
+continuous motion or the old PF/KF target. Whole-city mesh/context construction,
+tiny-edge handling, yaw correlation and runtime remain unverified; follow
+`output/batch_road_clock_decoder_design_20261112` and its later gates. No new
+production policy is adopted.
 The validated original fleet remains 14/15, with the
 retained Detroit error 1,387.2377579105248 m; all six TEST4 additions remain blind.
 
