@@ -702,6 +702,43 @@
         "test4_method_binding_pending": true,
         "evidence_scope": "Exact outcome supplied by Root; DATA operator did not reopen localization outputs or GT."
       }
+    },
+    "test4_2026_11": {
+      "registered": "2026-11-14",
+      "description": "Held-out test of the frozen assisted policy v4 (the best development policy, 14/15 in-sample) on the six test4 clips, registered before any test4 localization. test4 was selected and frozen separately on 2026-11-10 (benchmarks/test4_screen/, dataset_freeze.json) with method_binding pending; this rule is that binding.",
+      "clips": [
+        "tK7bHJXAJX8",
+        "yd5g7jsWiEM",
+        "jkkl1QgsPSo",
+        "ZLmQWroXthY",
+        "jz6o-_Y6r2E",
+        "pFbUvfr8k-Q"
+      ],
+      "dataset_freeze": {
+        "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+        "selection_outcome_sha256": "db319d461a7dcb87e74cf5dde7a797f1bc15576408db1af40c54402f3526f72d",
+        "manifest_sha256": "7f4150ffe9ed8092872836bed2fec1508f9a1fa72506678d1d4e4e20b9b748b6"
+      },
+      "method": "commit 409a959 (the assisted_v4_fleet commit), --assisted-only --assisted-profile=v4 --assisted-cpu-threads=16; nothing changed",
+      "run": "one rep per clip, CPU only (CUDA_VISIBLE_DEVICES=-1), clean worktree at 409a959 (E:/claude-scoring/wt-test4-v4), runner flags exactly as the v4 fleet: --skip-download --timeout 14400 --min-free-vram-gb 0 --min-free-commit-gb 12 --infra-retries 4 --infra-wait 900; inputs are hard links of the frozen data/test4 downloads staged as <pipeline slug>/input.mp4 in a fresh data dir (C:/Users/markc/test4-eval/data, cold caches) with a copy of data/test4/metadata_cache. Runs that fail on infrastructure are rerun at the same commit before any score is looked at.",
+      "runner_manifest": {
+        "path": "E:/claude-scoring/test4/manifest_test4.json",
+        "sha256": "7e8960f759f0f199add0e6334eec72b23c4075d4110ae82c0fbbf347b5f3d7b9",
+        "changes": [
+          "test4 clips only; split relabelled test2 because 409a959's runner lists splits up to test2 (filter only)",
+          "overlay_yd5g7jsWiEM city passed as 'Bucuresti, Romania', the title's own spelling ('Buzau - Bucuresti'): 409a959's city-fairness guard refuses 'Bucharest' as not named in the title; osmnx geocodes both strings to (44.4361414, 26.102684)"
+        ]
+      },
+      "comparison": "(1) the same run's baseline child answer (children/*/baseline/result.json answer: the retrieval track at 409a959), scored with monocular_osm.metrics.score_route exactly like the answer; (2) the city-centre guess from benchmarks/geocode_snapshot.json using the frozen manifest city",
+      "outcome": "unrounded symmetric_mean_m per clip of the assisted answer, the baseline track and the city centre; selected assisted stage; wall-clock time",
+      "hypotheses": {
+        "V1": "Descriptive primary: the share of test4 clips within 200 m for assisted v4, with its Wilson 95 % interval, against v4's in-sample 14/15 (Wilson 70-99 %).",
+        "V2": "No harm: no clip within 200 m with the baseline track is above 200 m with assisted v4.",
+        "V3": "Assisted v4 beats the city centre on at least 4 of the 6 clips."
+      },
+      "goal_check": "The user's goal 'all within 200 m' is reported for test4 as k/6; it holds only at 6/6.",
+      "report": "every clip whichever way it comes out; ground truth (labels restricted to data QC until now) is read only after all six runs finish; the pooled held-out share across test1-test4 is updated with commits stated",
+      "disclosure": "test4 has six clips (its target of seven was not met), so only large effects are visible. v4's stages and thresholds were developed on the dev clips and v3 matched the plain track on test2 (2/7). The test3 diagnostics and the 10-12 November experiments informed no part of v4 (409a959 predates them). Single rep; retrieval reruns can differ by tens to hundreds of metres."
     }
   }
 }
