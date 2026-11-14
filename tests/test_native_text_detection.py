@@ -4,10 +4,14 @@ import random
 from pathlib import Path
 from types import SimpleNamespace
 import numpy as np
-from omegaconf import OmegaConf
 import pytest
-from rapidocr import RapidOCR
-from rapidocr.ch_ppocr_det.main import TextDetector
+
+# The native detector is part of the optional OCR stack (`.[rapidocr]`), which
+# the CI test install (`.[dev]`) does not include; skip the module without it.
+OmegaConf = pytest.importorskip("omegaconf").OmegaConf
+pytest.importorskip("rapidocr")
+from rapidocr import RapidOCR  # noqa: E402
+from rapidocr.ch_ppocr_det.main import TextDetector  # noqa: E402
 from monocular_osm import native_text_detection as m, native_pixel_mask as mask
 
 def pixels(h=64,w=96):
