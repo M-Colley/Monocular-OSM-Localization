@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from monocular_osm.location_prior import extract_place_candidates, resolve_coarse_prior
+from monocular_osm.location_prior import (
+    extract_place_candidates, resolve_coarse_prior, resolve_retrieval_regions,
+)
 
 
 def test_extract_landmarks_from_route_title() -> None:
@@ -90,13 +92,17 @@ def test_one_title_place_is_not_enough_when_two_are_required() -> None:
 
 
 def test_cli_title_seed_requires_two_places() -> None:
+    import ast
     import inspect
 
     import monocular_osm.cli as cli
 
-    src = inspect.getsource(cli)
-    i = src.index("resolve_coarse_prior(city, metadata.title")
-    assert "min_places=2" in src[i:i + 200]
+    calls = [node for node in ast.walk(ast.parse(inspect.getsource(cli)))
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+             and node.func.id == "resolve_coarse_prior"]
+    assert calls
+    assert all(any(kw.arg == "min_places" and ast.literal_eval(kw.value) == 2
+                   for kw in call.keywords) for call in calls)
 
 
 def _hit(lat, lon, name, cls, typ, rank=30):
@@ -161,3 +167,45 @@ def test_route_length_widens_a_tight_landmark_pair_to_hold_the_drive() -> None:
     assert tight[2] < 1500 and wide[2] == pytest.approx(tight[2] - 500 + 1650, abs=1)
     assert resolve_coarse_prior("Ulm, Germany", t, None, geocode_fn=_geo, min_places=2,
                                 route_length_m=50_000)[2] == 6000      # still capped
+
+
+def test_regional_retrieval_keeps_named_municipalities_as_independent_dense_discs():
+    city = "Oakville, Ontario, Canada"
+    coordinates = {
+        city: (43.45, -79.67),
+        # The city-scoped lookup misses its neighbours; the province lookup resolves.
+        "Burlington, Ontario, Canada": (43.325, -79.80),
+        "Hamilton, Ontario, Canada": (43.255, -79.87),
+    }
+    regions = resolve_retrieval_regions(
+        city, "Drive from Oakville to Burlington | Hamilton", None,
+        geocode_fn=coordinates.get)
+    assert [r["name"] for r in regions] == ["search seed", "Burlington", "Hamilton"]
+    assert [r["center"] for r in regions] == [list(c) for c in coordinates.values()]
+    assert all(r["radius_m"] == 3000 for r in regions)
+
+
+def test_regional_retrieval_rejects_businesses_far_namesakes_and_duplicate_discs():
+    city = "London, UK"
+    coordinates = {
+        city: _hit(51.507, -0.128, "London", "boundary", "administrative", 16),
+        "Tours, London, UK": _hit(51.51, -0.13, "Tours", "shop", "travel_agency"),
+        "Richmond, London, UK": _hit(51.46, -0.30, "Richmond", "place", "suburb", 19),
+        "Richmond Park, London, UK": _hit(51.461, -0.301, "Richmond Park", "leisure", "park"),
+        "Springfield, London, UK": _hit(39.80, -89.64, "Springfield", "place", "city", 16),
+    }
+    regions = resolve_retrieval_regions(
+        city, "Tours | Richmond | Richmond Park | Springfield", None,
+        geocode_fn=coordinates.get)
+    assert [r["name"] for r in regions] == ["search seed", "Richmond"]
+
+
+def test_regional_retrieval_has_a_hard_region_budget_and_retains_existing_seed():
+    regions = resolve_retrieval_regions(
+        "London, UK", "Richmond | Croydon", None, center=(51.55, -0.13), max_regions=2,
+        geocode_fn=lambda q: (51.507, -0.128) if q == "London, UK" else (51.46, -0.30))
+    assert len(regions) == 2
+    assert regions[0]["center"] == [51.55, -0.13]
+    assert regions[1]["origin"] == "city"
+    with pytest.raises(ValueError, match="max_regions"):
+        resolve_retrieval_regions("London, UK", None, None, max_regions=0)

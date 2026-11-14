@@ -1,0 +1,110 @@
+{
+  "video_id": "K_54XHyzRn8",
+  "video_url": "https://www.youtube.com/watch?v=K_54XHyzRn8",
+  "city": "Riga, Latvia",
+  "vo_segment": "0:417",
+  "description": "Riga, a Garmin nuvicam test drive. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 63 OCR fixes over 0-418 s (4.29 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 56.97973,
+      "lon": 24.16986
+    },
+    {
+      "t_sec": 34.8,
+      "lat": 56.97918,
+      "lon": 24.169492
+    },
+    {
+      "t_sec": 54.7,
+      "lat": 56.9786,
+      "lon": 24.165806
+    },
+    {
+      "t_sec": 89.5,
+      "lat": 56.97587,
+      "lon": 24.164195
+    },
+    {
+      "t_sec": 114.3,
+      "lat": 56.97433,
+      "lon": 24.165354
+    },
+    {
+      "t_sec": 129.3,
+      "lat": 56.97636,
+      "lon": 24.164307
+    },
+    {
+      "t_sec": 149.1,
+      "lat": 56.97968,
+      "lon": 24.162857
+    },
+    {
+      "t_sec": 164.1,
+      "lat": 56.98224,
+      "lon": 24.161787
+    },
+    {
+      "t_sec": 188.9,
+      "lat": 56.9856,
+      "lon": 24.160594
+    },
+    {
+      "t_sec": 203.8,
+      "lat": 56.98579,
+      "lon": 24.1604
+    },
+    {
+      "t_sec": 223.7,
+      "lat": 56.98579,
+      "lon": 24.1604
+    },
+    {
+      "t_sec": 238.6,
+      "lat": 56.98579,
+      "lon": 24.1604
+    },
+    {
+      "t_sec": 253.6,
+      "lat": 56.98577,
+      "lon": 24.159903
+    },
+    {
+      "t_sec": 273.4,
+      "lat": 56.98434,
+      "lon": 24.156785
+    },
+    {
+      "t_sec": 293.3,
+      "lat": 56.98309,
+      "lon": 24.152855
+    },
+    {
+      "t_sec": 308.2,
+      "lat": 56.98235,
+      "lon": 24.150122
+    },
+    {
+      "t_sec": 353.0,
+      "lat": 56.97827,
+      "lon": 24.145934
+    },
+    {
+      "t_sec": 382.8,
+      "lat": 56.97642,
+      "lon": 24.143595
+    },
+    {
+      "t_sec": 402.7,
+      "lat": 56.97627,
+      "lon": 24.138775
+    },
+    {
+      "t_sec": 417.6,
+      "lat": 56.97598,
+      "lon": 24.135859
+    }
+  ]
+}

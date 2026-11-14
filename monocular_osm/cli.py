@@ -7,9 +7,9 @@ Installed as the ``osm-localize`` console script; also runnable as
     osm-localize --url ... --city ...                     # YouTube clip
     osm-localize                                           # default Ulm demo clip
 
-The estimated position (lat/lon, route, street names, map links) is
-printed at the end of the run and written to output/<slug>/result.json
-under the "position" key.
+The selected answer (lat/lon, route and map links) is printed at the end of
+the run and written to output/<slug>/result.json under "answer". The
+trajectory fit is retained under "position" for diagnostics.
 """
 
 from __future__ import annotations
@@ -169,6 +169,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "--url; requires --city)")
     p.add_argument("--url", nargs="+", default=None,
                    help="One or more YouTube URLs (default: the Ulm demo clip)")
+    p.add_argument("--video-path", type=Path, default=None,
+                   help="Exact local video for one --url with --skip-download; "
+                        "retains the URL's cached uploader metadata and cache identity")
     p.add_argument("--city", default=None,
                    help="City the video was filmed in, as 'City, Country' "
                         "(e.g. 'Ulm, Germany'). Required with --video; inferred "
@@ -182,6 +185,53 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Take every Nth frame. Default: auto — picked so the "
                         "analyzed segment yields ~4800 frames (7 min -> 3, "
                         "10 min -> 4, 15 min -> 6).")
+    p.add_argument("--frame-memory-mb", type=float, default=512.0,
+                   help="Resident decoded-frame budget in MiB (default 512). "
+                        "Long clips spill losslessly to temporary disk storage.")
+    p.add_argument("--frame-max-width", type=int, default=None,
+                   help="Optionally resize sampled frames to this maximum width; "
+                        "preserves aspect ratio. Default: original resolution.")
+    p.add_argument("--retrieval-only", action="store_true",
+                   help="With --answer track, finish after retrieval produces a "
+                        "track, skipping VO, Overpass and geometry. Without a "
+                        "track, the full pipeline is the fallback.")
+    p.add_argument("--vpr-multi-region", action="store_true",
+                   help="Experimental: search places named in video metadata "
+                        "as separate regions with independent reference budgets.")
+    p.add_argument("--vpr-city-cover", action="store_true",
+                   help="Experimental: cover the named municipality with local "
+                        "search cells, then densify visually supported cells. "
+                        "Use --vpr-region-cache-dir for larger reference pools.")
+    p.add_argument("--vpr-city-coarse-cap", type=int, default=250,
+                   help="Reference budget per coarse municipality cell (default 250).")
+    p.add_argument("--vpr-city-fine-regions", type=int, default=3,
+                   help="Maximum coarse cells to densify (default 3).")
+    p.add_argument("--vpr-city-cell-selector", choices=("decoded", "raw-votes"), default="decoded",
+                   help="Coarse-cell shortlist rule: existing decoded-track support "
+                        "(default) or experimental raw similarity votes")
+    p.add_argument("--vpr-metro-ring", action=argparse.BooleanOptionalAction, default=False,
+                   help="Experimental: when the retrieval track's confidence is below the "
+                        "pre-registered selective threshold (0.162), also search the city's "
+                        "surroundings in cells, out to --vpr-metro-radius around its geocode.")
+    p.add_argument("--vpr-metro-radius", type=float, default=20000.0,
+                   help="Outer radius of the metro-ring search in metres (default 20000).")
+    p.add_argument("--vpr-region-cap", type=int, default=6,
+                   help="Maximum retrieval regions including the original search "
+                        "region (default 6).")
+    p.add_argument("--vpr-region-cache-dir", type=Path, default=None,
+                   help="Optional cache root for additional regional references, "
+                        "e.g. a drive with more free space. Original caches stay in data-dir.")
+    p.add_argument("--vpr-query-mode", choices=["warp", "crops", "aspect"], default="warp",
+                   help="Query preprocessing: original square warp, three square "
+                        "crops, or aspect-preserving patch resize (default warp).")
+    p.add_argument("--vpr-batch-size", "--vpr-query-batch-size",
+                   dest="vpr_query_batch_size", type=int, default=4,
+                   help="Maximum reference/query images embedded together (default 4); "
+                        "smaller batches reduce inference memory.")
+    p.add_argument("--video-title", default=None,
+                   help="Optional uploader title for a local video or metadata override.")
+    p.add_argument("--video-description", default=None,
+                   help="Optional uploader description for a local video or metadata override.")
     p.add_argument(
         "--analyze-minutes",
         type=float,
@@ -208,9 +258,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="EXPERIMENTAL, off by default: also run the road-graph particle "
                         "filter (monocular_osm/graph_filter.py) on the visual odometry and "
                         "store its route in result['filter_position'] (never the headline). "
-                        "It needs speed: with road-plane step lengths (the default, "
-                        "--graph-filter-speed plane) it localized KITTI 0033 on the whole "
-                        "Karlsruhe map in 5 of 5 seeds; with unit steps it mostly fails. "
+                        "For independent whole-city video-only filtering use --answer filter. "
                         "See docs/graph_filter_kitti.md; its confidence is not calibrated.")
     p.add_argument("--graph-filter-speed", choices=("plane", "unit"), default="plane",
                    help="Step lengths for --graph-filter: 'plane' = metric, from the road "
@@ -220,9 +268,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Assumed camera height above the road for --graph-filter-speed "
                         "plane (a typical windscreen dashcam is 1.2-1.7 m). It sets a "
                         "global scale only, which the filter's scale state absorbs.")
-    p.add_argument("--graph-filter-particles", type=int, default=200_000,
-                   help="Particle count for --graph-filter (memory ~2 GB and ~2-4 min "
-                        "at 200k; the whole-city evaluation used 600k).")
+    p.add_argument("--graph-filter-particles", type=int, default=None,
+                   help="Particle count: default 200000 for the companion channel, "
+                        "600000 for --answer filter.")
+    p.add_argument("--graph-filter-map-path", type=Path, default=None,
+                   help="Existing whole-city driving GraphML for the filter; never refetched "
+                        "if this explicit file is missing or invalid. Filter-only mode otherwise "
+                        "loads a dedicated named-city cache, independent of retrieval discs.")
+    p.add_argument("--graph-filter-path-budget-mb", type=float, default=None,
+                   help="Genealogy memory budget in MiB (filter-only default 256); "
+                        "does not change the particle modes.")
+    p.add_argument("--graph-filter-target-hz", type=float, default=10.0,
+                   help="Video sampling rate for --answer filter when --frame-stride is omitted "
+                        "(default 10 Hz, limited by the video's own FPS).")
     p.add_argument("--graph-filter-seed", type=int, default=0,
                    help="Random seed for --graph-filter.")
     p.add_argument("--graph-filter-vpr", action="store_true",
@@ -485,6 +543,48 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "~1 km. Fires only when pass 1 was wider than 1.2x the "
                         "tight radius (which is itself floored by the route-"
                         "length prior), so GT-seeded tight runs are untouched.")
+    p.add_argument("--vpr-seed-ring", action=argparse.BooleanOptionalAction,
+                   default=False,
+                   help="When a coarse seed (title place names, plate district) "
+                        "is wider than --vpr-search-radius, also search a sparse "
+                        "outer ring of references out to the seed radius (max "
+                        "8 km), keeping the dense core set unchanged.")
+    p.add_argument("--answer", choices=["fit", "track", "checked", "filter", "poi", "assisted"], default="track",
+                   help="Route written to result['answer']: the retrieval track "
+                        "itself (default; the fit when retrieval found nothing), the "
+                        "trajectory fit (result['position']), or the fit checked "
+                        "against the track (replaced by the track when they disagree "
+                        "by over 250 m). Chosen by the pre-registered "
+                        "answer_selection rule on the dev clips. 'filter' runs only video VO "
+                        "and the independent whole-city road-graph filter; skips retrieval/matching. "
+                        "'poi' is an EXPERIMENTAL all-branch literal-POI component; no fallback answer.")
+    p.add_argument("--graph-filter-only", action="store_const", const="filter", dest="answer",
+                   help="Alias for --answer filter; saves and selects the independent filter route.")
+    p.add_argument("--poi-only", action="store_const", const="poi", dest="answer",
+                   help="Alias for --answer poi; EXPERIMENTAL video OCR + city POIs + neighborhood imagery.")
+    p.add_argument("--assisted-only", action="store_const", const="assisted", dest="answer",
+                   help="EXPERIMENTAL fixed input-only assisted policy with isolated component runs.")
+    p.add_argument("--assisted-cpu-threads", type=int, default=4,
+                   help="CPU threads per assisted visual child for torch/BLAS (default 4, as every "
+                        "assisted result so far). More threads give the same retrieval descriptors "
+                        "faster (0.75 s/image at 4, 0.42 at 16 on a 20-core CPU).")
+    p.add_argument("--assisted-profile", choices=["v1", "v2", "v3", "v4"], default="v1",
+                   help="Versioned assisted experiment: v2 uses all OCR regions in one weak-motion image decode; "
+                        "v3 preserves v1 stages and adds an experimental full-support metadata reference-mean decode.")
+    p.add_argument("--runtime-budget-s", type=float, default=None,
+                   help="Overall assisted wall budget; inherits the benchmark deadline when present.")
+    p.add_argument("--runtime-finalization-reserve-s", type=float, default=120.,
+                   help="Assisted budget reserved for mandatory Answer/audit/freeze publication (default120s).")
+    p.add_argument("--runtime-cleanup-reserve-s", type=float, default=10.,
+                   help="Assisted budget reserved for stopping owned child processes (default10s).")
+    p.add_argument("--poi-radius-m", type=float, default=1000.0,
+                   help="EXPERIMENTAL POI neighborhood radius for every literal branch (default 1000 m).")
+    p.add_argument("--poi-ref-cap", type=int, default=500,
+                   help="EXPERIMENTAL equal reference cap per POI branch (default 500); no branch pruning.")
+    p.add_argument("--poi-map-path", type=Path, default=None,
+                   help="Existing whole-city driving GraphML for the POI component; a trusted city-map database.")
+    p.add_argument("--poi-inventory-dir", type=Path, default=None,
+                   help="Shared city retail-inventory cache; default is poi_inventory beside submission data folders.")
     p.add_argument("--vpr-c2f-radius", type=float, default=2000.0,
                    help="Tight second-pass disc radius (m) for "
                         "--vpr-coarse-to-fine (default 2000).")
@@ -635,10 +735,21 @@ def main() -> None:
     _reconfigure_stdio()
     p = build_arg_parser()
     args = p.parse_args()
+    from .runtime_budget import RuntimeBudget
+    try:
+        runtime_budget = RuntimeBudget.from_config(args) if args.answer == "assisted" else None
+    except ValueError as error:
+        p.error(str(error))
     try:
         _validate_input_args(args.video, args.url, args.city)
     except ValueError as e:
         p.error(str(e))
+
+    if args.video_path is not None:
+        if args.video or not args.url or len(args.url) != 1 or not args.skip_download:
+            p.error("--video-path requires exactly one --url and --skip-download; do not combine it with --video")
+        if not args.video_path.is_file():
+            p.error(f"local video not found: {args.video_path}")
 
     osm_around = None
     if args.osm_around:
@@ -675,7 +786,10 @@ def main() -> None:
             )
             if metadata is not None:
                 print(f"Using cached metadata for {url} (--skip-download)")
-                submissions.append((metadata, None))
+                submissions.append((metadata, args.video_path))
+                continue
+            if args.video_path is not None:
+                metadata_errors.append(f"{url}: --video-path requires cached URL metadata in {args.data_dir}")
                 continue
             try:
                 metadata = fetch_video_metadata(url)
@@ -686,10 +800,13 @@ def main() -> None:
             submissions.append((metadata, None))
 
     for metadata, local_path in submissions:
-        if local_path is not None:
+        effective_title = metadata.title if args.video_title is None else args.video_title
+        effective_description = (getattr(metadata, "description", None)
+                                 if args.video_description is None else args.video_description)
+        if args.video:
             city = args.city  # guaranteed by _validate_input_args
         else:
-            city = _resolve_city(args.city, metadata.url, metadata.title)
+            city = _resolve_city(args.city, metadata.url, effective_title)
         submission_slug = slugify_submission(
             metadata.video_id,
             metadata.title,
@@ -705,7 +822,7 @@ def main() -> None:
         # video, not from ground truth.
         sub_osm_around = osm_around
         osm_around_source = "user" if osm_around is not None else None
-        if sub_osm_around is None and args.coarse_from_video:
+        if sub_osm_around is None and args.coarse_from_video and args.answer not in {"filter", "poi"}:
             from .location_prior import resolve_coarse_prior
             # Two corroborating place names, as for OCR seeds: one title word
             # becomes an 800 m hard gate on retrieval and the road graph, and
@@ -713,8 +830,8 @@ def main() -> None:
             # runs 7.7 km off (the city centre is 350 m off).
             from .stages.length_prior import _auto_estimated_length_m
             seed_dur = duration or getattr(metadata, "duration", None)
-            prior = resolve_coarse_prior(city, metadata.title,
-                                         getattr(metadata, "description", None),
+            prior = resolve_coarse_prior(city, effective_title,
+                                         effective_description,
                                          min_places=2,
                                          route_length_m=(_auto_estimated_length_m(seed_dur)
                                                          if seed_dur else None))
@@ -736,7 +853,7 @@ def main() -> None:
         # half the intended stride (2x the VO cost) and a VO cache no
         # --skip-download rerun can reuse.
         frame_stride = args.frame_stride
-        if frame_stride is None:
+        if frame_stride is None and args.answer != "filter":
             probe = local_path
             if probe is None:
                 # Same pick the pipeline uses to choose the analyzed file, so
@@ -745,7 +862,7 @@ def main() -> None:
                 probe = pick_cached_input(args.data_dir / submission_slug)
             fps = _probe_video_fps(probe) if probe is not None else None
             if fps is None:
-                fps = getattr(metadata, "fps", None) if local_path is None else None
+                fps = getattr(metadata, "fps", None) if not args.video else None
             frame_stride = _auto_frame_stride(duration, fps=fps)
 
         cfg = PipelineConfig(
@@ -755,6 +872,9 @@ def main() -> None:
             output_dir=args.output_dir / submission_slug,
             max_frames=args.max_frames,
             frame_stride=frame_stride,
+            frame_memory_mb=args.frame_memory_mb,
+            frame_max_width=args.frame_max_width,
+            retrieval_only=args.retrieval_only,
             vo_start_sec=start,
             vo_end_sec=end,
             top_k=args.top_k,
@@ -764,6 +884,13 @@ def main() -> None:
             graph_filter_seed=args.graph_filter_seed,
             graph_filter_vpr=args.graph_filter_vpr,
             graph_filter_speed=args.graph_filter_speed,
+            graph_filter_map_path=args.graph_filter_map_path,
+            graph_filter_path_budget_mb=args.graph_filter_path_budget_mb,
+            graph_filter_target_hz=args.graph_filter_target_hz,
+            poi_radius_m=args.poi_radius_m,
+            poi_ref_cap=args.poi_ref_cap,
+            poi_map_path=args.poi_map_path,
+            poi_inventory_dir=args.poi_inventory_dir,
             camera_height_m=args.camera_height_m,
             fusion_weights=args.fusion_weights,
             scale_recovery_thresh_m=args.scale_recovery_thresh_m,
@@ -827,8 +954,29 @@ def main() -> None:
             use_vlm_anchor=args.use_vlm_anchor,
             vpr_search_radius_m=args.vpr_search_radius,
             vpr_ref_cap=args.vpr_cap,
+            vpr_query_mode=args.vpr_query_mode,
+            vpr_query_batch_size=args.vpr_query_batch_size,
             vpr_coarse_to_fine=args.vpr_coarse_to_fine,
             vpr_c2f_radius_m=args.vpr_c2f_radius,
+            vpr_seed_ring=args.vpr_seed_ring,
+            vpr_multi_region=args.vpr_multi_region,
+            vpr_region_cap=args.vpr_region_cap,
+            vpr_region_cache_dir=args.vpr_region_cache_dir,
+            vpr_city_cover=args.vpr_city_cover,
+            vpr_city_coarse_cap=args.vpr_city_coarse_cap,
+            vpr_city_fine_regions=args.vpr_city_fine_regions,
+            vpr_city_cell_selector=args.vpr_city_cell_selector,
+            vpr_metro_ring=args.vpr_metro_ring,
+            vpr_metro_radius_m=args.vpr_metro_radius,
+            video_title=effective_title,
+            video_description=effective_description,
+            answer=args.answer,
+            assisted_profile=args.assisted_profile,
+            assisted_cpu_threads=args.assisted_cpu_threads,
+            runtime_budget_s=args.runtime_budget_s,
+            runtime_deadline_monotonic_s=runtime_budget.deadline if runtime_budget is not None else None,
+            runtime_finalization_reserve_s=args.runtime_finalization_reserve_s,
+            runtime_cleanup_reserve_s=args.runtime_cleanup_reserve_s,
             use_sun_heading=args.use_sun_heading,
             ground_truth_streets=tuple(args.ground_truth),
             ground_truth_waypoints=args.ground_truth_waypoints,

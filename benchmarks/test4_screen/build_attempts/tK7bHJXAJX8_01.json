@@ -1,0 +1,19 @@
+{
+  "status": "INFRASTRUCTURE_INTERRUPTED_FOR_SUPPORTED_ORT_CPU_SESSION_SIZING",
+  "utc": "2026-11-10T22:05:11.862993+00:00",
+  "id": "tK7bHJXAJX8",
+  "owned_pid": 26736,
+  "birth": 1794346974.2016132,
+  "prefix_download_complete": true,
+  "video_path": "data/test4/tk7bhjxajx8-garmin-driveassist-at-night-bucharest-buzau/input_0-600.mp4",
+  "completed_GT_verdict": false,
+  "preserve_all_existing_bytes": true,
+  "weights_preprocessing_thresholds_selection_unchanged": true,
+  "owned_birth_gone": true,
+  "attempt": 1,
+  "available": false,
+  "new_labels_restricted_to_data_qc": true,
+  "localization_executed": false,
+  "created_by": "Controller ledger entry for preserved interrupted attempt; not a GT verdict",
+  "qc_log_sha256": "246c73cb46f109cf77786abef6bb949066e6f9bea082c24540c3981ca606bb43"
+}

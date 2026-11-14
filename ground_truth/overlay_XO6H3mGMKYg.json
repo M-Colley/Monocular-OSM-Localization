@@ -1,0 +1,110 @@
+{
+  "video_id": "XO6H3mGMKYg",
+  "video_url": "https://www.youtube.com/watch?v=XO6H3mGMKYg",
+  "city": "Munich, Germany",
+  "vo_segment": "75:250",
+  "description": "Titled Munich; the drive leaves the city for Germering on the Autobahn, so part of it lies outside the named city. Overlay: VIOFO A329s decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 36 OCR fixes over 75-250 s (2.20 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 75.0,
+      "lat": 48.0242,
+      "lon": 11.5868
+    },
+    {
+      "t_sec": 85.0,
+      "lat": 48.0249,
+      "lon": 11.5879
+    },
+    {
+      "t_sec": 95.0,
+      "lat": 48.0258,
+      "lon": 11.589207
+    },
+    {
+      "t_sec": 105.0,
+      "lat": 48.0259,
+      "lon": 11.5893
+    },
+    {
+      "t_sec": 110.0,
+      "lat": 48.0259,
+      "lon": 11.5893
+    },
+    {
+      "t_sec": 120.0,
+      "lat": 48.0263,
+      "lon": 11.59
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 48.026,
+      "lon": 11.5917
+    },
+    {
+      "t_sec": 140.0,
+      "lat": 48.0256,
+      "lon": 11.5934
+    },
+    {
+      "t_sec": 150.0,
+      "lat": 48.0255,
+      "lon": 11.5945
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 48.0252,
+      "lon": 11.5959
+    },
+    {
+      "t_sec": 165.0,
+      "lat": 48.0248,
+      "lon": 11.5963
+    },
+    {
+      "t_sec": 175.0,
+      "lat": 48.0243,
+      "lon": 11.5975
+    },
+    {
+      "t_sec": 185.0,
+      "lat": 48.026,
+      "lon": 11.5983
+    },
+    {
+      "t_sec": 195.0,
+      "lat": 48.0278,
+      "lon": 11.5999
+    },
+    {
+      "t_sec": 205.0,
+      "lat": 48.029,
+      "lon": 11.6011
+    },
+    {
+      "t_sec": 215.0,
+      "lat": 48.0301,
+      "lon": 11.6024
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 48.0305,
+      "lon": 11.603
+    },
+    {
+      "t_sec": 230.0,
+      "lat": 48.0314,
+      "lon": 11.6046
+    },
+    {
+      "t_sec": 240.0,
+      "lat": 48.0325,
+      "lon": 11.6062
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 48.0331,
+      "lon": 11.6067
+    }
+  ]
+}

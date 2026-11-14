@@ -20,7 +20,7 @@ import re
 
 from .geo import geodesic_distance_m
 
-__all__ = ["resolve_coarse_prior", "extract_place_candidates"]
+__all__ = ["resolve_coarse_prior", "resolve_retrieval_regions", "extract_place_candidates"]
 
 _PLACE = r"[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*"
 _PHRASE = rf"{_PLACE}(?:[ \-]{_PLACE}){{0,3}}"
@@ -215,3 +215,86 @@ def resolve_coarse_prior(
               + max(margin_m, float(route_length_m or 0.0)))
     radius = min(max(radius, min_radius_m), max_radius_m)
     return (centre[0], centre[1], radius, [h[0] for h in hits])
+
+
+def resolve_retrieval_regions(
+    city: str,
+    title: str | None,
+    description: str | None,
+    *,
+    center: tuple[float, float] | None = None,
+    radius_m: float = 3000.0,
+    max_regions: int = 6,
+    geocode_fn=None,
+    max_km_from_city: float = 100.0,
+) -> list[dict]:
+    """Independent dense retrieval discs from video-named places.
+
+    Unlike the single coarse prior, this does not average several municipalities
+    into a centre between them. Keep the existing seed and the named city, then
+    distinct verified places in title/description order. Each disc keeps its own
+    reference budget. The opt-in caller compares visual evidence across them;
+    one uncorroborated title word never becomes a hard geographic gate.
+
+    Country/state-scoped fallbacks let neighbouring municipalities resolve even
+    when appending the primary city's name makes Nominatim miss them. The same
+    name/type checks as the coarse prior and a 100 km city-distance bound reject
+    businesses and far-away namesakes. No labels or ground truth are accepted.
+    """
+    if max_regions < 1:
+        raise ValueError("max_regions must be at least one")
+    if radius_m <= 0:
+        raise ValueError("radius_m must be positive")
+    geocode_fn = geocode_fn or _default_geocode
+
+    def lookup(query):
+        try:
+            return geocode_fn(query)
+        except Exception:
+            return None
+
+    city_ll = _latlon(lookup(city))
+    seed = center if center is not None else city_ll
+    if seed is None:
+        return []
+    city_ll = city_ll or seed
+    regions: list[dict] = []
+    separation_m = max(250.0, 0.5 * radius_m)
+
+    def add(name, ll, origin):
+        if len(regions) >= max_regions or any(
+                _geodesic_m(tuple(r["center"]), ll) < separation_m for r in regions):
+            return
+        regions.append({"name": name, "center": [float(ll[0]), float(ll[1])],
+                        "radius_m": float(radius_m), "origin": origin})
+
+    add("search seed", seed, "seed")
+    add(city, city_ll, "city")
+    city_parts = {p.strip().casefold() for p in city.split(",") if p.strip()}
+    suffix = ", ".join(p.strip() for p in city.split(",")[1:] if p.strip())
+
+    def route_text(text):
+        # Route words can otherwise join capitalised city names to generic
+        # words ("Driving From Oakville"). Preserve the old parser unchanged.
+        return re.sub(r"\b(?:from|through|around|towards?)\b", " | ", text or "",
+                      flags=re.IGNORECASE)
+
+    candidates = extract_place_candidates(route_text(title), route_text(description),
+                                           max_candidates=24)
+    for candidate in candidates:
+        if len(regions) >= max_regions:
+            break
+        if candidate.casefold() in city_parts:
+            continue
+        queries = [f"{candidate}, {city}"]
+        if suffix:
+            queries.append(f"{candidate}, {suffix}")
+        queries.append(candidate)
+        for query in dict.fromkeys(queries):
+            hit = lookup(query)
+            ll = _latlon(hit)
+            if (ll is not None and _is_place_match(candidate, hit, city)
+                    and _geodesic_m(city_ll, ll) <= max_km_from_city * 1000.0):
+                add(candidate, ll, "video_named")
+                break
+    return regions

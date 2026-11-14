@@ -5,10 +5,150 @@ directed OSM road graph, in the style of Brubaker, Geiger & Urtasun
 ([CVPR 2013](https://openaccess.thecvf.com/content_cvpr_2013/html/Brubaker_Lost_Leveraging_the_2013_CVPR_paper.html)):
 odometry plus a road map, no GPS, no appearance. It is available as the opt-in
 `--graph-filter` channel. This page records its evaluation on the two KITTI
-drives in the benchmark. Regenerate with `python scripts/eval_graph_filter.py`
-(hours of CPU; results land in `output/graph_filter/`).
+drives in the benchmark. The historical research evaluator is
+`python scripts/eval_graph_filter.py` (hours of CPU; results land in
+`output/graph_filter/`). It reads raw camera PNGs, KITTI rectified camera
+calibration and OXTS sensor timestamps. Its five-seed results describe that
+input regime. A separate MP4-only test is recorded immediately below.
 
-## Summary
+## Strict MP4-only check (2026-10-27)
+
+`scripts/probe_strict_video_filter.py` ran fresh inference from the registered
+whole MP4 window and the cached whole-city Karlsruhe road graph. Inference
+used 1,594 native 1226×370 video frames at stride 1, generic 70° horizontal-FOV
+intrinsics (`fx=fy=875.4547`), road-plane camera height 1.5 m and rotation-based
+VO heading. Timing came entirely from MP4 presentation times and its encoded
+10 FPS timebase: the requested full window was 0:165 s and decoded video times
+were 0.0–159.3 s. The process read no calibration, raw PNGs, GPS/OXTS fixes or
+sensor timestamp files. No position prior, VPR observations or network access
+were used.
+
+The city-wide filter used 600,000 particles, seed 0 and 319 steps at about 2 Hz.
+Road-plane coverage was 51.83%; the estimator's own spread set the metric-speed
+deviation sigma to 0.09738, with metric log-scale prior sigma 0.25. The frame
+cache was bounded to 128 MB and genealogy storage to 256 MB. Genealogy thinning
+changes smoothed-route interpolation, while particle modes and random draws
+remain unchanged. CPU inference took 439.9 s, with sampled peak private memory
+1,093 MB and RSS 674 MB.
+
+Prediction, configuration, source snapshots, video hash and map hash were frozen
+before a separate scoring process opened labels. Scoring aligned synced OXTS
+positions by rendered-frame index; it read no sensor timestamp files.
+
+| Seed 0 metric | Result |
+|---|---:|
+| Time to localize (video time) | 78.5 s |
+| Mean posterior-mode error after localization | 5.48 m |
+| Final posterior-mode error | 13.30 m |
+| Mean posterior-mode error over the whole drive | 4,695.75 m |
+| Smoothed per-frame mean error | 8.71 m |
+| Smoothed route GT→prediction mean, committed waypoints | 2.80 m |
+| Smoothed route symmetric mean, committed waypoints | 4.83 m |
+| Smoothed route endpoint error | 3.77 m |
+
+The accurate smoothed route is an offline result; the early city-wide modes
+are wrong. The seed-0 prediction and score above remain preserved separately.
+
+Four subsequent, predeclared seeds (1–4) reused the exact frozen MP4-derived VO,
+road-plane and odometry artifacts. Every original artifact, source snapshot,
+video and map hash was verified; the particle-filter seed was the only changed
+filter setting. All four predictions and their input/source hashes were frozen
+as a batch before a separate process scored them. Every seed was retained.
+
+| PF seed | Time to localize (s) | Final mode error (m) | Whole-run online mean error (m) | Smoothed route symmetric mean (m) |
+|---|---:|---:|---:|---:|
+| 0 | 78.5 | 13.30 | 4,695.75 | 4.83 |
+| 1 | 78.5 | 13.41 | 3,477.24 | 5.32 |
+| 2 | 76.5 | 13.29 | 3,726.42 | 5.09 |
+| 3 | 79.0 | 13.26 | 4,998.65 | 4.67 |
+| 4 | 79.5 | 13.61 | 4,891.47 | 5.18 |
+
+All five PF seeds localized. Across seeds, mean ± population standard deviation:
+time to localize **78.4 ± 1.02 s**; subsequent mean mode error **5.35 ± 0.17 m**;
+final mode error **13.38 ± 0.13 m**; smoothed per-frame mean error
+**9.22 ± 1.10 m**; smoothed waypoint-route symmetric error **5.02 ± 0.24 m**.
+Whole-run online mean error was **4,357.91 ± 629.88 m**. The four sequential
+replications took 462.6 s total, with native Windows peak private commit
+689.5 MB and working set 664.2 MB.
+
+This establishes particle-filter seed robustness on one video's fixed visual
+odometry. It leaves independent-video, independent-VO and default-pipeline
+sampling/200,000-particle validation outstanding. Posterior mass remains
+uncalibrated.
+
+Reproduce inference first, then run scoring separately:
+
+```bash
+python scripts/probe_strict_video_filter.py --video data/kitti/drive_0033.mp4 --city "Karlsruhe, Germany" --graph output/graph_filter/graph_B_karlsruhe_city.graphml --start 0 --end 165 --particles 600000 --seed 0 --threads 2 --frame-memory-mb 128 --path-budget-mb 256 --output output/strict_video_filter/kitti0033_seed0
+```
+
+Local evidence is under `output/strict_video_filter/kitti0033_seed0/`:
+`frozen_prediction.json`, `offline_score.json` and `source_snapshot/`.
+Frozen manifest SHA256:
+`d4a6b085f1f62207cc81dc68a0446a3f0c4e969c2905c852aeecb761f474c4ec`.
+The command refuses to reuse a nonempty output directory; choose a fresh one
+for another run. Source snapshots preserve the exact code loaded for this run.
+
+Replicate the frozen inputs, then score the complete batch in a separate process:
+
+```bash
+python scripts/replicate_strict_video_filter.py --base output/strict_video_filter/kitti0033_seed0 --seeds 1 2 3 4 --threads 2 --output output/strict_video_filter/kitti0033_seeds1_4
+python scripts/score_frozen_video_filter.py --batch output/strict_video_filter/kitti0033_seeds1_4 --labels-dir data/kitti/raw/2011_09_30/2011_09_30_drive_0033_sync/oxts/data --waypoints ground_truth/kitti_drive_0033.json
+```
+
+The scorer verifies a complete batch freeze before accessing labels. It uses
+rendered-frame indices for position labels and video time for latency; sensor
+timestamp files remain unused. Evidence is in
+`output/strict_video_filter/kitti0033_seeds1_4/frozen_predictions.json` and
+`offline_score_all_seeds.json`. Batch manifest SHA256:
+`6bc58af8b365ae09a8b14e8fb5753655aee5386189b1736bb6ce4cd9f37ecf32`.
+
+## Normal pipeline filter-only entry point
+
+`--answer filter` (alias `--graph-filter-only`) skips retrieval and matching.
+Its defaults are 600,000 particles, seed 0, generic 70° intrinsics, road-plane
+height 1.5 m, two VO workers, a 256 MiB genealogy budget and video sampling near
+10 Hz when `--frame-stride` is omitted. The independent named-city map uses
+its own cache. `--graph-filter-map-path` supplies an existing whole-city driving
+GraphML; its scope is a trusted database declaration, while the SHA binds its
+actual bytes. Its configured path remains visible in override audits.
+
+The profile uses actual video intervals and absolute video route times. It
+rejects position discs, labels, VPR observations and a route-length prior.
+Source bytes, video/map hashes, full PF arrays, selected answer and map are
+checkpointed before separate evaluation. Existing default behavior is retained.
+
+```bash
+python main.py --video data/kitti/drive_0033.mp4 --city "Karlsruhe, Germany" --answer filter --vo-segment 0:165 --frame-memory-mb 128 --vo-workers 2 --graph-filter-map-path output/graph_filter/graph_B_karlsruhe_city.graphml --graph-filter-seed 0 --data-dir data/strict_pipeline_pf --output-dir output/strict_pipeline_pf
+python scripts/score_filter_checkpoint.py --checkpoint output/strict_pipeline_pf/local-7bb2db3254be-drive-0033-karlsruhe-germany --labels-dir data/kitti/raw/2011_09_30/2011_09_30_drive_0033_sync/oxts/data --waypoints ground_truth/kitti_drive_0033.json
+```
+
+This normal-entrypoint run computed fresh VO and reproduced the standalone
+seed-0 trajectory, posterior modes, smoothed route and particle weights
+bit-for-bit. Selected-answer symmetric error was 4.83 m and endpoint error
+3.74 m after coordinate rounding; PF online metrics were identical to seed 0
+above. The console, map links and `answer.png` all displayed the selected route.
+Native peak private commit was 1,432 MB and working set 1,021 MB. The public
+256 MiB setting converts to 268.435456 decimal MB internally; both budgets use
+genealogy stride 12 here, preserving the exact route. Frozen manifest SHA256:
+`15da5a787ab0d1994256ebdcca6035616621399ecdcd4f1e84fd440aee11f671`.
+
+A second normal benchmark run at clean commit `f9ad7d23` tested automatic
+named-city map loading on KITTI 0033. Its inputs were a separate copy of the
+registered MP4 and public cached OSM HTTP responses. `--graph-filter-only`
+resolved the city map automatically; the recorded configured map path, position
+disc and bounding box were all null. The city query was `Karlsruhe, Germany`.
+The selected answer scored **4.80 m symmetric route error**, and inference took
+405.8 s. The strict filter input audit passed on this real result. The full
+development-goal audit correctly rejected this one-clip run as incomplete.
+
+The run is named `filter_city_auto`, with a complete prediction/source freeze
+before offline aggregation. Its constructed city-map SHA256 is
+`e27cb1fd5b2f399392dc7a8c868b1e4f37630e3991473a4d2504de4a1f2e4437`.
+This adds an automatic-map check on the same video; the five-seed and broader
+generalization limitations above still apply.
+
+## Historical calibrated-camera and sensor-time summary
 
 * **With real odometry it works, even on a whole city.** KITTI 0033 (165 s,
   Karlsruhe) with the OXTS speed and heading localizes all 5 seeds in about 25 s
@@ -26,12 +166,13 @@ drives in the benchmark. Regenerate with `python scripts/eval_graph_filter.py`
   failures are *deterministic wrong attractors* (the same 4.3, 5.7 and 8.8 km
   errors repeat across seeds). The ground-flow speed profile correlates only
   0.44-0.60 with true step length and did not rescue it (1 of 5).
-* **Road-plane speed closes most of the gap on the loop drive** (added
+* **Road-plane speed closes most of the gap in the research setup** (added
   2026-10-16, [below](#road-plane-speed)). Giving each VO step a metric length
   from the road plane and an assumed camera height localizes 0033 on the
   whole Karlsruhe map in 5 of 5 seeds (final ~10 m, smoothed route within
-  1 m), with no GPS and no image retrieval — but only near the end of the
-  drive, only when the assumed height is within about 20 %, and not on 0009.
+  1 m), with calibrated intrinsics and sensor timing, no GPS position
+  observations and no image retrieval. Success came near the end of the
+  drive, with sensitivity to assumed height; 0009 still failed.
 * **Its confidence is not calibrated for this input.** Only 3 of 14 monocular-VO
   runs reporting confidence above 0.8 were right. Do not present it as a
   probability of correctness.
@@ -39,18 +180,21 @@ drives in the benchmark. Regenerate with `python scripts/eval_graph_filter.py`
   odometry: it localizes (4 of 5) only on the box, with 0.07-0.10 posterior mass,
   and never on the city.
 
-So the filter is the right *map-matching* core and not the bottleneck; metric
-odometry is. A trajectory source with metric steps (VGGT-Long, Depth Anything 3,
-MapAnything) is the way to use it; those paths were not evaluated here.
+These ablations show the value of metric steps for this map-matching core.
+Other trajectory sources with metric steps (VGGT-Long, Depth Anything 3,
+MapAnything) were not evaluated here.
 
 ## Setup
 
 Map A is a fixed 35 km² box around the recording area (the same box for both
 drives, a Brubaker-style assumption that is **not deployable**); map B is the
-full Karlsruhe drive network (the deployable setting). "Localized" means the
-error stays under 10 m (and under 20 m afterwards). Ground truth is used only to
-score; no noise model was tuned on these drives. Numbers are mean ± std over 5
-seeds at a 2 Hz filter rate.
+full Karlsruhe drive network (a named-city spatial prior). "Localized" means
+the mode error first falls under 10 m and stays under 20 m afterwards. Oracle
+variants use OXTS speed/heading; VO variants use calibrated camera PNGs and
+OXTS timestamp differences. GPS positions enter scoring and diagnostics, rather
+than position observations. The road-plane scale-prior choice following bias
+diagnostics is described below. Numbers are mean ± std over 5 seeds at a 2 Hz
+filter rate.
 
 ![error versus time](graph_filter_error_vs_time.png)
 
@@ -189,7 +333,7 @@ above):
 | 0009 | 0.88 (0.60) | 11 % (34 %) | 0.69 | 0.76 | 57 % |
 | 0033 | 0.81 (0.44) | 11 % (29 %) | 0.76 | 0.84 | 55 % |
 
-**The filter with it** (5 seeds, same settings as the table at the top;
+**The filter with it** (5 seeds, calibrated images and sensor timing as above;
 `vo_plane` = metric steps at the assumed height, `vo_plane_rel` = the same
 profile with the global scale left unknown, as `vo_gflow`):
 
@@ -217,8 +361,9 @@ drive is 7,094 m off and the centre of "Karlsruhe, Germany" 6,709 m
 
 What this shows, and what it does not:
 
-* **Speed was the missing signal.** In the deployable setting — the whole
-  city, no GPS, no image retrieval — metric steps turn a deterministic 8.8 km
+* **Speed was the missing signal in this research setup.** With the whole-city
+  spatial prior, calibrated images, sensor timing and no GPS position
+  observations or image retrieval, metric steps turn a deterministic 8.8 km
   failure into 5 of 5 localizations of the loop drive.
 * **The absolute scale matters, not only the speed profile.** The same profile
   with an unknown scale fails on the city map (0/5), and an assumed height
@@ -230,8 +375,9 @@ What this shows, and what it does not:
   offline answer for a whole clip, not online tracking.
 * **Its confidence still cannot be trusted.** The failed 1.2 m runs ended with
   confidence 1.00 on answers 8.8-11.8 km off.
-* **One drive.** 0009 (46 s, one turn) fails with any odometry on the city
-  map. Dashcam clips add unknown intrinsics, rolling shutter and 7.5 Hz
-  frames; the estimator has not been checked on them yet (their burned-in
-  GPS stamps would allow it).
+* **One successful research drive.** 0009 (46 s, one turn) fails with any
+  odometry on the city map. The strict generic-intrinsics MP4 result above
+  supplies five successful PF seeds on a fixed fresh VO estimate of 0033.
+  Independent dashcam, rolling-shutter, shorter-window and independent-VO
+  validation remain outstanding.
 

@@ -12,6 +12,12 @@ baseline needs (the aggregator reports that as "n/a", never as a score).
 * :func:`vpr_prior_only` — the street-imagery retrieval centre alone
   (``result["vpr_prior"]``). Answers "does the trajectory add anything
   beyond image retrieval?".
+* :func:`vpr_track_only` — the per-frame retrieval track itself as a route
+  (``result["vpr_prior"]["track"]``, time order, running median of 5), when
+  the run saved it. Splits a run's error into retrieval and trajectory fit.
+* :func:`track_checked` — the pipeline's route, unless it disagrees with the
+  retrieval track by more than a fixed distance; then the track route
+  (candidate C of the pre-registered ``answer_selection`` rule).
 * :func:`matcher_only` — the raw trajectory-to-OSM matcher pick
   (``result["matcher_position"]``), no anchor of any kind.
 * :func:`pinned_only` — the matcher's candidate georeferenced by OCR / sign
@@ -212,6 +218,19 @@ def graph_filter_only(result: dict) -> Prediction | None:
     return _from_report("graph_filter_only", result, "filter_position")
 
 
+def poi_only(result: dict) -> Prediction | None:
+    """Explicit experimental all-branch POI component, when fully available."""
+    return _from_report("poi_only", result, "poi_position")
+
+
+def assisted_policy(result: dict) -> Prediction | None:
+    """Experimental fixed-policy selection over frozen child route artifacts."""
+    return _from_report("assisted_policy", result, "assisted_position")
+
+
+assisted_only = assisted_policy
+
+
 def vpr_prior_only(result: dict) -> Prediction | None:
     """``result["vpr_prior"]`` — the retrieval centre as a single point."""
     vp = (result or {}).get("vpr_prior")
@@ -224,6 +243,65 @@ def vpr_prior_only(result: dict) -> Prediction | None:
                       source="result.vpr_prior",
                       meta={"origin": vp.get("origin"),
                             "track_frames": vp.get("track_frames")})
+
+
+def vpr_track_only(result: dict, window: int = 5) -> Prediction | None:
+    """The saved retrieval track ``[t, lat, lon, sim]`` as a route: points in
+    time order, each replaced by the running median of ``window`` neighbours
+    (lat and lon separately) so single wrong retrievals do not spike it."""
+    tr = ((result or {}).get("vpr_prior") or {}).get("track")
+    if not isinstance(tr, list) or len(tr) < 2:
+        return None
+    pts = sorted(((p[0] if p[0] is not None else k, p[1], p[2])
+                  for k, p in enumerate(tr)), key=lambda p: p[0])
+    ll = np.array([[p[1], p[2]] for p in pts], dtype=float)
+    h = max(int(window) // 2, 0)
+    sm = np.array([np.median(ll[max(0, i - h):i + h + 1], axis=0) for i in range(len(ll))])
+    return Prediction("vpr_track_only", sm.tolist(), "route",
+                      source="result.vpr_prior.track", meta={"n": len(sm), "window": window})
+
+
+def answer(result: dict) -> Prediction | None:
+    """``result["answer"]`` — the route the run answered with (its
+    ``--answer`` mode), for runs that recorded one."""
+    a = (result or {}).get("answer")
+    route = a.get("route_latlon") if isinstance(a, dict) else None
+    if not route:
+        return None
+    return Prediction("answer", [list(map(float, p)) for p in route],
+                      "route" if len(route) >= 2 else "point", source="result.answer",
+                      meta={"mode": a.get("mode"), "method": a.get("method")})
+
+
+def track_disagreement_m(route_latlon, track_latlon) -> float:
+    """Median over the track points of the distance (m) to the nearest point
+    of the route (a point route: the distance to that point)."""
+    import shapely
+
+    from .metrics import _geometry, local_transformer, project
+    route = np.asarray(route_latlon, dtype=float)
+    track = np.asarray(track_latlon, dtype=float)
+    tf = local_transformer(float(track[:, 0].mean()), float(track[:, 1].mean()))
+    geom = _geometry(project(route, tf))
+    return float(np.median(shapely.distance(shapely.points(project(track, tf)), geom)))
+
+
+def track_checked(result: dict, max_disagreement_m: float = 250.0) -> Prediction | None:
+    """The pipeline's route when it agrees with the retrieval track (median
+    disagreement <= ``max_disagreement_m``), else the track route. Without a
+    saved track it is the pipeline's route; without a route, the track."""
+    fit, track = pipeline_headline(result), vpr_track_only(result)
+    if fit is None or track is None:
+        pick, d = (fit or track), None
+    else:
+        d = track_disagreement_m(fit.route_latlon, track.route_latlon)
+        pick = fit if d <= max_disagreement_m else track
+    if pick is None:
+        return None
+    return Prediction("track_checked", pick.route_latlon, pick.kind,
+                      source=pick.source,
+                      meta={"chose": pick.name, "disagreement_m": d,
+                            "max_disagreement_m": max_disagreement_m})
 
 
 def load_preregistered_rule(name: str = "pipeline_selective", *,

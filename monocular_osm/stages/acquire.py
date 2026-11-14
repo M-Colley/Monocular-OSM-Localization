@@ -97,19 +97,43 @@ def acquire_video(ctx: RunContext) -> None:
     ctx.video_path = _resolve_input_video(cfg)
 
 
-def extract_video_frames(ctx: RunContext) -> None:
+def extract_video_frames(ctx: RunContext, *, query_only: bool = False) -> None:
     """Decode the analysed window of the video -> ``ctx.frames``."""
     cfg = ctx.cfg
     video_path = ctx.video_path
+    if cfg.answer in {"filter", "poi"}:
+        import math
+        import cv2
+
+        cap = cv2.VideoCapture(str(video_path))
+        try:
+            fps = float(cap.get(cv2.CAP_PROP_FPS)) if cap.isOpened() else 0.0
+        finally:
+            cap.release()
+        if not math.isfinite(fps) or fps <= 0:
+            raise ValueError("component answer requires a usable encoded video FPS; refusing an assumed timebase")
+        if cfg.frame_stride is None:
+            if cfg.answer == "filter":
+                cfg.frame_stride = max(1, int(round(fps / cfg.graph_filter_target_hz)))
+            else:
+                from ..cli import _auto_frame_stride
+                duration = cfg.vo_end_sec - cfg.vo_start_sec if cfg.vo_end_sec is not None else None
+                cfg.frame_stride = _auto_frame_stride(duration, fps=fps)
+        if query_only:
+            raise ValueError("component answer requires dense temporal acquisition")
 
     # 2. Frames.
     print(f"[2/5] Extracting frames (stride={cfg.frame_stride}, "
           f"window={cfg.vo_start_sec}-{cfg.vo_end_sec}s)")
+    sampling = {"sample_count": 80} if query_only else {}
     ctx.frames = extract_frames(
         video_path,
         stride=cfg.frame_stride,
         max_frames=cfg.max_frames,
         start_sec=cfg.vo_start_sec,
         end_sec=cfg.vo_end_sec,
+        memory_mb=cfg.frame_memory_mb,
+        max_width=cfg.frame_max_width,
+        **sampling,
     )
     print(f"      -> {len(ctx.frames.frames)} frames @ {ctx.frames.fps:.1f} fps")

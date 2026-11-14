@@ -1,0 +1,110 @@
+{
+  "video_id": "vp_D8mxgEkA",
+  "video_url": "https://www.youtube.com/watch?v=vp_D8mxgEkA",
+  "city": "Cork, Ireland",
+  "vo_segment": "0:595",
+  "description": "Cork city at dusk, a VIOFO A129 test drive (2019). Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 120 OCR fixes over 0-595 s (9.40 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 51.891764,
+      "lon": -8.457755
+    },
+    {
+      "t_sec": 30.0,
+      "lat": 51.892041,
+      "lon": -8.462286
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 51.886597,
+      "lon": -8.463544
+    },
+    {
+      "t_sec": 95.0,
+      "lat": 51.880094,
+      "lon": -8.464959
+    },
+    {
+      "t_sec": 125.0,
+      "lat": 51.875244,
+      "lon": -8.467833
+    },
+    {
+      "t_sec": 155.0,
+      "lat": 51.874097,
+      "lon": -8.469377
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 51.872876,
+      "lon": -8.471528
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 51.87124,
+      "lon": -8.477935
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 51.868335,
+      "lon": -8.480506
+    },
+    {
+      "t_sec": 280.0,
+      "lat": 51.867651,
+      "lon": -8.48048
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 51.860864,
+      "lon": -8.478002
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 51.854085,
+      "lon": -8.476505
+    },
+    {
+      "t_sec": 375.0,
+      "lat": 51.848796,
+      "lon": -8.475919
+    },
+    {
+      "t_sec": 405.0,
+      "lat": 51.844743,
+      "lon": -8.477843
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 51.838338,
+      "lon": -8.481686
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 51.834562,
+      "lon": -8.479213
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 51.830868,
+      "lon": -8.474212
+    },
+    {
+      "t_sec": 530.0,
+      "lat": 51.82679,
+      "lon": -8.472334
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 51.826156,
+      "lon": -8.47736
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 51.827808,
+      "lon": -8.482741
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "video_id": "iJ2JvNk4Rmk",
+  "video_url": "https://www.youtube.com/watch?v=iJ2JvNk4Rmk",
+  "city": "Frankfurt am Main, Germany",
+  "vo_segment": "0:596",
+  "description": "Frankfurt am Main city centre, December 2019. Overlay: MiVue 798D DMS. Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 104 OCR fixes over 0-597 s (3.51 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 50.10525,
+      "lon": 8.695111
+    },
+    {
+      "t_sec": 24.9,
+      "lat": 50.107889,
+      "lon": 8.694833
+    },
+    {
+      "t_sec": 54.7,
+      "lat": 50.109278,
+      "lon": 8.693111
+    },
+    {
+      "t_sec": 79.5,
+      "lat": 50.1095,
+      "lon": 8.689528
+    },
+    {
+      "t_sec": 109.4,
+      "lat": 50.109972,
+      "lon": 8.688056
+    },
+    {
+      "t_sec": 149.1,
+      "lat": 50.110694,
+      "lon": 8.687833
+    },
+    {
+      "t_sec": 198.9,
+      "lat": 50.112528,
+      "lon": 8.687944
+    },
+    {
+      "t_sec": 228.7,
+      "lat": 50.114194,
+      "lon": 8.687889
+    },
+    {
+      "t_sec": 283.4,
+      "lat": 50.117431,
+      "lon": 8.688167
+    },
+    {
+      "t_sec": 328.1,
+      "lat": 50.116083,
+      "lon": 8.691556
+    },
+    {
+      "t_sec": 353.0,
+      "lat": 50.114778,
+      "lon": 8.693306
+    },
+    {
+      "t_sec": 382.8,
+      "lat": 50.113417,
+      "lon": 8.693139
+    },
+    {
+      "t_sec": 407.7,
+      "lat": 50.113417,
+      "lon": 8.690972
+    },
+    {
+      "t_sec": 432.5,
+      "lat": 50.113556,
+      "lon": 8.689611
+    },
+    {
+      "t_sec": 462.4,
+      "lat": 50.114056,
+      "lon": 8.689222
+    },
+    {
+      "t_sec": 487.2,
+      "lat": 50.114694,
+      "lon": 8.689722
+    },
+    {
+      "t_sec": 517.0,
+      "lat": 50.114889,
+      "lon": 8.692333
+    },
+    {
+      "t_sec": 541.9,
+      "lat": 50.1155,
+      "lon": 8.694722
+    },
+    {
+      "t_sec": 571.7,
+      "lat": 50.115861,
+      "lon": 8.6975
+    },
+    {
+      "t_sec": 596.6,
+      "lat": 50.116194,
+      "lon": 8.698111
+    }
+  ]
+}

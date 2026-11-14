@@ -1,0 +1,110 @@
+{
+  "video_id": "bF5IfC2ZHjQ",
+  "video_url": "https://www.youtube.com/watch?v=bF5IfC2ZHjQ",
+  "city": "Ottawa, Canada",
+  "vo_segment": "19:595",
+  "description": "Ottawa: Draper Av to Queen St, partly on the Queensway highway. Overlay: N:45.35308 W:75.78294 94km/h   (bottom left). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 104 OCR fixes over 20-596 s (8.55 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 19.9,
+      "lat": 45.34084,
+      "lon": -75.789515
+    },
+    {
+      "t_sec": 44.7,
+      "lat": 45.34088,
+      "lon": -75.78953
+    },
+    {
+      "t_sec": 74.4,
+      "lat": 45.34086,
+      "lon": -75.78959
+    },
+    {
+      "t_sec": 104.2,
+      "lat": 45.34166,
+      "lon": -75.79008
+    },
+    {
+      "t_sec": 143.9,
+      "lat": 45.34369,
+      "lon": -75.789901
+    },
+    {
+      "t_sec": 168.8,
+      "lat": 45.34379,
+      "lon": -75.78904
+    },
+    {
+      "t_sec": 198.5,
+      "lat": 45.3438,
+      "lon": -75.78904
+    },
+    {
+      "t_sec": 223.3,
+      "lat": 45.34379,
+      "lon": -75.78904
+    },
+    {
+      "t_sec": 258.1,
+      "lat": 45.3449,
+      "lon": -75.788386
+    },
+    {
+      "t_sec": 287.9,
+      "lat": 45.34859,
+      "lon": -75.789035
+    },
+    {
+      "t_sec": 332.5,
+      "lat": 45.35352,
+      "lon": -75.782169
+    },
+    {
+      "t_sec": 372.2,
+      "lat": 45.35906,
+      "lon": -75.772071
+    },
+    {
+      "t_sec": 397.1,
+      "lat": 45.36267,
+      "lon": -75.765371
+    },
+    {
+      "t_sec": 421.9,
+      "lat": 45.36666,
+      "lon": -75.758431
+    },
+    {
+      "t_sec": 461.6,
+      "lat": 45.37394,
+      "lon": -75.750711
+    },
+    {
+      "t_sec": 486.4,
+      "lat": 45.37849,
+      "lon": -75.745761
+    },
+    {
+      "t_sec": 516.2,
+      "lat": 45.38377,
+      "lon": -75.739981
+    },
+    {
+      "t_sec": 541.0,
+      "lat": 45.38822,
+      "lon": -75.735321
+    },
+    {
+      "t_sec": 570.8,
+      "lat": 45.39467,
+      "lon": -75.730221
+    },
+    {
+      "t_sec": 595.6,
+      "lat": 45.39819,
+      "lon": -75.724831
+    }
+  ]
+}

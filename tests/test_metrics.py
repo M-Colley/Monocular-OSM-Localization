@@ -59,7 +59,8 @@ def test_parallel_offset_is_the_offset_everywhere() -> None:
     # Discrete Fréchet on 10 m-segmentized curves: exact up to the spacing.
     assert s.frechet_m == pytest.approx(100.0, abs=5.0)
     assert s.success["symmetric_mean_m"] == {
-        "25": False, "50": False, "100": True, "250": True, "500": True, "1000": True}
+        "25": False, "50": False, "100": True, "200": True, "250": True,
+        "500": True, "1000": True}
 
 
 def test_mid_segment_distance_is_exact_not_vertex_sampled() -> None:

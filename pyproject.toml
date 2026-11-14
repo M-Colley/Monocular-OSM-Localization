@@ -7,7 +7,7 @@ name = "monocular-osm-localization"
 dynamic = ["version"]
 description = "GPS-free monocular dashcam video to OpenStreetMap street localization"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Mark Colley" }]
@@ -26,7 +26,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
@@ -57,10 +56,22 @@ dependencies = [
     "timezonefinder>=6.0",
     "rapidfuzz>=3.0",
     "tenacity>=8.2",
+    "mercantile>=1.2",
+    "protobuf>=4.22",
+    "psutil>=7.2.2",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4.0"]
+dev = ["pytest>=7.4.0", "statsmodels>=0.14", "filterpy>=1.4.5"]
+graph-filter = ["filterpy>=1.4.5"]
+# MegaLoc's pinned hub entrypoint needs these imports even on CPU.
+vpr = ["torch>=2.2", "torchvision>=0.17", "huggingface-hub>=0.20",
+       "safetensors>=0.4", "requests>=2.31", "pillow>=10.0"]
+# Default retrieval and frame-seeding channels used by benchmark runs.
+recommended = ["torch>=2.2", "torchvision>=0.17", "huggingface-hub>=0.20",
+               "safetensors>=0.4", "requests>=2.31", "pillow>=10.0",
+               "rapidocr>=3.9", "onnxruntime>=1.20", "fast-alpr>=0.4",
+               "filterpy>=1.4.5"]
 # OCR channel: scene-text anchors (--enable-ocr-anchor) and automatic ground
 # truth from clips with a burned-in GPS stamp (scripts/build_overlay_fleet.py).
 # Installs the DEFAULT engine (--ocr-engine rapidocr): PP-OCRv6 on onnxruntime,
@@ -84,6 +95,7 @@ sfm = ["pycolmap>=4.1.0"]
 
 [project.scripts]
 osm-localize = "monocular_osm.cli:main"
+osm-localize-doctor = "monocular_osm.doctor:main"
 
 [project.urls]
 Homepage = "https://github.com/M-Colley/Monocular-OSM-Localization"

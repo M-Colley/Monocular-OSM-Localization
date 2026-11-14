@@ -1,0 +1,90 @@
+{
+  "updated_utc": "2026-11-10T23:29:29.120728+00:00",
+  "selection_closed": true,
+  "target_usable": 7,
+  "n_usable": 6,
+  "candidates": [
+    {
+      "id": "jkkl1QgsPSo",
+      "city": "Sofia, Bulgaria",
+      "status": "AVAILABLE_GT_QC_PASSED",
+      "available": true,
+      "video_path": "data/test4/jkkl1qgspso-viofo-a119s-03-driving-in-sofia-bg/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_jkkl1QgsPSo.json",
+      "download_duration_s": 600.0,
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "jz6o-_Y6r2E",
+      "city": "Albuquerque, New Mexico, USA",
+      "status": "AVAILABLE_GT_QC_PASSED",
+      "available": true,
+      "video_path": "data/test4/jz6o-y6r2e-dashcam-albuquerque-dashcam-rove-viofo/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_jz6o-_Y6r2E.json",
+      "download_duration_s": 420.0,
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "oPbnvEIRm3A",
+      "city": "Kansas City, Missouri, USA",
+      "status": "GT_BUILD_DECLINED",
+      "available": false,
+      "video_path": null,
+      "gt_path": null,
+      "download_duration_s": null,
+      "plausibility_passed": null,
+      "route_at_least_500m": null
+    },
+    {
+      "id": "pFbUvfr8k-Q",
+      "city": "Trondheim, Norway",
+      "status": "AVAILABLE_GT_QC_PASSED",
+      "available": true,
+      "video_path": "data/test4/pfbuvfr8k-q-trondheim-by-night-from-a-garmin-dashcam/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_pFbUvfr8k-Q.json",
+      "download_duration_s": 425.0246,
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "tK7bHJXAJX8",
+      "city": "Bucharest, Romania",
+      "status": "AVAILABLE_GT_QC_PASSED",
+      "available": true,
+      "video_path": "data/test4/tk7bhjxajx8-garmin-driveassist-at-night-bucharest-buzau/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_tK7bHJXAJX8.json",
+      "download_duration_s": 600.0,
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "yd5g7jsWiEM",
+      "city": "Bucharest, Romania",
+      "status": "AVAILABLE_GT_QC_PASSED",
+      "available": true,
+      "video_path": "data/test4/yd5g7jswiem-garmin-driveassist-51-lmt-s-buzau-bucuresti/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_yd5g7jsWiEM.json",
+      "download_duration_s": 600.0,
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    },
+    {
+      "id": "ZLmQWroXthY",
+      "city": "Kansas City, Missouri, USA",
+      "status": "AVAILABLE_GT_QC_PASSED",
+      "available": true,
+      "video_path": "data/test4/zlmqwroxthy-missouri-i-435-s-to-i-70-e-in-kansas-city-detour-7-1-20/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_ZLmQWroXthY.json",
+      "download_duration_s": 600.0,
+      "plausibility_passed": true,
+      "route_at_least_500m": true
+    }
+  ],
+  "method_binding_pending": true,
+  "localization_executed": false,
+  "selection_status": "FIXED_POOL_EXHAUSTED_SHORT_OF_TARGET",
+  "fixed_pool_closure": "benchmarks/test4_screen/fixed_pool_closure.json",
+  "fixed_pool_closure_sha256": "04b4249ebf887949136b513849a24ec27f034a63a5ba22a076d5d9c3c59a92d3"
+}

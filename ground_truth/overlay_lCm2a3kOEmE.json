@@ -1,0 +1,110 @@
+{
+  "video_id": "lCm2a3kOEmE",
+  "video_url": "https://www.youtube.com/watch?v=lCm2a3kOEmE",
+  "city": "Warsaw, Poland",
+  "vo_segment": "0:515",
+  "description": "Warsaw, south to north along the skyline. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 104 OCR fixes over 0-515 s (6.77 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 52.16392,
+      "lon": 21.01742
+    },
+    {
+      "t_sec": 25.0,
+      "lat": 52.16947,
+      "lon": 21.01872
+    },
+    {
+      "t_sec": 55.0,
+      "lat": 52.17542,
+      "lon": 21.02085
+    },
+    {
+      "t_sec": 80.0,
+      "lat": 52.17822,
+      "lon": 21.02173
+    },
+    {
+      "t_sec": 110.0,
+      "lat": 52.18108,
+      "lon": 21.02098
+    },
+    {
+      "t_sec": 135.0,
+      "lat": 52.18463,
+      "lon": 21.01972
+    },
+    {
+      "t_sec": 165.0,
+      "lat": 52.18885,
+      "lon": 21.01732
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 52.1916,
+      "lon": 21.01585
+    },
+    {
+      "t_sec": 215.0,
+      "lat": 52.1951,
+      "lon": 21.01407
+    },
+    {
+      "t_sec": 245.0,
+      "lat": 52.19717,
+      "lon": 21.01313
+    },
+    {
+      "t_sec": 270.0,
+      "lat": 52.20003,
+      "lon": 21.01173
+    },
+    {
+      "t_sec": 300.0,
+      "lat": 52.20412,
+      "lon": 21.0098
+    },
+    {
+      "t_sec": 325.0,
+      "lat": 52.20635,
+      "lon": 21.00875
+    },
+    {
+      "t_sec": 350.0,
+      "lat": 52.20748,
+      "lon": 21.00827
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 52.20987,
+      "lon": 21.00747
+    },
+    {
+      "t_sec": 405.0,
+      "lat": 52.2123,
+      "lon": 21.0067
+    },
+    {
+      "t_sec": 435.0,
+      "lat": 52.21557,
+      "lon": 21.00575
+    },
+    {
+      "t_sec": 460.0,
+      "lat": 52.21865,
+      "lon": 21.00517
+    },
+    {
+      "t_sec": 490.0,
+      "lat": 52.22153,
+      "lon": 21.005
+    },
+    {
+      "t_sec": 515.0,
+      "lat": 52.22285,
+      "lon": 21.00493
+    }
+  ]
+}

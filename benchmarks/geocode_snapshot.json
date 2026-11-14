@@ -1,4 +1,18 @@
 {
+  "Albuquerque, New Mexico, USA": {
+    "lat": 35.0841034,
+    "lon": -106.650985,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-10T22:33:39.812336+00:00"
+  },
+  "Amsterdam, Netherlands": {
+    "lat": 52.3730796,
+    "lon": 4.8924534,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T01:22:51+00:00"
+  },
   "Atlanta, Georgia, USA": {
     "lat": 33.7544657,
     "lon": -84.3898151,
@@ -13,12 +27,54 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:50+00:00"
   },
+  "Bern, Switzerland": {
+    "lat": 46.9484742,
+    "lon": 7.4521749,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:38+00:00"
+  },
+  "Bratislava, Slovakia": {
+    "lat": 48.1435026,
+    "lon": 17.1082867,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:33+00:00"
+  },
+  "Bristol, UK": {
+    "lat": 51.4538022,
+    "lon": -2.5972985,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:35+00:00"
+  },
+  "Bucharest, Romania": {
+    "lat": 44.4361414,
+    "lon": 26.102684,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-10T22:33:31.965763+00:00"
+  },
+  "Budapest, Hungary": {
+    "lat": 47.4978789,
+    "lon": 19.0402383,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T03:53:02+00:00"
+  },
   "Chicago, Illinois, USA": {
     "lat": 41.8755616,
     "lon": -87.6244212,
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:52+00:00"
+  },
+  "Cork, Ireland": {
+    "lat": 51.8985136,
+    "lon": -8.4726423,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:36+00:00"
   },
   "Detroit, Michigan, USA": {
     "lat": 42.3315509,
@@ -27,6 +83,76 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:53+00:00"
   },
+  "Düsseldorf, Germany": {
+    "lat": 51.2254018,
+    "lon": 6.7763137,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:36+00:00"
+  },
+  "Eindhoven, Netherlands": {
+    "lat": 51.4485569,
+    "lon": 5.4501225,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:38+00:00"
+  },
+  "Frankfurt am Main, Germany": {
+    "lat": 50.1106444,
+    "lon": 8.6820917,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:39+00:00"
+  },
+  "Kansas City, Missouri, USA": {
+    "lat": 39.100105,
+    "lon": -94.5781416,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-10T22:33:37.003962+00:00"
+  },
+  "Katowice, Poland": {
+    "lat": 50.2137315,
+    "lon": 19.0058848,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:39+00:00"
+  },
+  "Manchester, UK": {
+    "lat": 53.4794892,
+    "lon": -2.2451148,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:42+00:00"
+  },
+  "Montreal, Canada": {
+    "lat": 45.5031824,
+    "lon": -73.5698065,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T01:22:52+00:00"
+  },
+  "Munich, Germany": {
+    "lat": 48.1371079,
+    "lon": 11.5753822,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T03:53:03+00:00"
+  },
+  "NYC, New York, USA": {
+    "lat": 40.7127281,
+    "lon": -74.0060152,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:43+00:00"
+  },
+  "New York, USA": {
+    "lat": 40.7127281,
+    "lon": -74.0060152,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:45+00:00"
+  },
   "Newcastle upon Tyne, England, UK": {
     "lat": 54.9738474,
     "lon": -1.6131572,
@@ -34,12 +160,33 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:55+00:00"
   },
+  "Ottawa, Canada": {
+    "lat": 45.4208777,
+    "lon": -75.6901106,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:46+00:00"
+  },
+  "Paris, France": {
+    "lat": 48.8588897,
+    "lon": 2.320041,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T01:22:54+00:00"
+  },
   "Phoenix, Arizona, USA": {
     "lat": 33.4484367,
     "lon": -112.074141,
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:56+00:00"
+  },
+  "Riga, Latvia": {
+    "lat": 56.9493977,
+    "lon": 24.1051846,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:34:41+00:00"
   },
   "San Francisco Peninsula, California, USA": {
     "lat": 37.5338023,
@@ -62,11 +209,53 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:01:01+00:00"
   },
+  "Sofia, Bulgaria": {
+    "lat": 42.6977028,
+    "lon": 23.3217359,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-10T22:33:34.444617+00:00"
+  },
+  "Strasbourg, France": {
+    "lat": 48.584614,
+    "lon": 7.7507127,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:48+00:00"
+  },
+  "Sydney, Australia": {
+    "lat": -33.8698439,
+    "lon": 151.2082848,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-10-24T18:52:49+00:00"
+  },
   "Toronto, Ontario, Canada": {
     "lat": 43.6534817,
     "lon": -79.3839347,
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:01:03+00:00"
+  },
+  "Trondheim, Norway": {
+    "lat": 63.4304475,
+    "lon": 10.3952118,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-10T22:33:40.814591+00:00"
+  },
+  "Warsaw, Poland": {
+    "lat": 52.2333742,
+    "lon": 21.0711489,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-06T01:22:55+00:00"
+  },
+  "Zagreb, Croatia": {
+    "lat": 45.8130967,
+    "lon": 15.9772795,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-08T02:40:49+00:00"
   }
 }

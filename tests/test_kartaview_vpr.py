@@ -162,7 +162,7 @@ def test_embed_refs_warm_peek_skips_pixels_and_guards_corrupt(
     """Audit K2/F1: a fully-warm embed hit must return WITHOUT loading raw
     pixels or downloading, and a corrupt embedding npz must be treated as a
     miss (re-embed), not raise."""
-    import torch
+    torch = pytest.importorskip("torch")
     refs = _refs([(48.40, 9.99), (48.41, 9.98)])            # ids 0,1 with urls
     # build the per-id store (downloads once)
     monkeypatch.setitem(sys.modules, "requests",
@@ -386,6 +386,34 @@ def test_viterbi_free_radius_allows_normal_motion() -> None:
     sims = np.eye(4) * 0.9 + 0.05
     path = kv._viterbi_decode(sims, ref_ll, dt_s=2.0)
     assert list(path) == [0, 1, 2, 3]
+
+
+def test_large_reference_argmax_fallback_is_reported_without_quadratic_decode(monkeypatch):
+    pytest.importorskip("torch")
+    idx = np.arange(3)
+    sims = np.zeros((3, 6001), np.float32)
+    sims[:, 6000] = .5
+    refs = np.tile(ULM, (6001, 1))
+    monkeypatch.setattr(kv, "_prepare_refs_and_query", lambda *a, **k: (idx, sims, refs))
+    assert kv.kartaview_vpr_track([], ULM, sequence_decode=True) is not None
+    assert kv.LAST_TRACK_STATS["sequence_decode_requested"] is True
+    assert kv.LAST_TRACK_STATS["decoder"] == "argmax"
+    assert kv.LAST_TRACK_STATS["n_references"] == 6001
+    assert "6000" in kv.LAST_TRACK_STATS["fallback_reason"]
+
+
+def test_requested_and_actual_track_decoder_are_distinguished(monkeypatch):
+    pytest.importorskip("torch")
+    idx = np.arange(3)
+    refs = np.tile(ULM, (40, 1))
+    sims = np.ones((3, 40), np.float32)
+    monkeypatch.setattr(kv, "_prepare_refs_and_query", lambda *a, **k: (idx, sims, refs))
+    kv.kartaview_vpr_track([], ULM, sequence_decode=True)
+    assert kv.LAST_TRACK_STATS["decoder"] == "viterbi"
+    kv.kartaview_vpr_track([], ULM, sequence_decode=False)
+    assert kv.LAST_TRACK_STATS["decoder"] == "argmax"
+    assert kv.LAST_TRACK_STATS["sequence_decode_requested"] is False
+    assert "fallback_reason" not in kv.LAST_TRACK_STATS
 
 
 # ---------------------------------------------------------------------------
@@ -633,6 +661,82 @@ def test_embed_refs_embedding_cache_skips_reembed(tmp_path: Path, monkeypatch) -
 # ---------------------------------------------------------------------------
 
 
+def test_reference_embedding_honours_the_configured_batch_size(monkeypatch):
+    torch = pytest.importorskip("torch")
+    refs = _refs([ULM, (ULM[0] + 0.001, ULM[1])])
+    monkeypatch.setattr(kv, "_peek_store", lambda *a: None)
+    monkeypatch.setattr(kv, "_read_emb_cache", lambda *a: None)
+    monkeypatch.setattr(kv, "_load_ref_images", lambda *a: (
+        np.zeros((2, 8, 8, 3), np.uint8), np.array([ULM, ULM]), "fingerprint"))
+    seen = []
+
+    def embed(device, raw, **kwargs):
+        seen.append(kwargs["batch_size"])
+        return torch.ones((len(raw), 4))
+
+    monkeypatch.setattr(kv, "_embed", embed)
+    kv._embed_refs(refs, "cpu", None, batch_size=2)
+    assert seen == [2]
+
+
+def test_cold_image_pool_avoids_stack_copy_and_compacts_failed_rows(tmp_path, monkeypatch):
+    refs = _refs([ULM, (ULM[0] + 0.001, ULM[1]), (ULM[0] + 0.002, ULM[1])])
+    refs[1].pop("url")
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(image_bytes=_jpg_bytes()))
+    monkeypatch.setattr(kv.np, "stack", lambda *a, **k: pytest.fail("duplicate pixel pool"))
+    raw, coords, fingerprint = kv._load_ref_images(refs, str(tmp_path))
+    assert raw.shape == (2, 512, 512, 3)
+    np.testing.assert_allclose(coords, [[r["lat"], r["lon"]] for r in (refs[0], refs[2])])
+    assert fingerprint == kv._refs_fingerprint([refs[0], refs[2]])
+    with np.load(tmp_path / "ref_img_store.npz") as stored:
+        assert stored["ids"].tolist() == ["0", "2"]
+        assert stored["raw"].shape == raw.shape
+
+
+def test_reference_batch_size_reaches_core_outer_and_union_pools(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    refs = _refs([ULM] * 40)
+    seen = []
+    monkeypatch.setattr(kv, "_resolve_backbone", lambda *a: "megaloc")
+    monkeypatch.setattr(kv, "_query_similarities", lambda frames, indices, emb, *a, **k:
+                        np.zeros((len(indices), len(emb))))
+
+    def embed(refs, device, directory, model_name="model", **kwargs):
+        seen.append((Path(directory), kwargs["batch_size"]))
+        return torch.ones((len(refs), 4)), np.array([[r["lat"], r["lon"]] for r in refs])
+
+    monkeypatch.setattr(kv, "_embed_refs", embed)
+    monkeypatch.setattr(kv, "_fetch_refs_for", lambda source, center, radius, *a:
+                        refs if radius == 3000 else [{**r, "id": f"outer{r['id']}"} for r in refs])
+    kv._prepare_refs_and_query([np.zeros((8, 8, 3), np.uint8)] * 5, ULM, 3000,
+                               str(tmp_path / "mapillary"), 5, "cpu", "megaloc",
+                               "mapillary", None, 1500, outer_radius_m=8000,
+                               query_batch_size=3)
+    assert [batch for _, batch in seen] == [3, 3]
+    seen.clear()
+    directory = tmp_path / "union_region_test"
+    kv._union_refs(ULM, 3000, str(directory), 1500, None, "cpu", "megaloc", batch_size=2)
+    assert len(seen) == 3 and all(batch == 2 and path.parent == directory for path, batch in seen)
+
+
+@pytest.mark.parametrize("relative", ["union_city/coarse_a", "union_city/fine_b",
+                                      "union_city_coarse_external", "union_city_fine_external"])
+def test_union_city_cells_keep_each_source_inside_the_cell_cache(tmp_path, monkeypatch, relative):
+    torch = pytest.importorskip("torch")
+    refs = _refs([ULM] * 40)
+    seen = []
+    monkeypatch.setattr(kv, "_fetch_refs_for", lambda *a: refs)
+
+    def embed(refs, device, directory, **kwargs):
+        seen.append(Path(directory))
+        return torch.zeros((len(refs), 4)), np.array([ULM] * len(refs))
+
+    monkeypatch.setattr(kv, "_embed_refs", embed)
+    directory = tmp_path / relative
+    kv._union_refs(ULM, 3000, str(directory), 250, None, "cpu", "megaloc")
+    assert seen == [directory / source for source in ("mapillary", "kartaview", "panoramax")]
+
+
 def test_robust_center_matches_metric_geometric_median() -> None:
     import math
 
@@ -662,3 +766,324 @@ def test_robust_center_matches_metric_geometric_median() -> None:
     d_deg = math.hypot((deg[0] - ref_lat) * dm,
                        (deg[1] - ref_lon) * dm * coslat)
     assert d_deg > 10.0
+
+
+# ---------------------------------------------------------------------------
+# _fetch_refs_mapillary listing: tiles the Graph API rejects as too large
+# ---------------------------------------------------------------------------
+
+
+class _FakeGraphAPI:
+    """Stands in for ``requests`` against graph.mapillary.com/images.
+
+    One image every ~20 m on a lattice; a bbox wider than ``max_deg`` (either
+    side) gets the real API's HTTP 500 "Please reduce the amount of data".
+    ``flaky`` bboxes fail once with HTTP 503; ``dead`` ones always fail.
+    """
+
+    def __init__(self, max_deg=0.003, flaky=(), dead=()):
+        self.max_deg = max_deg
+        self.flaky = set(flaky)
+        self.dead = set(dead)
+        self.calls: list[str] = []
+        self.fails: dict[str, int] = {}
+
+    def Session(self):  # noqa: N802 - mimics requests API
+        outer = self
+
+        class _Resp:
+            def __init__(self, status, payload=None, text=""):
+                self.status_code, self._payload, self.text = status, payload, text
+
+            def json(self):
+                return self._payload
+
+        class _Sess:
+            def get(self, url, params=None, timeout=None):
+                bbox = params["bbox"]
+                outer.calls.append(bbox)
+                w, s, e, n = (float(v) for v in bbox.split(","))
+                if bbox in outer.dead or (bbox in outer.flaky
+                                          and outer.fails.get(bbox, 0) == 0):
+                    outer.fails[bbox] = outer.fails.get(bbox, 0) + 1
+                    return _Resp(503, text="Service Unavailable")
+                if e - w > outer.max_deg or n - s > outer.max_deg:
+                    return _Resp(500, text='{"error":{"message":"Please reduce the '
+                                           'amount of data you\'re asking for, then '
+                                           'retry your request"}}')
+                step = 0.0002
+                data = []
+                for i in range(int(np.ceil(s / step)), int(np.floor(n / step)) + 1):
+                    for j in range(int(np.ceil(w / step)), int(np.floor(e / step)) + 1):
+                        data.append({"id": f"{i}_{j}",
+                                     "geometry": {"coordinates": [j * step, i * step]},
+                                     "thumb_1024_url": f"http://x/{i}_{j}"})
+                return _Resp(200, payload={"data": data[:2000]})
+
+        return _Sess()
+
+
+def test_fetch_refs_mapillary_splits_tiles_the_api_rejects(tmp_path: Path, monkeypatch) -> None:
+    """A tile the API refuses as too large is split into quarters until it
+    answers; dropping it (the old behaviour) left dense downtowns unlisted."""
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    api = _FakeGraphAPI(max_deg=0.003)
+    monkeypatch.setitem(sys.modules, "requests", api)
+    # 8 km disc -> the step is coarsened to ~0.0048 deg, wider than max_deg
+    got = kv._fetch_refs_mapillary(ULM, 8000.0, str(tmp_path), cap=10 ** 7, token="t",
+                                     listing="graph")
+    st = kv.LAST_FETCH_STATS
+    assert st["lost"] == 0 and st["split"] >= st["tiles"]
+    # every lattice image inside the disc's bbox is listed
+    dlat, dlon = kv.degree_half_extent(ULM[0], ULM[1], 8000.0)
+    n_lat = int(np.floor((ULM[0] + dlat) / 0.0002)) - int(np.ceil((ULM[0] - dlat) / 0.0002)) + 1
+    n_lon = int(np.floor((ULM[1] + dlon) / 0.0002)) - int(np.ceil((ULM[1] - dlon) / 0.0002)) + 1
+    assert abs(len(got) - n_lat * n_lon) <= n_lat + n_lon   # tile-edge rounding only
+
+
+def test_fetch_refs_mapillary_retries_transient_errors_and_counts_losses(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    probe = _FakeGraphAPI(max_deg=1.0)
+    monkeypatch.setitem(sys.modules, "requests", probe)
+    kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "probe"), cap=10 ** 7, token="t",
+                                     listing="graph")
+    first, second = probe.calls[0], probe.calls[1]
+    full = len(kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "full"),
+                                        cap=10 ** 7, token="t",
+                                     listing="graph"))
+
+    flaky = _FakeGraphAPI(max_deg=1.0, flaky=[first])
+    monkeypatch.setitem(sys.modules, "requests", flaky)
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "flaky"), cap=10 ** 7, token="t",
+                                     listing="graph")
+    assert len(got) == full and kv.LAST_FETCH_STATS["lost"] == 0
+    assert flaky.calls.count(first) == 2
+
+    dead = _FakeGraphAPI(max_deg=1.0, dead=[second])
+    monkeypatch.setitem(sys.modules, "requests", dead)
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path / "dead"), cap=10 ** 7, token="t",
+                                     listing="graph")
+    assert kv.LAST_FETCH_STATS["lost"] == 1 and 0 < len(got) < full
+
+
+def test_fetch_refs_mapillary_legacy_warm_cache_marks_listing_stats_unknown(
+        tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(kv, "LAST_FETCH_STATS", {"tiles": 9, "split": 0, "lost": 3})
+    refs = _write_mly_cache(tmp_path, ULM, 500.0)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    stats = kv.LAST_FETCH_STATS
+    assert stats["listing"] == "unknown" and stats["listing_stats_known"] is False
+    assert stats["cache_hit"] is True and "lost" not in stats
+    assert stats["snapshot"] == kv._reference_snapshot(refs)
+
+
+def test_warm_metadata_preserves_incomplete_listing_and_snapshot(tmp_path, monkeypatch):
+    """Offline reruns must not erase losses recorded by the original listing."""
+    monkeypatch.delenv("MLY_TOKEN", raising=False)
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests())
+
+    def partial_listing(center, radius, token, session, count, stats):
+        count("tiles", 3)
+        count("lost", 1)
+        return {str(i): [ULM[0], ULM[1] + i * 0.001] for i in range(3)}
+
+    monkeypatch.setattr(kv, "_mly_tile_listing", partial_listing)
+    monkeypatch.setattr(kv, "_mly_lookup_urls", lambda ids, *a: {i: f"http://x/{i}" for i in ids})
+    refs = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token="token")
+    cold = dict(kv.LAST_FETCH_STATS)
+    assert cold["lost"] == 1 and cold["listing_stats_known"] is True
+    assert cold["cache_hit"] is False and cold["snapshot"]["created_utc"]
+    metadata = next(tmp_path.glob("mly_ref_meta_*.json"))
+    blob = json.loads(metadata.read_text(encoding="utf-8"))
+    assert blob["listing_stats"]["lost"] == 1
+    assert blob["snapshot"] == cold["snapshot"]
+    np.savez(tmp_path / "ref_img_store.npz", ids=np.array([r["id"] for r in refs]),
+             raw=np.zeros((len(refs), 4, 4, 3), np.uint8))
+    monkeypatch.setitem(sys.modules, "requests", _FakeRequests(fail=True))
+    kv.LAST_FETCH_STATS = {"lost": 999}       # a different query's global state
+    warm = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), token=None)
+    assert [r["id"] for r in warm] == [r["id"] for r in refs]
+    assert kv.LAST_FETCH_STATS == {**cold, "cache_hit": True}
+
+
+def test_reference_snapshot_changes_with_reference_identity_and_coordinates():
+    refs = _refs([ULM, (ULM[0] + 0.001, ULM[1])])
+    original = kv._reference_snapshot(refs)
+    refs[0]["url"] = "another expiring URL"
+    assert kv._reference_snapshot(refs) == original
+    refs[0]["lon"] += 0.00001
+    assert kv._reference_snapshot(refs)["refs_sha256"] != original["refs_sha256"]
+
+
+def test_outer_ring_adds_only_new_references_and_keeps_the_core(tmp_path, monkeypatch) -> None:
+    """The ring is a second, wider listing in its own cache dir; ids already in
+    the core set are not added twice and the core set is untouched."""
+    torch = pytest.importorskip("torch")
+
+    core = [{"id": f"c{i}", "lat": ULM[0] + i * 1e-4, "lon": ULM[1]} for i in range(40)]
+    wide = core[:5] + [{"id": f"o{i}", "lat": ULM[0] - 0.03 - i * 1e-4, "lon": ULM[1]}
+                       for i in range(12)]
+    fetched, embedded = [], []
+
+    def fake_fetch(source, center, radius_m, cache_dir, cap, token):
+        fetched.append((radius_m, cache_dir, cap))
+        kv.LAST_FETCH_STATS = {"tiles": int(radius_m), "split": 0, "lost": 0}
+        return core if radius_m == 3000.0 else wide
+
+    def fake_embed_refs(refs, device, cache_dir, model_name="model"):
+        embedded.append((cache_dir, [r["id"] for r in refs]))
+        return torch.ones(len(refs), 4), [(r["lat"], r["lon"]) for r in refs]
+
+    monkeypatch.setattr(kv, "_resolve_backbone", lambda m, d: "megaloc")
+    monkeypatch.setattr(kv, "_fetch_refs_for", fake_fetch)
+    monkeypatch.setattr(kv, "_embed_refs", fake_embed_refs)
+    monkeypatch.setattr(kv, "_prep", lambda im: im)
+    monkeypatch.setattr(kv, "_embed", lambda device, ims: torch.ones(len(ims), 4))
+    frames = [np.zeros((8, 8, 3), np.uint8)] * 10
+    d = str(tmp_path / "mapillary")
+    _idx, sims, ref_xy = kv._prepare_refs_and_query(
+        frames, ULM, 3000.0, d, 10, "cpu", "megaloc", "mapillary", "t", 1500,
+        outer_radius_m=8000.0, outer_cap=1200)
+    assert fetched == [(3000.0, d, 1500), (8000.0, d + "_outer", 1200)]
+    assert embedded[0] == (d, [r["id"] for r in core])
+    assert embedded[1] == (d + "_outer", [f"o{i}" for i in range(12)])
+    assert sims.shape == (10, 52) and len(ref_xy) == 52
+    assert kv.LAST_RING["n_core"] == 40 and kv.LAST_RING["n_outer_added"] == 12
+    assert kv.LAST_RING["listing"]["tiles"] == 8000      # the ring's own listing
+    assert kv.LAST_FETCH_STATS["tiles"] == 3000          # the core's record survives
+
+    # without a ring the result is the core set alone, and no ring is recorded
+    fetched.clear()
+    _idx, sims, _xy = kv._prepare_refs_and_query(
+        frames, ULM, 3000.0, d, 10, "cpu", "megaloc", "mapillary", "t", 1500)
+    assert sims.shape == (10, 40) and kv.LAST_RING is None and len(fetched) == 1
+
+
+# ---------------------------------------------------------------------------
+# _fetch_refs_mapillary listing from coverage tiles (the default)
+# ---------------------------------------------------------------------------
+
+
+class _FakeTilesAPI:
+    """Coverage tiles (one image at each tile's centre, one near its NW corner)
+    plus the Graph API's ``image_ids`` lookup (no URL for ids in ``no_url``).
+    ``tiles_down`` answers every tile with HTTP 503; the Graph bbox search then
+    returns ``graph_items`` for every cell."""
+
+    def __init__(self, no_url=(), tiles_down=False, graph_items=()):
+        self.no_url, self.tiles_down, self.graph_items = set(no_url), tiles_down, list(graph_items)
+        self.calls: dict[str, int] = {"tile": 0, "ids": 0, "bbox": 0}
+
+    def Session(self):  # noqa: N802 - mimics requests API
+        import mercantile
+
+        from ._mvt_fixtures import encode_point_tile
+        outer = self
+
+        class _Resp:
+            def __init__(self, status, payload=None, content=b""):
+                self.status_code, self._payload, self.content = status, payload, content
+                self.text = ""
+
+            def json(self):
+                return self._payload
+
+        class _Sess:
+            def get(self, url, params=None, timeout=None):
+                if "tiles.mapillary.com" in url:
+                    outer.calls["tile"] += 1
+                    if outer.tiles_down:
+                        return _Resp(503)
+                    z, x, y = (int(v) for v in url.rstrip("/").split("/")[-3:])
+                    b = mercantile.bounds(mercantile.Tile(x, y, z))
+                    pts = [(x * 100_000 + y, (b.south + b.north) / 2, (b.west + b.east) / 2),
+                           (x * 100_000 + y + 50_000, b.north - 1e-5, b.west + 1e-5)]
+                    return _Resp(200, content=encode_point_tile(pts, z, x, y))
+                if "image_ids" in params:
+                    outer.calls["ids"] += 1
+                    ids = params["image_ids"].split(",")
+                    assert len(ids) <= 300                       # the API's own limit
+                    return _Resp(200, {"data": [{"id": i, "thumb_1024_url": f"http://t/{i}"}
+                                                for i in ids if i not in outer.no_url]})
+                outer.calls["bbox"] += 1
+                return _Resp(200, {"data": outer.graph_items})
+
+        return _Sess()
+
+
+def test_tile_listing_lists_the_disc_box_and_looks_up_urls_for_kept_ids(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import mercantile
+
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    api = _FakeTilesAPI(no_url={"0"})
+    monkeypatch.setitem(sys.modules, "requests", api)
+    got = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path), cap=10 ** 7, token="t")
+    dlat, dlon = kv.degree_half_extent(ULM[0], ULM[1], 3000.0)
+    box = (ULM[1] - dlon, ULM[0] - dlat, ULM[1] + dlon, ULM[0] + dlat)
+    tiles = list(mercantile.tiles(*box, 14))
+    st = kv.LAST_FETCH_STATS
+    assert st["listing"] == "tiles" and st["tiles"] == len(tiles) == api.calls["tile"]
+    assert api.calls["bbox"] == 0
+    # only points inside the disc's box are kept (edge tiles reach beyond it)
+    assert all(box[1] <= r["lat"] <= box[3] and box[0] <= r["lon"] <= box[2] for r in got)
+    assert len(tiles) < len(got) < 2 * len(tiles)
+    assert all(r["url"] == f"http://t/{r['id']}" for r in got)
+    assert st["url_lookups"] == len(got) and st["url_missing"] == 0
+    assert api.calls["ids"] == -(-len(got) // 100)
+
+
+def test_tile_listing_keeps_cap_and_reports_ids_without_url(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    probe = _FakeTilesAPI()
+    monkeypatch.setitem(sys.modules, "requests", probe)
+    every = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "a"), cap=10 ** 7, token="t")
+    kept = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "b"), cap=20, token="t")
+    lowest = sorted((r["id"] for r in every),
+                    key=lambda i: __import__("hashlib").sha1(i.encode()).hexdigest())[:20]
+    assert sorted(r["id"] for r in kept) == sorted(lowest)
+    api = _FakeTilesAPI(no_url=set(lowest[:3]))
+    monkeypatch.setitem(sys.modules, "requests", api)
+    kept = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "c"), cap=20, token="t")
+    assert sum("url" not in r for r in kept) == 3 and kv.LAST_FETCH_STATS["url_missing"] == 3
+
+
+def test_url_less_sampled_ids_are_recorded_and_rebuild_the_snapshot(tmp_path: Path, monkeypatch) -> None:
+    """The served pool plus exactly the recorded URL-less rows is the capped sample."""
+    from monocular_osm.reference_inventory import served_inventory
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    monkeypatch.setitem(sys.modules, "requests", _FakeTilesAPI())
+    sample = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "a"), cap=20, token="t")
+    no_url = sorted(r["id"] for r in sample)[:2]
+    monkeypatch.setitem(sys.modules, "requests", _FakeTilesAPI(no_url=set(no_url)))
+    kept = kv._fetch_refs_mapillary(ULM, 3000.0, str(tmp_path / "b"), cap=20, token="t")
+    stats = kv.LAST_FETCH_STATS
+    assert [r["id"] for r in kept] == [r["id"] for r in sample]    # sampling unchanged
+    assert stats["url_missing"] == 2 and stats["snapshot"]["n_refs"] == 20
+    assert stats["url_missing_refs"] == [{k: r[k] for k in ("id", "lat", "lon")} for r in kept if "url" not in r]
+    assert [r["id"] for r in stats["url_missing_refs"]] == no_url
+    served = [r for r in kept if "url" in r]
+    record = served_inventory(stats, [f"mapillary:{r['id']}" for r in served],
+                              np.array([[r["lat"], r["lon"]] for r in served]))
+    assert record["evidence"] == "url_missing_refs" and record["url_missing_ids"] == [f"mapillary:{i}" for i in no_url]
+    # Persisted beside the snapshot, so an offline warm hit restores the same rows.
+    blob = json.loads(next((tmp_path / "b").glob("mly_ref_meta_*.json")).read_text(encoding="utf-8"))
+    assert blob["listing_stats"]["url_missing_refs"] == stats["url_missing_refs"]
+    kv._restore_mapillary_fetch_stats(blob, blob["refs"])
+    assert kv.LAST_FETCH_STATS["url_missing_refs"] == stats["url_missing_refs"]
+    assert kv.LAST_FETCH_STATS["snapshot"]["refs_sha256"] == stats["snapshot"]["refs_sha256"]
+
+
+def test_tiles_down_falls_back_to_the_graph_bbox_search(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(kv.time, "sleep", lambda s: None)
+    item = {"id": "g1", "geometry": {"coordinates": [ULM[1], ULM[0]]},
+            "thumb_1024_url": "http://g/1"}
+    api = _FakeTilesAPI(tiles_down=True, graph_items=[item])
+    monkeypatch.setitem(sys.modules, "requests", api)
+    got = kv._fetch_refs_mapillary(ULM, 500.0, str(tmp_path), cap=10 ** 7, token="t")
+    assert kv.LAST_FETCH_STATS["listing"] == "graph" and api.calls["bbox"] > 0
+    assert [r["id"] for r in got] == ["g1"] and got[0]["url"] == "http://g/1"

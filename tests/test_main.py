@@ -229,6 +229,34 @@ def test_main_wires_local_video_into_pipeline(
     assert "ulm" in str(cfg.data_dir).lower()
 
 
+def test_metadata_overrides_reach_both_coarse_search_and_recorded_config(tmp_path, monkeypatch):
+    import monocular_osm.location_prior as prior
+
+    video = tmp_path / "drive.mp4"
+    video.write_bytes(b"x")
+    seen = {}
+
+    def resolve(city, title, description, **kwargs):
+        seen["metadata"] = (city, title, description)
+        return None
+
+    def run(cfg):
+        seen["cfg"] = cfg
+        return {}
+
+    monkeypatch.setattr(prior, "resolve_coarse_prior", resolve)
+    monkeypatch.setattr(main_mod, "run_pipeline", run)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--video", str(video),
+        "--city", "Ulm, Germany", "--video-title", "District A to District B",
+        "--video-description", "Uploader route description",
+        "--data-dir", str(tmp_path / "d"), "--output-dir", str(tmp_path / "o")])
+    main_mod.main()
+    assert seen["metadata"] == ("Ulm, Germany", "District A to District B",
+                                "Uploader route description")
+    assert seen["cfg"].video_title == seen["metadata"][1]
+    assert seen["cfg"].video_description == seen["metadata"][2]
+
+
 def test_main_rejects_video_plus_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -432,6 +460,81 @@ def test_skip_download_uses_cached_metadata_offline(
     assert cfg.skip_download is True
     assert cfg.url == url
     assert cfg.city == "Ulm, Germany"       # inferred from the cached title
+
+
+@pytest.mark.parametrize("selector", ["decoded", "raw-votes"])
+def test_exact_url_video_path_preserves_metadata_cache_identity_window_and_provenance(tmp_path, monkeypatch, selector):
+    from monocular_osm.city_inference import slugify_submission
+    from monocular_osm.download import VideoMetadata
+    from monocular_osm.pipeline import _resolve_input_video
+    from monocular_osm.provenance import config_snapshot
+
+    url = "https://www.youtube.com/watch?v=abc123def45"
+    title, city = "Driving in Ulm, Germany", "Ulm, Germany"
+    data = tmp_path / "data"
+    local = data / "abc123def45-driving-in-ulm-germany/input_0-600.mp4"
+    local.parent.mkdir(parents=True)
+    local.write_bytes(b"registered window")
+    metadata = VideoMetadata(url=url, title=title, video_id="abc123def45",
+        description="Uploader street description", fps=60.)
+    main_mod._write_cached_metadata(data, url, metadata)
+    captured, probes = {}, []
+    monkeypatch.setattr(main_mod, "run_pipeline", lambda cfg: captured.update(cfg=cfg) or {})
+    monkeypatch.setattr(main_mod, "_probe_video_fps", lambda path: probes.append(path) or 60.)
+    _forbid_network_metadata(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--url", url, "--video-path", str(local),
+        "--skip-download", "--vo-segment", "17:431", "--no-coarse-from-video",
+        "--vpr-city-cell-selector", selector, "--data-dir", str(data), "--output-dir", str(tmp_path / "out")])
+    main_mod.main()
+    cfg = captured["cfg"]
+    assert cfg.url == url and cfg.video_title == title and cfg.video_description == metadata.description
+    assert cfg.city == city and cfg.video_path == local and _resolve_input_video(cfg) == local
+    assert cfg.data_dir == data / slugify_submission(metadata.video_id, title, city, fallback_seed=url)
+    assert (cfg.vo_start_sec, cfg.vo_end_sec) == (17., 431.) and probes == [local]
+    assert cfg.vpr_city_cell_selector == selector
+    snapshot = config_snapshot(cfg)
+    assert Path(snapshot["video_path"]) == local and snapshot["url"] == url
+    assert snapshot["vpr_city_cell_selector"] == selector
+
+
+@pytest.mark.parametrize("extra", [[], ["--url", "https://example.com/a"],
+    ["--url", "https://example.com/a", "https://example.com/b", "--skip-download"],
+    ["--video", "other.mp4", "--skip-download"]])
+def test_url_video_path_requires_one_url_and_offline_mode(tmp_path, monkeypatch, extra):
+    local = tmp_path / "window.mp4"
+    local.write_bytes(b"x")
+    _forbid_network_metadata(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--video-path", str(local), "--city", "Ulm, Germany", *extra])
+    with pytest.raises(SystemExit):
+        main_mod.main()
+
+
+def test_url_video_path_refuses_missing_file_or_metadata_before_any_network(tmp_path, monkeypatch):
+    _forbid_network_metadata(monkeypatch)
+    monkeypatch.setattr(main_mod, "run_pipeline", lambda cfg: pytest.fail("must not launch"))
+    local = tmp_path / "window.mp4"
+    argv = ["main.py", "--url", "https://example.com/a", "--video-path", str(local),
+        "--skip-download", "--data-dir", str(tmp_path / "data")]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit):
+        main_mod.main()
+    local.write_bytes(b"x")
+    with pytest.raises(SystemExit, match="cached URL metadata"):
+        main_mod.main()
+
+
+@pytest.mark.parametrize("value", [None, True, 1, [], "raw_votes", "RAW-VOTES"])
+def test_city_cell_selector_config_rejects_unknown_values(tmp_path, value):
+    from monocular_osm.pipeline import PipelineConfig
+    with pytest.raises(ValueError, match="vpr_city_cell_selector"):
+        PipelineConfig(url="", city="Synthetic", data_dir=tmp_path, output_dir=tmp_path,
+            vpr_city_cell_selector=value)
+
+
+def test_city_cell_selector_default_and_cli_choices():
+    assert build_arg_parser().parse_args([]).vpr_city_cell_selector == "decoded"
+    with pytest.raises(SystemExit):
+        build_arg_parser().parse_args(["--vpr-city-cell-selector", "raw_votes"])
 
 
 def test_metadata_cache_roundtrip(tmp_path: Path) -> None:

@@ -6,6 +6,147 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Metro-ring search and the third held-out set (November 2026)
+
+- `--vpr-metro-ring` (opt-in, off by default): when the retrieval track's
+  confidence is below 0.162 it searches a 20 km disc around the city geocode,
+  minus the disc already searched, in 4 km cells, and records the ordinary
+  track (`metro_ring_retrieval.baseline_track`).
+  `scripts/metro_ring_paired.py` scores both answers from one run.
+- Held-out `test3` (ten clips, nine new cities; `benchmarks/test3_screen/`,
+  rule `test3_2026_11`): the ring and the ordinary track are both within
+  200 m on 5/10 (city centre 0/10).
+  - The ring improves one clip and worsens two (T1 and T3 fail, T2 holds).
+  - It costs about 3 CPU hours per clip where it runs.
+  - It is not adopted. See `docs/heldout_test3_2026-11.md`.
+- Development check (`metro_ring_dev_2026_11`, in-sample, all 29 used
+  clips): ring 20/29 within 200 m against 16/29, no losses, four gains
+  (M1 and M2 hold). It no longer gates anything; the ring stays opt-in.
+- CI: install open3d's system libraries on Linux; skip torch-only tests when
+  torch is absent; make the escape-path test OS-independent.
+
+### Assisted policy: complete result, budget and CPU threads (November 2026)
+
+- The complete fifteen-clip assisted v3 run (`a8add7a`) is scored with its
+  reviewed comparison adapter (`5bdae79`): 12/15 dev clips within 200 m,
+  median 62 m; all three failures had an `expanded` stage cut off by the
+  7,200 s CPU budget. At 14,400 s Atlanta `kxEDNj5L_yQ` goes from 6,024 to
+  33 m (13/15, in-sample). See `docs/assisted_fleet_2026-11.md`.
+- The complete fifteen-clip assisted v4 run (`409a959`, 16 threads, 14,400 s)
+  is within 200 m on 14/15 dev clips (median 43 m; in-sample): the shop-sign
+  site check fixes Atlanta `y66ZkRpUh4k` (6,590 to 43 m), and Detroit
+  `g5lnpYCk1Ec` still fails (1,387 m). The strict artifact audit passes every
+  clip's evidence. See `docs/assisted_fleet_2026-11.md`.
+- `--assisted-cpu-threads N` (default 4, as every assisted result so far):
+  the torch/BLAS threads of each assisted visual child. MegaLoc descriptors
+  are unchanged by it (max abs difference 8.7e-7, identical top-5 neighbours
+  on 48 real references) and it is faster: 0.75 s/image at 4 threads, 0.42
+  at 16 on a 20-core CPU. The audit now checks the recorded value (4 for runs
+  that predate the option) instead of a fixed 4.
+- A second held-out split, `test2` (seven clips, six new cities, chosen by a
+  fixed YouTube screen recorded in `benchmarks/test2_screen/`), and the
+  pre-registered comparison `test2_2026_11`. Assisted v3 (`a8add7a`, 14,400 s)
+  is within 200 m on 2/7 test2 clips (dev 13/15). The frozen track
+  (`ccd0bbe`) is also 2/7: the policy returned the track's answer on six
+  clips and improved Paris from 24,364 to 832 m (H1-H3 hold; no gain within
+  200 m). See `docs/heldout_test2_2026-11.md`.
+- `scripts/failure_taxonomy.py` and `docs/failure_taxonomy_2026-11.md`: how
+  much of each ground-truth route lay inside the discs the track searched,
+  over the 29 scored dev/test1/test2 clips. Every clip with at least 75 % of
+  its route inside the 2 km fine disc is within 200 m (14/14); six of the
+  seven held-out misses are coverage misses (route outside the 8 km pass-1
+  disc, or longer than the fine disc), while four of six dev misses are
+  appearance misses inside the disc. Diagnostic only; no method changed.
+- Audit fix: descriptor receipts in the metadata-union research bundle are
+  compared with the declared `kartaview_vpr.py` hash under POSIX and Windows
+  path keys alike. Before, Windows runs with receipts failed the check, and runs
+  without receipts passed it without comparing anything.
+
+### Experimental all-branch POI component
+
+- Added opt-in `--answer poi` / `--poi-only`, using full-window native video
+  VO, 24 stamp-filtered OCR samples, a named-city retail inventory and every
+  literal-clue branch. Equal default neighborhoods are 1 km / 500 references,
+  with 80 shared query descriptors and fixed raw appearance/distance/bearing.
+- The selected POI route requires complete regional retrieval. Missing clues,
+  failed regions and exceeded budgets remain unanswered; ordinary VPR/matcher
+  outputs are not substituted. Default pipeline behavior is unchanged.
+- Dedicated whole-city map inputs and existing regional cache families retain
+  source/override provenance. Video/VO/OCR/inventory/map identities, all plans,
+  reference IDs and score matrices freeze before separate scoring. Native
+  bbox/time guards reject incompatible external or resized inputs.
+- POI OCR injects cached PP-OCRv6 small assets explicitly, disables downloads
+  and accelerators, and verifies actual CPU providers, ORT thread bounds 2/1
+  and recognition/classification batches of four. Warm caches retain verified
+  runtime identities; regional retrieval scopes Torch operator threads to four.
+  The fixed road grid matches 12.5 m per-segment endpoint-inclusive sampling.
+- Normal CLI source `b48a217` completed KITTI 0009 with fresh native OCR/VO,
+  an automatic whole-city map and verified copies of the five live-pilot pools.
+  An independent input audit preceded offline scoring: 13.32 m symmetric route
+  error, 41.07 m start error against the registered 12 waypoints, in 140.33 s.
+  Conservative process-tree native peaks sum to 2.551 GB resident /3.743 GB
+  private commit. Reference embeddings were cached; this is one development
+  clip, with no 15-clip or held-out accuracy claim.
+
+### Independent video-only road-graph filter
+
+- Added opt-in `--answer filter` / `--graph-filter-only`: selects the filter
+  route in the console, maps, checkpoint and benchmark while skipping
+  retrieval and shape matching. Existing default behavior is retained.
+- The profile uses an independent whole-city map, generic 70° intrinsics,
+  actual video PTS, road-plane height 1.5 m, 600,000 particles, seed 0,
+  two VO workers, approximately 10 Hz sampling and 256 MiB genealogy by
+  default. Explicit stride, particle count and other filter knobs are recorded.
+- `--graph-filter-map-path` accepts a trusted whole-city database. Provenance
+  records its configured/actual path, city/query, scope, cache source and SHA;
+  input and override audits remain strict. Hashes bind the file, not its
+  acquisition history. Predictions and source bytes freeze before scoring.
+- Strict MP4-derived KITTI 0033 filtering localized all five PF seeds on
+  one fixed VO estimate: symmetric smoothed-route error 5.02 ± 0.24 m,
+  with whole-run online error still 4.36 ± 0.63 km. The normal CLI computed
+  fresh VO and reproduced seed 0 bit-for-bit, with 4.83 m selected-route
+  error and peak private commit 1,432 MB. Historical calibrated-camera /
+  OXTS-time research is labeled separately; fleet accuracy remains unproven.
+
+### Retrieval output and benchmark reliability
+
+- Saved benchmark repeat scores retain full floating-point precision for
+  threshold and median decisions. The goal audit rejects a saved error that
+  contradicts its threshold flag, including a rounded 200.004 m false pass.
+  Display tables keep their existing rounding.
+- Assisted baseline and expanded children persist each returned retrieval
+  call before starting the next one. Atomic array/metadata publication and
+  verified array reuse preserve completed calls if a later call times out.
+  Incomplete pairs remain diagnostics; child completion and selection rules
+  retain their existing requirements.
+- The selected `result.answer` now drives the console position, map links and
+  `answer.png`; the fitted `position` stays available as a diagnostic.
+- Retrieval tracks are checkpointed atomically before geometry. The new
+  `--retrieval-only` path skips VO/Overpass when a track exists, and full runs
+  retain it if a later geometry stage fails.
+- Decoded frames use a bounded resident cache and lossless temporary storage;
+  optional resizing preserves aspect ratio. VO cache validation now includes
+  source identity, exact extraction settings, sampled pixels and timestamps.
+- Warm Mapillary metadata retains listing losses and a reference snapshot
+  fingerprint; legacy listing completeness is explicitly unknown.
+- Benchmark comparisons count failed predictions as losses, preserve planned
+  but interrupted/missing repeats, and check configuration/environment/model
+  consistency. Explicit ablation comparisons use `--allow-config-changes`.
+- Added `osm-localize-doctor`, recommended/VPR dependency profiles, a tested
+  Windows/Python 3.12 CPU environment lock and fresh-install CI. Python 3.12 is
+  now the declared minimum, matching the NumPy requirement.
+- Added experimental dense multi-region retrieval and query preprocessing
+  variants (`crops`, `aspect`), both opt-in pending measurement. The strict
+  `scripts/check_dev_goal.py` audit requires all 15 registered available dev
+  clips to meet the 200 m symmetric route-error target; it does not declare
+  success from missing, failed, leaked or stale results.
+- Added an opt-in municipal retrieval hierarchy (`--vpr-city-cover`): all
+  cells get a coarse search, supported cells get a denser search, and the
+  baseline remains a candidate. Plans record their boundary fingerprint and
+  refuse coverage beyond the 64-cell limit. Accuracy is not yet benchmarked.
+- Regional searches share query descriptors within the stage. Road-plane
+  grayscale conversion and static-overlay estimation now use bounded storage.
+
 ### Reproducible, leak-free evaluation
 
 Every published number should be traceable to a commit, a configuration and a
@@ -156,6 +297,22 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
 
 ### Added
 
+- **`--answer {track,fit,checked}` and `result["answer"]`**: the route the
+  method answers with. `result["position"]` stays the trajectory fit;
+  `result["vpr_prior"]["track"]` now keeps the retrieval track
+  (`[t, lat, lon, sim]` per query frame). New benchmark rows: `vpr_track_only`
+  (the track as a route, running median of 5), `track_checked` (the fit
+  unless it lies over 250 m from the track) and `answer`.
+- **`--vpr-seed-ring`** (off): pass 1 also searches a sparse ring out to a
+  coarse seed's own radius. Not adopted by its pre-registered rule (v7: one
+  dev clip better, one worse, none crosses to within 200 m).
+- `scripts/pass1_coverage.py`: how much of each route a run's archived
+  retrieval references cover, per pass.
+- `monocular_osm/mvt.py`: point features of a Mapbox Vector Tile, on
+  `protobuf` (see Fixed: Mapillary listing).
+- Pre-registered rules `seed_ring`, `answer_selection` and
+  `test_split_2026_10`, each with its recorded outcome.
+
 - `monocular_osm/fusion.py`: the consensus rule and its weights as one explicit
   module; `--fusion-weights JSON` for ablations; each run writes
   `fusion_features.json` (every candidate's per-channel ranks, penalties and
@@ -192,6 +349,13 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   `--camera-height-m`. Details: `docs/graph_filter_kitti.md`.
 
 ### Changed
+
+- **The answer is the retrieval track by default (`--answer track`).**
+  Chosen by the pre-registered `answer_selection` rule on run v6 (15 dev
+  clips): within 200 m on 9 clips against 6 for the trajectory fit and 8 for
+  the fit checked against the track; median 135 m against 395 m. The fit
+  turns a good track into a bad route on some clips (Berlin: 135 m track,
+  695 m fit) and refines it on others (London: 22 m fit, 62 m track).
 
 - **`result["matcher_position"]` is now the raw matcher pick.** On any run where
   the scale-locked OCR anchor pin succeeded it used to carry the pinned route
@@ -239,6 +403,24 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
 
 ### Fixed
 
+- **The Mapillary reference pool was incomplete everywhere, and empty over
+  dense centres.** The pool was listed with the Graph API's bbox search, which
+  answers HTTP 500 "Please reduce the amount of data" when a box takes too
+  long to scan and silently truncates answers it does give (the same Berlin
+  100 m box returned 339, 34 or 22 images by page size; failures down to
+  16 m boxes). The fetcher dropped failed boxes without a word: Detroit's 8 km
+  disc listed 195,428 images and none within 250 m of the drive, with the
+  whole centre empty; even Karlsruhe, with no error at all, listed 498,876 of
+  its 836,869. The pool is now read from Mapillary's zoom-14 coverage tiles
+  (`mly1_public`, layer `image`; decoded by the new `monocular_osm/mvt.py` on
+  `protobuf`, since GDAL's MVT driver refuses tiles over 10 MiB), which list
+  every image per ~1.5 km tile: Detroit's disc gives 7,126,059 images in 38 s
+  (the Graph search took 22 min for 2.1 M even with box splitting), with an
+  image within 50 m of the whole route. Thumbnail URLs are looked up by id
+  only for the images kept. The Graph search remains as a fallback (rejected
+  boxes now split, other failures retried); lost tiles and URL lookups are
+  printed and recorded per pass in `result["vpr_listing"]`. Warm caches keep
+  their earlier (incomplete) sample until re-listed.
 - **Image retrieval silently never loaded on a fresh machine.** `torch.hub`
   asks on stdin whether to trust the MegaLoc/EigenPlaces repos; an unattended
   run read EOF as "no", so the retrieval channel — the main accuracy lever —

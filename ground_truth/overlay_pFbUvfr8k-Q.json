@@ -1,0 +1,110 @@
+{
+  "video_id": "pFbUvfr8k-Q",
+  "video_url": "https://www.youtube.com/watch?v=pFbUvfr8k-Q",
+  "city": "Trondheim, Norway",
+  "vo_segment": "154:412",
+  "description": "First passing candidate of the preregistered replacement search: Trondheim query 1, rank 4; GT QC pending at selection. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 53 OCR fixes over 154-413 s (6.05 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 154.1,
+      "lat": 63.42507,
+      "lon": 10.393785
+    },
+    {
+      "t_sec": 169.0,
+      "lat": 63.42766,
+      "lon": 10.395673
+    },
+    {
+      "t_sec": 179.0,
+      "lat": 63.42895,
+      "lon": 10.400604
+    },
+    {
+      "t_sec": 193.9,
+      "lat": 63.43272,
+      "lon": 10.403392
+    },
+    {
+      "t_sec": 208.8,
+      "lat": 63.43235,
+      "lon": 10.407144
+    },
+    {
+      "t_sec": 223.7,
+      "lat": 63.43317,
+      "lon": 10.410887
+    },
+    {
+      "t_sec": 233.7,
+      "lat": 63.43524,
+      "lon": 10.416184
+    },
+    {
+      "t_sec": 248.6,
+      "lat": 63.43646,
+      "lon": 10.426264
+    },
+    {
+      "t_sec": 263.5,
+      "lat": 63.43445,
+      "lon": 10.429193
+    },
+    {
+      "t_sec": 278.4,
+      "lat": 63.43155,
+      "lon": 10.422303
+    },
+    {
+      "t_sec": 288.4,
+      "lat": 63.43,
+      "lon": 10.417152
+    },
+    {
+      "t_sec": 303.3,
+      "lat": 63.43215,
+      "lon": 10.412952
+    },
+    {
+      "t_sec": 318.2,
+      "lat": 63.43316,
+      "lon": 10.410653
+    },
+    {
+      "t_sec": 333.1,
+      "lat": 63.43302,
+      "lon": 10.40413
+    },
+    {
+      "t_sec": 343.0,
+      "lat": 63.43332,
+      "lon": 10.402562
+    },
+    {
+      "t_sec": 358.0,
+      "lat": 63.43334,
+      "lon": 10.397761
+    },
+    {
+      "t_sec": 372.9,
+      "lat": 63.43299,
+      "lon": 10.391462
+    },
+    {
+      "t_sec": 387.8,
+      "lat": 63.43024,
+      "lon": 10.392292
+    },
+    {
+      "t_sec": 397.7,
+      "lat": 63.42769,
+      "lon": 10.393
+    },
+    {
+      "t_sec": 412.6,
+      "lat": 63.42572,
+      "lon": 10.393585
+    }
+  ]
+}

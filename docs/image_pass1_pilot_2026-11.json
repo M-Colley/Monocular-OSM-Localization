@@ -1,0 +1,116 @@
+[
+ {
+  "clip": "kitti_0009",
+  "n_refs": 1200,
+  "megaloc": {
+   "true_area_rank": 12,
+   "centre_to_route_m": 3692.3,
+   "top1_area_to_route_m": 3138.9
+  },
+  "image_whole": {
+   "true_area_rank": 4,
+   "centre_to_route_m": 6117.4,
+   "top1_area_to_route_m": 6248.5
+  },
+  "image_crops_max": {
+   "true_area_rank": 10,
+   "centre_to_route_m": 8991.4,
+   "top1_area_to_route_m": 3246.7
+  }
+ },
+ {
+  "clip": "london",
+  "n_refs": 1495,
+  "megaloc": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 100.5,
+   "top1_area_to_route_m": 224.4
+  },
+  "image_whole": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 100.5,
+   "top1_area_to_route_m": 433.4
+  },
+  "image_crops_max": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 46.2,
+   "top1_area_to_route_m": 476.5
+  }
+ },
+ {
+  "clip": "overlay_1nF_7l07i-E",
+  "n_refs": 1199,
+  "megaloc": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 262.2,
+   "top1_area_to_route_m": 374.0
+  },
+  "image_whole": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 128.5,
+   "top1_area_to_route_m": 558.4
+  },
+  "image_crops_max": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 93.9,
+   "top1_area_to_route_m": 502.2
+  }
+ },
+ {
+  "clip": "overlay_vCSEG6KaFng",
+  "n_refs": 1200,
+  "megaloc": {
+   "true_area_rank": 2,
+   "centre_to_route_m": 52.4,
+   "top1_area_to_route_m": 1259.5
+  },
+  "image_whole": {
+   "true_area_rank": 2,
+   "centre_to_route_m": 2227.2,
+   "top1_area_to_route_m": 1356.0
+  },
+  "image_crops_max": {
+   "true_area_rank": 2,
+   "centre_to_route_m": 2227.2,
+   "top1_area_to_route_m": 1342.9
+  }
+ },
+ {
+  "clip": "overlay_y66ZkRpUh4k",
+  "n_refs": 1200,
+  "megaloc": {
+   "true_area_rank": 8,
+   "centre_to_route_m": 6371.6,
+   "top1_area_to_route_m": 1137.2
+  },
+  "image_whole": {
+   "true_area_rank": 6,
+   "centre_to_route_m": 6371.6,
+   "top1_area_to_route_m": 8984.4
+  },
+  "image_crops_max": {
+   "true_area_rank": 2,
+   "centre_to_route_m": 6371.6,
+   "top1_area_to_route_m": 6356.8
+  }
+ },
+ {
+  "clip": "ulm2",
+  "n_refs": 1499,
+  "megaloc": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 108.8,
+   "top1_area_to_route_m": 102.2
+  },
+  "image_whole": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 89.3,
+   "top1_area_to_route_m": 47.6
+  },
+  "image_crops_max": {
+   "true_area_rank": 1,
+   "centre_to_route_m": 93.6,
+   "top1_area_to_route_m": 36.3
+  }
+ }
+]

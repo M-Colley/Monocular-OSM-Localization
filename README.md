@@ -1,33 +1,96 @@
 # Video → Place Mapping
 
-> A proof-of-concept that **localizes a dashcam YouTube video on a real city
-> map** by recovering the driving path from the footage and matching it
-> against the OSM street network. Three independent matching channels are
-> run side-by-side (route shape, OSM aerial feature matching, dense splat
-> reconstruction) and a consensus rank picks the best agreement.
+> A research pipeline that **localizes a dashcam video within a named city**.
+> The default answer is a temporally filtered street-image retrieval track.
+> Visual odometry, OSM route matching and optional appearance channels also
+> produce a trajectory fit for comparison and diagnostics.
 
 [![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
-![Tests](https://img.shields.io/badge/unit%20tests-1%2C100%2B%20passing-brightgreen)
+[![Tests](https://github.com/M-Colley/Monocular-OSM-Localization/actions/workflows/tests.yml/badge.svg)](https://github.com/M-Colley/Monocular-OSM-Localization/actions/workflows/tests.yml)
 ![BevSplat](https://img.shields.io/badge/BevSplat-live%20inference%20%E2%9C%93-blue)
 
 Reference clip used in the demo:
 [Driving in Ulm, Germany](https://www.youtube.com/watch?v=ULl8s4qydrk).
+
+For the current code map, active work, and evaluation constraints, see
+[project code knowledge](docs/code_knowledge.md).
+
+**Current measured baseline:** `reliable_cold_dev` at clean source `2b95f12`,
+one cold repetition on all 15 available **development** clips, gives
+**9/15 within 200 m** and **135.10 m median symmetric route error** for the
+selected retrieval answer. All 15 executions completed; failures remain in
+the accuracy count. These development clips were used to choose the method,
+so this is not held-out accuracy. The older `v6` retrieval run also passed
+9/15; its trajectory fit passed 6/15. See
+[the experiment record](docs/experiments_2026-10.md#completed-reliability-baseline-and-coverage-candidates).
+The target of 15/15 within 200 m is not yet achieved. Older tables below are
+historical measurements with their stated code/configuration.
+
+**Held-out (`test1`, seven clips from cities never used in development):** the
+retrieval track frozen at `ccd0bbe` is within 200 m on **5/7** (median 84 m;
+city-centre guess 0/7). See [the held-out record](docs/heldout_test_2026-10.md).
+
+**Experimental assisted policy** (`--answer assisted --assisted-profile v3`;
+OCR/POI cues, a road-graph particle filter and wider metadata searches after
+a weak retrieval): **12/15** dev clips within 200 m at a 7,200 s CPU budget
+and **13/15** at 14,400 s (median 62 m); profile v4, which adds a
+shop-sign site check, reaches **14/15** (median 43 m; Detroit `g5lnpYCk1Ec`
+still fails at 1,387 m). This is in-sample: the policy was developed on these
+clips, and v4 is untested on held-out data. On its clean held-out test, seven new clips from six
+new cities (`split=test2`, pre-registered as `test2_2026_11`), it reaches only
+**2/7** within 200 m (median 518 m; city-centre guess 0/7): the dev result
+does not carry over. The frozen track method also reaches 2/7 on these clips;
+the policy returned the track's answer on six of them and improved one
+(Paris, 24 km to 832 m), so it adds nothing within 200 m on new footage. See
+[the assisted fleet record](docs/assisted_fleet_2026-11.md) and
+[the test2 record](docs/heldout_test2_2026-11.md).
+
+**Experimental metro-ring search** (`--vpr-metro-ring`, off by default):
+after a weak retrieval it searches a 20 km disc around the city, minus the
+disc already searched. On a third pre-registered held-out set, ten new clips
+from nine new cities (`split=test3`, rule `test3_2026_11`), it puts **5/10**
+within 200 m, the same as the run's ordinary track (5/10, median 229 m;
+city-centre guess 0/10). It improves one clip, worsens two and costs about
+3 CPU hours on each clip where it runs. No test3 route lay where it
+searches. On the 29 clips it was developed on, it reaches 20/29 against 16/29
+with no losses, but that is in-sample, so it stays off by default. See
+[the test3 record](docs/heldout_test3_2026-11.md).
+
+**Where the track fails** ([diagnostic](docs/failure_taxonomy_2026-11.md)):
+a clip whose route lay mostly inside the 2 km fine search disc is within
+200 m on 19 of 20 such clips over 39 scored clips (Düsseldorf
+`8BUtb7TKUFA`, 260 m, is the exception). The 12 held-out misses across
+test1-test3 split into three kinds:
+- route outside the 8 km first-pass disc: 5 (Ottawa, Montreal, Paris,
+  Munich, Katowice);
+- wrong district inside it: 4 (Bern, Katowice, Düsseldorf, Cork);
+- route longer than the fine disc covers: 2 (Budapest, Warsaw);
+- plus the one fine-disc miss above.
+
+Over 24 held-out clips the retrieval track (`ccd0bbe` on test1-test2,
+`f582928` on test3) is within 200 m on 12 (Wilson
+95 % 31-69 %).
+
+The [October research and method tests](docs/recent_methods_2026-10.md) cover
+recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled
+ImAge test passes the night clip. Full-gallery SelaVPR++, camera-heading and
+timed-text experiments did not meet the target on their difficult test cases.
+The revised temporal control reaches 208.53 m on Detroit, with substantial
+timing and endpoint errors; the complete fleet result remains 9/15.
 
 > [!IMPORTANT]
 > ### A free Mapillary key is crucial for good accuracy
 >
 > The single biggest accuracy lever in this whole pipeline is **dense street-level
 > Visual Place Recognition against Mapillary imagery**. It is what turns "roughly
-> the right city" into "the right street." Fully GPS-free (city name only, three
-> cold runs per clip), it lands on the right street on **2 of the 6 re-measured
-> clips** (Ulm 4K 27 m, London 83 m) and is kilometres off on the other 4 — worse
-> than simply guessing the centre of the named city there. A pre-registered rule
-> that answers "somewhere in this city" when its own retrieval evidence is weak
-> did not transfer to nine held-out clips (its threshold answered on only one);
-> see [Accuracy](#accuracy--deployable-gps-free). The older 30–156 m headline was
-> not reproducible and has been retired.
+> the right city" into "the right street." With complete reference listings,
+> the current development baseline reaches 9/15 within 200 m; remaining failures
+> include routes outside the searched region and historical/night footage that
+> does not resemble the reference photos. See the current baseline above and
+> [Accuracy](#accuracy--deployable-gps-free) for historical runs. The older
+> 30–156 m headline was not reproducible and has been retired.
 > The best configuration (VPR prior + dense Mapillary + coarse-to-fine +
 > video/frame coarse seeds + scale-lock) is now **on by default**, but the
 > Mapillary parts only light up if you give the pipeline a token.
@@ -58,45 +121,22 @@ Hand it a **dashcam video and the name of the city** it was filmed in, and it
 figures out **where in that city the drive happened** — drawing the route on a
 map — *without any GPS in the video*.
 
-How? It watches how the car moves — every turn, curve, and straight — and
-reconstructs the **shape** of the path the car drove (think of tracing the route
-on paper, but with no idea of north, scale, or starting point). Then it slides
-that shape around the city's real street map (from OpenStreetMap) until it finds
-where it fits. If the video happens to show readable **street signs or landmarks**,
-it also reads them and uses them to pin the location down further.
+How? It compares sampled video frames with geotagged street-level photos,
+then filters those matches over time to estimate the route. It also recovers
+camera motion and fits the driving path to OpenStreetMap roads. Readable place
+names can help bound the search area.
 
-What you get back is a **best-guess location** (latitude/longitude + the street
-names) and a **short list of other likely spots**. It also prints a "shape fit"
-grade; treat that as a measure of how well the path fits the map, *not* as the
-probability of being right — on dense street grids many routes fit the shape
-equally well, and the spread of the shortlist is the better guide to how much to
-trust the answer.
+The primary output is `result["answer"]`: a best-guess route, start/end
+coordinates and map links. The fitted trajectory and alternative candidates
+remain available as diagnostics. A shape-fit grade measures geometric agreement;
+it is not a probability that the location is correct.
 
-How well does it work? The honest answer is: **it depends on the footage.** Where
-the area has dense street-level photos that look like the video, it can land on
-the right street without any GPS — re-measured with three cold runs each, Ulm 4K
-within 27 m and London within 83 m. On the other four re-measured clips (Berlin,
-two KITTI drives, a second Ulm drive) it is kilometres off and **worse than simply
-guessing the centre of the city you named**. Those failures are visible in
-advance: how closely the video's frames match their best street-level photos was
-0.19–0.28 on the two successes and 0.11–0.13 on the failures. A rule that answers
-only "somewhere in this city" below a threshold fixed on those clips was then
-tested on nine clips that played no part in choosing it, and it did not carry
-over: their confidences ran lower, so it almost always abstained. The previous
-version of this README claimed 30–156 m on 3 of 9 clips; that table could not be
-reproduced (it mixed code versions, used city names picked with knowledge of the
-route, and recorded no configuration), so it has been retired. The new benchmark
-refuses to leak ground truth, repeats every clip, records its own provenance and
-always reports the "centre of the named city" baseline — see
-[Accuracy](#accuracy--deployable-gps-free). (Numbers elsewhere in this README that
-look much tighter, such as ~77–150 m, were measured with a coarse GPS prior
-supplied and are **not** deployable.)
-
-We did not just test this on one video: the benchmark is 18 clips in a dozen
-cities on three continents, scored against GPS from a dataset's own INS, from
-hand-labelled map look-ups, or from the position stamp burned into dashcam
-footage. See
-[Final results](#final-results--multi-clip-ground-truth-benchmark) below.
+Accuracy depends on reference coverage and how well the footage resembles those
+photos. The current measured development baseline is 9/15 within 200 m; six
+clips still fail by kilometres. The project keeps ground truth in offline
+scoring, records configurations and provenance, and compares against the centre
+of the named city. Historical tables, including seeded results that used a
+coarse GPS prior, retain their original labels below.
 
 The rest of this README is the engineering detail behind each of those steps.
 
@@ -247,9 +287,22 @@ osm-localize --video path/to/dashcam.mp4 --city "Ulm, Germany"
 ```
 
 `osm-localize` is equivalent to `python -m monocular_osm.cli`, and to
-`python main.py` from a source checkout. The optional GPU stack (`torch`,
-`depth-anything-3`, `gsplat`, …) is intentionally *not* pulled in — install it
-separately (see below), since it needs a CUDA-matched index URL.
+`python main.py` from a source checkout. Python **3.12 or newer** is required.
+The core install omits retrieval/OCR extras; install the recommended profile for
+the default localization method (CPU retrieval is supported):
+
+```bash
+python -m pip install -e ".[dev,recommended]"
+osm-localize-doctor --require recommended --strict
+```
+
+The doctor checks imports and credential presence without downloading models
+or making API requests. It never prints credential values. Dense reconstruction
+(`depth-anything-3`, `gsplat`) remains a separate optional GPU installation.
+For the tested Windows/Python 3.12 CPU environment, install
+`requirements-research-windows-py312.lock` in a fresh venv, followed by
+`python -m pip install --no-deps -e .`. Keep this lock with benchmark results;
+GPU and other-platform environments need their own resolved snapshots.
 
 **Set your Mapillary key (strongly recommended — see the callout at the top).**
 The default configuration uses dense Mapillary VPR, which needs a free
@@ -270,7 +323,7 @@ each is an optional extra that is *silently skipped when missing* (the log says
 the published configuration:
 
 ```bash
-pip install -e ".[ocr,plates]"     # rapidocr (OCR) and fast-alpr (plate districts)
+pip install -e ".[recommended]"    # VPR, rapidocr and plate districts
 ```
 
 **Keep `yt-dlp` current.** YouTube changes its player often; an out-of-date
@@ -284,7 +337,7 @@ run.
 Optional comparison extras:
 
 ```bash
-pip install torch torchvision      # deep embedding retrieval
+pip install -e ".[vpr]"             # retrieval only (included in recommended)
 pip install geotessera             # GeoTessera-backed candidate patches
 ```
 
@@ -299,16 +352,17 @@ https://ffmpeg.org/.
 The core contract: **video + city in, position out.** Point the CLI at a
 local video file (or a YouTube URL) and name the city it was filmed in;
 the run ends with an estimated WGS84 position — printed to the console
-and written to `result.json` under the `"position"` key:
+and written to `result.json` under the **`"answer"`** key. `position` retains
+the trajectory fit for diagnostics and compatibility. Console coordinates,
+map links and `answer.png` describe the selected answer:
 
 ```
 ================================================================
-ESTIMATED POSITION  (ranking=consensus, 10 candidates considered)
+ESTIMATED POSITION  (answer=track, method=vpr_track_only)
 ================================================================
   Video starts at:  48.401130, 9.987610
   Route center:     48.399870, 9.991020
   Streets:          Neutorstraße, Olgastraße, ...
-  Confidence:       medium (RMS 142.3 m, bearing corr 0.41)
   Google Maps:      https://www.google.com/maps?q=48.401130,9.987610
   OpenStreetMap:    https://www.openstreetmap.org/?mlat=48.401130&...
 ================================================================
@@ -442,16 +496,180 @@ Useful flags:
 
 Outputs land in `output/<submission>/`:
 
+- `answer.png` — the selected route; works without an OSM graph
 - `trajectory.png` — the recovered top-down driving path (VO output)
-- `match.png` — best-match walks overlaid on the Ulm road graph
+- `match.png` — diagnostic candidate walks overlaid on the searched road graph
 - `splat.ply` — sparse splat point cloud (open in MeshLab, CloudCompare, or any PLY viewer)
 - `splat.html` — interactive 3-D viewer (open in any browser, no server needed)
 - `splat_topdown.png` — top-down rasterization of the splat
 - `aerial/osm_candidate_N.png` — OSM patch for each top-K candidate
-- `result.json` — the estimated `position` (lat/lon, route, street names,
-  confidence, map links) plus top-K candidate streets, per-candidate
+- `result.json` — the selected `answer` (coordinates, route and map links),
+  diagnostic `position`, plus top-K candidate streets, per-candidate
   `center_latlon`, shape scores, and ORB-match counts
 - `road_graph.graphml` — cached OSM graph
+
+For a faster retrieval answer, add `--retrieval-only --answer track`. It saves
+the track before VO or Overpass runs; if retrieval has no track it falls back
+to the full pipeline. Full runs also checkpoint a valid track, so a later
+geometry failure is recorded without discarding that answer.
+Retrieval-only acquisition retains the same 80 query frames that the dense
+pipeline would select, then releases them when the run finishes. A missing
+track triggers dense re-extraction before the geometry fallback.
+
+For the experimental video-and-city particle-filter answer, use:
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --answer filter --frame-memory-mb 128
+```
+
+`--graph-filter-only` is an alias for `--answer filter`. This mode skips
+retrieval and matching, and selects `graph_filter_only` for the console,
+map links, `answer.png` and benchmark scoring. Its defaults are 600,000
+particles, seed 0, road-plane speed, camera height 1.5 m, two VO workers,
+approximately 10 Hz video sampling and 256 MiB of genealogy storage.
+`--graph-filter-particles`, `--graph-filter-seed`, `--graph-filter-speed`,
+`--camera-height-m`, `--vo-workers`, `--graph-filter-target-hz` and
+`--graph-filter-path-budget-mb` expose those settings. An explicit
+`--frame-stride` overrides automatic sampling; video PTS supply timing.
+
+The filter uses an independent whole-city map/cache. To reuse an existing
+whole-city driving GraphML, set `--graph-filter-map-path PATH`. The configured
+path, actual file hash, city/query and declared scope remain in provenance
+and override audits. Scope is a trusted map-database declaration: a file hash
+establishes identity, rather than proving its acquisition history. This mode
+rejects position discs, label inputs, VPR observations and a route-length prior.
+It freezes predictions and source/input hashes before separate scoring.
+Five PF seeds succeeded on one fixed MP4-derived KITTI 0033 trajectory; this
+is not fleet validation. See [the measured evidence](docs/graph_filter_kitti.md).
+
+`--answer poi` / `--poi-only` is a separate **EXPERIMENTAL** component. It
+uses the full analysis window, ordinary automatic stride, generic 70° video
+intrinsics, 24 native OCR samples (minimum text length 2), a public city-wide
+retail inventory and all literal-clue branches. Every branch receives a
+1,000 m neighborhood and up to 500 references; 80 query samples share one
+descriptor cache. Raw appearance, timed distance and bearing scores select
+the component route only after every region succeeds. Missing clues or a
+failed region leave it unanswered, with no fallback method.
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --poi-only --frame-memory-mb 128
+```
+
+`--poi-radius-m` and `--poi-ref-cap` expose the equal experimental budgets.
+`--poi-map-path` supplies a trusted whole-city map; `--poi-inventory-dir`
+selects the shared city-inventory cache. Imagery uses existing VPR source,
+query-mode, batch-size and regional-cache options, on CPU. Union evidence is
+currently unsupported. The profile rejects frame caps, resized pixels,
+super-resolution, external OCR videos/poses, position discs and label inputs.
+Retrieval scopes Torch CPU operator threads to four. OCR requires already
+cached RapidOCR PP-OCRv6 small detector/recognizer and mobile classifier assets;
+it does not download missing weights or silently change engines. It verifies
+CPU-only ONNX Runtime sessions with two operator threads, one inter-op thread
+and recognition/classification batches of four, recording actual providers,
+parameters and weight hashes, including verified warm-cache provenance.
+OCR sampling stays inside the actual decoded VO horizon, so boxes and generic
+intrinsics share native pixels. This horizon can end before the requested
+window or an independently sampled full-video probe. The full-city road grid
+uses fixed 12.5 m per-segment sampling, including endpoints. It freezes
+OCR/VO/map/inventory identities and
+every regional score matrix before separate evaluation. Query GPS stamps are
+filtered; public POI/reference coordinates remain valid inputs.
+
+The normal CLI at source `b48a217` completed KITTI 0009 in 140.33 s with fresh
+native OCR and VO, automatic whole-city OSM construction, and verified copies
+of all five live-pilot reference pools. Independent input audit passed before
+separate scoring: **13.32 m symmetric route error**, 41.07 m start error against
+the registered 12 waypoints. Conservative process-tree native peak sums were
+2.551 GB resident memory and 3.743 GB private commit. This is one development
+clip, with cached reference embeddings; it establishes neither 15-clip accuracy
+nor a fixed assisted-selection policy. Existing default answers remain
+unchanged. See [the experiment details](docs/experiments_2026-10.md).
+
+`--answer assisted` / `--assisted-only` runs the **EXPERIMENTAL** fixed
+`assisted-policy-posthoc-dev-v1` policy. It first measures the ordinary retrieval
+answer. Weak retrieval can request native OCR and motion, then eligible POI or
+metric-filter candidates, followed by expanded geographic retrieval. Isolated
+child runs freeze their requested inputs, sources, score matrices and routes;
+the parent records the complete selection trace. Failed or partial assistance
+preserves a valid baseline. The thresholds are disclosed development heuristics,
+and the similarity cutoff is not a calibrated confidence score.
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --assisted-only --frame-memory-mb 128
+```
+
+Assisted benchmark runs share the benchmark's overall deadline. Optional work
+stops with time reserved for cleanup and publication of an already completed,
+admissible answer. If no candidate qualifies, the run explicitly declines;
+partial child outputs are never promoted. Standalone runs can use
+`--runtime-budget-s 7200`. Budgeted runs reserve 120 seconds for publication and
+10 seconds for cleanup, and skip optional map rendering. Cleanup failures remain
+run failures. These operational safeguards do not establish an accuracy gain.
+
+The first normal assisted CLI proof at clean source `300a82f` ran only the
+baseline child on Ulm 4K. Its route and timestamps exactly reproduce the ordinary
+answer, with **16.37 m symmetric error** after a strict frozen-input audit and
+separate scoring. A complete 15-clip assisted result has not yet been measured.
+See [the policy and proof](docs/experiments_2026-10.md#provisional-assisted-policy).
+
+`--assisted-profile v2` selects a separate experimental policy. With weak
+motion and one to six literal OCR regions, it retrieves every region on the
+same 80 native query frames and decodes one deduplicated image-reference union.
+Every region must have complete, compatible evidence. The original v1 remains
+the assisted default; a complete v2 fleet result has not yet been measured.
+The audited normal night v2 test selected the wrong region (11.09 km error);
+v2 is an experiment, not an accuracy improvement established for deployment.
+A separate [timed text-cue follow-up](docs/recent_methods_2026-10.md#timed-text-cues-completed-negative-test)
+also failed: 711.00 m raw and 681.34 m reference mean, with both joint models
+choosing null and every cue path unchanged from its control.
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --assisted-only --assisted-profile v2 --frame-memory-mb 128
+```
+
+`--assisted-profile v3` preserves v1's earlier stages and original metadata
+admission. If complete metadata retrieval is declined, it tries one full-support
+reference-mean decode across all acquired metadata pools before the municipality
+fallback. Raw-cosine and coordinate-collapse gates remain unchanged; the raw
+decoder output is retained only as a diagnostic. Its Phoenix replay and a fresh,
+independently audited normal-CLI run both reached 27.87 m. A fresh fixed-policy
+fifteen-clip evaluation is running; the last complete result remains 9/15.
+This is an opt-in experiment; v1 remains the assisted default. See
+[the controlled comparison](docs/recent_methods_2026-10.md).
+
+```bash
+python main.py --video drive.mp4 --city "City, Country" --assisted-only --assisted-profile v3 --frame-memory-mb 128
+```
+
+Decoded-frame memory is bounded by `--frame-memory-mb` (default 512 MiB).
+Long clips spill losslessly to temporary storage, which is released on exit.
+`--frame-max-width 1280` optionally reduces resolution while preserving aspect
+ratio. Experimental `--vpr-multi-region` searches distinct named places with
+independent budgets; `--vpr-query-mode crops` or `aspect` tests alternative
+query preprocessing. Their defaults stay off/`warp` until measured.
+`--vpr-city-cover` is an additional opt-in search over a complete municipal
+grid. It retrieves up to `--vpr-city-coarse-cap 250` references per cell and
+densifies up to `--vpr-city-fine-regions 3` visually supported cells, retaining
+the ordinary retrieval candidate. It refuses a municipality requiring more
+than 64 cells instead of silently dropping part of it. This can be expensive;
+geographic coverage does not establish retrieval accuracy.
+Use `--vpr-region-cache-dir` to put additional regional references on a larger
+drive while retaining the original warm caches in `--data-dir`.
+`--vpr-batch-size` bounds reference and query inference batches (default 4).
+Cold benchmark repetitions also isolate the additional regional caches.
+Repeated regional passes reuse the same query descriptors within a run.
+Road-plane estimation also reads grayscale frames lazily and computes the
+static-overlay mask with fixed image storage rather than a full frame stack.
+
+After running and aggregating all development clips, audit the complete target:
+
+```bash
+python scripts/check_dev_goal.py output/benchmark_runs/<run>/summary.json
+```
+
+This requires all 15 registered available development clips, finite answers,
+consistent provenance and the selected answer's symmetric route error within
+200 m. Missing/failed clips cannot disappear from the denominator.
 
 ---
 
@@ -1139,18 +1357,21 @@ literature points the other way: [Brubaker et al. (CVPR 2013)](https://openacces
 localize KITTI to about 3 m from odometry and an OSM map alone, on a smaller
 (18 km²) map. The road-graph particle filter in this repo
 ([`docs/graph_filter_kitti.md`](docs/graph_filter_kitti.md)) reproduces that
-with real odometry (7 m in ~25 s on KITTI 0033, even on the whole city) and shows
+with real odometry (7 m in ~25–31 s on KITTI 0033, including the whole city) and shows
 where the gap actually is: this repo's monocular VO has **no speed** (unit-length
 steps) and its heading drifts 8-14° per minute, so the *odometry*, not the map
 matching, is the bottleneck. Giving the VO steps a metric length from the road
 plane and an assumed camera height ([`monocular_osm/plane_speed.py`](monocular_osm/plane_speed.py))
-closes most of that gap on KITTI 0033: the filter then localizes it on the
-whole Karlsruhe map in 5 of 5 seeds (final ~10 m, smoothed route within 1 m),
-with no GPS and no image retrieval, where the pipeline is 7.1 km off. The
-caveats are as large as the result: it locks on only near the end of the drive,
-it fails if the assumed height is 20 % too low (1 of 5), its confidence is not
-calibrated, the 46 s drive 0009 still fails, and one drive is not a benchmark
-result. It is available as the opt-in `--graph-filter` channel. A follow-up
+closes most of that gap in research using calibrated raw images and OXTS frame
+intervals: KITTI 0033 localizes on the whole city in 5 of 5 seeds, with final
+error around 10 m. A separate MP4-only test used generic 70° intrinsics and
+video timing: all five PF seeds localized at 76.5–79.5 s, with final mode error
+13.38 ± 0.13 m and smoothed-route symmetric error 5.02 ± 0.24 m. The normal
+`--answer filter` entry point reproduced seed 0 bit-for-bit. Early online
+modes remain wrong (whole-run error 4.36 ± 0.63 km), confidence is uncalibrated,
+and one fixed VO trajectory is not a fleet benchmark. The short 0009 drive
+still fails the historical city-map tests. The companion `--graph-filter`
+channel retains its original role beside the normal answer. A follow-up
 on the exact v2 data ([`docs/experiments_2026-10.md`](docs/experiments_2026-10.md))
 locates the other failures: on three of the four failing core clips the
 retrieval search disc did not contain the route at all (bad seeds from the

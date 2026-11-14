@@ -32,9 +32,12 @@ time order)::
     frechet_m           discrete Fréchet distance (order-aware: a route
                         driven the wrong way round scores badly)
 
-Hausdorff and Fréchet are computed on both curves segmentized to at most
-``densify_m`` (default 10 m) between vertices, so their discretisation
-error is bounded by ~``densify_m``.
+Hausdorff uses curves segmentized to at most ``densify_m`` (default 10 m)
+between vertices. Fréchet uses those curves with an additional 1,500-vertex
+arc-length cap per curve. Its discrete dynamic program is exact on the
+retained vertices; the cap coarsens long curves, so their Fréchet diagnostic
+does not have a uniform 10 m discretisation bound. The cap never changes
+the primary errors, route lengths, success flags or Hausdorff distance.
 
 **Single-point predictions** (baselines such as the city centroid or the
 VPR retrieval centre) are scored as a *degenerate route*: a route of
@@ -65,18 +68,15 @@ from pyproj import CRS, Transformer
 from shapely.geometry import LineString, Point
 
 #: Success thresholds (metres) reported for start and symmetric-mean error.
-THRESHOLDS_M: tuple[int, ...] = (25, 50, 100, 250, 500, 1000)
+THRESHOLDS_M: tuple[int, ...] = (25, 50, 100, 200, 250, 500, 1000)
 
 #: Resampling step (metres) for pred->GT and the curve distances.
 DENSIFY_M: float = 10.0
-# GEOS' discrete Fréchet distance recurses to a depth of about n + m vertices
-# and takes the whole interpreter down (a native stack overflow, no exception)
-# once a curve has roughly 3,000-4,000 vertices alongside a ~1,200-vertex
-# partner - i.e. a predicted route of 40+ km at the 10 m densification. An
-# erratic track (a particle-filter mode, a runaway VO) easily gets there.
-# Each curve is therefore resampled by arc length to at most this many
-# vertices FOR THE FRÉCHET ONLY; routes up to 15 km at 10 m are untouched
-# (bit-identical), longer ones lose at most half the new spacing.
+# Retain the historical Fréchet-only arc-length cap. The iterative recurrence
+# below visits at most 1500**2 cells and stores only two rows. Native GEOS
+# Fréchet exhibited minute-long calls on real capped retrieval tracks and
+# previously overflowed the native stack on uncapped ones. No primary metric
+# uses this cap; sampling below the cap remains unchanged.
 FRECHET_MAX_VERTICES: int = 1500
 
 #: Metrics that get success flags, in report order.
@@ -148,6 +148,33 @@ def _segmentized(geom, step_m: float):
     if isinstance(geom, Point):
         return geom
     return shapely.segmentize(geom, step_m)
+
+
+def _discrete_frechet_distance(a: np.ndarray, b: np.ndarray) -> float:
+    """Exact discrete Fréchet recurrence, without native recursion.
+
+    Inputs are nonempty finite metric coordinate arrays. The caller applies
+    the fixed vertex cap first: runtime is O(n*m), working space O(min(n,m)),
+    independent of path shape or recursive/cache behavior in GEOS.
+    """
+    if len(a) < len(b):
+        a, b = b, a
+    previous = np.maximum.accumulate(np.hypot(*(b - a[0]).T)).tolist()
+    for point in a[1:]:
+        current = np.hypot(*(b - point).T).tolist()
+        current[0] = max(current[0], previous[0])
+        for j in range(1, len(b)):
+            current[j] = max(current[j], min(previous[j], previous[j - 1], current[j - 1]))
+        previous = current
+    return float(previous[-1])
+
+
+def _bounded_frechet_distance(a, b) -> float:
+    """Fréchet diagnostic with the existing per-curve sampling budget."""
+    return _discrete_frechet_distance(
+        shapely.get_coordinates(_cap_vertices(a)),
+        shapely.get_coordinates(_cap_vertices(b)),
+    )
 
 
 @dataclass
@@ -225,7 +252,7 @@ def score_route(
     pred_d = _segmentized(pred_geom, densify_m)
     gt_d = _segmentized(gt_geom, densify_m)
     hausdorff = float(shapely.hausdorff_distance(pred_d, gt_d))
-    frechet = float(shapely.frechet_distance(_cap_vertices(pred_d), _cap_vertices(gt_d)))
+    frechet = _bounded_frechet_distance(pred_d, gt_d)
 
     g2p_mean = float(g2p.mean())
     p2g_mean = float(p2g.mean())

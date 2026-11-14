@@ -1,0 +1,110 @@
+{
+  "video_id": "HpBfjRA60ws",
+  "video_url": "https://www.youtube.com/watch?v=HpBfjRA60ws",
+  "city": "Paris, France",
+  "vo_segment": "0:595",
+  "description": "Rush-hour crossing of Paris on the A1, A3 and the Peripherique. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 117 OCR fixes over 0-595 s (14.85 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 49.030502,
+      "lon": 2.53881
+    },
+    {
+      "t_sec": 45.0,
+      "lat": 49.01918,
+      "lon": 2.533068
+    },
+    {
+      "t_sec": 75.0,
+      "lat": 49.011467,
+      "lon": 2.529168
+    },
+    {
+      "t_sec": 105.0,
+      "lat": 49.003525,
+      "lon": 2.524643
+    },
+    {
+      "t_sec": 135.0,
+      "lat": 48.997402,
+      "lon": 2.518595
+    },
+    {
+      "t_sec": 170.0,
+      "lat": 48.990772,
+      "lon": 2.511223
+    },
+    {
+      "t_sec": 200.0,
+      "lat": 48.985855,
+      "lon": 2.503955
+    },
+    {
+      "t_sec": 230.0,
+      "lat": 48.980606,
+      "lon": 2.497595
+    },
+    {
+      "t_sec": 260.0,
+      "lat": 48.975716,
+      "lon": 2.49035
+    },
+    {
+      "t_sec": 290.0,
+      "lat": 48.970547,
+      "lon": 2.482563
+    },
+    {
+      "t_sec": 320.0,
+      "lat": 48.965626,
+      "lon": 2.474818
+    },
+    {
+      "t_sec": 350.0,
+      "lat": 48.958546,
+      "lon": 2.473153
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 48.950985,
+      "lon": 2.47435
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 48.943497,
+      "lon": 2.477632
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 48.936394,
+      "lon": 2.480265
+    },
+    {
+      "t_sec": 475.0,
+      "lat": 48.927734,
+      "lon": 2.4814
+    },
+    {
+      "t_sec": 505.0,
+      "lat": 48.921143,
+      "lon": 2.479615
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 48.91608,
+      "lon": 2.477852
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 48.914406,
+      "lon": 2.4773
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 48.912247,
+      "lon": 2.476295
+    }
+  ]
+}

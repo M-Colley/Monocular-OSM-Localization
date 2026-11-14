@@ -29,7 +29,14 @@ class PipelineConfig:
     # None = no cap; the [vo_start_sec, vo_end_sec] segment bounds the
     # frame count. A fixed cap silently truncates longer segments.
     max_frames: int | None = None
-    frame_stride: int = 6
+    # None resolves to the historical stride 6, or measured ~10 Hz video
+    # sampling for the opt-in filter answer after acquiring the video.
+    frame_stride: int | None = None
+    frame_memory_mb: float = 512.0
+    frame_max_width: int | None = None
+    # Skip geometry when retrieval produced a track; without a track the full
+    # pipeline remains the fallback. The track is checkpointed in either mode.
+    retrieval_only: bool = False
     vo_start_sec: float = 0.0
     vo_end_sec: float | None = 300.0
     # How many matcher candidates the fusion channels see. 10 matches the CLI
@@ -42,12 +49,22 @@ class PipelineConfig:
     # a runtime/recall trade-off to measure (scripts/diagnose_pool_recall.py).
     walks_per_node: int = 40
     # Opt-in road-graph particle filter (monocular_osm/graph_filter.py): runs on
-    # the VO and stores its route in result["filter_position"], never as the
-    # headline. Needs metric odometry to work (see stages/graph_filter.py).
+    # the VO and stores its route in result["filter_position"]. The explicit
+    # answer='filter' mode selects it and skips retrieval/matching.
     graph_filter: bool = False
-    graph_filter_particles: int = 200_000
+    graph_filter_particles: int | None = None
     graph_filter_seed: int = 0
     graph_filter_vpr: bool = False     # also feed VPR positions as observations
+    graph_filter_map_path: Path | None = None
+    # MiB requested by the user; None preserves the companion channel's
+    # existing budget, and resolves to 256 MiB for the filter-only answer.
+    graph_filter_path_budget_mb: float | None = None
+    graph_filter_target_hz: float = 10.0
+    # Explicit experimental component; the normal retrieval answer is unchanged.
+    poi_radius_m: float = 1000.0
+    poi_ref_cap: int = 500
+    poi_map_path: Path | None = None
+    poi_inventory_dir: Path | None = None
     # Step lengths for the filter: "plane" = metric, from the road-plane
     # homography and an assumed camera height (monocular_osm/plane_speed.py);
     # "unit" = the VO's unit steps (no speed).
@@ -182,6 +199,8 @@ class PipelineConfig:
     # cache kept 2) — raise it to densify retrieval-bound starts. Higher cap =
     # more downloads + a longer embed pass on a cold cache.
     vpr_ref_cap: int = 1500
+    vpr_query_mode: str = "warp"
+    vpr_query_batch_size: int = 4
     # VPR reference source: "kartaview" (open, tokenless) or "mapillary" (much
     # denser — needs a free MLY_TOKEN env var; validated 3-31 m to route on all
     # GT clips, incl. the ones KartaView could not cover). See mapillary VPR.
@@ -200,6 +219,54 @@ class PipelineConfig:
     # vpr_two_pass_scale below (a SCALE arbitration at matching time).
     vpr_coarse_to_fine: bool = True
     vpr_c2f_radius_m: float = 2000.0
+    # Seed ring: a video-named / plate seed is trusted to 6-20 km, but pass 1
+    # searches only vpr_search_radius_m (3 km) around it, so a drive in the
+    # seed disc's outer part is never searched (Atlanta kxED: 0 % of the route
+    # inside 3 km, 100 % inside 8 km). When on, pass 1 ALSO searches a sparse
+    # ring out to the seed radius (capped like the city-extent disc: 8 km,
+    # 1,200 refs with a token), leaving the dense 3 km core set unchanged.
+    vpr_seed_ring: bool = False
+    # Experimental independent searches around places named by the uploader.
+    # Off until measured: a wide city's references must not dilute each region.
+    vpr_multi_region: bool = False
+    vpr_region_cap: int = 6
+    vpr_region_cache_dir: Path | None = None
+    vpr_city_cover: bool = False
+    vpr_city_coarse_cap: int = 250
+    vpr_city_fine_regions: int = 3
+    vpr_city_cell_selector: str = "decoded"
+    # Metro ring (opt-in): when the track's confidence is below the
+    # pre-registered selective tau, also search the city's surroundings, out to
+    # this radius around its geocode, with the municipality search's cell
+    # hierarchy (stages/prior.py _metro_ring_vpr). Held-out misses were mostly
+    # drives outside the 8 km pass-1 disc (docs/failure_taxonomy_2026-11.md).
+    vpr_metro_ring: bool = False
+    vpr_metro_radius_m: float = 20000.0
+    video_title: str | None = None
+    video_description: str | None = None
+    # The route the method answers with, written to result["answer"]
+    # (result["position"] always stays the trajectory fit): "fit"; "track",
+    # the retrieval track itself (running median of 5), or the fit when no
+    # track exists; "checked", the fit unless it lies over 250 m (median) from
+    # the track, then the track. Chosen by the pre-registered answer_selection
+    # rule (benchmarks/preregistered_rules.json), which selected "track" on the
+    # dev clips of run v6 (9 of 15 within 200 m; the fit 6, checked 8).
+    answer: str = "track"
+    # Explicitly versioned experimental assisted policy; ordinary answer is unchanged.
+    assisted_profile: str = "v1"
+    # CPU threads each assisted visual child gives torch and the BLAS/OpenMP
+    # pools. 4 is what every assisted result so far ran with. More threads
+    # give the same descriptors (MegaLoc on 48 real references: max abs
+    # difference 8.7e-7, identical top-5 neighbours) faster: 0.75 s/image at
+    # 4, 0.59 at 8, 0.49 at 12, 0.42 at 16 on a 20-core CPU, so more search
+    # stages finish inside a fixed wall budget.
+    assisted_cpu_threads: int = 4
+    # Shared wall budget; None inherits the benchmark deadline, if supplied.
+    runtime_budget_s: float | None = None
+    # Internal absolute bound captured by CLI before metadata/setup work.
+    runtime_deadline_monotonic_s: float | None = None
+    runtime_finalization_reserve_s: float = 120.0
+    runtime_cleanup_reserve_s: float = 10.0
     # Experimental: score candidates against the per-frame VPR track (sequence-
     # median distance at matched arc fractions) instead of the centroid-only
     # distance. Untested on GT — off by default.
@@ -306,6 +373,106 @@ class PipelineConfig:
     # When set, use this local video file directly: no download, `url` is
     # informational only (recorded in the result JSON).
     video_path: Path | None = None
+
+    def __post_init__(self):
+        import math
+        from .runtime_budget import positive
+        for name in ("runtime_finalization_reserve_s", "runtime_cleanup_reserve_s"):
+            positive(getattr(self, name), name)
+        if self.runtime_budget_s is not None:
+            positive(self.runtime_budget_s, "runtime_budget_s")
+        if self.runtime_deadline_monotonic_s is not None:
+            positive(self.runtime_deadline_monotonic_s, "runtime_deadline_monotonic_s")
+        if not math.isfinite(self.frame_memory_mb) or self.frame_memory_mb <= 0:
+            raise ValueError("frame_memory_mb must be positive and finite")
+        if self.frame_max_width is not None and self.frame_max_width <= 0:
+            raise ValueError("frame_max_width must be positive")
+        if self.answer not in {"track", "fit", "checked", "filter", "poi", "assisted"}:
+            raise ValueError("answer must be track, fit, checked, filter, poi or assisted")
+        filter_only = self.answer == "filter"
+        poi_only = self.answer == "poi"
+        assisted = self.answer == "assisted"
+        if self.assisted_profile not in {"v1", "v2", "v3", "v4"}:
+            raise ValueError("assisted_profile must be v1, v2, v3 or v4")
+        if (isinstance(self.assisted_cpu_threads, bool) or not isinstance(self.assisted_cpu_threads, int)
+                or not 1 <= self.assisted_cpu_threads <= 64):
+            raise ValueError("assisted_cpu_threads must be an integer from 1 to 64")
+        if self.frame_stride is None and not (filter_only or poi_only or assisted):
+            self.frame_stride = 6
+        if self.frame_stride is not None and self.frame_stride <= 0:
+            raise ValueError("frame_stride must be positive")
+        if self.graph_filter_particles is None:
+            self.graph_filter_particles = 600_000 if filter_only else 200_000
+        if self.graph_filter_particles <= 0:
+            raise ValueError("graph_filter_particles must be positive")
+        if not math.isfinite(self.graph_filter_target_hz) or self.graph_filter_target_hz <= 0:
+            raise ValueError("graph_filter_target_hz must be positive and finite")
+        if filter_only:
+            self.graph_filter = True
+            if self.vo_workers is None:
+                self.vo_workers = 2
+            if self.graph_filter_path_budget_mb is None:
+                self.graph_filter_path_budget_mb = 256.0
+            if (self.osm_around is not None or self.estimated_length_m is not None
+                    or self.ground_truth_waypoints is not None
+                    or self.ground_truth_streets or self.graph_filter_vpr):
+                raise ValueError("filter answer requires city-only inputs and no position observations; score separately")
+            if self.use_ground_flow_scale:
+                raise ValueError("filter answer uses fresh visual odometry with road-plane speed")
+        if self.graph_filter_path_budget_mb is not None and (
+                not math.isfinite(self.graph_filter_path_budget_mb) or self.graph_filter_path_budget_mb <= 0):
+            raise ValueError("graph_filter_path_budget_mb must be positive and finite")
+        if isinstance(self.poi_radius_m, bool) or not math.isfinite(self.poi_radius_m) or self.poi_radius_m <= 0:
+            raise ValueError("poi_radius_m must be positive and finite")
+        if isinstance(self.poi_ref_cap, bool) or not isinstance(self.poi_ref_cap, int) or self.poi_ref_cap <= 0:
+            raise ValueError("poi_ref_cap must be a positive integer")
+        if poi_only:
+            if self.vo_workers is None:
+                self.vo_workers = 2
+            if self.max_frames is not None:
+                raise ValueError("POI answer requires the full registered window: max_frames must be None")
+            if self.frame_max_width is not None or self.use_ocr_super_res or self.ocr_video_path is not None:
+                raise ValueError("POI answer requires native pixels and OCR from the same unresized video")
+            if (self.osm_around is not None or self.estimated_length_m is not None
+                    or self.ground_truth_waypoints is not None or self.ground_truth_streets
+                    or self.openvo_trajectory_path is not None or self.vggt_long_trajectory_path is not None
+                    or self.use_da3_trajectory or self.use_ground_flow_scale
+                    or self.graph_filter or self.graph_filter_vpr or self.graph_filter_map_path is not None):
+                raise ValueError("POI answer rejects external priors, trajectories and incompatible component overrides")
+            if self.vpr_source not in {"mapillary", "kartaview", "panoramax"}:
+                raise ValueError("POI evidence currently requires one supported reference source, not union")
+            if self.ocr_engine != "rapidocr":
+                raise ValueError("POI OCR requires the explicit cached RapidOCR CPU runtime; engine fallback is disabled")
+        if assisted:
+            if self.max_frames is not None or self.frame_max_width is not None:
+                raise ValueError("assisted answer requires the full registered native video window")
+            if (self.ground_truth_waypoints is not None or self.ground_truth_streets
+                    or self.openvo_trajectory_path is not None or self.vggt_long_trajectory_path is not None
+                    or self.use_da3_trajectory or self.ocr_video_path is not None or self.use_ocr_super_res
+                    or self.use_ground_flow_scale or self.use_ipm_scale or self.estimated_length_m is not None
+                    or self.graph_filter or self.graph_filter_vpr or self.graph_filter_map_path is not None
+                    or (self.osm_around is not None and self.osm_around_source != "video_title")):
+                raise ValueError("assisted answer rejects external priors, label inputs and incompatible component overrides")
+            if self.vpr_query_mode != "warp" or self.ocr_engine != "rapidocr":
+                raise ValueError("assisted profile requires registered MegaLoc warp comparison and cached RapidOCR")
+            if self.vpr_source not in {"mapillary", "kartaview", "panoramax"}:
+                raise ValueError("assisted profile currently requires a single supported reference source")
+            if self.poi_radius_m != 1000. or self.poi_ref_cap != 500 or self.camera_height_m != 1.5:
+                raise ValueError("assisted component budgets and camera height are fixed by the experimental profile")
+        if self.vpr_query_mode not in {"warp", "crops", "aspect"}:
+            raise ValueError("vpr_query_mode must be warp, crops or aspect")
+        if self.vpr_query_batch_size <= 0:
+            raise ValueError("vpr_query_batch_size must be positive")
+        if self.vpr_region_cap <= 0:
+            raise ValueError("vpr_region_cap must be positive")
+        if self.vpr_city_coarse_cap <= 0 or self.vpr_city_fine_regions <= 0:
+            raise ValueError("city retrieval budgets must be positive")
+        if type(self.vpr_city_cell_selector) is not str or self.vpr_city_cell_selector not in ("decoded", "raw-votes"):
+            raise ValueError("vpr_city_cell_selector must be 'decoded' or 'raw-votes'")
+        if not math.isfinite(self.vpr_metro_radius_m) or self.vpr_metro_radius_m <= 0:
+            raise ValueError("vpr_metro_radius_m must be finite and positive")
+        if self.retrieval_only and self.answer != "track":
+            raise ValueError("retrieval_only requires answer='track'")
 
 
 # Names that moved into monocular_osm/stages/ stay importable from here.
@@ -456,28 +623,120 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     produced and extends it. An optional channel that fails or finds nothing
     records that in ``result["channels"]`` instead of raising.
     """
+    # Start before acquisition/setup; the benchmark's absolute deadline also
+    # includes interpreter/CLI startup and cannot be reset by a later child.
+    from .runtime_budget import RuntimeBudget
+    budget = RuntimeBudget.from_config(cfg) if cfg.answer == "assisted" else None
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     ctx = RunContext.create(cfg)
+    ctx.runtime_budget = budget
+    try:
+        return _run_pipeline_stages(ctx)
+    finally:
+        if ctx.frames is not None:
+            ctx.frames.close()
+
+
+def _run_filter_only(ctx: RunContext) -> dict:
+    from .stages.filter_only import run_filter_only
+
+    return run_filter_only(ctx, extract=extract_video_frames, run_vo=run_visual_odometry,
+                           run_filter=graph_filter_channel, finalize=finalize_result)
+
+
+def _run_poi_only(ctx: RunContext) -> dict:
+    from .stages.poi_only import run_poi_only
+
+    return run_poi_only(ctx, extract=extract_video_frames, run_vo=run_visual_odometry,
+                        finalize=finalize_result)
+
+
+def _run_assisted(ctx: RunContext) -> dict:
+    from .stages.assisted import run_assisted
+
+    def finalize(parent):
+        # Optional plotting must never consume a reserved publication interval.
+        finalize_result(parent, render_answer=getattr(parent, "runtime_budget", None) is None)
+    return run_assisted(ctx, finalize=finalize)
+
+
+def _run_pipeline_stages(ctx: RunContext) -> dict:
+    cfg = ctx.cfg
 
     # 1-2. The video and its frames.
     acquire_video(ctx)
-    extract_video_frames(ctx)
+    if cfg.answer == "filter":
+        return _run_filter_only(ctx)
+    if cfg.answer == "poi":
+        return _run_poi_only(ctx)
+    if cfg.answer == "assisted":
+        return _run_assisted(ctx)
+    query_only = (cfg.retrieval_only and cfg.answer == "track" and cfg.use_vpr_prior
+                  and not cfg.use_ipm_scale)
+    if query_only:
+        extract_video_frames(ctx, query_only=True)
+    else:
+        extract_video_frames(ctx)
 
     # 2b-2c. Route-length prior for OSM walk enumeration (and the opt-in
     # ground-plane flow measurement of it).
     estimate_length_prior(ctx)
     estimate_flow_scale(ctx)
 
-    # 3. Visual odometry (cached to disk).
-    run_visual_odometry(ctx)
-
     # 4a. Absolute coarse priors that locate the clip independently of shape:
     # frame seed, blind VPR (+ coarse-to-fine), plate district, VLM fallback.
     coarse_seed_from_frames(ctx)
     vpr_coarse_prior(ctx)
+
+    # A usable retrieval track is independent of the geometry stages. Save it
+    # before any expensive/fallible VO, Overpass or matching work so a later
+    # infrastructure failure cannot discard the selected answer.
+    has_track = ctx.vpr_track is not None and len(ctx.vpr_track[0]) > 0
+    if has_track and cfg.answer == "track":
+        ctx.result.setdefault("city", cfg.city)
+        ctx.result["execution"] = {"stage": "retrieval", "geometry": "pending"}
+        finalize_result(ctx)
+
+    if not has_track and getattr(ctx, "require_retrieval_track", False):
+        _record_channel(ctx.channel_status, "vpr", "inactive", reason="expanded_search_produced_no_track")
+        ctx.result["execution"] = {"stage": "complete", "geometry": "skipped"}
+        finalize_result(ctx)
+        return ctx.result
+
+    if not has_track and (getattr(ctx.frames, "sampling", None) or {}).get("mode") == "linspace":
+        # Sparse query frames have large inter-frame baselines and cannot feed
+        # ordinary VO. Release them before acquiring the original dense grid.
+        ctx.frames.close()
+        ctx.frames = None
+        extract_video_frames(ctx)
+
+    # Save retrieval before optional model work, while retaining explicitly
+    # enabled plate/VLM diagnostics in both the fast and full paths.
     plate_district_prior(ctx)
     vlm_district_prior(ctx)
+    if has_track and cfg.answer == "track" and cfg.retrieval_only:
+        ctx.result["execution"] = {"stage": "complete", "geometry": "skipped"}
+        finalize_result(ctx)
+        return ctx.result
+
+    try:
+        return _run_geometry_stages(ctx)
+    except Exception as exc:
+        if not (has_track and cfg.answer == "track"):
+            raise
+        _record_channel(ctx.channel_status, "geometry", "failed", error=exc)
+        ctx.result["execution"] = {"stage": "complete", "geometry": "failed",
+                                    "error": f"{type(exc).__name__}: {exc}"}
+        print(f"      -> geometry failed ({exc}); preserving retrieval answer")
+        finalize_result(ctx)
+        return ctx.result
+
+
+def _run_geometry_stages(ctx: RunContext) -> dict:
+    cfg = ctx.cfg
+    # 3. Visual odometry (cached to disk), after retrieval is checkpointed.
+    run_visual_odometry(ctx)
 
     # 4. The OSM road graph, then the optional sun heading.
     load_road_graph(ctx)
@@ -518,5 +777,6 @@ def run_pipeline(cfg: PipelineConfig) -> dict:
     final_position(ctx)
 
     # Diagnostics, channel summary, provenance, result.json.
+    ctx.result["execution"] = {"stage": "complete", "geometry": "complete"}
     finalize_result(ctx)
     return ctx.result

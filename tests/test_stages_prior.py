@@ -102,7 +102,10 @@ def _vpr_ctx(tmp_path, monkeypatch, tracks, **kw) -> tuple[RunContext, list]:
 
     def fake_track(frames, center, radius_m=3000.0, **k):
         calls.append({"center": center, "radius_m": radius_m, "cap": k.get("cap"),
-                      "source": k.get("source")})
+                      "source": k.get("source"), "outer": k.get("outer_radius_m"),
+                      "outer_cap": k.get("outer_cap"), "query_mode": k.get("query_mode"),
+                      "query_batch_size": k.get("query_batch_size"),
+                      "query_cache": k.get("query_cache")})
         return next(it)
 
     monkeypatch.setattr(kv, "kartaview_vpr_track", fake_track)
@@ -151,6 +154,73 @@ def test_vpr_can_be_disabled(tmp_path, monkeypatch):
     assert calls == [] and ctx.vpr_center is None and ctx.channel_status == {}
 
 
+def test_query_cache_is_owned_by_one_video_stage_not_a_process_global(tmp_path, monkeypatch):
+    first, first_calls = _vpr_ctx(tmp_path, monkeypatch, [_track()])
+    prior.vpr_coarse_prior(first)
+    second, second_calls = _vpr_ctx(tmp_path, monkeypatch, [_track()])
+    prior.vpr_coarse_prior(second)
+    assert isinstance(first_calls[0]["query_cache"], dict)
+    assert first_calls[0]["query_cache"] is not second_calls[0]["query_cache"]
+
+
+def test_multi_region_uses_dense_budgets_and_preserves_the_selected_regional_track(
+        tmp_path, monkeypatch):
+    from monocular_osm import location_prior
+
+    other = (CENTRE[0] + 0.03, CENTRE[1])
+    monkeypatch.setattr(location_prior, "resolve_retrieval_regions", lambda *a, **k: [
+        {"name": "seed", "center": list(CENTRE), "radius_m": 3000, "origin": "seed"},
+        {"name": "neighbour", "center": list(other), "radius_m": 3000, "origin": "video_named"},
+    ])
+    weak = (_track()[0], _track()[1], np.full(20, 0.1))
+    strong = (_track()[0], _track(centre=other)[1], np.full(20, 0.3))
+    ctx, calls = _vpr_ctx(
+        tmp_path, monkeypatch, [weak, strong], vpr_multi_region=True,
+        vpr_query_mode="crops", vpr_query_batch_size=2,
+        osm_around=(CENTRE[0], CENTRE[1], 6000.0))
+    prior.vpr_coarse_prior(ctx)
+    assert len(calls) == 2                         # no single-centre pass-2 overwrite
+    assert all(c["cap"] == ctx.cfg.vpr_ref_cap and c["outer"] is None for c in calls)
+    assert all(c["query_mode"] == "crops" for c in calls)
+    assert all(c["query_batch_size"] == 2 for c in calls)
+    assert calls[0]["query_cache"] is calls[1]["query_cache"]
+    np.testing.assert_array_equal(ctx.vpr_track[1], strong[1])
+    assert ctx.result["multi_region_retrieval"]["region_frame_counts"] == [0, 20]
+    assert ctx.vpr_center == pytest.approx(other, abs=0.003)
+
+
+def test_external_region_cache_is_isolated_per_submission_and_keeps_baseline_local(
+        tmp_path, monkeypatch):
+    from monocular_osm import location_prior
+
+    regions = [
+        {"name": "seed", "center": list(CENTRE), "radius_m": 3000, "origin": "seed"},
+        {"name": "neighbour", "center": [CENTRE[0] + 0.03, CENTRE[1]],
+         "radius_m": 3000, "origin": "video_named"},
+    ]
+    monkeypatch.setattr(location_prior, "resolve_retrieval_regions", lambda *a, **k: regions.copy())
+    ctx = _ctx(tmp_path, vpr_region_cache_dir=tmp_path / "large_drive")
+    paths = []
+
+    def track(*a, **kwargs):
+        paths.append(Path(kwargs["cache_dir"]))
+        return _track()
+
+    prior._multi_region_vpr(ctx.cfg, ctx.frames, CENTRE, 3000, 1500,
+                            "mapillary", None, "cpu", 1, track)
+    assert paths[0] == ctx.cfg.data_dir / "mapillary"
+    assert paths[1].parent == tmp_path / "large_drive" / ctx.cfg.data_dir.name
+    assert paths[1].name.startswith("mapillary_region_")
+    first_extra = paths[1]
+    ctx.cfg.data_dir = tmp_path / "different_submission"
+    prior._multi_region_vpr(ctx.cfg, ctx.frames, CENTRE, 3000, 1500,
+                            "mapillary", None, "cpu", 1, track)
+    assert paths[3].name == first_extra.name
+    assert paths[3].parent != first_extra.parent
+    paths[3].mkdir(parents=True)
+    assert list(prior._regional_cache_directories(ctx.cfg, "mapillary")) == [paths[3]]
+
+
 def test_coarse_to_fine_recentres_the_graph_on_the_refined_prior(tmp_path, monkeypatch):
     """A wide pass-1 disc is re-fetched tight around its own centre; the OSM
     graph disc follows the kept centre."""
@@ -158,9 +228,11 @@ def test_coarse_to_fine_recentres_the_graph_on_the_refined_prior(tmp_path, monke
     ctx, calls = _vpr_ctx(
         tmp_path, monkeypatch, [_track(), _track(centre=pass2_centre)],
         osm_around=(CENTRE[0], CENTRE[1], 5000.0), vpr_search_radius_m=5000.0,
-        vpr_coarse_to_fine=True, vpr_c2f_radius_m=1500.0)
+        vpr_coarse_to_fine=True, vpr_c2f_radius_m=1500.0, vpr_query_batch_size=3)
     prior.vpr_coarse_prior(ctx)
     assert len(calls) == 2 and calls[1]["radius_m"] == 1500.0
+    assert all(c["query_batch_size"] == 3 for c in calls)
+    assert calls[0]["query_cache"] is calls[1]["query_cache"]
     assert ctx.c2f_info["kept"] == "pass-2"
     assert ctx.vpr_center == pytest.approx(pass2_centre, abs=0.003)
     la, lo, rad = ctx.osm_around
@@ -177,6 +249,33 @@ def test_coarse_to_fine_keeps_pass_one_when_pass_two_matches_worse(tmp_path, mon
     prior.vpr_coarse_prior(ctx)
     assert ctx.c2f_info["kept"].startswith("pass-1")
     assert float(np.median(ctx.vpr_track[2])) == pytest.approx(0.7)
+
+
+@pytest.mark.parametrize("seed_r, outer", [(6000.0, 6000.0), (20000.0, prior._PASS1_COVER_MAX_M)])
+def test_seed_ring_searches_the_seed_disc_beyond_the_dense_core(tmp_path, monkeypatch,
+                                                                seed_r, outer):
+    """A 6-20 km seed is searched out to its radius (capped like the city-extent
+    disc) by a sparse ring; the 3 km core and pass 2 are unchanged."""
+    ctx, calls = _vpr_ctx(
+        tmp_path, monkeypatch, [_track(), _track()],
+        osm_around=(CENTRE[0], CENTRE[1], seed_r), vpr_seed_ring=True,
+        vpr_coarse_to_fine=True)
+    prior.vpr_coarse_prior(ctx)
+    assert calls[0]["radius_m"] == 3000.0 and calls[0]["cap"] == 1500
+    assert calls[0]["outer"] == outer
+    assert calls[0]["outer_cap"] == prior._PASS1_COVER_CAP     # tokenless source
+    assert calls[1]["outer"] is None                          # pass 2: tight disc only
+
+
+@pytest.mark.parametrize("kw", [dict(vpr_seed_ring=False),                     # off by default
+                                dict(vpr_seed_ring=True, seed_r=900.0)])       # seed inside the core
+def test_seed_ring_only_when_asked_and_the_seed_is_wider(tmp_path, monkeypatch, kw):
+    seed_r = kw.pop("seed_r", 6000.0)
+    ctx, calls = _vpr_ctx(tmp_path, monkeypatch, [_track(), _track()],
+                          osm_around=(CENTRE[0], CENTRE[1], seed_r),
+                          vpr_coarse_to_fine=True, **kw)
+    prior.vpr_coarse_prior(ctx)
+    assert all(c["outer"] is None for c in calls)
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +367,7 @@ def test_vlm_prior_without_a_geocodable_place_changes_nothing(tmp_path, monkeypa
 
 
 def test_retrieval_runs_on_cpu_when_gpu_memory_is_short(monkeypatch) -> None:
-    import torch
+    torch = pytest.importorskip("torch")
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "mem_get_info", lambda *a: (2e9, 24e9))

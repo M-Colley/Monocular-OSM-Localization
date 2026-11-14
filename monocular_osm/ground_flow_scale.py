@@ -48,9 +48,11 @@ from pathlib import Path
 import numpy as np
 
 from .speed_scale import image_to_ground
+from .ipm import _rotation_pitch_roll
 
-# Seeding band: a generous superset of "road plane between ~5 and ~30 m",
-# valid for any pitch in 0-8 deg. Metric filtering happens after projection.
+# Legacy seeding band, preserved by default. It can miss the metric depth
+# interval at some allowed pitches; road_seed_top_row is an explicit opt-in
+# coverage envelope. Metric filtering still happens after projection.
 _ROI_TOP, _ROI_BOT = 0.55, 0.97
 _ROI_LEFT, _ROI_RIGHT = 0.10, 0.90
 
@@ -99,6 +101,50 @@ class PlaneCalibration:
     sharpness: float       # how well-defined the horizon minimum was, 0..1
 
 
+def road_seed_top_row(
+    K: np.ndarray,
+    size: tuple[int, int],
+    *,
+    camera_height_m: float = 1.4,
+    far_m: float = 20.0,
+) -> int:
+    """Opt-in seed envelope: integer top row, unioned with the legacy band.
+
+    Project the far road point using the SAME vehicle-to-camera pitch rotation
+    as the ground model. The most upward projection uses the calibration's
+    existing lower horizon search bound, ``0.37 * image_height``. Taking its
+    floor conservatively includes that point; taking the minimum with the
+    legacy top can only widen the band. Clipping at row0 covers visible pixels.
+
+    ``size`` is (width, height). A caller can explicitly pass ``row / height``
+    as ``roi_top_frac`` to the tracker. No tracking default or quality gate is
+    changed; coverage does not establish a valid plane or metric calibration.
+    """
+    if (not isinstance(size, (tuple, list)) or len(size) != 2
+            or any(isinstance(v, (bool, np.bool_)) or not isinstance(v, (int, np.integer))
+                   or v <= 0 for v in size)):
+        raise ValueError("size must contain positive integer width and height")
+    for value in (camera_height_m, far_m):
+        if (isinstance(value, (bool, np.bool_))
+                or not isinstance(value, (int, float, np.integer, np.floating))
+                or not np.isfinite(value) or value <= 0):
+            raise ValueError("camera height and far depth must be finite and positive")
+    matrix = np.asarray(K, dtype=np.float64)
+    if (matrix.shape != (3, 3) or not np.isfinite(matrix).all()
+            or matrix[0, 0] <= 0 or matrix[1, 1] <= 0
+            or not np.array_equal(matrix[2], [0., 0., 1.])):
+        raise ValueError("finite pinhole K with positive focal lengths required")
+    _, h = size
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        pitch_deg = float(np.degrees(np.arctan((matrix[1, 2] - .37*h) / matrix[0, 0])))
+        camera_point = _rotation_pitch_roll(pitch_deg, 0.) @ np.array([0., camera_height_m, far_m])
+        projected = matrix @ camera_point
+        row = projected[1] / projected[2]
+    if not np.isfinite(projected).all() or projected[2] <= 0 or not np.isfinite(row):
+        raise ValueError("far road point must have a finite projection in front of the camera")
+    return max(0, min(int(h * _ROI_TOP), int(np.floor(row))))
+
+
 def track_road_features(
     video_path: Path,
     *,
@@ -107,6 +153,7 @@ def track_road_features(
     end_sec: float | None = None,
     size: tuple[int, int] = (960, 540),
     max_corners: int = 400,
+    roi_top_frac: float | None = None,
 ) -> RoadTracks:
     """Track road-surface features across each VO step, streaming.
 
@@ -124,9 +171,18 @@ def track_road_features(
     fleet, and it regresses a clip. Hence this reads the video itself,
     keeping only a rolling ``stride + 1`` frame buffer — retaining every
     frame of a 4-minute clip would cost tens of gigabytes.
+
+    ``roi_top_frac=None`` preserves the exact legacy0.55 seed mask. An explicit
+    finite fraction in [0,0.97) changes only its top boundary; no plane-quality
+    thresholds or fallback rules change.
     """
     import cv2
 
+    top = _ROI_TOP if roi_top_frac is None else roi_top_frac
+    if (isinstance(top, (bool, np.bool_))
+            or not isinstance(top, (int, float, np.integer, np.floating))
+            or not np.isfinite(top) or not 0 <= top < _ROI_BOT):
+        raise ValueError("roi_top_frac must be finite and lie in [0, 0.97)")
     video_path = Path(video_path)
     if not video_path.exists():
         raise FileNotFoundError(f"video not found: {video_path}")
@@ -145,7 +201,7 @@ def track_road_features(
             cap.set(cv2.CAP_PROP_POS_FRAMES, first)
 
         roi = np.zeros((h, w), np.uint8)
-        roi[int(h * _ROI_TOP):int(h * _ROI_BOT),
+        roi[int(h * top):int(h * _ROI_BOT),
             int(w * _ROI_LEFT):int(w * _ROI_RIGHT)] = 255
 
         rows_per_step: list[np.ndarray] = []

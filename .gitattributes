@@ -1,0 +1,40 @@
+# Keep the reviewed geometry kernel byte-identical across checkouts.
+monocular_osm/multiview_motion.py text eol=lf
+monocular_osm/multiview_motion_inputs.py text eol=lf
+scripts/prepare_multiview_motion_inputs.py text eol=lf
+scripts/multiview_motion_probe.py text eol=lf
+# Keep reviewed semantic preparation and trace sources stable on Windows.
+monocular_osm/graph_filter.py text eol=lf
+monocular_osm/junction_inputs.py text eol=lf
+monocular_osm/road_segment_semantics.py text eol=lf
+monocular_osm/road_segment_semantics_io.py text eol=lf
+scripts/prepare_road_segment_semantics.py text eol=lf
+tests/test_graph_filter_construction_trace.py text eol=lf
+tests/test_junction_inputs_semantics.py text eol=lf
+tests/test_road_segment_semantics.py text eol=lf
+tests/test_road_segment_semantics_io.py text eol=lf
+tests/test_prepare_road_segment_semantics.py text eol=lf
+# Preserve reviewed road-context transition sources across study checkouts.
+monocular_osm/junction_sequence.py text eol=lf
+monocular_osm/road_speed_kernel.py text eol=lf
+monocular_osm/road_speed_context.py text eol=lf
+monocular_osm/road_speed_io.py text eol=lf
+scripts/reference_snapshot_road_speed_probe.py text eol=lf
+tests/test_road_speed_kernel.py text eol=lf
+tests/test_road_speed_context.py text eol=lf
+tests/test_junction_sequence_road_speed.py text eol=lf
+tests/test_graph_filter_epsilon_hook.py text eol=lf
+tests/test_reference_snapshot_road_speed_probe.py text eol=lf
+# Preserve reviewed native masked-DVLT sources and private checks.
+monocular_osm/native_pixel_mask.py text eol=lf
+monocular_osm/native_text_detection.py text eol=lf
+monocular_osm/dvlt_native_geometry.py text eol=lf
+monocular_osm/dvlt_native_protocol.py text eol=lf
+monocular_osm/dvlt_native_runtime.py text eol=lf
+scripts/prepare_dvlt_native_masks.py text eol=lf
+scripts/dvlt_native_window_probe.py text eol=lf
+tests/test_native_pixel_mask.py text eol=lf
+tests/test_native_text_detection.py text eol=lf
+tests/test_dvlt_native_geometry.py text eol=lf
+tests/test_dvlt_native_protocol.py text eol=lf
+tests/test_dvlt_native_workers.py text eol=lf

@@ -1,0 +1,18 @@
+{
+  "status": "INFRASTRUCTURE_INTERRUPTED_FOR_SUPPORTED_ORT_CPU_SESSION_SIZING",
+  "utc": "2026-11-10T21:56:30.242238+00:00",
+  "owned_pid": 41712,
+  "birth": 1794347132.6027634,
+  "source_sha256": "691b149ced5acb4d49591320147178e9ef68b5a01cc9b2dfb200b6cda2b748f9",
+  "new_source_sha256": "8ed73a162eeee4a0c6165539367bcce66d6e8e66443371be7dd7ad6387bad71b",
+  "completed_verdicts_preserved": 1,
+  "unpublished_work_has_no_verdict": true,
+  "frozen_search_snapshots_preserved": true,
+  "weights_preprocessing_thresholds_order_frames_unchanged": true,
+  "resource_change_only": {
+    "ORT_intra": 2,
+    "ORT_inter": 1,
+    "CPU_affinity_count": 2
+  },
+  "owned_birth_gone": true
+}

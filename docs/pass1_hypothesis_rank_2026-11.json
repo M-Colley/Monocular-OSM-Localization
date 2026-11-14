@@ -1,0 +1,92 @@
+[
+ {
+  "clip": "berlin_0-420",
+  "n_areas": 13,
+  "true_area_rank": 2,
+  "top1_area_to_route_m": 1454.4
+ },
+ {
+  "clip": "kitti_0009",
+  "n_areas": 47,
+  "true_area_rank": 12,
+  "top1_area_to_route_m": 3138.9
+ },
+ {
+  "clip": "kitti_0033",
+  "n_areas": 16,
+  "true_area_rank": null,
+  "top1_area_to_route_m": 7134.9
+ },
+ {
+  "clip": "london",
+  "n_areas": 15,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 224.4
+ },
+ {
+  "clip": "overlay_1nF_7l07i-E",
+  "n_areas": 42,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 374.0
+ },
+ {
+  "clip": "overlay_LmIHvLMLqFk",
+  "n_areas": 30,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 674.3
+ },
+ {
+  "clip": "overlay_Wrn4_uCxRCQ",
+  "n_areas": 12,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 200.5
+ },
+ {
+  "clip": "overlay_ZhGb8q1kliY",
+  "n_areas": 35,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 510.9
+ },
+ {
+  "clip": "overlay_g5lnpYCk1Ec",
+  "n_areas": 41,
+  "true_area_rank": 2,
+  "top1_area_to_route_m": 2377.9
+ },
+ {
+  "clip": "overlay_kxEDNj5L_yQ",
+  "n_areas": 13,
+  "true_area_rank": null,
+  "top1_area_to_route_m": 3984.4
+ },
+ {
+  "clip": "overlay_vCSEG6KaFng",
+  "n_areas": 26,
+  "true_area_rank": 2,
+  "top1_area_to_route_m": 1259.5
+ },
+ {
+  "clip": "overlay_wJsEQTCAg1c",
+  "n_areas": 44,
+  "true_area_rank": null,
+  "top1_area_to_route_m": 14022.9
+ },
+ {
+  "clip": "overlay_y66ZkRpUh4k",
+  "n_areas": 46,
+  "true_area_rank": 8,
+  "top1_area_to_route_m": 1137.2
+ },
+ {
+  "clip": "ulm2",
+  "n_areas": 6,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 102.2
+ },
+ {
+  "clip": "ulm4k_0-300",
+  "n_areas": 5,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 151.9
+ }
+]

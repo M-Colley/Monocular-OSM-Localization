@@ -1,0 +1,110 @@
+{
+  "video_id": "-1xwoetuoOg",
+  "video_url": "https://www.youtube.com/watch?v=-1xwoetuoOg",
+  "city": "Sydney, Australia",
+  "vo_segment": "4:598",
+  "description": "Sydney western suburbs: the only southern/eastern-hemisphere clip, and a route far from the city centre. Overlay: S 33 54'43.7\" E 151 00'37.2\"   (Navman). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 111 OCR fixes over 5-599 s (3.40 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": -33.91905,
+      "lon": 151.178861
+    },
+    {
+      "t_sec": 44.9,
+      "lat": -33.918092,
+      "lon": 151.18
+    },
+    {
+      "t_sec": 99.8,
+      "lat": -33.916167,
+      "lon": 151.18505
+    },
+    {
+      "t_sec": 124.7,
+      "lat": -33.916,
+      "lon": 151.184922
+    },
+    {
+      "t_sec": 154.6,
+      "lat": -33.913833,
+      "lon": 151.181694
+    },
+    {
+      "t_sec": 184.6,
+      "lat": -33.91275,
+      "lon": 151.179722
+    },
+    {
+      "t_sec": 214.5,
+      "lat": -33.911278,
+      "lon": 151.177194
+    },
+    {
+      "t_sec": 244.4,
+      "lat": -33.911,
+      "lon": 151.176722
+    },
+    {
+      "t_sec": 269.4,
+      "lat": -33.909056,
+      "lon": 151.175056
+    },
+    {
+      "t_sec": 299.3,
+      "lat": -33.908583,
+      "lon": 151.173333
+    },
+    {
+      "t_sec": 329.2,
+      "lat": -33.908417,
+      "lon": 151.171111
+    },
+    {
+      "t_sec": 359.2,
+      "lat": -33.908139,
+      "lon": 151.170722
+    },
+    {
+      "t_sec": 384.1,
+      "lat": -33.907333,
+      "lon": 151.169414
+    },
+    {
+      "t_sec": 414.0,
+      "lat": -33.906056,
+      "lon": 151.167678
+    },
+    {
+      "t_sec": 453.9,
+      "lat": -33.906389,
+      "lon": 151.164944
+    },
+    {
+      "t_sec": 483.9,
+      "lat": -33.907306,
+      "lon": 151.164167
+    },
+    {
+      "t_sec": 513.8,
+      "lat": -33.907778,
+      "lon": 151.163806
+    },
+    {
+      "t_sec": 538.7,
+      "lat": -33.907778,
+      "lon": 151.163778
+    },
+    {
+      "t_sec": 568.7,
+      "lat": -33.908361,
+      "lon": 151.163306
+    },
+    {
+      "t_sec": 598.6,
+      "lat": -33.908917,
+      "lon": 151.162861
+    }
+  ]
+}

@@ -94,6 +94,651 @@
         "G2": "The filter's smoothed-route error beats the pipeline's on more clips than it loses (sign test)."
       },
       "disclosure": "The road-plane estimator and the filter settings were developed on KITTI 0009/0033 only; the dashcam clips' ground truth has been used to score the pipeline before, never for the filter or the speed estimator. Speed accuracy on dashcam footage is unknown and is reported against the ground-truth timing (exploratory)."
+    },
+    "seed_ring": {
+      "registered": "2026-10-24",
+      "description": "Does searching a sparse reference ring out to the seed's own radius (--vpr-seed-ring) fix seeded clips whose route lies outside the 3 km retrieval core, without breaking seeded clips that already work?",
+      "method": "--vpr-seed-ring at the commit that adds it: when a coarse seed (title place names, plate district) is wider than vpr_search_radius_m (3 km), pass 1 also lists the seed disc out to min(seed radius, 8 km) with the city-extent mode's ref cap (1,200 with a token) in its own cache, minus the core ids; the 3 km/1,500 core set, pass 2 and everything downstream are unchanged. Motivated by the v3/v4 archives (route inside the 3 km core: Atlanta kxED 0 %, KITTI 0033 0 %, Berlin 38 %), flagged as an open structural issue in docs/experiments_2026-10.md section 1 before any ring result existed. No constant is new or tuned.",
+      "clips": "dev clips whose run log shows a coarse seed wider than 3 km: berlin_0-420, london, ulm2, kitti_0033, overlay_Wrn4_uCxRCQ, overlay_kxEDNj5L_yQ (other clips never take the ring branch). One cold rep each, run v7 = v6 code + --vpr-seed-ring.",
+      "outcome": "symmetric_mean_m per clip (benchmark aggregate), v7 against v6 on the same clips",
+      "hypotheses": {
+        "S1": "No clip with symmetric error <= 200 m in v5 is above 200 m in v6 (no harm to working clips).",
+        "S2": "At least one clip above 200 m in v5 is at or below 200 m in v6, OR the ring improves more clips than it worsens (changes under 10 % of the v5 error count as ties)."
+      },
+      "decision": "Make --vpr-seed-ring the default iff S1 and S2 both hold; otherwise leave it off and report the result either way. The held-out test split is scored only after this decision, with whatever default results.",
+      "disclosure": "Single cold rep per clip; earlier repeated cold runs differed by tens to hundreds of metres on some clips, so a one-rep result near a threshold is weak evidence and is reported as such.",
+      "amendments": [
+        {
+          "date": "2026-10-25",
+          "change": "baseline v5 -> v6 and ring run v6 -> v7; nothing else",
+          "reason": "v5 (Graph API listing with tile splitting) was stopped after 5 clips when the Graph bbox search proved to truncate silently even without errors (Karlsruhe: 498,876 listed vs 836,869 in Mapillary's coverage tiles). The listing now reads coverage tiles; v6 measures that on every dev clip, and the ring must be compared against the same listing. No seed-ring run or result existed at the time of this amendment."
+        }
+      ],
+      "outcome_recorded": {
+        "date": "2026-10-26",
+        "runs": "v6 (d87fb20) vs v7 (d87fb20 + --vpr-seed-ring), symmetric_mean_m of result.position",
+        "per_clip_v6_v7": {
+          "berlin_0-420": [
+            695,
+            695
+          ],
+          "london": [
+            22,
+            22
+          ],
+          "ulm2": [
+            106,
+            106
+          ],
+          "overlay_Wrn4_uCxRCQ": [
+            342,
+            342
+          ],
+          "overlay_kxEDNj5L_yQ": [
+            5485,
+            1969
+          ],
+          "kitti_0033": [
+            7110,
+            13103
+          ]
+        },
+        "S1": "holds (London and Ulm #2, the clips within 200 m in v6, unchanged)",
+        "S2": "fails (no clip crosses to within 200 m; 1 improved, 1 worsened, 4 ties)",
+        "decision": "not adopted: --vpr-seed-ring stays off by default"
+      }
+    },
+    "test_split_2026_10": {
+      "registered": "2026-10-24",
+      "description": "How the seven split=test clips (overlay fleet, added 2026-10-24) are scored, fixed before any method decision that their result could influence and before any pipeline run on them.",
+      "clips": [
+        "overlay_nsONSyk9wtc",
+        "overlay_bF5IfC2ZHjQ",
+        "overlay_5b-tgjtwb2U",
+        "overlay_zt8rHvHKBUU",
+        "overlay_4LvkBo69jZo",
+        "overlay_iJ2JvNk4Rmk",
+        "overlay_-1xwoetuoOg"
+      ],
+      "method": "the pipeline's defaults at the first commit after the seed_ring decision is recorded (whatever that decision is), run by scripts/benchmark.py run --split test --cold-vpr, one rep per clip, MLY_TOKEN set, the same runner settings as v5; the commit is recorded in the run's run_config.json. No code, constant or default changes between seeing any test result and reporting all of them.",
+      "outcome": "symmetric_mean_m per clip (benchmark aggregate, the same metric as the dev runs), plus final-position error",
+      "hypotheses": {
+        "T1": "The pipeline's symmetric error beats the city-centroid guess on more test clips than it loses (sign test over clips, ties excluded).",
+        "T2": "The share of test clips at or under 200 m is reported with a Wilson 95 % interval next to the same share on the dev clips in the latest dev run; no threshold is claimed in advance."
+      },
+      "excluded": "SjnUeNH-Kno (Dublin): its ground truth build failed (too few readable stamp fixes) before any run; nsy7qRN_oaw (Den Haag): video unavailable. Neither is replaced.",
+      "disclosure": "The clips were found by a web search for dashcam uploads with burned-in coordinates, in cities absent from the dev set; ground truth comes from OCR of those coordinates (scripts/build_overlay_fleet.py, checked by scripts/check_overlay_gt.py). Their ground truth has been opened only to build and check it. Seven clips detect only large effects; the result is reported whichever way it comes out.",
+      "outcome_recorded": {
+        "date": "2026-10-27",
+        "run": "test1 at ccd0bbe (clean worktree), scored by ccd0bbe's aggregator; Ottawa and Strasbourg rerun with --retry-failed after Overpass infrastructure failures, before any test result was looked at",
+        "answer_symmetric_m": {
+          "overlay_nsONSyk9wtc": 53.1,
+          "overlay_4LvkBo69jZo": 34.4,
+          "overlay_5b-tgjtwb2U": 56.2,
+          "overlay_iJ2JvNk4Rmk": 83.9,
+          "overlay_-1xwoetuoOg": 192.3,
+          "overlay_bF5IfC2ZHjQ": 1379.8,
+          "overlay_zt8rHvHKBUU": 3437.4
+        },
+        "city_centre_symmetric_m": {
+          "overlay_nsONSyk9wtc": 3329.2,
+          "overlay_4LvkBo69jZo": 1757.3,
+          "overlay_5b-tgjtwb2U": 1162.4,
+          "overlay_iJ2JvNk4Rmk": 605.5,
+          "overlay_-1xwoetuoOg": 5485.6,
+          "overlay_bF5IfC2ZHjQ": 6476.3,
+          "overlay_zt8rHvHKBUU": 1608.0
+        },
+        "T1": "6 wins, 1 loss (Bern); one-sided sign test p = 0.0625",
+        "T2": "test 5/7 = 71 % within 200 m, Wilson 95 % [36 %, 92 %]; dev v6 (same answer) 9/15 = 60 % [36 %, 80 %]; the fit alone 0/7 on test",
+        "report": "docs/heldout_test_2026-10.md"
+      }
+    },
+    "answer_selection": {
+      "registered": "2026-10-25",
+      "description": "Which route the method answers with: the trajectory fit (the pipeline's result.position), the retrieval track itself, or the fit checked against the track. Prompted by v6, where the smoothed retrieval track scored better than the fit on 3 of the first 5 dev clips.",
+      "candidates": {
+        "P": "the pipeline's headline route (result.position), as before",
+        "T": "the retrieval track as a route: result.vpr_prior.track in time order, each point the running median of 5 (lat and lon separately); monocular_osm.baselines.vpr_track_only",
+        "C": "P, unless its disagreement with the track exceeds D = 250 m, then T. Disagreement = median over the smoothed track points of the distance to the nearest point of P's route. D is the benchmark's existing 250 m success threshold, fixed here before any disagreement value was computed."
+      },
+      "selection": "on the dev clips of v6 (with v7 in place of v6 for the seeded clips if seed_ring is adopted), choose the candidate with the most clips at symmetric error <= 200 m; ties broken by the lower median symmetric error over those clips; a remaining tie keeps P. Candidates that need the track (T, C) fall back to P on a run without one.",
+      "use": "the selected candidate is the method's answer on the test split (rule test_split_2026_10, whose T1/T2 then refer to it); the other two are reported alongside.",
+      "disclosure": "Seen before registration (v6, symmetric error, P / T): Berlin 695 / 135, KITTI 0009 3,608 / 3,735, London 22 / 63, Ulm #2 106 / 46, Ulm 4K 36 / 15. Nothing else of v6, and no value of C, had been computed. The other ten dev clips of v6 were still running.",
+      "outcome_recorded": {
+        "date": "2026-10-26",
+        "data": "v6, all 15 dev clips (seed_ring not adopted, so no v7 substitution)",
+        "clips_within_200m": {
+          "P": 6,
+          "T": 9,
+          "C": 8
+        },
+        "median_symmetric_m": {
+          "P": 395,
+          "T": 135,
+          "C": 177
+        },
+        "decision": "T selected: the method answers with the retrieval track (--answer track is the default from the commit recording this)"
+      }
+    },
+    "assisted_v3_test1_replay": {
+      "registered": "2026-11-05",
+      "description": "Does the assisted policy v3 generalize beyond the dev clips it was built on? A secondary held-out check on the seven test1 clips, which no assisted development step processed.",
+      "method": "commit a8add7a, --assisted-only --assisted-profile=v3, CPU retrieval, one rep per clip, scored with the a8add7a + deadline-fingerprint aggregator (5bdae79) and its check_dev_goal.py audit",
+      "budget_rule": "14,400 s per clip if the dev rerun budget14400 (the five clips whose expanded stage timed out at 7,200 s) brings at least one of Atlanta kxEDNj5L_yQ, Atlanta y66ZkRpUh4k, Detroit g5lnpYCk1Ec within 200 m without taking Chicago LmIHvLMLqFk or Newcastle Wrn4_uCxRCQ above 200 m; otherwise 7,200 s, as in the dev fleet run",
+      "inputs": "fresh copies of the test clips' input.mp4 and YouTube metadata only (no retrieval, VO or graph caches)",
+      "clips": [
+        "overlay_nsONSyk9wtc",
+        "overlay_bF5IfC2ZHjQ",
+        "overlay_5b-tgjtwb2U",
+        "overlay_zt8rHvHKBUU",
+        "overlay_4LvkBo69jZo",
+        "overlay_iJ2JvNk4Rmk",
+        "overlay_-1xwoetuoOg"
+      ],
+      "outcome": "symmetric_mean_m of the selected answer per clip",
+      "hypotheses": {
+        "R1": "The assisted answer is within 200 m on at least as many test1 clips as the frozen track method was (5 of 7), i.e. the extra stages do not break retrieval-located clips.",
+        "R2": "The assisted answer beats the frozen track answer of test1 (ccd0bbe) on more clips than it loses (changes under 10 % are ties; sign test reported, no significance level registered)."
+      },
+      "disclosure": "Not a clean held-out test: the test1 results of the earlier frozen method (which clips failed and why: Ottawa's route outside the city disc, Bern's wrong district) were public in docs/heldout_test_2026-10.md from 2026-10-27, before the assisted policy was built. No commit after that record references a test clip id (git log -S / git grep checked 2026-11-05), so no test clip was processed during development. The policy's constants were fixed before its dev fleet run; this replay changes none of them. A clean generalization test needs new held-out clips.",
+      "budget_decision_recorded": {
+        "date": "2026-11-06",
+        "run": "budget14400 (a8add7a, 14,400 s, five clips, warm caches from assisted_v3_fleet_fixed), scored by 5bdae79, no warnings",
+        "symmetric_m_7200_vs_14400": {
+          "overlay_LmIHvLMLqFk": [
+            132.6,
+            132.6
+          ],
+          "overlay_Wrn4_uCxRCQ": [
+            34.6,
+            34.6
+          ],
+          "overlay_g5lnpYCk1Ec": [
+            1387.2,
+            1387.2
+          ],
+          "overlay_kxEDNj5L_yQ": [
+            6024.4,
+            32.8
+          ],
+          "overlay_y66ZkRpUh4k": [
+            6589.6,
+            6589.6
+          ]
+        },
+        "decision": "14,400 s: Atlanta kxEDNj5L_yQ crosses to within 200 m and neither LmIHvLMLqFk nor Wrn4_uCxRCQ leaves it",
+        "applies_to": [
+          "assisted_v3_test1_replay",
+          "test2_2026_11 (assisted)"
+        ]
+      }
+    },
+    "test2_2026_11": {
+      "registered": "2026-11-06",
+      "description": "Clean held-out test of the assisted policy v3 (built after test was scored) against the frozen retrieval-track method, on the second held-out split.",
+      "clips": "every manifest clip with split=test2 at the time the runs start (selection: benchmarks/test2_screen/README.md; at registration Amsterdam 2sS6glBBm8g, Warsaw GnXsgpVPvww and lCm2a3kOEmE, Montreal 0jJbdTcDseI, Paris HpBfjRA60ws, with Montreal jur2mWIr9IY, Budapest 1bGf8OD9Fqo and Munich XO6H3mGMKYg pending ground truth). Clips are added only by the screen's fixed rules, never after any test2 result is seen.",
+      "methods": {
+        "track": "commit ccd0bbe defaults (--answer track), the method frozen for test1",
+        "assisted": "commit a8add7a, --assisted-only --assisted-profile=v3, budget chosen by the budget_rule of assisted_v3_test1_replay"
+      },
+      "run": "one cold rep per clip and method, CPU retrieval (the GPU is the user's), --skip-download from the ground-truth builder's own 0-600 s download of each video (the analysis window lies inside it), identical inputs for both methods; scored by each method's own aggregator with the ground truth applied offline",
+      "outcome": "symmetric_mean_m of each method's answer per clip",
+      "hypotheses": {
+        "H1": "The assisted answer is within 200 m on at least as many test2 clips as the track answer.",
+        "H2": "The assisted answer beats the track answer on more clips than it loses (changes under 10 % are ties; one-sided sign test reported, no significance level registered).",
+        "H3": "Each method beats the city-centre guess on more clips than it loses."
+      },
+      "report": "every clip and method, with the share within 200 m and its Wilson 95 % interval, whichever way it comes out; clips whose run fails on infrastructure are rerun at the same commit before any score is looked at",
+      "disclosure": "No development step of either method processed a test2 clip; the clips were chosen from titles, durations and coordinate stamps only. With 5-8 clips only large effects are detectable.",
+      "outcome_recorded": {
+        "date": "2026-11-07",
+        "run": "assisted_test2 at a8add7a (14,400 s, scored by its reviewed comparison adapter 5bdae79) and track_test2 at ccd0bbe (clean worktree, --cold-vpr, scored by ccd0bbe's aggregator); separate data copies of the same downloads; seven clips; no infrastructure rerun was needed by either method's harness (operator errors and Overpass-degraded OCR cues are disclosed in the report)",
+        "track_answer_symmetric_m": {
+          "overlay_GnXsgpVPvww": 89.5,
+          "overlay_2sS6glBBm8g": 171.8,
+          "overlay_lCm2a3kOEmE": 334.7,
+          "overlay_1bGf8OD9Fqo": 517.5,
+          "overlay_HpBfjRA60ws": 24364.3,
+          "overlay_0jJbdTcDseI": 3004.1,
+          "overlay_XO6H3mGMKYg": 8130.3
+        },
+        "assisted_answer_symmetric_m": {
+          "overlay_GnXsgpVPvww": 89.5,
+          "overlay_2sS6glBBm8g": 171.8,
+          "overlay_lCm2a3kOEmE": 334.7,
+          "overlay_1bGf8OD9Fqo": 517.5,
+          "overlay_HpBfjRA60ws": 831.5,
+          "overlay_0jJbdTcDseI": 3004.1,
+          "overlay_XO6H3mGMKYg": 8130.3
+        },
+        "city_centre_symmetric_m": {
+          "overlay_GnXsgpVPvww": 4772.7,
+          "overlay_2sS6glBBm8g": 571.1,
+          "overlay_lCm2a3kOEmE": 5286.3,
+          "overlay_1bGf8OD9Fqo": 793.8,
+          "overlay_HpBfjRA60ws": 15258.8,
+          "overlay_0jJbdTcDseI": 11049.9,
+          "overlay_XO6H3mGMKYg": 12061.2
+        },
+        "H1": "holds: assisted 2/7 within 200 m, track 2/7 (both Wilson 95 % [8 %, 64 %])",
+        "H2": "holds: 1 win (Paris), 0 losses, 6 ties (identical answers); one-sided sign test p = 0.5",
+        "H3": "holds for both: track 6 wins, 1 loss (Paris), p = 0.0625; assisted 7 wins, 0 losses, p = 0.0078",
+        "report": "docs/heldout_test2_2026-11.md"
+      }
+    },
+    "metro_ring_dev_2026_11": {
+      "registered": "2026-11-07",
+      "description": "Development check, before any run of it: does searching the city's surroundings when the retrieval track is weak (--vpr-metro-ring) recover routes that lie outside the searched disc, without breaking clips that already work? All three used splits serve as development data here; a held-out claim needs the third split (test3), registered separately once the method is frozen.",
+      "method": "--vpr-metro-ring --retrieval-only (answer: the retrieval track) at the commit that adds it. When the selective rule's confidence (vpr_coarse_to_fine.pass2_sim, else the track's median cosine) is below its pre-registered tau 0.162, the run covers the disc of 20 km around the city's geocode minus the disc pass 1 searched with 4 km hex cells, each with the pass-1 city disc's reference density (300 refs with a token), densifies up to 3 supported cells (1,500 refs), lets the existing regional continuity merge choose between them and the ordinary track, and, if ring evidence is selected, refines with a coarse-to-fine pass at the new centre under the ordinary pass-2 margin (0.02). Above tau nothing changes.",
+      "constants": "tau, the cell hierarchy, its fine budget and the pass-2 margin are reused unchanged; the 4 km cell radius and 300-ref cap follow from the pass-1 density (1,200 refs per 8 km disc). The 20 km outer radius was chosen after seeing the used splits' ground truth: the six mode-A failures lie 10.8-16.8 km (median route point) from the city geocode (docs/failure_taxonomy_2026-11.md); it is not tuned on any metro-ring result.",
+      "clips": "all 29 scored clips of the used splits: dev (15), test (7), test2 (7). The gate is decided by each run itself; 15 clips were below tau in their frozen runs.",
+      "run": "one rep per clip, CPU retrieval, --skip-download, a clean worktree at the method commit, data copies holding the frozen runs' inputs and warm ordinary-retrieval caches (ring caches start cold)",
+      "outcome": "per clip, the symmetric_mean_m of the answer with the ring against the same run's ordinary track (recorded before the ring step as metro_ring_retrieval.baseline_track and scored identically: running median of 5, monocular_osm.metrics.score_route); wall-clock time per clip",
+      "hypotheses": {
+        "M1": "No clip whose ordinary track is within 200 m is above 200 m with the ring (no harm).",
+        "M2": "At least two clips above 200 m with the ordinary track are within 200 m with the ring, and the ring improves more clips than it worsens (changes under 10 % are ties)."
+      },
+      "decision": "If M1 and M2 hold, the method is frozen at that commit and compared with the frozen track method on test3 under a separate rule registered before any test3 run; otherwise it is not taken to test3 as is, and the result is reported either way.",
+      "disclosure": "In-sample by construction (the outer radius used these clips' ground truth). One rep per clip; earlier repeated cold runs of the same clip differed by tens to hundreds of metres, and a rerun may land on the other side of tau.",
+      "amendments": [
+        {
+          "date": "2026-11-07",
+          "change": "the decision clause no longer gates test3: at the user's request the frozen method is tested on ten new videos (rule test3_2026_11) whatever the development check shows; the development check still runs and is reported in full",
+          "reason": "user request; registered before any metro-ring run and before any test3 clip was downloaded or built"
+        }
+      ],
+      "outcome_recorded": {
+        "date": "2026-11-09",
+        "run": "metro_test2, metro_test, metro_dev at f582928 (worktree C:/Users/markc/metro-eval/wt-f582928, data C:/Users/markc/metro-eval/data); ordinary track by scripts/metro_ring_paired.py shadow, all scored offline by f582928's aggregator. Atlanta kxEDNj5L_yQ and Newcastle Wrn4_uCxRCQ were first refused by the runner's 40 GB disk guard and run at the same commit after the finished clips' ring caches were deleted (user-approved). No infrastructure retries, timeouts or tracebacks.",
+        "ordinary_vs_ring_symmetric_m": {
+          "overlay_0jJbdTcDseI": [
+            3004.1,
+            5235.1
+          ],
+          "overlay_1bGf8OD9Fqo": [
+            408.5,
+            408.5
+          ],
+          "overlay_2sS6glBBm8g": [
+            171.8,
+            171.8
+          ],
+          "overlay_GnXsgpVPvww": [
+            89.5,
+            89.5
+          ],
+          "overlay_HpBfjRA60ws": [
+            16149.5,
+            1116.1
+          ],
+          "overlay_XO6H3mGMKYg": [
+            8130.3,
+            5338.1
+          ],
+          "overlay_lCm2a3kOEmE": [
+            334.7,
+            177.6
+          ],
+          "overlay_-1xwoetuoOg": [
+            186.7,
+            188.9
+          ],
+          "overlay_4LvkBo69jZo": [
+            34.4,
+            34.4
+          ],
+          "overlay_5b-tgjtwb2U": [
+            56.2,
+            56.2
+          ],
+          "overlay_bF5IfC2ZHjQ": [
+            1379.8,
+            1379.8
+          ],
+          "overlay_iJ2JvNk4Rmk": [
+            83.9,
+            83.9
+          ],
+          "overlay_nsONSyk9wtc": [
+            3028.9,
+            141.2
+          ],
+          "overlay_zt8rHvHKBUU": [
+            139.6,
+            139.6
+          ],
+          "berlin_0-420": [
+            135.1,
+            135.1
+          ],
+          "kitti_0009": [
+            3734.6,
+            18228.5
+          ],
+          "kitti_0033": [
+            7003.8,
+            5751.4
+          ],
+          "london": [
+            62.5,
+            62.5
+          ],
+          "overlay_1nF_7l07i-E": [
+            77.5,
+            77.5
+          ],
+          "overlay_LmIHvLMLqFk": [
+            132.6,
+            132.6
+          ],
+          "overlay_Wrn4_uCxRCQ": [
+            34.6,
+            34.6
+          ],
+          "overlay_ZhGb8q1kliY": [
+            54.6,
+            54.6
+          ],
+          "overlay_g5lnpYCk1Ec": [
+            1387.2,
+            13881.5
+          ],
+          "overlay_kxEDNj5L_yQ": [
+            6024.4,
+            24.4
+          ],
+          "overlay_vCSEG6KaFng": [
+            169.2,
+            169.2
+          ],
+          "overlay_wJsEQTCAg1c": [
+            18644.1,
+            18.9
+          ],
+          "overlay_y66ZkRpUh4k": [
+            6589.6,
+            3468.8
+          ],
+          "ulm2": [
+            42.7,
+            42.7
+          ],
+          "ulm4k_0-300": [
+            16.4,
+            16.4
+          ]
+        },
+        "within_200m": "ordinary track 16/29 (Wilson 95 % [38 %, 72 %]), ring 20/29 ([51 %, 83 %]); test2 2/7 -> 3/7, test1 5/7 -> 6/7, dev 9/15 -> 11/15",
+        "M1": "holds: no clip within 200 m with the ordinary track is above it with the ring",
+        "M2": "holds: 4 gains across 200 m (Warsaw lCm2a3kOEmE, NYC nsONSyk9wtc, Atlanta kxEDNj5L_yQ, Phoenix wJsEQTCAg1c); 8 better, 3 worse (Montreal, KITTI 0009, Detroit g5lnpYCk1Ec), 18 ties; one-sided sign test p = 0.113",
+        "wall_clock": "46.6 h in total; triggered clips 1.5-4.7 h, untriggered 1-56 min (warm ordinary caches)",
+        "decision": "M1 and M2 hold in-sample; under the 2026-11-07 amendment this no longer gates anything. The held-out test (test3_2026_11) showed no gain, so --vpr-metro-ring stays opt-in and off by default.",
+        "report": "docs/heldout_test3_2026-11.md#development-check-metro_ring_dev_2026_11-in-sample"
+      }
+    },
+    "test3_2026_11": {
+      "registered": "2026-11-07",
+      "description": "Held-out test of the metro-ring search on ten new videos, registered before any test3 clip was downloaded beyond the screen's three frames, before any ground truth was built and before any run of the method.",
+      "clips": "The first ten clips, in the fixed city order of benchmarks/test3_screen/screen5.py (search order within a city, at most two per city), that pass its stamp screen and whose ground truth builds: scripts/build_overlay_fleet.py on the 0-600 s download, scripts/check_overlay_gt.py plausible, and at least 500 m of ground-truth route inside the analysis window. A clip that fails is replaced by the next passing clip of the same city, then the next city. If the screen ends with fewer than ten, test3 is every clip that passes. Selection reads titles, durations and coordinate stamps only.",
+      "method": "commit f582928, --vpr-metro-ring --retrieval-only: the method of metro_ring_dev_2026_11, frozen; nothing is changed after it is registered here",
+      "comparison": "the same run's ordinary track (metro_ring_retrieval.baseline_track, scored by scripts/metro_ring_paired.py and the benchmark aggregator exactly like the answer) and the city-centre guess",
+      "run": "one rep per clip, CPU retrieval, --skip-download from the ground-truth builder's own download, a clean worktree at f582928, --timeout 28800; runs that fail on infrastructure are rerun at the same commit before any score is looked at",
+      "outcome": "symmetric_mean_m per clip of the ring answer, the ordinary track and the city centre; whether the gate fired; wall-clock time",
+      "hypotheses": {
+        "T1": "The ring answer is within 200 m on more test3 clips than the ordinary track.",
+        "T2": "No clip within 200 m with the ordinary track is above 200 m with the ring.",
+        "T3": "The ring improves more clips than it worsens (changes under 10 % are ties; one-sided sign test reported, no significance level registered)."
+      },
+      "report": "every clip, whichever way it comes out, with the share within 200 m and its Wilson 95 % interval for both answers, the failure mode of each miss (scripts/failure_taxonomy.py definitions) and the run time",
+      "disclosure": "The ring acts only on clips whose confidence is below 0.162, so it can change at most those; with ten clips only large effects are detectable. Its 20 km outer radius was chosen on the used splits' ground truth. The dev check (metro_ring_dev_2026_11) runs in parallel and does not gate this test.",
+      "amendments": [
+        {
+          "date": "2026-11-08",
+          "change": "the clean worktree is at d1e9ea0 instead of f582928; it runs with --min-free-vram-gb 0, --infra-retries 2 and --infra-wait 600, on E:/claude-scoring/test3/data (the ground-truth builder's own downloads)",
+          "reason": "f582928 predates the test3 split, so its benchmark runner cannot list test3 clips. d1e9ea0 adds only the test3 selection, ground truth, manifest, centroid snapshot, runner split support and scoring script on top of f582928; git diff f582928 d1e9ea0 -- monocular_osm/ main.py is empty, so the method is the registered one. The VRAM flag only stops the CPU-only run waiting for free GPU memory it never uses. Recorded after the ten clips were fixed and before any test3 run.",
+          "disclosure": "The run shares the 28-thread CPU with the metro_ring_dev_2026_11 check, so its wall-clock times include that contention."
+        }
+      ],
+      "outcome_recorded": {
+        "date": "2026-11-09",
+        "run": "metro_test3 at d1e9ea0 (worktree E:/claude-scoring/wt-test3), second attempt; the first failed on all ten clips before localization (no staged input video) and was rerun at the same commit before any score existed. No infrastructure retries in the second attempt; provenance consistent. Scored offline by d1e9ea0's aggregator; the ordinary track by scripts/metro_ring_paired.py shadow + the same aggregator.",
+        "gate_fired": [
+          "overlay_7n4XQUBEH5Y",
+          "overlay_G6bUX4GvSbE",
+          "overlay_5ewPAw_gIeI",
+          "overlay_HfK2LuXQtfA",
+          "overlay_vp_D8mxgEkA",
+          "overlay_MMKAehhi-tA"
+        ],
+        "ring_answer_symmetric_m": {
+          "overlay_6GciDYJ1FUc": 21.0,
+          "overlay_5koGsNdaVvE": 24.2,
+          "overlay_K_54XHyzRn8": 31.0,
+          "overlay_7n4XQUBEH5Y": 84.9,
+          "overlay_G6bUX4GvSbE": 197.9,
+          "overlay_8BUtb7TKUFA": 260.2,
+          "overlay_5ewPAw_gIeI": 15261.4,
+          "overlay_HfK2LuXQtfA": 4852.5,
+          "overlay_vp_D8mxgEkA": 4768.3,
+          "overlay_MMKAehhi-tA": 37762.7
+        },
+        "ordinary_track_symmetric_m": {
+          "overlay_6GciDYJ1FUc": 21.0,
+          "overlay_5koGsNdaVvE": 24.2,
+          "overlay_K_54XHyzRn8": 31.0,
+          "overlay_7n4XQUBEH5Y": 111.0,
+          "overlay_G6bUX4GvSbE": 198.1,
+          "overlay_8BUtb7TKUFA": 260.2,
+          "overlay_5ewPAw_gIeI": 2690.2,
+          "overlay_HfK2LuXQtfA": 4126.8,
+          "overlay_vp_D8mxgEkA": 4679.0,
+          "overlay_MMKAehhi-tA": 37762.5
+        },
+        "city_centre_symmetric_m": {
+          "overlay_6GciDYJ1FUc": 856.5,
+          "overlay_5koGsNdaVvE": 1685.3,
+          "overlay_K_54XHyzRn8": 4115.6,
+          "overlay_7n4XQUBEH5Y": 998.8,
+          "overlay_G6bUX4GvSbE": 7771.2,
+          "overlay_8BUtb7TKUFA": 2608.0,
+          "overlay_5ewPAw_gIeI": 6178.3,
+          "overlay_HfK2LuXQtfA": 3287.1,
+          "overlay_vp_D8mxgEkA": 2756.5,
+          "overlay_MMKAehhi-tA": 42105.0
+        },
+        "T1": "does not hold: ring 5/10 within 200 m, ordinary track 5/10 (both Wilson 95 % [24 %, 76 %]); city centre 0/10",
+        "T2": "holds: no clip within 200 m with the ordinary track is above it with the ring (Bristol 198.1 -> 197.9 m)",
+        "T3": "does not hold: 1 better (Zagreb), 2 worse (Katowice 5ewPAw_gIeI, Dusseldorf HfK2LuXQtfA), 7 ties; one-sided sign test p = 0.875",
+        "failure_modes_of_misses": {
+          "overlay_8BUtb7TKUFA": "D",
+          "overlay_5ewPAw_gIeI": "B",
+          "overlay_HfK2LuXQtfA": "B",
+          "overlay_vp_D8mxgEkA": "B",
+          "overlay_MMKAehhi-tA": "A"
+        },
+        "wall_clock": "median 3.7 h per triggered clip, 36 min per untriggered clip, 23.9 h in total, on a CPU shared with metro_ring_dev_2026_11",
+        "decision": "the metro ring is not adopted; --vpr-metro-ring stays opt-in and off by default",
+        "report": "docs/heldout_test3_2026-11.md"
+      }
+    },
+    "test4_data_selection_2026_11": {
+      "schema": "test4-data-selection-v1",
+      "registered_utc": "2026-11-10T21:41:25.615124+00:00",
+      "target": 7,
+      "split": "test4",
+      "purpose": "New road/dashcam evaluation data only; no localization before separate global method binding.",
+      "fixed_initial_order": [
+        "tK7bHJXAJX8",
+        "yd5g7jsWiEM",
+        "jkkl1QgsPSo",
+        "oPbnvEIRm3A",
+        "ZLmQWroXthY",
+        "jz6o-_Y6r2E"
+      ],
+      "initial_screen": "benchmarks/test3_screen/screen5.json",
+      "initial_screen_sha256": "f5b390676db695cef56828427d0ee9b4bf448fb6daf645d432ecc588b7f4b028",
+      "excluded_before_new_acquisition": [
+        {
+          "id": "hrbPCnxiQeQ",
+          "reason": "Aircraft/out-of-domain: title Flying the New Orleans City tour with ATC audio ... Passenger’s 1st time; previous stamp pass preserved."
+        }
+      ],
+      "replacement_city_order": [
+        "Trondheim, Norway",
+        "Tampere, Finland",
+        "Rennes, France",
+        "Grenoble, France",
+        "Dresden, Germany"
+      ],
+      "queries": [
+        "{city} dashcam GPS",
+        "{city} dashcam VIOFO",
+        "{city} dashcam drive"
+      ],
+      "results_per_query": 12,
+      "eligibility": "City-naming title, >=420 s, positive road/motorvehicle title wording; exclude aircraft/rail/walking/cycling/timelapse/sped-up/rear-facing titles; deduplicate IDs in search order.",
+      "screen": "Same thumbnail stamp then three full-resolution frames at 25/50/75 percent; >=2 parse within40km of namedcity; no localization output.",
+      "build": "First0-600s (or whole shorter upload),<=1080p,CPU unchanged build_overlay_fleet.py defaults interval5/minfixes12/longestcontinuousrun; plausible check_overlay_gt.py +>=500m in analysiswindow.",
+      "failure_handling": "Keep every attempt/exclusion/GTfailure. Advance fixed order on objective ineligibility or definitive GT failure. Infrastructure/bot/unread frames are UNVERIFIED; pause/retry unchanged, not no-result. After7 valid builds stop; if exhausted report actual smaller count. Localization failure never causes replacement.",
+      "evaluation_separation": "Titlecity only; GT/rawGPS cache/GT-derived disc never pipeline inputs; existing stamp-filter policy; all selected outcomes reported; method frozen separately before any localization; no clip-specific tuning.",
+      "method_binding": {
+        "status": "PENDING_SEPARATE_GLOBAL_METHOD_FREEZE",
+        "test4_localization_authorized": false
+      },
+      "known_prior_localization_check": {
+        "manifest_ids_present": [],
+        "searched_summary_roots": [
+          "output",
+          "E:/claude-scoring",
+          "C:/Users/markc/metro-eval"
+        ],
+        "summary_files_checked": 27,
+        "hits": []
+      },
+      "new_label_details_restricted_to_data_qc": true,
+      "implementation_amendments": [
+        {
+          "registered_utc": "2026-11-10T23:15:42.903904+00:00",
+          "version": "ground-motor-title-aliases-v3",
+          "reason": "Correct English-only metadata title matching with generic groundmotor aliases and spelling aliases of the existing no-timelapse exclusion. No selection criterion or outcome change.",
+          "profile_path": "benchmarks/test4_screen/metadata_eligibility_v3_registration.json",
+          "profile_sha256": "5ba509ae9e6e92e742282d5cf27ea0eeff6f7e60634910f42d287ab8d4c19053",
+          "screen_helper_sha256": "4d1682229d09e8b79088398a00dd14b1cc5ad11d9cfae9a88b8df4e928ee8ec5",
+          "preserved_previous_records_sha256": "7acf3827dbdfe2cea251256ae980da3f6baa9bbbc44c85a41a182bf4fcd00a9e",
+          "metadata_only_replay_ids": [
+            "MN4j34O7yO4",
+            "hlvB-OV9Mn4"
+          ],
+          "completed_stamp_GT_verdicts_revisited": false,
+          "registered_before_new_V3_stamp_or_GT_reads": true
+        }
+      ],
+      "data_selection_outcome": {
+        "status": "FIXED_POOL_EXHAUSTED_SIX_USABLE_TARGET_SEVEN_NOT_MET",
+        "eligible_video_ids": [
+          "tK7bHJXAJX8",
+          "yd5g7jsWiEM",
+          "jkkl1QgsPSo",
+          "ZLmQWroXthY",
+          "jz6o-_Y6r2E",
+          "pFbUvfr8k-Q"
+        ],
+        "target_usable": 7,
+        "actual_usable": 6,
+        "target_met": false,
+        "selection_outcome": "benchmarks/test4_screen/selection_outcome.json",
+        "selection_outcome_sha256": "db319d461a7dcb87e74cf5dde7a797f1bc15576408db1af40c54402f3526f72d",
+        "method_binding_pending": true,
+        "localization_executed": false
+      }
+    },
+    "raw_city_votes_dev_2026_11": {
+      "registered": "2026-11-10T21:42:46.236475+00:00",
+      "description": "Prospective post-hoc DEV experiment on the original15; no held-out claim. Does raw city-cell voting repair remaining g5l without losing existing v4 successes?",
+      "method": "assisted v4 + --vpr-city-cell-selector=raw-votes: rank cells by each query’s maximum raw cosine, cast votes for its top3 cells, apply fixed source-defined deterministic tie-breaks; keep same fine3-cell/reference budgets, decoder and admission. Existing decoded selector remains default.",
+      "source_commit_binding": {
+        "status": "ROOT_CLEAN_SOURCE_FREEZE_BOUND_EXTERNAL_REGISTRATION_REQUIRED_BEFORE_PILOT",
+        "commit": "62868aa7aa92f42497954090148ad17202ab72bf",
+        "worktree": "E:/monocular-osm-runs/raw-city-votes-20261110",
+        "external_pre_pilot_registration": "E:/monocular-osm-raw-city-votes-proof/run1/registration.json",
+        "bound_utc": "2026-11-10T21:52:38.802709+00:00",
+        "method_change": false
+      },
+      "execution": "Pilot remaining overlay_g5lnpYCk1Ec first, then a uniform complete original15 run if promising; 14400s CPU16 per clip, warm copies of v4 inputs, minimum VRAM floor0; no perclip policy mixture.",
+      "decision": "Require actual result.answer on all15, every selected raw unrounded symmetric mean error <=200m, all strict frozen-input/provenance gates, and no loss among14 baseline v4 successes. A oneclip pilot cannot establish15/15.",
+      "comparison": "Complete assisted_v4_fleet at409a959,14/15, saved official selected-Answer scores; failures remain in denominator.",
+      "evaluation_separation": "PosthocDEV only. Test4 selection/labels unchanged and blind to algorithm development. Test4 method binding remains separate and pending until a global method is frozen.",
+      "outcome_recorded": {
+        "recorded_utc": "2026-11-10T22:46:04.581181+00:00",
+        "source_commit": "62868aa7aa92f42497954090148ad17202ab72bf",
+        "clip": "overlay_g5lnpYCk1Ec",
+        "execution": {
+          "rc": 0,
+          "wall_s": 2514.2
+        },
+        "selected_answer_symmetric_m": 1387.2377579105248,
+        "selected_answer_under_200m": false,
+        "strict_pilot_input_audits_clean": true,
+        "coarse_raw_cells_valid": 27,
+        "fine_cells_complete": 3,
+        "selected_cells": [
+          1,
+          9,
+          13
+        ],
+        "admission": "correctly rejected expanded: candidate cosine 0.168222 vs required threshold 0.177707 (baseline 0.157707 + margin 0.020000)",
+        "closed_expanded_component": {
+          "symmetric_m": 1714.6662206685678,
+          "selected": false,
+          "counts_toward_goal": false,
+          "root_proof": "E:/monocular-osm-raw-city-votes-proof/run1/component_diagnostic.json",
+          "sha256": "bc71f29cf01c40a245ee5fc3fdc3a7bf3c7d69f9f8eeeaad2df92f3d9fdbd847"
+        },
+        "summary_sha256": "b44ff5b775a621e1e1784373b1983edc3ffaf0eb157f2fc93fa446cf0841259a",
+        "decision": "One-clip negative pilot; no complete original15 run. Not adopted; default remains decoded.",
+        "full_original15_run_performed": false,
+        "test4_labels_accessed": false,
+        "test4_method_binding_pending": true,
+        "evidence_scope": "Exact outcome supplied by Root; DATA operator did not reopen localization outputs or GT."
+      }
+    },
+    "test4_2026_11": {
+      "registered": "2026-11-14",
+      "description": "Held-out test of the frozen assisted policy v4 (the best development policy, 14/15 in-sample) on the six test4 clips, registered before any test4 localization. test4 was selected and frozen separately on 2026-11-10 (benchmarks/test4_screen/, dataset_freeze.json) with method_binding pending; this rule is that binding.",
+      "clips": [
+        "tK7bHJXAJX8",
+        "yd5g7jsWiEM",
+        "jkkl1QgsPSo",
+        "ZLmQWroXthY",
+        "jz6o-_Y6r2E",
+        "pFbUvfr8k-Q"
+      ],
+      "dataset_freeze": {
+        "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+        "selection_outcome_sha256": "db319d461a7dcb87e74cf5dde7a797f1bc15576408db1af40c54402f3526f72d",
+        "manifest_sha256": "7f4150ffe9ed8092872836bed2fec1508f9a1fa72506678d1d4e4e20b9b748b6"
+      },
+      "method": "commit 409a959 (the assisted_v4_fleet commit), --assisted-only --assisted-profile=v4 --assisted-cpu-threads=16; nothing changed",
+      "run": "one rep per clip, CPU only (CUDA_VISIBLE_DEVICES=-1), clean worktree at 409a959 (E:/claude-scoring/wt-test4-v4), runner flags exactly as the v4 fleet: --skip-download --timeout 14400 --min-free-vram-gb 0 --min-free-commit-gb 12 --infra-retries 4 --infra-wait 900; inputs are hard links of the frozen data/test4 downloads staged as <pipeline slug>/input.mp4 in a fresh data dir (C:/Users/markc/test4-eval/data, cold caches) with a copy of data/test4/metadata_cache. Runs that fail on infrastructure are rerun at the same commit before any score is looked at.",
+      "runner_manifest": {
+        "path": "E:/claude-scoring/test4/manifest_test4.json",
+        "sha256": "7e8960f759f0f199add0e6334eec72b23c4075d4110ae82c0fbbf347b5f3d7b9",
+        "changes": [
+          "test4 clips only; split relabelled test2 because 409a959's runner lists splits up to test2 (filter only)",
+          "overlay_yd5g7jsWiEM city passed as 'Bucuresti, Romania', the title's own spelling ('Buzau - Bucuresti'): 409a959's city-fairness guard refuses 'Bucharest' as not named in the title; osmnx geocodes both strings to (44.4361414, 26.102684)"
+        ]
+      },
+      "comparison": "(1) the same run's baseline child answer (children/*/baseline/result.json answer: the retrieval track at 409a959), scored with monocular_osm.metrics.score_route exactly like the answer; (2) the city-centre guess from benchmarks/geocode_snapshot.json using the frozen manifest city",
+      "outcome": "unrounded symmetric_mean_m per clip of the assisted answer, the baseline track and the city centre; selected assisted stage; wall-clock time",
+      "hypotheses": {
+        "V1": "Descriptive primary: the share of test4 clips within 200 m for assisted v4, with its Wilson 95 % interval, against v4's in-sample 14/15 (Wilson 70-99 %).",
+        "V2": "No harm: no clip within 200 m with the baseline track is above 200 m with assisted v4.",
+        "V3": "Assisted v4 beats the city centre on at least 4 of the 6 clips."
+      },
+      "goal_check": "The user's goal 'all within 200 m' is reported for test4 as k/6; it holds only at 6/6.",
+      "report": "every clip whichever way it comes out; ground truth (labels restricted to data QC until now) is read only after all six runs finish; the pooled held-out share across test1-test4 is updated with commits stated",
+      "disclosure": "test4 has six clips (its target of seven was not met), so only large effects are visible. v4's stages and thresholds were developed on the dev clips and v3 matched the plain track on test2 (2/7). The test3 diagnostics and the 10-12 November experiments informed no part of v4 (409a959 predates them). Single rep; retrieval reruns can differ by tens to hundreds of metres."
     }
   }
 }

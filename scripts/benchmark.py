@@ -28,6 +28,7 @@ Runs live under ``output/benchmark_runs/<run_name>/<clip_id>/rep<k>/``
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import datetime as _dt
 import hashlib
 import json
@@ -85,7 +86,7 @@ def select_clips(manifest: dict, *, fleet: str = "core", clips: Iterable[str] | 
             continue
         if split != "all" and c["split"] != split:
             continue
-        if split == "all" and c["split"] == "test":
+        if split == "all" and c["split"] != "dev":
             continue  # never by accident
         if not c.get("available_locally", True) and not include_unavailable:
             log(f"SKIP {c['id']}: available_locally=false "
@@ -108,7 +109,7 @@ FORBIDDEN_FLAGS: tuple[str, ...] = (
 )
 #: Flags the runner sets itself; a passthrough may not override them.
 RUNNER_FLAGS: tuple[str, ...] = (
-    "--url", "--video", "--city", "--vo-segment", "--analyze-minutes",
+    "--url", "--video", "--video-path", "--city", "--vo-segment", "--analyze-minutes",
     "--data-dir", "--output-dir",
 )
 _COORD_RE = re.compile(r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+")
@@ -182,8 +183,18 @@ def build_pipeline_argv(entry: dict, *, city: str, output_dir: Path, data_dir: P
                         extra: Iterable[str] = ()) -> list[str]:
     """The ONLY way the benchmark launches the pipeline."""
     video = entry["video"]
+    extra = list(extra)
     if "url" in video:
         src = ["--url", video["url"]]
+        if "local_path" in video and any(_matches_flag(t, ("--skip-download",)) for t in extra):
+            registered = video["local_path"]
+            if not isinstance(registered, str) or not registered.strip():
+                raise ValueError(f"{entry['id']}: video.local_path must name the registered local video")
+            path = Path(registered)
+            path = path if path.is_absolute() else ROOT / path
+            if not path.is_file():
+                raise FileNotFoundError(f"{entry['id']}: registered video.local_path missing: {path}")
+            src += ["--video-path", path.resolve().as_posix()]
     elif "path" in video:
         src = ["--video", Path(video["path"]).as_posix()]
     else:
@@ -262,9 +273,60 @@ def redact_file(path: Path, secret: str | None) -> int:
 VPR_CACHE_DIRS: tuple[str, ...] = (
     "mapillary", "kartaview", "panoramax", "union",
     "mapillary_c2f", "kartaview_c2f", "panoramax_c2f", "union_c2f",
+    "mapillary_outer", "kartaview_outer", "panoramax_outer",
+    "mapillary_regions", "kartaview_regions", "panoramax_regions", "union_regions",
+    "mapillary_city", "kartaview_city", "panoramax_city", "union_city",
 )
 ASIDE_DIR = "_benchmark_vpr_warm_aside"
 COLD_ARCHIVE_DIR = "_benchmark_cold_vpr"
+
+
+def _checked_cache_path(root: Path, path: Path) -> Path:
+    """Refuse cache moves/deletions through links outside the intended root."""
+    resolved_root, resolved_path = Path(root).resolve(), Path(path).resolve()
+    if resolved_path == resolved_root or not resolved_path.is_relative_to(resolved_root):
+        raise ValueError(f"cache path escapes its root: {path}")
+    return Path(path)
+
+
+def _regional_slug_root(slug_dir: Path, regional_root: Path) -> Path:
+    return _checked_cache_path(regional_root, Path(regional_root) / Path(slug_dir).name)
+
+
+def _vpr_cache_names(root: Path, *, external_regions: bool = False) -> list[str]:
+    if not external_regions:
+        return list(VPR_CACHE_DIRS)
+    prefixes = tuple(f"{source}_{scope}_" for source in ("mapillary", "kartaview", "panoramax", "union")
+                     for scope in ("region", "city"))
+    return sorted(p.name for p in Path(root).glob("*") if p.name.startswith(prefixes))
+
+
+def _assisted_cache_leaves(slug_dir: Path) -> list[Path]:
+    """Local child caches retain the parent slug below assisted/<scope>/."""
+    nested = _checked_cache_path(slug_dir, Path(slug_dir) / "assisted")
+    if not nested.exists():
+        return []
+    leaves = []
+    for scope in sorted(nested.iterdir()):
+        if scope.is_dir():
+            _checked_cache_path(slug_dir, scope)
+            leaf = _checked_cache_path(slug_dir, scope / Path(slug_dir).name)
+            if leaf.is_dir():
+                leaves.append(leaf)
+    return leaves
+
+
+def _regional_cache_root_from_argv(argv: list[str]) -> Path | None:
+    """Resolve the child's effective external regional cache root, if supplied."""
+    value = None
+    for i, token in enumerate(argv):
+        if _matches_flag(str(token), ("--vpr-region-cache-dir",)):
+            value = (str(token).split("=", 1)[1] if "=" in str(token)
+                     else argv[i + 1] if i + 1 < len(argv) else None)
+    if value is None:
+        return None
+    path = Path(value)
+    return path if path.is_absolute() else ROOT / path
 
 
 def _fold(text: str) -> str:
@@ -291,8 +353,10 @@ def city_fairness_problem(entry: dict, title: str | None,
         # The full name, or its distinctive first word: a title saying
         # "Newcastle" lets a user type "Newcastle upon Tyne".
         first = head.split()[0] if head.split() else head
-        named = head in text or (len(first) >= 5 and re.search(
-            rf"(?<!\w){re.escape(first)}(?!\w)", text) is not None)
+        squash = lambda t: re.sub(r"[\s\-_]+", "", t)          # noqa: E731
+        named = (head in text or squash(head) in squash(text)    # "denhaag" names Den Haag
+                 or (len(first) >= 5 and re.search(
+                     rf"(?<!\w){re.escape(first)}(?!\w)", text) is not None))
         if not named:
             return (f"{entry['id']}: city {city!r} is not named in the video's title or "
                     f"description, so a user could not know it")
@@ -353,7 +417,8 @@ def candidate_slug_dirs(entry: dict, city: str, data_dir: Path) -> list[Path]:
 
 
 def restore_vpr_caches(slug_dir: Path, archive_to: Path | None = None, *,
-                       keep_arrays: bool = True) -> list[str]:
+                       keep_arrays: bool = True, region_cache_root: Path | None = None,
+                       _external_regions: bool = False) -> list[str]:
     """Undo :func:`set_vpr_caches_aside`. Fresh caches created by the cold
     run are MOVED to ``archive_to`` (inside the same clip data dir); then the
     warm caches go back where they were.
@@ -365,18 +430,22 @@ def restore_vpr_caches(slug_dir: Path, archive_to: Path | None = None, *,
     them filled the benchmark disk after ~50 reps (a full disk then silently
     disabled retrieval and truncated a road-graph cache)."""
     slug_dir = Path(slug_dir)
+    assisted = _assisted_cache_leaves(slug_dir) if not _external_regions else []
+    if archive_to is not None:
+        archive_to = _checked_cache_path(slug_dir, Path(archive_to))
     moved: list[str] = []
-    aside = slug_dir / ASIDE_DIR
-    for name in VPR_CACHE_DIRS:
-        fresh = slug_dir / name
+    aside = _checked_cache_path(slug_dir, slug_dir / ASIDE_DIR)
+    for name in _vpr_cache_names(slug_dir, external_regions=_external_regions):
+        fresh = _checked_cache_path(slug_dir, slug_dir / name)
         if fresh.exists() and archive_to is not None:
             dropped = 0
             if not keep_arrays:
                 for f in sorted(fresh.rglob("*.npz")):
+                    _checked_cache_path(fresh, f)
                     dropped += f.stat().st_size
                     f.unlink()
             archive_to.mkdir(parents=True, exist_ok=True)
-            dest = archive_to / name
+            dest = _checked_cache_path(slug_dir, archive_to / name)
             if dest.exists():
                 dest = archive_to / f"{name}.{int(time.time())}"
             shutil.move(str(fresh), str(dest))
@@ -385,30 +454,53 @@ def restore_vpr_caches(slug_dir: Path, archive_to: Path | None = None, *,
                             if dropped else ""))
     if aside.exists():
         for child in sorted(aside.iterdir()):
-            target = slug_dir / child.name
+            _checked_cache_path(slug_dir, child)
+            target = _checked_cache_path(slug_dir, slug_dir / child.name)
             if target.exists():
                 # A crashed cold run left a fresh cache here: archive it first.
-                arch = slug_dir / COLD_ARCHIVE_DIR / f"orphan_{int(time.time())}"
+                arch = _checked_cache_path(
+                    slug_dir, slug_dir / COLD_ARCHIVE_DIR / f"orphan_{int(time.time())}")
                 arch.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(target), str(arch / child.name))
             shutil.move(str(child), str(target))
             moved.append(f"restored {child.name}")
         aside.rmdir()
+    if region_cache_root is not None:
+        regional = _regional_slug_root(slug_dir, Path(region_cache_root))
+        regional_archive = (regional / archive_to.resolve().relative_to(slug_dir.resolve())
+                            if archive_to is not None else None)
+        moved.extend("external: " + item for item in restore_vpr_caches(
+            regional, regional_archive, keep_arrays=keep_arrays, _external_regions=True))
+    for leaf in assisted:
+        child_archive = (leaf / archive_to.resolve().relative_to(slug_dir.resolve())
+                         if archive_to is not None else None)
+        moved.extend(f"assisted/{leaf.parent.name}: " + item for item in restore_vpr_caches(
+            leaf, child_archive, keep_arrays=keep_arrays))
     return moved
 
 
-def set_vpr_caches_aside(slug_dir: Path) -> list[str]:
+def set_vpr_caches_aside(slug_dir: Path, *, region_cache_root: Path | None = None,
+                         _external_regions: bool = False) -> list[str]:
     """Move existing VPR caches of one clip data dir into ``ASIDE_DIR``."""
     slug_dir = Path(slug_dir)
+    assisted = _assisted_cache_leaves(slug_dir) if not _external_regions else []
     if (slug_dir / ASIDE_DIR).exists():
-        restore_vpr_caches(slug_dir, slug_dir / COLD_ARCHIVE_DIR / "recovered")
+        restore_vpr_caches(slug_dir, slug_dir / COLD_ARCHIVE_DIR / "recovered",
+                           _external_regions=_external_regions)
     moved = []
-    for name in VPR_CACHE_DIRS:
-        src = slug_dir / name
+    _checked_cache_path(slug_dir, slug_dir / ASIDE_DIR)
+    for name in _vpr_cache_names(slug_dir, external_regions=_external_regions):
+        src = _checked_cache_path(slug_dir, slug_dir / name)
         if src.exists():
             (slug_dir / ASIDE_DIR).mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(slug_dir / ASIDE_DIR / name))
             moved.append(name)
+    if region_cache_root is not None:
+        regional = _regional_slug_root(slug_dir, Path(region_cache_root))
+        moved.extend("external: " + item for item in set_vpr_caches_aside(
+            regional, _external_regions=True))
+    for leaf in assisted:
+        moved.extend(f"assisted/{leaf.parent.name}: " + item for item in set_vpr_caches_aside(leaf))
     return moved
 
 
@@ -448,14 +540,21 @@ def run_one(argv: list[str], log_path: Path, env: dict, timeout: float) -> dict:
     """Run one pipeline child; returns rc / wall time / timeout flag."""
     t0 = time.time()
     started = _now()
+    from monocular_osm.runtime_budget import DEADLINE_ENV, positive
+    deadline = time.monotonic() + positive(timeout, "timeout")
+    child_env = dict(env)
+    # A nested caller may shorten this deadline, never extend it.
+    if DEADLINE_ENV in child_env:
+        deadline = min(deadline, positive(float(child_env[DEADLINE_ENV]), DEADLINE_ENV))
+    child_env[DEADLINE_ENV] = repr(deadline)
     kw: dict = {}
     if os.name != "nt":
         kw["start_new_session"] = True
     with open(log_path, "wb") as fh:
         proc = subprocess.Popen(argv, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT,
-                                env=env, **kw)
+                                env=child_env, **kw)
         try:
-            rc = proc.wait(timeout=timeout)
+            rc = proc.wait(timeout=max(0., deadline - time.monotonic()))
             timed_out = False
         except subprocess.TimeoutExpired:
             _kill_tree(proc)
@@ -661,6 +760,8 @@ def _run_config(args, manifest_path: Path) -> dict:
 
 
 def cmd_run(args) -> int:
+    if args.repeats < 1:
+        raise SystemExit("--repeats must be at least 1")
     manifest_path = Path(args.manifest)
     manifest = load_manifest(ROOT / manifest_path if not manifest_path.is_absolute()
                              else manifest_path)
@@ -677,6 +778,10 @@ def cmd_run(args) -> int:
         pass
     elif cfg_path.exists():
         prev = _read_json(cfg_path)
+        if (prev.get("manifest_sha256") is not None
+                and prev["manifest_sha256"] != _sha256_file(ROOT / manifest_path)):
+            raise SystemExit(f"{cfg_path}: manifest changed since this run was created; "
+                             "use a new --run-name")
         if prev.get("config") != cfg:
             raise SystemExit(
                 f"{cfg_path} was created with a different configuration:\n"
@@ -695,6 +800,32 @@ def cmd_run(args) -> int:
     if unfair:
         raise SystemExit("REFUSING: city strings a user could not know:\n  - "
                          + "\n  - ".join(unfair))
+
+    if not args.dry_run:
+        # Save the denominator before starting any expensive work. Merge when
+        # resuming/adding a fleet or repeats, so an interrupted final clip can
+        # never disappear from a later aggregate merely because no dir exists.
+        saved = _read_json(cfg_path)
+        plan = saved.setdefault("execution_plan", {})
+        skipped = saved.setdefault("not_scheduled", {})
+        for entry in clips:
+            city = city_for(entry, args.city_variant)
+            video = entry["video"]
+            reason = (f"no city alternative #{args.city_variant}" if city is None else
+                      f"local video {video['path']} missing"
+                      if "path" in video and not (ROOT / video["path"]).exists() else None)
+            if reason:
+                skipped[entry["id"]] = reason
+                continue
+            old_reps = (plan.get(entry["id"]) or {}).get("reps", [])
+            plan[entry["id"]] = {
+                "city": city, "vo_segment": entry["vo_segment"],
+                "reps": sorted(set(old_reps) | set(range(args.repeats))),
+            }
+            skipped.pop(entry["id"], None)
+        tmp_config = cfg_path.with_suffix(".tmp")
+        tmp_config.write_text(json.dumps(saved, indent=2), encoding="utf-8")
+        tmp_config.replace(cfg_path)
 
     env, token_rec = child_env()
     secret = env.get(SECRET_ENV)
@@ -725,6 +856,7 @@ def cmd_run(args) -> int:
             argv = build_pipeline_argv(
                 entry, city=city, output_dir=pipeline_out.relative_to(ROOT),
                 data_dir=data_dir, extra=extra)
+            regional_cache_root = _regional_cache_root_from_argv(argv)
             if args.dry_run:
                 print(subprocess.list2cmdline(argv))
                 continue
@@ -752,14 +884,19 @@ def cmd_run(args) -> int:
                     wait_for_commit(args.min_free_vram_gb,
                                     getattr(args, "resource_wait", 0),
                                     probe=available_vram_gb, what="GPU memory")
-                if getattr(args, "overpass_wait", 0) > 0:
+                # A successful retrieval-only run never loads a road graph.
+                # Let that fast path start even while Overpass is unavailable;
+                # its geometry fallback handles graph-fetch retries normally.
+                retrieval_only = any(_matches_flag(token, ("--retrieval-only",))
+                                     for token in argv)
+                if getattr(args, "overpass_wait", 0) > 0 and not retrieval_only:
                     wait_for_overpass(args.overpass_wait)
                 cold: dict = {}
                 slug_dirs = (candidate_slug_dirs(entry, city, ROOT / data_dir)
                              if args.cold_vpr else [])
                 try:
                     for d in slug_dirs:
-                        moved = set_vpr_caches_aside(d)
+                        moved = set_vpr_caches_aside(d, region_cache_root=regional_cache_root)
                         if moved:
                             cold[d.name] = {"set_aside": moved}
                     outcome = run_one(argv, rep_dir / "log.txt", env, args.timeout)
@@ -775,6 +912,7 @@ def cmd_run(args) -> int:
                                     / f"rep{k}")
                             moved = restore_vpr_caches(
                                 d, arch,
+                                region_cache_root=regional_cache_root,
                                 keep_arrays=getattr(args, "cold_archive", "metadata") == "full")
                             if moved:
                                 cold.setdefault(d.name, {})["restored"] = moved
@@ -849,7 +987,9 @@ def _score(pred, gt_latlon: np.ndarray) -> dict:
         out = failed_score(len(gt_latlon))
         out["answered"] = False
         return out
-    out = score_route(pred.route_latlon, gt_latlon).to_dict()
+    # Repeat scores drive threshold/median decisions. Display-only rounding
+    # stays in _quantiles and RouteScore.to_dict, never in these saved values.
+    out = asdict(score_route(pred.route_latlon, gt_latlon))
     out.update(answered=True, failed=False, source=pred.source, kind=pred.kind,
                oracle=pred.oracle, meta=pred.meta)
     return out
@@ -871,6 +1011,17 @@ def _provenance_of(result: dict | None) -> dict:
     prov = (result or {}).get("provenance") or {}
     git = prov.get("git") or {}
     cfg = prov.get("config") or {}
+    backbone = (((result or {}).get("vpr_prior") or {}).get("backbone") or {})
+    poi_audit = prov.get("poi_localization_audit") or {}
+    assisted_audit = prov.get("assisted_audit") or {}
+    if not backbone:
+        backbone = next(((r.get("provenance") or {}).get("backbone") for r in (poi_audit.get("regions") or [])
+                         if isinstance(r, dict) and (r.get("provenance") or {}).get("backbone")), {})
+    if not backbone:
+        backbone = next(((r.get("comparison") or {}).get("model") for r in
+                         (assisted_audit.get("reached_stages") or []) if isinstance(r, dict)
+                         and (r.get("comparison") or {}).get("model")), {})
+    selected_answer = (result or {}).get("answer") or {}
     return {
         "present": bool(prov),
         "commit": git.get("commit"), "dirty": git.get("dirty"),
@@ -878,12 +1029,56 @@ def _provenance_of(result: dict | None) -> dict:
         "ocr_engine": cfg.get("ocr_engine"),
         "vo_algo_version": prov.get("vo_algo_version"),
         "package_version": prov.get("package_version"),
+        "config": cfg,
+        "graph_filter_inputs": prov.get("graph_filter_inputs"),
+        "poi_inputs": prov.get("poi_inputs"),
+        "poi_localization_audit": prov.get("poi_localization_audit"),
+        "assisted_inputs": prov.get("assisted_inputs"),
+        "assisted_audit": prov.get("assisted_audit"),
+        "assisted_selected_answer": ({"mode": selected_answer.get("mode"),
+            "method": selected_answer.get("method"), "source": selected_answer.get("source"),
+            "route_sha256": _fingerprint(selected_answer.get("route_latlon")),
+            "point_count": len(selected_answer.get("route_latlon") or [])}
+            if cfg.get("answer") == "assisted" else None),
+        "python": prov.get("python"),
+        "libraries": prov.get("libraries") or {},
+        # The actual loaded model, including the pinned hub revision. A
+        # missing optional channel is tracked by run health, not as a model.
+        "vpr_model": ({k: v for k, v in backbone.items() if k != "device"}
+                      if backbone.get("name") else None),
         "argv": prov.get("argv") or [],
         "gt_waypoints_cfg": cfg.get("ground_truth_waypoints"),
         "gt_streets_cfg": cfg.get("ground_truth_streets") or [],
         "osm_around_cfg": cfg.get("osm_around"),
         "osm_around_source_cfg": cfg.get("osm_around_source"),
     }
+
+
+# Inputs and auto-selected per-video values may legitimately differ across
+# clips. Compare these within each clip instead; method knobs must match the
+# whole fleet. Cache/output roots do not affect either comparison.
+_CONFIG_ROOTS = {"data_dir", "output_dir"}
+# The absolute process clock records execution provenance, not method identity.
+# Relative budgets and reserves remain method knobs in both comparisons.
+_CONFIG_OPERATIONAL_FIELDS = {"runtime_deadline_monotonic_s"}
+_CONFIG_CLIP_FIELDS = {
+    "url", "city", "video_path", "video_title", "video_description", "ocr_video_path",
+    "vo_start_sec", "vo_end_sec",
+    "frame_stride", "osm_around", "osm_around_source", "openvo_trajectory_path",
+    "vggt_long_trajectory_path",
+}
+
+
+def _fingerprint(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _effective_config(prov: dict, *, within_clip: bool = False) -> dict:
+    ignored = _CONFIG_ROOTS | _CONFIG_OPERATIONAL_FIELDS
+    if not within_clip:
+        ignored |= _CONFIG_CLIP_FIELDS
+    return {k: v for k, v in (prov.get("config") or {}).items() if k not in ignored}
 
 
 def _health_of(result: dict | None) -> dict:
@@ -900,7 +1095,35 @@ def _health_of(result: dict | None) -> dict:
     vpr_prior = result.get("vpr_prior") or {}
     backbone = (vpr_prior.get("backbone") or {}).get("name")
     n_frames, n_valid = result.get("n_frames"), result.get("n_valid_poses")
+    cfg = (result.get("provenance") or {}).get("config") or {}
+    poi = (result.get("provenance") or {}).get("poi_localization_audit") or {}
+    poi_regions = poi.get("regions") or []
+    poi_requested = cfg.get("answer") == "poi"
+    poi_models = [(r.get("provenance") or {}).get("backbone") or {} for r in poi_regions if isinstance(r, dict)]
+    poi_complete = (poi.get("status") == "ok" and "failed_regions" in poi and not poi["failed_regions"]
+                    and bool(poi_regions) and all(isinstance(r, dict) and r.get("status") == "ok" for r in poi_regions))
+    assisted = (result.get("provenance") or {}).get("assisted_audit") or {}
+    selected_child = next((r for r in assisted.get("reached_stages") or []
+                           if isinstance(r, dict) and r.get("kind") == assisted.get("selected_candidate")), {})
+    assisted_complete = (cfg.get("answer") == "assisted" and bool(assisted.get("selected_candidate"))
+                          and selected_child.get("status") == "complete"
+                          and selected_child.get("worker_returncode") == 0
+                          and (result.get("answer") or {}).get("mode") == "assisted")
     return {
+        "filter_only": (cfg.get("answer") == "filter" and cfg.get("graph_filter") is True
+                        and (result.get("answer") or {}).get("mode") == "filter"),
+        "poi_only": (poi_requested and (result.get("answer") or {}).get("mode") == "poi" and poi_complete
+                     and (ch.get("poi_retrieval") or {}).get("status") == "ok"),
+        "assisted_only": assisted_complete,
+        "assisted_requested": cfg.get("answer") == "assisted",
+        "assisted_selected_candidate": assisted.get("selected_candidate"),
+        "assisted_child_outcomes": {r.get("kind"): r.get("status") for r in assisted.get("reached_stages") or [] if isinstance(r, dict)},
+        "poi_requested": poi_requested, "poi_status": poi.get("status"), "poi_complete": poi_complete,
+        "poi_retrieval_status": (ch.get("poi_retrieval") or {}).get("status"),
+        "poi_source": ((poi_regions[0].get("provenance") or {}).get("source")
+                       if poi_regions and isinstance(poi_regions[0], dict) else None),
+        "poi_backbone": poi_models[0].get("name") if poi_models else None,
+        "poi_device": poi_models[0].get("device") if poi_models else None,
         "vpr_status": (ch.get("vpr") or {}).get("status"),
         "vpr_reason": (ch.get("vpr") or {}).get("reason") or (ch.get("vpr") or {}).get("error"),
         "vpr_source": vpr_prior.get("source"),
@@ -910,6 +1133,17 @@ def _health_of(result: dict | None) -> dict:
         "coarse_seed": (ch.get("coarse_from_frames") or {}).get("status"),
         "valid_pose_frac": (round(n_valid / n_frames, 3)
                             if n_frames and n_valid is not None else None),
+        "reference_snapshots": {
+            **{f"poi_region_{i}": rp["reference_inventory"]["refs_sha256"]
+               for i, region in enumerate(poi_regions) if isinstance(region, dict)
+               and isinstance(rp := region.get("provenance"), dict)
+               and (rp.get("reference_inventory") or {}).get("refs_sha256")},
+            **{
+            name: stats["snapshot"]["refs_sha256"]
+            for name, stats in (result.get("vpr_listing") or {}).items()
+            if isinstance(stats, dict) and (stats.get("snapshot") or {}).get("refs_sha256")
+            },
+        },
         "failed_channels": sorted(k for k, v in ch.items()
                                   if (v or {}).get("status") == "failed"),
     }
@@ -920,12 +1154,17 @@ def degraded_reasons(health: dict, *, token_set: bool) -> list[str]:
     if not health:
         return []
     why = []
-    if health.get("vpr_status") != "ok":
+    independent = health.get("filter_only") or health.get("poi_only") or health.get("assisted_only")
+    if health.get("assisted_requested") and not health.get("assisted_only"):
+        why.append("assisted policy did not select a complete successful child")
+    if health.get("poi_requested") and (not health.get("poi_complete") or health.get("poi_retrieval_status") != "ok"):
+        why.append("POI localization is partial, failed or unavailable")
+    if not independent and health.get("vpr_status") != "ok":
         why.append(f"retrieval {health.get('vpr_status')}"
                    + (f" ({health['vpr_reason']})" if health.get("vpr_reason") else ""))
-    elif token_set and health.get("vpr_source") not in (None, "mapillary", "union"):
+    elif not independent and token_set and health.get("vpr_source") not in (None, "mapillary", "union"):
         why.append(f"retrieval used {health.get('vpr_source')!r} although a token was set")
-    if health.get("vpr_backbone") not in (None, "megaloc"):
+    if not independent and health.get("vpr_backbone") not in (None, "megaloc"):
         why.append(f"retrieval backbone {health.get('vpr_backbone')!r}, not megaloc")
     if health.get("failed_channels"):
         why.append("failed channels: " + ", ".join(health["failed_channels"]))
@@ -975,8 +1214,8 @@ def package_tree(commit: str | None, root: Path | None = None) -> str | None:
 
 
 def check_provenance(reps: list[dict]) -> dict:
-    """All reps from one version of the pipeline code with one token state,
-    and leak-free."""
+    """Check code, effective settings, dependencies and loaded models within
+    a fleet. Separate runs may intentionally change any of these."""
     provs = [r["provenance"] for r in reps if r.get("result_found")]
     commits = sorted({str(p["commit"]) for p in provs})
     trees = {c: package_tree(c) for c in commits}
@@ -1003,6 +1242,22 @@ def check_provenance(reps: list[dict]) -> dict:
     if len(devices) > 1:
         # GPU retrieval runs fp16 autocast, CPU fp32: small, but not the same run.
         problems.append(f"retrieval ran on different devices: {devices}")
+    method_configs = sorted({_fingerprint(_effective_config(p)) for p in provs})
+    if len(method_configs) > 1:
+        problems.append("reps ran different effective method configurations")
+    for clip in sorted({r["clip"] for r in reps if r.get("result_found")}):
+        configs = {_fingerprint(_effective_config(r["provenance"], within_clip=True))
+                   for r in reps if r.get("result_found") and r["clip"] == clip}
+        if len(configs) > 1:
+            problems.append(f"{clip}: reps ran different effective clip configurations")
+    environments = sorted({_fingerprint({"python": p.get("python"),
+                                         "libraries": p.get("libraries") or {}})
+                           for p in provs})
+    if len(environments) > 1:
+        problems.append("reps ran different Python/library versions")
+    models = sorted({_fingerprint(p["vpr_model"]) for p in provs if p.get("vpr_model")})
+    if len(models) > 1:
+        problems.append("reps used different VPR model fingerprints")
     return {
         "consistent": not problems and not leaks,
         "problems": problems, "leaks": leaks,
@@ -1011,6 +1266,9 @@ def check_provenance(reps: list[dict]) -> dict:
         "ocr_engines": sorted({str(p["ocr_engine"]) for p in provs}),
         "vo_algo_versions": sorted({str(p["vo_algo_version"]) for p in provs}),
         "package_versions": sorted({str(p["package_version"]) for p in provs}),
+        "method_config_fingerprints": method_configs,
+        "environment_fingerprints": environments,
+        "vpr_model_fingerprints": models,
         "n_results": len(provs),
     }
 
@@ -1085,13 +1343,19 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                                                    allow_network=allow_network)
         return centroid_cache[city]
     run_dir = Path(run_dir)
+    run_metadata = (_read_json(run_dir / "run_config.json")
+                    if (run_dir / "run_config.json").exists() else {})
+    execution_plan = run_metadata.get("execution_plan")
+    planned_clips = execution_plan or {}
     by_id = {c["id"]: c for c in manifest["clips"]}
     reps: list[dict] = []
     clips_out: dict[str, dict] = {}
     warnings: list[str] = []
 
-    for clip_dir in sorted(p for p in run_dir.iterdir() if p.is_dir()):
-        entry = by_id.get(clip_dir.name)
+    observed_clips = {p.name for p in run_dir.iterdir() if p.is_dir()}
+    for clip_id in sorted(observed_clips | set(planned_clips)):
+        clip_dir = run_dir / clip_id
+        entry = by_id.get(clip_id)
         if entry is None:
             warnings.append(f"{clip_dir.name}: not in the manifest; ignored")
             continue
@@ -1102,19 +1366,26 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 raise SystemExit(msg + " (regenerate the manifest or --allow-mixed)")
             warnings.append(msg)
         clip_reps = []
-        rep_dirs = [p for p in clip_dir.iterdir()
-                    if p.is_dir() and re.fullmatch(r"rep\d+", p.name)]
-        for rep_dir in sorted(rep_dirs, key=lambda p: int(p.name[3:])):
+        observed_reps = ({int(p.name[3:]) for p in clip_dir.iterdir()
+                          if p.is_dir() and re.fullmatch(r"rep\d+", p.name)}
+                         if clip_dir.exists() else set())
+        clip_plan = planned_clips.get(clip_id) or {}
+        for rep_number in sorted(observed_reps | set(clip_plan.get("reps", []))):
+            rep_dir = clip_dir / f"rep{rep_number}"
             st_path = rep_dir / "status.json"
-            if not st_path.exists():
+            completed = st_path.exists()
+            if not completed:
                 warnings.append(f"{entry['id']}/{rep_dir.name}: no status.json "
-                                f"(interrupted?); ignored")
-                continue
-            st = _read_json(st_path)
+                                f"(not started or interrupted); counted as a failure")
+            st = (_read_json(st_path) if completed else {
+                "city": clip_plan.get("city") or entry["city"],
+                "vo_segment": clip_plan.get("vo_segment") or entry["vo_segment"],
+            })
             res_path = rep_dir / "result.json"
             result = _read_json(res_path) if res_path.exists() else None
             ok = st.get("rc") == 0 and result is not None
             rep = {"clip": entry["id"], "rep": int(rep_dir.name[3:]),
+                   "completed": completed,
                    "rc": st.get("rc"), "timed_out": st.get("timed_out"),
                    "wall_s": st.get("wall_s"), "city": st.get("city"),
                    "result_found": result is not None, "ok": ok,
@@ -1124,7 +1395,12 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 "matcher_only": B.matcher_only(result) if ok else None,
                 "pinned_only": B.pinned_only(result) if ok else None,
                 "graph_filter_only": B.graph_filter_only(result) if ok else None,
+                "poi_only": B.poi_only(result) if ok else None,
+                "assisted_policy": B.assisted_policy(result) if ok else None,
                 "vpr_prior_only": B.vpr_prior_only(result) if ok else None,
+                "vpr_track_only": B.vpr_track_only(result) if ok else None,
+                "track_checked": B.track_checked(result) if ok else None,
+                "answer": B.answer(result) if ok else None,
                 f"shortlist_oracle@{k}": (B.shortlist_oracle(result, gt_latlon, k)
                                           if ok else None),
             }
@@ -1141,7 +1417,7 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                 rep["health"] = _health_of(result)
                 # Device: recorded by the pipeline since 2026-10-16; older reps
                 # fall back to what the runner exposed (a hidden GPU = CPU).
-                rep["vpr_device"] = rep["health"].get("vpr_device") or (
+                rep["vpr_device"] = rep["health"].get("poi_device") or rep["health"].get("vpr_device") or (
                     "cpu" if st.get("cuda_visible_devices") in ("-1", "") else None)
                 rep["degraded"] = degraded_reasons(
                     rep["health"], token_set=bool(rep["provenance"].get("mly_token_set")))
@@ -1170,17 +1446,27 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
             "name": entry["name"], "fleet": entry["fleet"], "split": entry["split"],
             "city": cities[0] if len(cities) == 1 else cities,
             "n_reps": len(clip_reps), "n_ok": sum(r["ok"] for r in clip_reps),
+            "n_completed": sum(r["completed"] for r in clip_reps),
             "headline_sources": sorted({str(r.get("headline_source")) for r in clip_reps
                                         if r["ok"]}),
             "health": {
                 "n_degraded": sum(1 for r in clip_reps if r.get("degraded")),
                 "degraded": sorted({w for r in clip_reps for w in r.get("degraded", [])}),
-                "vpr_sources": sorted({str(r["health"].get("vpr_source")) for r in clip_reps
+                "vpr_sources": sorted({str(r["health"].get("poi_source") if r["health"].get("poi_requested")
+                                           else r["health"].get("vpr_source")) for r in clip_reps
                                        if r.get("health")}),
-                "vpr_backbones": sorted({str(r["health"].get("vpr_backbone")) for r in clip_reps
+                "vpr_backbones": sorted({str(r["health"].get("poi_backbone") if r["health"].get("poi_requested")
+                                             else r["health"].get("vpr_backbone")) for r in clip_reps
                                          if r.get("health")}),
                 "vpr_devices": sorted({str(r.get("vpr_device")) for r in clip_reps
                                        if r.get("health")}),
+                "reference_snapshots": {
+                    name: sorted({r["health"]["reference_snapshots"][name]
+                                  for r in clip_reps if r.get("health")
+                                  and name in r["health"].get("reference_snapshots", {})})
+                    for name in sorted({name for r in clip_reps if r.get("health")
+                                        for name in r["health"].get("reference_snapshots", {})})
+                },
                 "coarse_seed_fired": sum(1 for r in clip_reps
                                          if (r.get("health") or {}).get("coarse_seed") == "ok"),
                 "valid_pose_frac_median": (
@@ -1194,6 +1480,7 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
                               if any(r.get("wall_s") is not None for r in clip_reps)
                               else None),
             "gt_n_waypoints": int(len(gt_latlon)),
+            "gt_waypoints_sha256": gt_waypoints_digest(gt_blob),
             "vo_segments": sorted({str(r["vo_segment"]) for r in clip_reps
                                    if r.get("vo_segment")}),
             "selective": ({
@@ -1208,6 +1495,11 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
         }
 
     for cid, c in clips_out.items():
+        changed_snapshots = [name for name, hashes in
+                             c["health"]["reference_snapshots"].items() if len(hashes) > 1]
+        if changed_snapshots:
+            warnings.append(f"{cid}: reference content changed across repeats "
+                            f"({', '.join(changed_snapshots)}); cold retrieval can vary")
         if c["health"]["n_degraded"]:
             warnings.append(f"{cid}: {c['health']['n_degraded']}/{c['n_reps']} rep(s) "
                             f"DEGRADED - {'; '.join(c['health']['degraded'])}")
@@ -1223,7 +1515,10 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
     by_fleet = {f: check_provenance([r for r in reps if fleet_of.get(r["clip"]) == f])
                 for f in sorted(set(fleet_of.values()))}
     prov["by_fleet"] = {f: {k: b[k] for k in ("consistent", "problems", "commits",
-                                             "package_trees", "retrieval_devices")}
+                                             "package_trees", "retrieval_devices",
+                                             "method_config_fingerprints",
+                                             "environment_fingerprints",
+                                             "vpr_model_fingerprints")}
                         for f, b in by_fleet.items()}
     prov["problems"] = [f"{f}: {q}" for f, b in by_fleet.items() for q in b["problems"]]
     prov["consistent"] = not prov["problems"]
@@ -1242,12 +1537,25 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
     for fleet in sorted({c["fleet"] for c in clips_out.values()}):
         ids = [i for i, c in clips_out.items() if c["fleet"] == fleet]
         method_names = sorted({m for i in ids for m in clips_out[i]["methods"]})
-        # A method that produced NO answer in ANY clip of the fleet was not run
-        # (e.g. the OCR-anchor pin when --enable-ocr-anchor is off, the default):
-        # scoring it as +inf would show a 0% "failure" for a channel that never
-        # existed. Drop it and say so; per-clip misses of a method that did run
-        # elsewhere stay failures.
-        not_run = [m for m in method_names
+        # Hide optional methods that were never requested/produced, but keep
+        # mandatory or explicitly enabled methods even if every inference
+        # failed. Per-clip misses of a method that ran elsewhere also count.
+        fleet_provs = [r["provenance"] for r in reps if r["clip"] in ids]
+        all_independent = bool(fleet_provs) and all(p.get("config", {}).get("answer") in {"filter", "poi", "assisted"} for p in fleet_provs)
+        required = set() if all_independent else {"pipeline", "matcher_only"}
+        if execution_plan is not None or any("answer" in p.get("config", {}) for p in fleet_provs):
+            required.add("answer")
+        if any(p.get("config", {}).get("use_vpr_prior") and p.get("config", {}).get("answer") not in {"filter", "poi", "assisted"}
+               for p in fleet_provs):
+            required.update(("vpr_prior_only", "vpr_track_only", "track_checked"))
+        if any(p.get("config", {}).get("graph_filter") and p.get("config", {}).get("answer") != "poi"
+               for p in fleet_provs):
+            required.add("graph_filter_only")
+        if any(p.get("config", {}).get("answer") == "poi" for p in fleet_provs):
+            required.add("poi_only")
+        if any(p.get("config", {}).get("answer") == "assisted" for p in fleet_provs):
+            required.add("assisted_policy")
+        not_run = [m for m in method_names if m not in required
                    if not any(clips_out[i]["methods"][m]["n_answered"]
                               for i in ids if m in clips_out[i]["methods"])]
         method_names = [m for m in method_names if m not in not_run]
@@ -1303,13 +1611,24 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
     return {
         "run": run_dir.name, "generated_utc": _now(),
         "aggregator_git": _git_state(),
-        "run_config": (_read_json(run_dir / "run_config.json")
-                       if (run_dir / "run_config.json").exists() else None),
+        "run_config": run_metadata or None,
+        "execution": {
+            "plan_recorded": execution_plan is not None,
+            "expected_reps": (sum(len(p.get("reps", [])) for p in planned_clips.values())
+                              if execution_plan is not None else None),
+            "n_completed": sum(r["completed"] for r in reps),
+            "incomplete_reps": [f"{r['clip']}/rep{r['rep']}" for r in reps
+                                if not r["completed"]],
+            "complete": (all(r["completed"] for r in reps)
+                         if execution_plan is not None else None),
+            "not_scheduled": run_metadata.get("not_scheduled") or {},
+        },
         "provenance": prov, "warnings": warnings,
         "thresholds_m": list(THRESHOLDS_M),
         "clips": clips_out, "fleets": fleets,
         "reps": [{k_: v for k_, v in r.items() if k_ != "provenance"} | {
-            "commit": r["provenance"]["commit"]} for r in reps],
+            "commit": r["provenance"]["commit"],
+            "provenance": r["provenance"]} for r in reps],
     }
 
 
@@ -1407,11 +1726,16 @@ def _registered_hypotheses(ids: list[str], clips_out: dict, table: dict,
 # ---------------------------------------------------------------------------
 
 METHOD_LABEL = {
-    "pipeline": "Pipeline (headline)",
+    "pipeline": "Diagnostic trajectory fit (legacy pipeline key)",
     "matcher_only": "Matcher only",
     "pinned_only": "Anchor-pinned only",
     "graph_filter_only": "Graph filter only",
     "vpr_prior_only": "VPR prior only",
+    "vpr_track_only": "VPR track only",
+    "track_checked": "Fit checked against track (250 m)",
+    "answer": "Answer (selected primary result)",
+    "poi_only": "Experimental POI alignment",
+    "assisted_policy": "Experimental assisted policy",
     "pipeline_selective": "Selective (pre-registered τ)",
     "city_centroid": "City centroid",
 }
@@ -1465,10 +1789,22 @@ def render_markdown(summary: dict) -> str:
              f"{' '.join(cfg.get('pipeline_args') or []) or 'none (default config)'}")
     L.append("- Pipeline input: video + `--city` + `--vo-segment` only. Ground truth is "
              "used offline for scoring; no GT disc, GT file or length prior reached any run.")
+    L.append("- **Answer** is the selected primary route (`result.answer`). The diagnostic "
+             "trajectory fit (`result.position`) retains the historical `pipeline` method key "
+             "and its original scores.\n")
     L.append("- Errors in metres. Per-clip cells: median [IQR] over repeats; `fail` = no "
              "answer (crash/timeout/channel absent) counted as +inf. Symmetric = mean of "
              "GT→pred (legacy 'mean route error') and pred→GT (10 m arc-length "
              "resampling). Single-point baselines are scored as degenerate routes.\n")
+    execution = summary.get("execution") or {}
+    if execution.get("plan_recorded"):
+        L.append(f"- Execution plan: {execution['n_completed']}/{execution['expected_reps']} "
+                 f"planned repeats completed; "
+                 f"{'complete' if execution['complete'] else 'INCOMPLETE'}. "
+                 "Missing/interrupted repeats count as failures.\n")
+    else:
+        L.append("- No execution plan was recorded for this legacy run; missing clip "
+                 "directories or never-started repeats cannot be verified.\n")
     if prov.get("cross_fleet"):
         L.append("- Between fleets (each summarised on its own): "
                  + "; ".join(prov["cross_fleet"]))
@@ -1478,18 +1814,18 @@ def render_markdown(summary: dict) -> str:
     for fleet, fs in summary["fleets"].items():
         ids = fs["clips"]
         clips = summary["clips"]
-        methods = [m for m in ("pipeline", "pipeline_selective", "city_centroid",
-                               "vpr_prior_only", "matcher_only", "pinned_only",
-                               "graph_filter_only") if m in fs["methods"]]
+        methods = [m for m in ("answer", "pipeline", "pipeline_selective", "city_centroid",
+                               "track_checked", "vpr_prior_only", "vpr_track_only",
+                               "matcher_only", "pinned_only",
+                               "graph_filter_only", "poi_only", "assisted_policy") if m in fs["methods"]]
         oracle = [m for m in fs["methods"] if m.startswith("shortlist_oracle@")]
         L.append(f"## {fleet} fleet\n")
         if fs.get("methods_not_run"):
             L.append("Not run (no clip produced an answer, so no row/column): "
                      + ", ".join(_label(m) for m in fs["methods_not_run"]) + ".\n")
         L.append("### Run health\n")
-        L.append("What each clip's runs actually executed. A degraded run (retrieval "
-                 "off, a fallback source/backbone, failed channels) is not the "
-                 "published configuration and should not be read as a result for it.\n")
+        L.append("Requested stages, actual retrieval source/backbone and failed channels are recorded. "
+                 "Independent filter and POI modes do not require the ordinary trajectory fit or VPR-prior stages.\n")
         hh = ["Clip", "ok/reps", "degraded", "retrieval source", "backbone", "device",
               "OCR seed fired", "valid poses (median)"]
         L.append("| " + " | ".join(hh) + " |")
@@ -1508,18 +1844,20 @@ def render_markdown(summary: dict) -> str:
                 f"{vp:.0%}" if vp is not None else "–"]) + " |")
         L.append("")
         L.append("### Per clip (m)\n")
-        L.append("Pipeline columns: median [IQR] over repeats. Baseline columns: "
+        L.append("Primary result columns: median [IQR] over repeats. Other method columns: "
                  "symmetric mean error, median over repeats; `(k/n)` = answered in k "
                  "of n repeats.\n")
-        baselines = [m for m in methods if m != "pipeline"]
-        head = ["Clip", "ok/reps", "Pipeline: symmetric", "Pipeline: start",
-                "Pipeline: legacy GT→pred"] + [_label(m) for m in baselines]
+        primary = "answer" if "answer" in methods else "pipeline"
+        primary_label = "Answer" if primary == "answer" else "Diagnostic fit (legacy run)"
+        baselines = [m for m in methods if m != primary]
+        head = ["Clip", "ok/reps", f"{primary_label}: symmetric", f"{primary_label}: start",
+                f"{primary_label}: GT→pred"] + [_label(m) for m in baselines]
         L.append("| " + " | ".join(head) + " |")
         L.append("|" + "---|" * len(head))
         for i in ids:
             c = clips[i]
             ms = c["methods"]
-            pipe = ms.get("pipeline", {})
+            pipe = ms.get(primary, {})
             row = [c["name"], f"{c['n_ok']}/{c['n_reps']}",
                    _cell(pipe.get("symmetric_mean_m", {})),
                    _cell(pipe.get("start_error_m", {})),
@@ -1558,7 +1896,7 @@ def render_markdown(summary: dict) -> str:
 
         L.append(f"### Fleet summary ({len(ids)} clips; 95% percentile-bootstrap CI over clips)\n")
         head = ["Method", "Median of clip medians: symmetric", "Mean of clip medians: symmetric",
-                "Median of clip medians: start", "Pipeline wins/losses vs this (symmetric)",
+                "Median of clip medians: start", "Diagnostic fit wins/losses vs this (symmetric)",
                 "sign-test p"]
         L.append("| " + " | ".join(head) + " |")
         L.append("|" + "---|" * len(head))
@@ -1584,7 +1922,8 @@ def render_markdown(summary: dict) -> str:
             t = sel["table"]
             cov = sel["coverage"]
             L.append(f"### Selective prediction (pre-registered τ = {sel['tau']})\n")
-            L.append("The pipeline answers only when its retrieval confidence ≥ τ and "
+            L.append("The historical rule selects the diagnostic trajectory fit only when "
+                     "its retrieval confidence ≥ τ and "
                      "otherwise answers the city centre (rule and τ fixed in "
                      "`benchmarks/preregistered_rules.json` before the held-out clips "
                      "were run). Win = the pipeline's symmetric error is below the "
@@ -1669,16 +2008,17 @@ def cmd_aggregate(args) -> int:
 
 
 def compare_runs(base: dict, new: dict, *, metric: str = "symmetric_mean_m",
-                 fleet: str | None = None, method: str = "pipeline") -> dict:
+                 fleet: str | None = None, method: str = "pipeline",
+                 allow_config_changes: bool = False) -> dict:
     """Paired per-clip comparison of two aggregated runs (``aggregate()`` output).
 
     A clip is compared only when both runs scored it under the same city,
     analysis window, ground truth and run configuration (cold caches, extra
     pipeline flags); anything else is listed as excluded with the reason. Per
     clip the statistic is the median over reps; across clips a two-sided sign
-    test and a Wilcoxon signed-rank test on log(new/base), plus a bootstrap CI
-    of the median log-ratio. Identical package trees are flagged: then any
-    difference is run-to-run noise, not an improvement."""
+    test (failures included). Log-ratios, their Wilcoxon signed-rank test and
+    bootstrap CI use only pairs where both runs answered. Identical package
+    trees are flagged, without assuming dependencies or references match."""
     from scipy.stats import binomtest, wilcoxon
 
     def cfg(summary):
@@ -1699,22 +2039,33 @@ def compare_runs(base: dict, new: dict, *, metric: str = "symmetric_mean_m",
             why = f"city differs ({b['city']!r} vs {n['city']!r})"
         elif b.get("gt_n_waypoints") != n.get("gt_n_waypoints"):
             why = "ground truth differs"
+        elif b.get("gt_waypoints_sha256") != n.get("gt_waypoints_sha256"):
+            why = "ground-truth waypoint fingerprint differs or is missing"
         elif (b.get("vo_segments") or None) != (n.get("vo_segments") or None):
             why = f"analysis window differs ({b.get('vo_segments')} vs {n.get('vo_segments')})"
-        elif cfg_b != cfg_n:
+        elif cfg_b != cfg_n and not allow_config_changes:
             why = f"run configuration differs ({cfg_b} vs {cfg_n})"
         if why is None:
             qb = ((b["methods"].get(method) or {}).get(metric) or {})
             qn = ((n["methods"].get(method) or {}).get(metric) or {})
             mb, mn = qb.get("median"), qn.get("median")
-            if mb is None or mn is None or not (np.isfinite(mb) and np.isfinite(mn)):
-                why = "no finite score in one of the runs"
+            try:
+                mb, mn = float(mb), float(mn)
+            except (TypeError, ValueError):
+                why = "no score in one of the runs"
+            else:
+                if np.isnan(mb) or np.isnan(mn) or mb < 0 or mn < 0:
+                    why = "invalid error score in one of the runs"
         if why:
             excluded.append({"clip": cid, "reason": why})
             continue
         cc = ((b["methods"].get("city_centroid") or {}).get(metric) or {}).get("median")
+        finite_pair = np.isfinite(mb) and np.isfinite(mn)
         rows.append({"clip": cid, "name": b["name"], "base": mb, "new": mn,
-                     "delta": mn - mb, "log_ratio": float(np.log(max(mn, 1e-3) / max(mb, 1e-3))),
+                     "delta": 0.0 if mb == mn else mn - mb,
+                     "log_ratio": (float(np.log(max(mn, 1e-3) / max(mb, 1e-3)))
+                                   if finite_pair else None),
+                     "base_failed": not np.isfinite(mb), "new_failed": not np.isfinite(mn),
                      "base_iqr": (qb.get("q25"), qb.get("q75")),
                      "new_iqr": (qn.get("q25"), qn.get("q75")),
                      "centre": cc,
@@ -1722,11 +2073,16 @@ def compare_runs(base: dict, new: dict, *, metric: str = "symmetric_mean_m",
                      "new_beats_centre": None if cc is None else mn < cc})
     better = sum(1 for r in rows if r["new"] < r["base"])
     worse = sum(1 for r in rows if r["new"] > r["base"])
-    lr = np.array([r["log_ratio"] for r in rows], float)
+    lr = np.array([r["log_ratio"] for r in rows if r["log_ratio"] is not None], float)
     nz = lr[np.abs(lr) > 1e-12]
     out = {
         "metric": metric, "method": method, "fleet": fleet, "n_clips": len(rows),
+        "allow_config_changes": allow_config_changes,
         "rows": rows, "excluded": excluded, "new_better": better, "new_worse": worse,
+        "ties": len(rows) - better - worse,
+        "n_finite_pairs": len(lr),
+        "base_failures": sum(r["base_failed"] for r in rows),
+        "new_failures": sum(r["new_failed"] for r in rows),
         "sign_test_p": float(binomtest(better, better + worse, 0.5).pvalue)
         if better + worse else None,
         "wilcoxon_p": float(wilcoxon(nz).pvalue) if len(nz) >= 6 else None,
@@ -1738,11 +2094,25 @@ def compare_runs(base: dict, new: dict, *, metric: str = "symmetric_mean_m",
                     new["provenance"].get("retrieval_devices")],
     }
     notes = []
+    if cfg_b != cfg_n and allow_config_changes:
+        notes.append(f"runner configuration differs by explicit request: base={cfg_b}, new={cfg_n}")
+    if any(not base["clips"][r["clip"]].get("gt_waypoints_sha256") for r in rows):
+        notes.append("legacy summaries have no ground-truth fingerprint; waypoint equality "
+                     "cannot be verified for those pairs")
     if out["base_trees"] and out["base_trees"] == out["new_trees"]:
-        notes.append("both runs ran the SAME pipeline code: differences are run-to-run "
-                     "noise (cold reference downloads, threading), not an improvement")
+        notes.append("both runs ran the SAME pipeline code; differences may come from "
+                     "configuration, dependencies, reference snapshots or run-to-run variation")
+    if len(lr) != len(rows):
+        notes.append(f"failures count in the sign test; log-ratio statistics use only "
+                     f"the {len(lr)} pairs with finite scores in both runs")
     if out["devices"][0] and out["devices"][1] and out["devices"][0] != out["devices"][1]:
         notes.append(f"retrieval devices differ {out['devices']} (GPU fp16 vs CPU fp32)")
+    for key, label in (("method_config_fingerprints", "effective method configurations"),
+                       ("environment_fingerprints", "Python/library versions"),
+                       ("vpr_model_fingerprints", "VPR model fingerprints")):
+        b_sig, n_sig = base["provenance"].get(key), new["provenance"].get(key)
+        if b_sig and n_sig and b_sig != n_sig:
+            notes.append(f"runs used different {label}")
     if len(rows) < 6:
         notes.append(f"only {len(rows)} paired clips: no test can detect less than a "
                      f"near-unanimous change")
@@ -1754,13 +2124,22 @@ def render_compare(cmp: dict, base_name: str, new_name: str) -> str:
     L = [f"# `{new_name}` vs `{base_name}` ({cmp['method']}, {cmp['metric']}, "
          f"fleet {cmp['fleet'] or 'all'})\n",
          "Per clip: median over repeats [IQR]. Compared only where city, window, "
-         "ground truth and run configuration match.\n",
+         "and ground truth match; runner configuration must match unless "
+         "--allow-config-changes was explicitly requested.\n",
          "| Clip | base | new | change | beats centre (base → new) |", "|---|---|---|---|---|"]
     for r in cmp["rows"]:
         bi, ni = r["base_iqr"], r["new_iqr"]
+        if r["log_ratio"] is not None:
+            change = f"{100 * (np.exp(r['log_ratio']) - 1):+.0f} %"
+        elif r["base_failed"] and r["new_failed"]:
+            change = "both failed"
+        elif r["new_failed"]:
+            change = "regressed to failure"
+        else:
+            change = "recovered from failure"
         L.append(f"| {r['name']} | {_f(r['base'])} [{_f(bi[0])}–{_f(bi[1])}] | "
                  f"{_f(r['new'])} [{_f(ni[0])}–{_f(ni[1])}] | "
-                 f"{100 * (np.exp(r['log_ratio']) - 1):+.0f} % | "
+                 f"{change} | "
                  f"{r['base_beats_centre']} → {r['new_beats_centre']} |")
     mr = cmp["median_ratio"]
     sp = cmp["sign_test_p"]
@@ -1768,7 +2147,10 @@ def render_compare(cmp: dict, base_name: str, new_name: str) -> str:
     L += ["", f"New better on {cmp['new_better']} clips, worse on {cmp['new_worse']} "
           f"(sign test p = {'n/a' if sp is None else f'{sp:.3f}'}; Wilcoxon on log-ratios "
           f"p = {'n/a' if wp is None else f'{wp:.3f}'}). Median new/base ratio "
-          + ("n/a" if not mr else _ci(mr)) + " (95% bootstrap CI over clips)."]
+          + ("n/a" if not mr else _ci(mr)) + " (95% bootstrap CI over clips).",
+          f"Failures: base {cmp['base_failures']}/{cmp['n_clips']}, "
+          f"new {cmp['new_failures']}/{cmp['n_clips']}; "
+          f"finite pairs for log-ratio statistics: {cmp['n_finite_pairs']}."]
     if cmp["excluded"]:
         L.append("\nNot compared: " + "; ".join(f"{e['clip']} ({e['reason']})"
                                                  for e in cmp["excluded"]) + ".")
@@ -1788,7 +2170,8 @@ def cmd_compare(args) -> int:
             raise SystemExit(f"no run directory {run_dir}")
         runs.append(aggregate(run_dir, manifest, allow_mixed=args.allow_mixed,
                               allow_network=not args.offline, n_resamples=999, root=ROOT))
-    cmp = compare_runs(runs[0], runs[1], metric=args.metric, fleet=args.fleet)
+    cmp = compare_runs(runs[0], runs[1], metric=args.metric, fleet=args.fleet,
+                       method=args.method, allow_config_changes=args.allow_config_changes)
     md = render_compare(cmp, args.base, args.new)
     print(md)
     if args.out:
@@ -1839,7 +2222,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--manifest", default=MANIFEST_PATH.as_posix())
     r.add_argument("--fleet", choices=("core", "overlay", "all"), default="core")
     r.add_argument("--clips", nargs="+", default=None, metavar="ID")
-    r.add_argument("--split", choices=("dev", "test", "all"), default="dev")
+    r.add_argument("--split", choices=("dev", "test", "test2", "test3", "test4", "all"), default="dev")
     r.add_argument("--repeats", type=int, default=1)
     r.add_argument("--city-variant", type=int, default=None, metavar="I",
                    help="use city_alternatives[I] instead of the manifest city "
@@ -1913,6 +2296,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--manifest", default=MANIFEST_PATH.as_posix())
     c.add_argument("--fleet", default=None, help="core / overlay (default: all)")
     c.add_argument("--metric", default="symmetric_mean_m")
+    c.add_argument("--method", default="pipeline", help="method to compare (e.g. answer)")
+    c.add_argument("--allow-config-changes", action="store_true",
+                   help="compare intentional configuration ablations; city/window/GT must still match")
     c.add_argument("--allow-mixed", action="store_true")
     c.add_argument("--offline", action="store_true")
     c.add_argument("--out", default=None, help="write the markdown (and .json) here")

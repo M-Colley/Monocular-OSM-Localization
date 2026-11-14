@@ -218,3 +218,11 @@ def test_final_position_needs_candidates(tmp_path):
     ctx.candidates = []
     placement.final_position(ctx)
     assert "position" not in ctx.result and "position_error" not in ctx.result
+
+
+def test_placement_keeps_the_fit_as_a_diagnostic_until_answer_selection(tmp_path, capsys):
+    ctx = _final_ctx(tmp_path)
+    placement.final_position(ctx)
+    console = capsys.readouterr().out
+    assert "trajectory fit (diagnostic)" in console
+    assert "ESTIMATED POSITION" not in console
