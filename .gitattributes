@@ -25,6 +25,9 @@ tests/test_road_speed_context.py text eol=lf
 tests/test_junction_sequence_road_speed.py text eol=lf
 tests/test_graph_filter_epsilon_hook.py text eol=lf
 tests/test_reference_snapshot_road_speed_probe.py text eol=lf
+# Byte-hashed by tests/test_high_particle_budget.py; keep LF on Windows checkouts.
+monocular_osm/adaptive_auxiliary_resampling.py text eol=lf
+monocular_osm/snapshot_future_guide.py text eol=lf
 # Preserve reviewed native masked-DVLT sources and private checks.
 monocular_osm/native_pixel_mask.py text eol=lf
 monocular_osm/native_text_detection.py text eol=lf

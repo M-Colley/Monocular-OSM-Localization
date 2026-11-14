@@ -11,6 +11,21 @@ from scripts import dvlt_native_window_probe as worker
 from tests.test_dvlt_native_protocol import write, packet_fixture, config
 
 
+@pytest.fixture(autouse=True)
+def _ample_memory_headroom(monkeypatch):
+    """These tests check refusal order and outputs, not the host's free memory.
+
+    The runtime guards require 8 GiB of free physical memory and commit, which
+    a CI runner may lack; report ample headroom here (as the assisted tests do
+    with ``_commit_headroom``) and keep every other memory field real.
+    """
+    import psutil
+    from scripts import prepare_multiview_motion_inputs as _prepare
+    real = psutil.virtual_memory
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: real()._replace(available=max(real().available, 16 << 30)))
+    monkeypatch.setattr(_prepare, "available_commit", lambda: 16 << 30)
+
+
 class Detector:
     def __init__(self, fail_at=None): self.calls = 0; self.fail_at = fail_at
     def detect(self, image, *, check):
@@ -162,6 +177,9 @@ def test_all32_metadata_validated_before_first_window(tmp_path, monkeypatch):
 def test_raw_loaded_witness_source_functions_exact_s7():
     from monocular_osm import dvlt_native_runtime as runtime
     source = p.ROOT/"output/dvlt_seven_view_feasibility_design_20261111/feasibility_runner_s7_draft.py"
+    if not source.is_file():
+        pytest.skip("needs the reviewed s7 draft runner from the git-ignored output/ folder; "
+                    "present only in the original checkout")
     prior = ast.parse(source.read_text()); current = ast.parse(Path(runtime.__file__).read_text())
     a = {x.name: ast.dump(x) for x in prior.body if isinstance(x, ast.FunctionDef)}
     b = {x.name: ast.dump(x) for x in current.body if isinstance(x, ast.FunctionDef)}

@@ -10,6 +10,21 @@ from tests.multiview_motion_fixtures import render
 from tests.multiview_motion_fixtures import scene
 
 
+@pytest.fixture(autouse=True)
+def _ample_memory_headroom(monkeypatch):
+    """These tests check refusal order and outputs, not the host's free memory.
+
+    The runtime guards require 8 GiB of free physical memory and commit, which
+    a CI runner may lack; report ample headroom here (as the assisted tests do
+    with ``_commit_headroom``) and keep every other memory field real.
+    """
+    import psutil
+    from scripts import prepare_multiview_motion_inputs as _prepare
+    real = psutil.virtual_memory
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: real()._replace(available=max(real().available, 16 << 30)))
+    monkeypatch.setattr(_prepare, "available_commit", lambda: 16 << 30)
+
+
 def owned(root,path):
     path=Path(path).resolve()
     assert path.is_relative_to(Path(root).resolve())

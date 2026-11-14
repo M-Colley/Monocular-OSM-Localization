@@ -35,6 +35,9 @@ class Capture:
 @pytest.fixture(scope="module")
 def genuine_grid():
     native = r.ROOT / "output/assisted_phoenix_v3_input_audit_20261028/audit_inference.py"
+    if not native.is_file():
+        pytest.skip("needs the hash-pinned historical audit_inference.py from the git-ignored output/ "
+                    "folder; present only in the original checkout")
     return r.load_native_grid(r.Ledger(), {"path": str(native), "sha256": r.NATIVE_SHA},
                              {"path": str(native.with_name("audit_prepared.py")), "sha256": r.DEPENDENCY_SHA})
 
