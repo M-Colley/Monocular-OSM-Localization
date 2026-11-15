@@ -797,6 +797,68 @@
         "wall_clock": "9,115-14,276 s per clip, 21.0 h in total, CPU only",
         "report": "docs/heldout_test4_2026-11.md"
       }
+    },
+    "c2f_extension_dev_2026_11": {
+      "registered": "2026-11-15",
+      "description": "In-sample development check of the opt-in coarse-to-fine frontier extension (--vpr-c2f-extend, commit 8581acd), registered before any extension run. Designed after the test4 diagnostics (three misses lose the route in pass 2: true area ranked first in pass 1, but the 2 km pass-2 disc covers 40-70 % of 5.5-12.3 km routes). Every split is now used, so this is development evidence only; a generalization claim needs a fresh held-out split under its own rule.",
+      "method": "commit 8581acd, the plain retrieval-track pipeline (default --answer track) plus --vpr-c2f-extend (max 6 extra discs); gate constants fixed in the commit before any run (outer band 0.75 R, run >= 10 % of decoded points, step 1.6 R) and not tuned",
+      "clips": {
+        "test4": {
+          "data_dir": "C:/Users/markc/test4-eval/data",
+          "clips": [
+            "overlay_tK7bHJXAJX8",
+            "overlay_jkkl1QgsPSo",
+            "overlay_ZLmQWroXthY"
+          ]
+        },
+        "test2": {
+          "data_dir": "E:/claude-scoring/test2/data",
+          "clips": [
+            "overlay_1bGf8OD9Fqo"
+          ]
+        },
+        "test": {
+          "data_dir": "E:/claude-scoring/test1-replay/data",
+          "clips": [
+            "overlay_4LvkBo69jZo",
+            "overlay_5b-tgjtwb2U",
+            "overlay_bF5IfC2ZHjQ",
+            "overlay_zt8rHvHKBUU"
+          ]
+        },
+        "test3": {
+          "data_dir": "E:/claude-scoring/test3/data",
+          "clips": [
+            "overlay_5koGsNdaVvE",
+            "overlay_6GciDYJ1FUc",
+            "overlay_7n4XQUBEH5Y",
+            "overlay_8BUtb7TKUFA",
+            "overlay_K_54XHyzRn8",
+            "overlay_vp_D8mxgEkA"
+          ]
+        },
+        "dev": {
+          "data_dir": "E:/claude-scoring/v4fleet/data",
+          "clips": [
+            "berlin_0-420",
+            "overlay_g5lnpYCk1Ec",
+            "overlay_LmIHvLMLqFk",
+            "overlay_Wrn4_uCxRCQ",
+            "overlay_y66ZkRpUh4k"
+          ]
+        }
+      },
+      "clip_selection": "the 19 of 45 used clips on which the pipeline's own GT-free gate fires on their previous ordinary track (f582928 shadow runs for dev/test1-3, the 409a959 baseline child for test4): scripts/c2f_frontier_gate.py, docs/c2f_frontier_gate_2026-11.json. Clips where it does not fire are unchanged by construction.",
+      "run": "one rep per clip, CPU only (CUDA_VISIBLE_DEVICES=-1), clean worktree E:/claude-scoring/wt-ext at 8581acd, scripts/benchmark.py run per split with --manifest benchmarks/manifest.json --fleet all --split <split> --clips <clips> --skip-download --pipeline-arg=--vpr-c2f-extend --timeout 14400 --min-free-vram-gb 0 --min-free-commit-gb 12 --infra-retries 4 --infra-wait 900 --data-dir <data_dir>; order test4, test2, test, test3, dev. Warm pass-1/pass-2 caches from earlier runs; extension discs are fetched cold. Runs that fail on infrastructure are rerun at the same commit before any score is read.",
+      "comparison": "paired within each run: the extended answer against the same run's ordinary track (c2f_extension.baseline_track), restored by scripts/metro_ring_paired.py shadow --record c2f_extension and scored by the same aggregator (benchmark.py aggregate --offline)",
+      "hypotheses": {
+        "X1": "No harm: no clip within 200 m with the run's ordinary track is above 200 m with the extension.",
+        "X2": "Gains: at least 2 clips go from above 200 m (ordinary) to within 200 m (extended).",
+        "X3": "Descriptive: clips better / worse / tied (10 % band) and a one-sided sign test; discs fetched, frames moved and wall-clock per clip."
+      },
+      "decision": "Only if X1 and X2 both hold is the extension a candidate for a fresh held-out test (new data, user approval, its own rule). It stays opt-in and off by default in every case.",
+      "report": "every clip whichever way it comes out",
+      "disclosure": "In-sample on every clip (all four test splits are used); the method was designed after looking at test4. Single rep; retrieval reruns can differ by tens to hundreds of metres, which the paired design controls for the comparison but not for the ordinary track's own level. The goal 'all within 200 m' cannot be certified by in-sample evidence."
     }
   }
 }
