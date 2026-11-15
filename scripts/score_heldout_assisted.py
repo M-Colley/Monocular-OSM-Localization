@@ -32,7 +32,14 @@ sys.path.insert(0, str(ROOT))
 import numpy as np  # noqa: E402
 from statsmodels.stats.proportion import proportion_confint  # noqa: E402
 
-from benchmarks.build_manifest import gt_waypoints_digest  # noqa: E402
+import importlib.util  # noqa: E402
+
+# Loaded by path: an installed package named ``benchmarks`` can shadow this
+# repository's namespace directory (as in CI; see tests/test_benchmark_manifest.py).
+_spec = importlib.util.spec_from_file_location("_build_manifest", ROOT / "benchmarks" / "build_manifest.py")
+_build_manifest = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_build_manifest)
+gt_waypoints_digest = _build_manifest.gt_waypoints_digest
 from monocular_osm import baselines as B  # noqa: E402
 from monocular_osm.metrics import score_route  # noqa: E402
 from scripts import failure_taxonomy as FT  # noqa: E402

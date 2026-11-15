@@ -4,8 +4,9 @@ import json
 import pytest
 
 pytest.importorskip("statsmodels")
-from benchmarks.build_manifest import gt_waypoints_digest  # noqa: E402
 from scripts import score_heldout_assisted as S  # noqa: E402
+
+gt_waypoints_digest = S.gt_waypoints_digest
 
 CITY = "Trondheim, Norway"  # in benchmarks/geocode_snapshot.json
 
