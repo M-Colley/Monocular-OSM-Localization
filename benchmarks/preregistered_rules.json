@@ -858,7 +858,12 @@
       },
       "decision": "Only if X1 and X2 both hold is the extension a candidate for a fresh held-out test (new data, user approval, its own rule). It stays opt-in and off by default in every case.",
       "report": "every clip whichever way it comes out",
-      "disclosure": "In-sample on every clip (all four test splits are used); the method was designed after looking at test4. Single rep; retrieval reruns can differ by tens to hundreds of metres, which the paired design controls for the comparison but not for the ordinary track's own level. The goal 'all within 200 m' cannot be certified by in-sample evidence."
+      "disclosure": "In-sample on every clip (all four test splits are used); the method was designed after looking at test4. Single rep; retrieval reruns can differ by tens to hundreds of metres, which the paired design controls for the comparison but not for the ordinary track's own level. The goal 'all within 200 m' cannot be certified by in-sample evidence.",
+      "staging_amendment": {
+        "date": "2026-11-15",
+        "before_any_run": true,
+        "note": "8581acd's runner passes each clip's registered video.local_path (relative to the checkout) as --video-path under --skip-download. The worktree's untracked data/ therefore holds directory junctions to the main checkout's builder downloads for the test4, test2 and test1 clips, and, for the four dev overlay clips whose builder downloads were removed in the approved cleanup, hard links at the registered names to the inputs the v4 fleet ran on (E:/claude-scoring/v4fleet/data/<slug>/input.mp4, same URLs). test3 paths are absolute; Berlin (url only) reads the data dir. Run script E:/claude-scoring/ext/run_ext.sh."
+      }
     }
   }
 }
