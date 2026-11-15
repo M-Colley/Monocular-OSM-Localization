@@ -618,7 +618,8 @@ def _c2f_frontier_extend(ctx, *, source, token, device, query_dt_s, track_fn, qu
     from ..kartaview_vpr import _robust_center
     from ..regional_retrieval import merge_region_tracks
 
-    cfg, info = ctx.cfg, (ctx.c2f_info or {})
+    cfg = ctx.cfg
+    info = ctx.c2f_info or {}
     record = {"experimental": True, "band": _EXT_BAND, "step": _EXT_STEP,
               "min_run_fraction": _EXT_MIN_RUN_FRAC, "max_discs": int(max_discs)}
     ctx.result["c2f_extension"] = record
