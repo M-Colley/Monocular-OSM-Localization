@@ -39,13 +39,19 @@ failed development clips or change that denominator.
   clips (15 available), 24 across `test`, `test2`, and `test3`, and six new
   `test4` clips. The three unavailable development entries remain documented.
   TEST4's fixed metadata/QC search exhausted its pool at six usable videos;
-  its planned target of seven was not met. No TEST4 localization has run.
-  Its labels remain restricted to data QC until a global method is frozen.
-  See [selection and acquisition](../benchmarks/test4_screen/README.md) and
+  its planned target of seven was not met. Its method binding is rule
+  `test4_2026_11`: frozen assisted v4 at `409a959`, registered 2026-11-14
+  before any TEST4 localization. It scored **1/6** within 200 m (Trondheim
+  187.5 m) and kept the baseline track on all six clips.
+  See [the test4 record](heldout_test4_2026-11.md),
+  [selection and acquisition](../benchmarks/test4_screen/README.md) and
   the [dataset freeze](../benchmarks/test4_screen/dataset_freeze.json).
+  TEST4 is now scored and no longer blind, so it cannot serve as a clean
+  test for any later method.
 - The retrieval track scored **5/7** on test1 and **2/7** on test2. Assisted
   v3 also scored **2/7** on test2. The opt-in metro-ring method scored
-  **5/10**, equal to its ordinary-track control, on test3.
+  **5/10**, equal to its ordinary-track control, on test3. Assisted v4
+  scored **1/6** on test4. Pooled held-out track share: **13/30**.
 - Metro-ring's **20/29 versus 16/29** development comparison did not
   generalize to test3. It stays off by default. The denser first-pass pilot
   moved one Katowice result to 745 m; it crossed no clip below 200 m.

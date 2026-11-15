@@ -37,15 +37,20 @@ OCR/POI cues, a road-graph particle filter and wider metadata searches after
 a weak retrieval): **12/15** dev clips within 200 m at a 7,200 s CPU budget
 and **13/15** at 14,400 s (median 62 m); profile v4, which adds a
 shop-sign site check, reaches **14/15** (median 43 m; Detroit `g5lnpYCk1Ec`
-still fails at 1,387 m). This is in-sample: the policy was developed on these
-clips, and v4 is untested on held-out data. On its clean held-out test, seven new clips from six
-new cities (`split=test2`, pre-registered as `test2_2026_11`), it reaches only
-**2/7** within 200 m (median 518 m; city-centre guess 0/7): the dev result
-does not carry over. The frozen track method also reaches 2/7 on these clips;
-the policy returned the track's answer on six of them and improved one
-(Paris, 24 km to 832 m), so it adds nothing within 200 m on new footage. See
-[the assisted fleet record](docs/assisted_fleet_2026-11.md) and
-[the test2 record](docs/heldout_test2_2026-11.md).
+still fails at 1,387 m). This is in-sample, because the policy was developed
+on these clips. The dev result does not carry over to new footage:
+- **v3 on test2:** seven new clips from six new cities (`split=test2`,
+  pre-registered as `test2_2026_11`), **2/7** within 200 m (median 518 m;
+  city-centre guess 0/7). The frozen track method also reaches 2/7. The
+  policy returned the track's answer on six clips and improved one (Paris,
+  24 km to 832 m), so it adds nothing within 200 m.
+- **v4 on test4:** six new clips from five new cities (`split=test4`, rule
+  `test4_2026_11`), **1/6** within 200 m (Trondheim 188 m; median 728 m;
+  city-centre guess 0/6). It kept the plain track on all six.
+
+See [the assisted fleet record](docs/assisted_fleet_2026-11.md),
+[the test2 record](docs/heldout_test2_2026-11.md) and
+[the test4 record](docs/heldout_test4_2026-11.md).
 
 **Experimental metro-ring search** (`--vpr-metro-ring`, off by default):
 after a weak retrieval it searches a 20 km disc around the city, minus the
@@ -59,19 +64,21 @@ with no losses, but that is in-sample, so it stays off by default. See
 [the test3 record](docs/heldout_test3_2026-11.md).
 
 **Where the track fails** ([diagnostic](docs/failure_taxonomy_2026-11.md)):
-a clip whose route lay mostly inside the 2 km fine search disc is within
-200 m on 19 of 20 such clips over 39 scored clips (Düsseldorf
-`8BUtb7TKUFA`, 260 m, is the exception). The 12 held-out misses across
-test1-test3 split into three kinds:
-- route outside the 8 km first-pass disc: 5 (Ottawa, Montreal, Paris,
-  Munich, Katowice);
-- wrong district inside it: 4 (Bern, Katowice, Düsseldorf, Cork);
-- route longer than the fine disc covers: 2 (Budapest, Warsaw);
+a clip with at least 75 % of its route inside the 2 km fine search disc is
+within 200 m on 20 of 21 such clips over 45 scored clips (Düsseldorf
+`8BUtb7TKUFA`, 260 m, is the exception). The 17 held-out misses across
+test1-test4 split into three kinds:
+- route outside the 8 km first-pass disc: 6 (Ottawa, Montreal, Paris,
+  Munich, Katowice, Kansas City);
+- wrong district inside it: 6 (Bern, Katowice, Düsseldorf, Cork,
+  Bucharest, Albuquerque);
+- route longer than the fine disc covers: 4 (Budapest, Warsaw, Bucharest,
+  Sofia);
 - plus the one fine-disc miss above.
 
-Over 24 held-out clips the retrieval track (`ccd0bbe` on test1-test2,
-`f582928` on test3) is within 200 m on 12 (Wilson
-95 % 31-69 %).
+Over 30 held-out clips the retrieval track is within 200 m on 13 (Wilson
+95 % 27-61 %). The commits are `ccd0bbe` on test1-test2, `f582928` on test3,
+and `409a959`'s baseline track (which decided assisted v4's answer) on test4.
 
 The [October research and method tests](docs/recent_methods_2026-10.md) cover
 recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled

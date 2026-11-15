@@ -6,6 +6,22 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Held-out test4: assisted v4 (November 2026)
+
+- Frozen assisted v4 (`409a959`, 14,400 s CPU, rule `test4_2026_11`) on the
+  six test4 clips (five new cities): **1/6** within 200 m (Trondheim
+  187.5 m; median 728 m), against 14/15 in-sample (Wilson 3-56 % vs
+  70-99 %).
+  - It kept the baseline track on all six, so V2 (no harm) holds trivially.
+  - It beats the city centre on 4/6 (V3 holds; sign test p = 0.34).
+  - The goal "all within 200 m" is not met on test4.
+- None of the expanded candidates the policy declined would have crossed
+  200 m (post hoc).
+- The pooled held-out retrieval-track share is now 13/30 (Wilson 27-61 %).
+- `scripts/score_heldout_assisted.py` scores such a run against its rule. It
+  checks digests and adds the coverage taxonomy.
+- See `docs/heldout_test4_2026-11.md`.
+
 ### Metro-ring search and the third held-out set (November 2026)
 
 - `--vpr-metro-ring` (opt-in, off by default): when the retrieval track's

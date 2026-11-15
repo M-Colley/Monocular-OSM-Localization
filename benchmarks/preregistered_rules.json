@@ -738,7 +738,65 @@
       },
       "goal_check": "The user's goal 'all within 200 m' is reported for test4 as k/6; it holds only at 6/6.",
       "report": "every clip whichever way it comes out; ground truth (labels restricted to data QC until now) is read only after all six runs finish; the pooled held-out share across test1-test4 is updated with commits stated",
-      "disclosure": "test4 has six clips (its target of seven was not met), so only large effects are visible. v4's stages and thresholds were developed on the dev clips and v3 matched the plain track on test2 (2/7). The test3 diagnostics and the 10-12 November experiments informed no part of v4 (409a959 predates them). Single rep; retrieval reruns can differ by tens to hundreds of metres."
+      "disclosure": "test4 has six clips (its target of seven was not met), so only large effects are visible. v4's stages and thresholds were developed on the dev clips and v3 matched the plain track on test2 (2/7). The test3 diagnostics and the 10-12 November experiments informed no part of v4 (409a959 predates them). Single rep; retrieval reruns can differ by tens to hundreds of metres.",
+      "outcome_recorded": {
+        "date": "2026-11-15",
+        "run": "assisted_v4_test4 at 409a959 (worktree E:/claude-scoring/wt-test4-v4, clean), one rep per clip, 2026-11-14 13:36 to 2026-11-15 10:36 UTC; all six rc 0, no runner timeout, no infrastructure retry. Checked before any score was read: every Mapillary listing complete (0 lost), every city retail inventory obtained (Kansas City after one Overpass 502, Albuquerque after three), no network error in any baseline or expanded child. The expanded stage hit the policy's own 14,400 s work deadline on Kansas City and Sofia (as on dev, method behaviour, not infrastructure); on Albuquerque and Trondheim it completed as 'partial' because 12 city-grid cells have no Mapillary images. No rerun. Scored by scripts/score_heldout_assisted.py (score_route unchanged since 409a959).",
+        "selected_stage": {
+          "overlay_tK7bHJXAJX8": "baseline",
+          "overlay_yd5g7jsWiEM": "baseline",
+          "overlay_jkkl1QgsPSo": "baseline",
+          "overlay_ZLmQWroXthY": "baseline",
+          "overlay_jz6o-_Y6r2E": "baseline",
+          "overlay_pFbUvfr8k-Q": "baseline"
+        },
+        "assisted_symmetric_m": {
+          "overlay_tK7bHJXAJX8": 318.8,
+          "overlay_yd5g7jsWiEM": 5009.8,
+          "overlay_jkkl1QgsPSo": 945.4,
+          "overlay_ZLmQWroXthY": 511.3,
+          "overlay_jz6o-_Y6r2E": 9671.3,
+          "overlay_pFbUvfr8k-Q": 187.5
+        },
+        "baseline_track_symmetric_m": {
+          "overlay_tK7bHJXAJX8": 318.8,
+          "overlay_yd5g7jsWiEM": 5009.8,
+          "overlay_jkkl1QgsPSo": 945.4,
+          "overlay_ZLmQWroXthY": 511.3,
+          "overlay_jz6o-_Y6r2E": 9671.3,
+          "overlay_pFbUvfr8k-Q": 187.5
+        },
+        "city_centre_symmetric_m": {
+          "overlay_tK7bHJXAJX8": 992.0,
+          "overlay_yd5g7jsWiEM": 4201.5,
+          "overlay_jkkl1QgsPSo": 1935.7,
+          "overlay_ZLmQWroXthY": 8981.5,
+          "overlay_jz6o-_Y6r2E": 6950.5,
+          "overlay_pFbUvfr8k-Q": 441.3
+        },
+        "V1": "1/6 within 200 m (Trondheim 187.5 m), Wilson 95 % [3 %, 56 %], against 14/15 in-sample [70 %, 99 %]",
+        "V2": "holds, trivially: the policy kept the baseline track on all six clips, so the answer equals the baseline track (1/6 within 200 m)",
+        "V3": "holds: assisted beats the city centre on 4/6 (loses on Bucharest yd5g7jsWiEM and Albuquerque); one-sided sign test p = 0.34, i.e. not distinguishable from chance at n = 6",
+        "goal_check": "1/6; the goal 'all within 200 m' is not met on test4",
+        "failure_modes_of_misses": {
+          "overlay_tK7bHJXAJX8": "C",
+          "overlay_yd5g7jsWiEM": "B",
+          "overlay_jkkl1QgsPSo": "C",
+          "overlay_ZLmQWroXthY": "A",
+          "overlay_jz6o-_Y6r2E": "B"
+        },
+        "posthoc_declined_expanded_candidate_m": {
+          "overlay_tK7bHJXAJX8": 318.8,
+          "overlay_yd5g7jsWiEM": 10666.7,
+          "overlay_jkkl1QgsPSo": null,
+          "overlay_ZLmQWroXthY": null,
+          "overlay_jz6o-_Y6r2E": 2426.7,
+          "overlay_pFbUvfr8k-Q": 100.4
+        },
+        "pooled_heldout": "retrieval-track family (test1, test2 at ccd0bbe; test3 at f582928; test4 baseline track at 409a959): 13/30, Wilson [27 %, 61 %]. Assisted policy on held-out data (v3 on test2, v4 on test4): 3/13, Wilson [8 %, 50 %].",
+        "wall_clock": "9,115-14,276 s per clip, 21.0 h in total, CPU only",
+        "report": "docs/heldout_test4_2026-11.md"
+      }
     }
   }
 }
