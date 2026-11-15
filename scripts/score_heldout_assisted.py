@@ -34,8 +34,9 @@ from statsmodels.stats.proportion import proportion_confint  # noqa: E402
 
 import importlib.util  # noqa: E402
 
-# Loaded by path: an installed package named ``benchmarks`` can shadow this
-# repository's namespace directory (as in CI; see tests/test_benchmark_manifest.py).
+# Loaded by path: the dash 4.5.0 wheel installs a top-level ``benchmarks``
+# package, which shadows this repository's namespace directory (as in CI; see
+# tests/test_benchmark_manifest.py). Fix proposed upstream in plotly/dash#4148.
 _spec = importlib.util.spec_from_file_location("_build_manifest", ROOT / "benchmarks" / "build_manifest.py")
 _build_manifest = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_build_manifest)
