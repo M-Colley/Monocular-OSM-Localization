@@ -242,6 +242,12 @@ class PipelineConfig:
     # drives outside the 8 km pass-1 disc (docs/failure_taxonomy_2026-11.md).
     vpr_metro_ring: bool = False
     vpr_metro_radius_m: float = 20000.0
+    # Frontier extension (opt-in): when the start or end of the pass-2 track
+    # runs along the coarse-to-fine disc's rim, follow the drive with
+    # overlapping discs and merge the regional tracks (stages/prior.py
+    # _c2f_frontier_extend; failure mode C, docs/heldout_test4_2026-11.md).
+    vpr_c2f_extend: bool = False
+    vpr_c2f_extend_max: int = 6
     video_title: str | None = None
     video_description: str | None = None
     # The route the method answers with, written to result["answer"]
@@ -471,6 +477,8 @@ class PipelineConfig:
             raise ValueError("vpr_city_cell_selector must be 'decoded' or 'raw-votes'")
         if not math.isfinite(self.vpr_metro_radius_m) or self.vpr_metro_radius_m <= 0:
             raise ValueError("vpr_metro_radius_m must be finite and positive")
+        if type(self.vpr_c2f_extend_max) is not int or self.vpr_c2f_extend_max <= 0:
+            raise ValueError("vpr_c2f_extend_max must be a positive integer")
         if self.retrieval_only and self.answer != "track":
             raise ValueError("retrieval_only requires answer='track'")
 

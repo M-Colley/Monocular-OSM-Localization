@@ -11,6 +11,9 @@ runs the same way. ``compare`` reads the two aggregated summaries.
     python scripts/benchmark.py aggregate --run-name metro_test2 --runs-dir RUNS --offline
     python scripts/benchmark.py aggregate --run-name metro_test2_ordinary --runs-dir RUNS --offline
     python scripts/metro_ring_paired.py compare RUNS/metro_test2 RUNS/metro_test2_ordinary
+
+``--record c2f_extension`` does the same for a ``--vpr-c2f-extend`` run, whose
+record keeps its ordinary track the same way.
 """
 
 from __future__ import annotations
@@ -30,9 +33,12 @@ from monocular_osm.position import build_answer_report  # noqa: E402
 COPIED = ("argv.json", "log.txt", "status.json")
 
 
-def ordinary_result(result: dict) -> dict:
-    """``result`` with the ring's track and answer replaced by the ordinary ones."""
-    ring = result.get("metro_ring_retrieval") or {}
+RECORDS = ("metro_ring_retrieval", "c2f_extension")
+
+
+def ordinary_result(result: dict, record: str = "metro_ring_retrieval") -> dict:
+    """``result`` with the experiment's track and answer replaced by the ordinary ones."""
+    ring = result.get(record) or {}
     baseline = ring.get("baseline_track")
     if ring.get("kept") in (None, "baseline") or not baseline:
         return result
@@ -41,11 +47,11 @@ def ordinary_result(result: dict) -> dict:
     pick = vpr_track_only(out)
     out["answer"] = build_answer_report(pick.route_latlon, mode="track", method=pick.name,
                                         source=pick.source)
-    out["metro_ring_retrieval"] = {**ring, "shadow": "ordinary track restored for paired scoring"}
+    out[record] = {**ring, "shadow": "ordinary track restored for paired scoring"}
     return out
 
 
-def shadow(run_dir: Path, out_dir: Path) -> None:
+def shadow(run_dir: Path, out_dir: Path, record: str = "metro_ring_retrieval") -> None:
     if out_dir.exists():
         raise SystemExit(f"{out_dir} exists")
     out_dir.mkdir(parents=True)
@@ -58,11 +64,12 @@ def shadow(run_dir: Path, out_dir: Path) -> None:
                 shutil.copy2(rep / name, target / name)
         if (rep / "result.json").exists():
             result = json.loads((rep / "result.json").read_text(encoding="utf-8"))
-            (target / "result.json").write_text(json.dumps(ordinary_result(result)), encoding="utf-8")
+            (target / "result.json").write_text(json.dumps(ordinary_result(result, record)), encoding="utf-8")
     print(f"wrote {out_dir}")
 
 
-def compare(ring_dir: Path, ordinary_dir: Path, threshold_m: float = 200.0) -> None:
+def compare(ring_dir: Path, ordinary_dir: Path, threshold_m: float = 200.0,
+            record: str = "metro_ring_retrieval") -> None:
     ring = json.loads((ring_dir / "summary.json").read_text(encoding="utf-8"))["clips"]
     ordinary = json.loads((ordinary_dir / "summary.json").read_text(encoding="utf-8"))["clips"]
     print("| Clip | Confidence | Ring ran | Kept | Ordinary (m) | With ring (m) | Change | Wall (s) |")
@@ -75,7 +82,7 @@ def compare(ring_dir: Path, ordinary_dir: Path, threshold_m: float = 200.0) -> N
             continue
         result = json.loads((rep / "result.json").read_text(encoding="utf-8")) if (rep / "result.json").exists() else {}
         status = json.loads((rep / "status.json").read_text(encoding="utf-8"))
-        metro = result.get("metro_ring_retrieval") or {}
+        metro = result.get(record) or {}
         gate = metro.get("gate") or {}
 
         def err(c):
@@ -90,7 +97,7 @@ def compare(ring_dir: Path, ordinary_dir: Path, threshold_m: float = 200.0) -> N
                 " (gain)" if a > threshold_m >= b else " (loss)" if b > threshold_m >= a else "")
         conf = gate.get("confidence")
         print(f"| {clip['name']} | {'-' if conf is None else f'{conf:.3f}'} | "
-              f"{'no' if metro.get('status') == 'not_triggered' else 'yes'} | {metro.get('kept', '-')} | "
+              f"{'no' if metro.get('status') in ('not_triggered', 'not_applicable') else 'yes'} | {metro.get('kept', '-')} | "
               f"{'-' if a is None else f'{a:,.0f}'} | {'-' if b is None else f'{b:,.0f}'} | {change}{flag} | "
               f"{status.get('wall_s', 0):,.0f} |")
 
@@ -101,14 +108,16 @@ def main(argv=None) -> int:
     s = sub.add_parser("shadow")
     s.add_argument("run_dir", type=Path)
     s.add_argument("out_dir", type=Path)
+    s.add_argument("--record", choices=RECORDS, default=RECORDS[0])
     c = sub.add_parser("compare")
     c.add_argument("ring_dir", type=Path)
     c.add_argument("ordinary_dir", type=Path)
+    c.add_argument("--record", choices=RECORDS, default=RECORDS[0])
     args = ap.parse_args(argv)
     if args.cmd == "shadow":
-        shadow(args.run_dir, args.out_dir)
+        shadow(args.run_dir, args.out_dir, args.record)
     else:
-        compare(args.ring_dir, args.ordinary_dir)
+        compare(args.ring_dir, args.ordinary_dir, record=args.record)
     return 0
 
 

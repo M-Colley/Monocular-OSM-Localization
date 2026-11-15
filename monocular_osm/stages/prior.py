@@ -568,6 +568,153 @@ def _metro_ring_vpr(ctx, *, center, searched_radius_m, estimated_length_m, sourc
           f"centre {centre[0]:.5f}, {centre[1]:.5f}")
 
 
+# Frontier extension of the coarse-to-fine disc (opt-in --vpr-c2f-extend).
+# A drive longer than the pass-2 disc leaves its frames at the start or end
+# decoded onto the disc's rim (failure mode C, docs/heldout_test4_2026-11.md):
+# there the track is accurate inside the disc and kilometres off outside it.
+_EXT_BAND = 0.75          # a decoded point in the outer quarter of the disc radius
+_EXT_MIN_RUN_FRAC = 0.10  # ... for a leading or trailing run of >= 10 % of the frames
+_EXT_STEP = 1.6           # next disc centre 1.6 R further out (discs overlap by 0.4 R)
+
+
+def frontier_end_runs(latlon, centre, radius_m, band=_EXT_BAND):
+    """Leading and trailing counts of track points in the outer band of a disc."""
+    ll = np.asarray(latlon, dtype=float).reshape(-1, 2)
+    if not len(ll):
+        return 0, 0
+    edge = geodesic_distance_m(float(centre[0]), float(centre[1]), ll[:, 0], ll[:, 1]) \
+        >= band * float(radius_m)
+    if edge.all():
+        return len(edge), len(edge)
+    return int(np.argmin(edge)), int(np.argmin(edge[::-1]))
+
+
+def extension_centre(points, centre, radius_m, step=_EXT_STEP):
+    """The next disc's centre: ``step`` radii from ``centre`` towards the mean of
+    ``points`` (the frontier run), or ``None`` when they sit on the centre."""
+    from ..geo import LocalFrame
+    pts = np.asarray(points, dtype=float).reshape(-1, 2)
+    if not len(pts):
+        return None
+    frame = LocalFrame(float(centre[0]), float(centre[1]))
+    x, y = frame.to_xy(pts[:, 0], pts[:, 1])
+    v = np.array([float(np.mean(x)), float(np.mean(y))])
+    norm = float(np.hypot(*v))
+    if norm < 1e-6:
+        return None
+    lat, lon = frame.to_latlon(*(v / norm * step * float(radius_m)))
+    return float(lat), float(lon)
+
+
+def _c2f_frontier_extend(ctx, *, source, token, device, query_dt_s, track_fn, query_cache,
+                         max_discs):
+    """Follow a drive past the pass-2 disc: when the start or end of the decoded
+    track runs along the disc's rim, retrieve an overlapping disc beyond it and
+    merge the regional tracks by cosine and continuity (the multi-region merge);
+    repeat at the new frontier up to ``max_discs`` extra discs. GT-free; the
+    ordinary track is recorded for paired scoring and kept when the merged
+    track loses match quality (the ordinary pass-2 rule)."""
+    from .. import kartaview_vpr as kv
+    from ..kartaview_vpr import _robust_center
+    from ..regional_retrieval import merge_region_tracks
+
+    cfg, info = ctx.cfg, (ctx.c2f_info or {})
+    record = {"experimental": True, "band": _EXT_BAND, "step": _EXT_STEP,
+              "min_run_fraction": _EXT_MIN_RUN_FRAC, "max_discs": int(max_discs)}
+    ctx.result["c2f_extension"] = record
+    if info.get("kept") != "pass-2" or ctx.vpr_track is None or not len(ctx.vpr_track[0]):
+        record.update(status="not_applicable", kept="baseline")
+        return
+    base = ctx.vpr_track
+    n = len(base[0])
+    radius = float(info["tight_radius_m"])
+    centre0 = tuple(map(float, info.get("pass2_disc_center") or info["pass1_center"]))
+    min_run = max(3, int(np.ceil(_EXT_MIN_RUN_FRAC * n)))
+    lead, trail = frontier_end_runs(base[1], centre0, radius)
+    record["gate"] = {"lead": lead, "trail": trail, "min_run": min_run}
+    if max(lead, trail) < min_run:
+        record.update(status="not_triggered", kept="baseline")
+        print(f"      -> c2f extension not needed (rim runs {lead}/{trail} < {min_run})")
+        return
+    times = np.asarray(ctx.frames.timestamps, float)
+    record["baseline_track"] = [
+        [round(float(times[int(i)]), 2), round(float(ll[0]), 6), round(float(ll[1]), 6),
+         round(float(s), 4)] for i, ll, s in zip(*base)]
+    discs = [{"center": list(centre0), "radius_m": radius, "origin": "pass2", "status": "ok"}]
+    tracks, merged, diagnostics = [base], base, None
+    at = {"lead": 0, "trail": 0}               # the disc each end currently sits in
+    print(f"      -> c2f extension: rim runs lead {lead} / trail {trail} (>= {min_run}); "
+          f"following the drive in {radius:.0f} m discs (max {max_discs})")
+    while len(discs) - 1 < max_discs:
+        added = False
+        for end in ("lead", "trail"):
+            if len(discs) - 1 >= max_discs:
+                break
+            disc = discs[at[end]]
+            runs = frontier_end_runs(merged[1], disc["center"], radius)
+            run = runs[0] if end == "lead" else runs[1]
+            if run < min_run:
+                continue
+            points = merged[1][:run] if end == "lead" else merged[1][n - run:]
+            new = extension_centre(points, disc["center"], radius)
+            if new is None or any(geodesic_distance_m(*new, *d["center"]) < 0.5 * radius
+                                  for d in discs):
+                continue
+            entry = {"center": [new[0], new[1]], "radius_m": radius, "origin": end,
+                     "from_disc": at[end]}
+            discs.append(entry)
+            try:
+                kv.LAST_TRACK_STATS, kv.LAST_FETCH_STATS = {}, {}
+                track = track_fn(
+                    ctx.frames.frames, new, radius_m=radius,
+                    cache_dir=str(cfg.data_dir / f"{source}_c2f_ext"), device=device,
+                    source=source, token=token, cap=cfg.vpr_ref_cap,
+                    query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+                    query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                    query_cache=query_cache, sequence_decode=cfg.vpr_viterbi,
+                    query_dt_s=query_dt_s)
+                entry["track_decoding"] = dict(kv.LAST_TRACK_STATS or {})
+                if source == "mapillary" and kv.LAST_FETCH_STATS:
+                    entry["listing"] = dict(kv.LAST_FETCH_STATS)
+            except Exception as exc:
+                track = None
+                entry["error"] = f"{type(exc).__name__}: {exc}"
+            if track is None:
+                entry.setdefault("status", "unavailable")
+                continue
+            entry["status"] = "ok"
+            entry["median_similarity"] = float(np.median(track[2]))
+            tracks.append(track)
+            entry["track_index"] = len(tracks) - 1
+            at[end] = len(discs) - 1
+            candidate, diagnostics = merge_region_tracks(tracks, times)
+            if candidate is not None:
+                merged = candidate
+            added = True
+        if not added:
+            break
+    record["discs"] = discs
+    record["merge"] = diagnostics
+    base_sim, merged_sim = float(np.median(base[2])), float(np.median(merged[2]))
+    used = sum((diagnostics or {}).get("region_frame_counts", [0])[1:])
+    record.update(baseline_sim=base_sim, extended_sim=merged_sim, extension_frames=int(used))
+    if merged is base or not used or merged_sim < base_sim - _C2F_SIM_MARGIN:
+        record.update(status="ok", kept="baseline")
+        print(f"      -> c2f extension: kept the ordinary track ({len(discs) - 1} discs, "
+              f"{used} frames moved, sim {base_sim:.3f} -> {merged_sim:.3f})")
+        return
+    centre = _robust_center(merged[1], merged[2])
+    ctx.vpr_track, ctx.vpr_center = merged, centre
+    distances = geodesic_distance_m(centre[0], centre[1], merged[1][:, 0], merged[1][:, 1])
+    required = max(radius, float(np.max(distances))) + _C2F_SNAP_TOL_M
+    graph_radius = min(required, _PASS1_COVER_MAX_M)
+    ctx.osm_around = (float(centre[0]), float(centre[1]), graph_radius)
+    record.update(status="ok", kept="extended", selected_center=[float(centre[0]), float(centre[1])],
+                  graph_radius_m=graph_radius, graph_radius_capped=required > graph_radius)
+    print(f"      -> c2f extension: kept the extended track ({len(discs) - 1} discs, "
+          f"{used} frames moved, sim {base_sim:.3f} -> {merged_sim:.3f})")
+
+
 def _append_retrieval_audit(ctx, audit):
     ordinal = len(ctx.retrieval_audits)
     ctx.retrieval_audits.append(audit)
@@ -920,6 +1067,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                         ctx.c2f_info = {
                             "pass1_center": [float(_p1_center[0]), float(_p1_center[1])],
                             "pass2_center": [float(_p2_center[0]), float(_p2_center[1])],
+                            "pass2_disc_center": [float(_slat), float(_slon)],
                             "tight_radius_m": _tight,
                             "kept": _accepted,
                             "pass1_sim": _p1_sim, "pass2_sim": _p2_sim,
@@ -950,6 +1098,12 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     print(f"      -> coarse-to-fine: graph tightened onto the "
                           f"pass-1 centre ({_slat:.4f}, {_slon:.4f}, "
                           f"{ctx.osm_around[2]:.0f} m)")
+                if getattr(cfg, "vpr_c2f_extend", False):
+                    _c2f_frontier_extend(
+                        ctx, source=_vpr_src, token=_vpr_token, device=_vpr_device,
+                        query_dt_s=_qdt, track_fn=kartaview_vpr_track,
+                        query_cache=_query_cache,
+                        max_discs=int(getattr(cfg, "vpr_c2f_extend_max", 6)))
             else:
                 from .. import kartaview_vpr as _kv
                 _why = _kv.LAST_FAILURE or "no reference track"

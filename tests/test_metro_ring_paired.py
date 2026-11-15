@@ -43,3 +43,13 @@ def test_compare_lists_a_clip_that_never_ran(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "| Ran |" in out and "| Unrun | - | not run |" in out
 
+
+
+def test_shadow_restores_the_ordinary_track_of_a_c2f_extension_run():
+    result = _result("baseline")          # the metro ring did nothing here
+    result["c2f_extension"] = {"kept": "extended", "baseline_track": ORDINARY}
+    assert mp.ordinary_result(result) is result
+    out = mp.ordinary_result(result, "c2f_extension")
+    assert out["vpr_prior"]["track"] == ORDINARY
+    assert out["answer"]["route_latlon"] == [[45.5, -73.57]] * 10
+    assert out["c2f_extension"]["shadow"].startswith("ordinary track restored")

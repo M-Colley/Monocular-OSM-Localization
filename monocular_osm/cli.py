@@ -215,6 +215,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "surroundings in cells, out to --vpr-metro-radius around its geocode.")
     p.add_argument("--vpr-metro-radius", type=float, default=20000.0,
                    help="Outer radius of the metro-ring search in metres (default 20000).")
+    p.add_argument("--vpr-c2f-extend", action=argparse.BooleanOptionalAction, default=False,
+                   help="Experimental: when the start or end of the coarse-to-fine track runs "
+                        "along its disc's rim, follow the drive with overlapping discs and merge "
+                        "the regional tracks.")
+    p.add_argument("--vpr-c2f-extend-max", type=int, default=6,
+                   help="Maximum extra discs for --vpr-c2f-extend (default 6).")
     p.add_argument("--vpr-region-cap", type=int, default=6,
                    help="Maximum retrieval regions including the original search "
                         "region (default 6).")
@@ -968,6 +974,8 @@ def main() -> None:
             vpr_city_cell_selector=args.vpr_city_cell_selector,
             vpr_metro_ring=args.vpr_metro_ring,
             vpr_metro_radius_m=args.vpr_metro_radius,
+            vpr_c2f_extend=args.vpr_c2f_extend,
+            vpr_c2f_extend_max=args.vpr_c2f_extend_max,
             video_title=effective_title,
             video_description=effective_description,
             answer=args.answer,
