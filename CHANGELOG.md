@@ -6,6 +6,20 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Coarse-to-fine frontier extension: development check (November 2026)
+
+- Opt-in `--vpr-c2f-extend` (`8581acd`) follows a drive past the 2 km pass-2
+  disc. It was checked in-sample on the 19 used clips where its gate fires
+  (rule `c2f_extension_dev_2026_11`), paired against each run's own ordinary
+  track.
+- Both decision hypotheses fail: one clip crosses 200 m the wrong way
+  (Budapest 157 to 222 m) and only one crosses the right way (Düsseldorf
+  260 to 154 m). The count within 200 m stays 10/19.
+- 8 clips better, 3 worse, 8 tied (sign test p = 0.11). It helps when the
+  pass-1 area is right (Bern 168 to 20 m), but not on the far misses.
+- It stays opt-in and off by default, and is not a held-out candidate.
+- See `docs/c2f_extension_dev_2026-11.md`.
+
 ### Held-out test4: assisted v4 (November 2026)
 
 - Frozen assisted v4 (`409a959`, 14,400 s CPU, rule `test4_2026_11`) on the

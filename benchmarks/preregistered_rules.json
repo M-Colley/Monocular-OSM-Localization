@@ -869,6 +869,29 @@
         "runs": "19/19 clips exit 0, no timeouts, result.json present; 17 extension records status ok (every extra disc listed via coverage tiles, status ok, 0-5 url-less ids), 2 not_triggered (overlay_tK7bHJXAJX8, overlay_7n4XQUBEH5Y)",
         "fault": "Overpass connect timeouts made the geometry stage fail in 6 clips (overlay_LmIHvLMLqFk, overlay_g5lnpYCk1Ec, overlay_y66ZkRpUh4k, overlay_5koGsNdaVvE, overlay_6GciDYJ1FUc, overlay_vp_D8mxgEkA; execution.geometry = failed); Manchester logged one 502 retry that recovered",
         "interpretation": "Not a failed run for this rule's scored quantity: with --answer track the retrieval answer is checkpointed before the geometry stages (pipeline.py: 'preserving retrieval answer'), every one of the 19 answers is answer.method vpr_track_only from result.vpr_prior.track whether geometry completed or failed, and the extension runs inside the retrieval stage. Both sides of the paired comparison (extended track, and the ordinary track restored from c2f_extension.baseline_track) are therefore untouched. No rerun; disclosed in the report."
+      },
+      "outcome_recorded": {
+        "date": "2026-11-16",
+        "runs": "E:/claude-scoring/wt-ext/output/benchmark_runs/ext_{test4,test2,test,test3,dev} and their _ordinary shadows",
+        "X1_no_harm": "fails: overlay_1bGf8OD9Fqo (Budapest) 157 m ordinary -> 222 m extended",
+        "X2_two_gains": "fails: one gain, overlay_8BUtb7TKUFA (Duesseldorf) 260 m -> 154 m",
+        "X3": {
+          "better": 8,
+          "worse": 3,
+          "tie": 8,
+          "sign_test_one_sided_p": 0.1133,
+          "within_200_ordinary": 10,
+          "within_200_extended": 10,
+          "median_ordinary_m": 168.2,
+          "median_extended_m": 177.6,
+          "fired": 17,
+          "extra_discs_total": 22,
+          "frames_moved_total": 576,
+          "mean_wall_s": 2914
+        },
+        "decision": "not a candidate for a held-out test; --vpr-c2f-extend stays opt-in and off by default",
+        "observation": "the acceptance rule (keep unless merged similarity drops > 0.02) does not discriminate: the loss and the gain both have merged similarity equal to the ordinary one; noted in-sample, nothing tuned",
+        "report": "docs/c2f_extension_dev_2026-11.md"
       }
     }
   }
