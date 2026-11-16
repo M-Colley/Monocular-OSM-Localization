@@ -863,6 +863,12 @@
         "date": "2026-11-15",
         "before_any_run": true,
         "note": "8581acd's runner passes each clip's registered video.local_path (relative to the checkout) as --video-path under --skip-download. The worktree's untracked data/ therefore holds directory junctions to the main checkout's builder downloads for the test4, test2 and test1 clips, and, for the four dev overlay clips whose builder downloads were removed in the approved cleanup, hard links at the registered names to the inputs the v4 fleet ran on (E:/claude-scoring/v4fleet/data/<slug>/input.mp4, same URLs). test3 paths are absolute; Berlin (url only) reads the data dir. Run script E:/claude-scoring/ext/run_ext.sh."
+      },
+      "infra_check": {
+        "recorded": "2026-11-16, after the run ended (12:06 UTC) and before any score, shadow or aggregate was computed",
+        "runs": "19/19 clips exit 0, no timeouts, result.json present; 17 extension records status ok (every extra disc listed via coverage tiles, status ok, 0-5 url-less ids), 2 not_triggered (overlay_tK7bHJXAJX8, overlay_7n4XQUBEH5Y)",
+        "fault": "Overpass connect timeouts made the geometry stage fail in 6 clips (overlay_LmIHvLMLqFk, overlay_g5lnpYCk1Ec, overlay_y66ZkRpUh4k, overlay_5koGsNdaVvE, overlay_6GciDYJ1FUc, overlay_vp_D8mxgEkA; execution.geometry = failed); Manchester logged one 502 retry that recovered",
+        "interpretation": "Not a failed run for this rule's scored quantity: with --answer track the retrieval answer is checkpointed before the geometry stages (pipeline.py: 'preserving retrieval answer'), every one of the 19 answers is answer.method vpr_track_only from result.vpr_prior.track whether geometry completed or failed, and the extension runs inside the retrieval stage. Both sides of the paired comparison (extended track, and the ordinary track restored from c2f_extension.baseline_track) are therefore untouched. No rerun; disclosed in the report."
       }
     }
   }
