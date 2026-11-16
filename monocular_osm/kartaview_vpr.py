@@ -1122,6 +1122,8 @@ def _embed_refs_streaming(refs, device, cache_dir, model_name="model", *, batch_
         except Exception:
             pass   # corrupt cache -> recompute
     sess = requests.Session()
+    if hasattr(sess, "mount"):   # one pooled connection per download thread
+        sess.mount("https://", requests.adapters.HTTPAdapter(pool_connections=16, pool_maxsize=16))
     todo = [r for r in refs if r.get("url")]
     embs, xy, ids = [], [], []
     with ThreadPoolExecutor(max_workers=16) as ex:
