@@ -900,6 +900,8 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                         _vpr_cap_eff = max(cfg.vpr_ref_cap, _PASS1_COVER_CAP)
                         if _vpr_token:      # dense downloads: keep it bounded
                             _vpr_cap_eff = min(_vpr_cap_eff, _PASS1_TOKEN_CAP)
+                            if getattr(cfg, "vpr_pass1_cap", None) is not None:   # opt-in dense pass 1
+                                _vpr_cap_eff = int(cfg.vpr_pass1_cap)
                         print(f"      -> coarse-to-fine: sizing pass-1 disc to "
                               f"the city extent ({_vpr_radius:.0f} m, "
                               f"cap {_vpr_cap_eff})")

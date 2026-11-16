@@ -248,6 +248,12 @@ class PipelineConfig:
     # _c2f_frontier_extend; failure mode C, docs/heldout_test4_2026-11.md).
     vpr_c2f_extend: bool = False
     vpr_c2f_extend_max: int = 6
+    # Dense pass 1 (opt-in): references kept in the tokened city-extent pass-1
+    # disc instead of the default 1,200. Above 6,000 the references are
+    # embedded in streamed chunks (descriptors only) and the exact sequence
+    # decode runs on the GPU (kartaview_vpr._embed_refs_streaming,
+    # _viterbi_decode_torch); docs/reference_inputs_2026-11.md.
+    vpr_pass1_cap: int | None = None
     video_title: str | None = None
     video_description: str | None = None
     # The route the method answers with, written to result["answer"]
@@ -479,6 +485,9 @@ class PipelineConfig:
             raise ValueError("vpr_metro_radius_m must be finite and positive")
         if type(self.vpr_c2f_extend_max) is not int or self.vpr_c2f_extend_max <= 0:
             raise ValueError("vpr_c2f_extend_max must be a positive integer")
+        if self.vpr_pass1_cap is not None and (type(self.vpr_pass1_cap) is not int
+                                               or self.vpr_pass1_cap < 30):
+            raise ValueError("vpr_pass1_cap must be an integer of at least 30")
         if self.retrieval_only and self.answer != "track":
             raise ValueError("retrieval_only requires answer='track'")
 

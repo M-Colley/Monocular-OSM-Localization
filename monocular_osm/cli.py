@@ -221,6 +221,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "the regional tracks.")
     p.add_argument("--vpr-c2f-extend-max", type=int, default=6,
                    help="Maximum extra discs for --vpr-c2f-extend (default 6).")
+    p.add_argument("--vpr-pass1-cap", type=int, default=None,
+                   help="Experimental: references kept in the tokened city-wide pass-1 "
+                        "disc (default 1200). Above 6000 they are embedded in streamed "
+                        "chunks and the sequence decode needs a CUDA GPU.")
     p.add_argument("--vpr-region-cap", type=int, default=6,
                    help="Maximum retrieval regions including the original search "
                         "region (default 6).")
@@ -976,6 +980,7 @@ def main() -> None:
             vpr_metro_radius_m=args.vpr_metro_radius,
             vpr_c2f_extend=args.vpr_c2f_extend,
             vpr_c2f_extend_max=args.vpr_c2f_extend_max,
+            vpr_pass1_cap=args.vpr_pass1_cap,
             video_title=effective_title,
             video_description=effective_description,
             answer=args.answer,

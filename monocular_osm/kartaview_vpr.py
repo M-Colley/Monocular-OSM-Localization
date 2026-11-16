@@ -1081,7 +1081,72 @@ def _read_emb_cache(cache_dir, model_name, fp, n):
     return None
 
 
+_STREAM_MIN_REFS = 6000   # the numpy Viterbi's O(n^2) bound; default caps stay below it
+
+
+def _fetch_ref_pixels(sess, ref):
+    """One reference thumbnail as a 512 x 512 BGR array, or None."""
+    import cv2
+    try:
+        rr = sess.get(ref["url"], timeout=25)
+        if rr.status_code == 200:
+            img = cv2.imdecode(np.frombuffer(rr.content, np.uint8), cv2.IMREAD_COLOR)
+            return None if img is None else cv2.resize(img, (512, 512))
+    except Exception:
+        return None
+    return None
+
+
+def _embed_refs_streaming(refs, device, cache_dir, model_name="model", *, batch_size=24,
+                          chunk=1024):
+    """Descriptors for a large reference set without a pixel store.
+
+    Above ``_STREAM_MIN_REFS`` the per-id image store would hold
+    N x 512 x 512 x 3 bytes in RAM and on disk (about 19 GB at 24,000
+    references). Here each chunk is downloaded, resized exactly as
+    ``_load_ref_images`` does, embedded and dropped; only descriptors and
+    coordinates are kept, cached under the fingerprint of the requested set.
+    References without a URL are skipped (there is no store to serve them).
+    """
+    import requests
+    import torch
+    req_fp = _refs_fingerprint(refs)
+    path = (os.path.join(cache_dir, f"ref_emb_stream_{model_name}_{req_fp[:10]}.npz")
+            if cache_dir else None)
+    if path and os.path.exists(path):
+        try:
+            with np.load(path, allow_pickle=True) as d:
+                if str(d["request_fingerprint"]) == req_fp:
+                    return (torch.from_numpy(np.asarray(d["emb"], np.float32)),
+                            np.asarray(d["xy"], float))
+        except Exception:
+            pass   # corrupt cache -> recompute
+    sess = requests.Session()
+    todo = [r for r in refs if r.get("url")]
+    embs, xy, ids = [], [], []
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        for start in range(0, len(todo), chunk):
+            part = todo[start:start + chunk]
+            pixels = list(ex.map(lambda r: _fetch_ref_pixels(sess, r), part))
+            ok = [(r, p) for r, p in zip(part, pixels) if p is not None]
+            if not ok:
+                continue
+            embs.append(_embed(device, np.stack([p for _, p in ok]), batch_size=batch_size))
+            xy += [[float(r["lat"]), float(r["lon"])] for r, _ in ok]
+            ids += [str(r["id"]) for r, _ in ok]
+    if not embs:
+        return None, None
+    emb, ref_xy = torch.cat(embs), np.asarray(xy, float)
+    if path:
+        os.makedirs(cache_dir, exist_ok=True)
+        _atomic_savez(path, emb=emb.numpy(), xy=ref_xy, ids=np.array(ids),
+                      request_fingerprint=np.array(req_fp))
+    return emb, ref_xy
+
+
 def _embed_refs(refs, device, cache_dir, model_name="model", *, batch_size=24):
+    if len(refs) > _STREAM_MIN_REFS:
+        return _embed_refs_streaming(refs, device, cache_dir, model_name, batch_size=batch_size)
     # Fully-warm fast path: store holds every ref + embeddings cached -> return
     # without loading a single pixel or hitting the network (audit K2).
     peek = _peek_store(refs, cache_dir)
@@ -1535,9 +1600,13 @@ def _viterbi_decode(sims: np.ndarray, ref_latlon: np.ndarray,
     n_q, n_r = sims.shape
     # O(n_ref^2) matrices: float32 at n_r=6000 is ~144 MB each (d/trans/cand
     # live simultaneously). --vpr-cap makes larger sets reachable from the
-    # CLI; beyond this bound a MemoryError could kill the whole run, so bail
-    # to the caller's argmax fallback instead.
-    if n_r > 6000:
+    # CLI; beyond this bound a MemoryError could kill the whole run, so the
+    # same decode runs on a CUDA GPU when there is one, and otherwise bails
+    # to the caller's argmax fallback.
+    if n_r > _STREAM_MIN_REFS:
+        import torch
+        if torch.cuda.is_available():
+            return _viterbi_decode_torch(sims, ref_latlon, dt_s, device="cuda")
         raise ValueError(f"viterbi decode skipped: {n_r} refs exceeds the "
                          f"O(n^2) memory bound (6000); using argmax track")
     ref_latlon = np.asarray(ref_latlon, dtype=np.float64)
@@ -1556,6 +1625,46 @@ def _viterbi_decode(sims: np.ndarray, ref_latlon: np.ndarray,
         score = cand[back[q], np.arange(n_r)] + sims[q]
     path = np.zeros(n_q, dtype=np.int32)
     path[-1] = int(np.argmax(score))
+    for q in range(n_q - 2, -1, -1):
+        path[q] = back[q + 1][path[q + 1]]
+    return path
+
+
+def _viterbi_decode_torch(sims: np.ndarray, ref_latlon: np.ndarray, dt_s: float,
+                          device="cuda") -> np.ndarray:
+    """``_viterbi_decode``'s float32 arithmetic in torch on ``device``.
+
+    For reference sets beyond the numpy path's memory bound: each n x n
+    matrix is about 2.3 GB at 24,000 references, so distances are formed in
+    place and the per-step candidate matrix reuses one buffer.
+    """
+    import torch
+    sims = np.asarray(sims)
+    n_q, n_r = sims.shape
+    ref_latlon = np.asarray(ref_latlon, dtype=np.float64)
+    frame = LocalFrame(float(np.mean(ref_latlon[:, 0])),
+                       float(np.mean(ref_latlon[:, 1])))
+    xy = torch.from_numpy(np.column_stack(frame.to_xy(ref_latlon[:, 0], ref_latlon[:, 1])
+                                          ).astype(np.float32)).to(device)
+    with torch.no_grad():
+        trans = xy[:, None, 0] - xy[None, :, 0]
+        dy = xy[:, None, 1] - xy[None, :, 1]
+        trans.mul_(trans).add_(dy.mul_(dy)).sqrt_()       # d, as np.linalg.norm
+        del dy
+        free = 30.0 + 40.0 * max(dt_s, 0.5)
+        trans.sub_(free).clamp_(min=0.0).mul_(-0.02)       # -0.02 * max(0, d - free)
+        q_sims = torch.from_numpy(sims.astype(np.float32)).to(device)
+        score = q_sims[0].clone()
+        back = torch.zeros((n_q, n_r), dtype=torch.int64, device=device)
+        cand = torch.empty_like(trans)
+        for q in range(1, n_q):
+            torch.add(score[:, None], trans, out=cand)
+            best, back[q] = torch.max(cand, dim=0)
+            score = best + q_sims[q]
+        back = back.cpu().numpy()
+        last = int(torch.argmax(score).item())
+    path = np.zeros(n_q, dtype=np.int32)
+    path[-1] = last
     for q in range(n_q - 2, -1, -1):
         path[q] = back[q + 1][path[q + 1]]
     return path
