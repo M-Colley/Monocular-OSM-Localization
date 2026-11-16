@@ -1,0 +1,136 @@
+{
+ "berlin_0-420": {
+  "n": 1500,
+  "resolved": 1500,
+  "types": {
+   "null": 11,
+   "perspective": 790,
+   "fisheye": 578,
+   "equirectangular": 3,
+   "spherical": 102,
+   "brown": 16
+  }
+ },
+ "london": {
+  "n": 1500,
+  "resolved": 1500,
+  "types": {
+   "perspective": 1207,
+   "fisheye": 55,
+   "null": 3,
+   "spherical": 235
+  }
+ },
+ "overlay_vCSEG6KaFng": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "null": 1,
+   "perspective": 1045,
+   "fisheye": 35,
+   "equirectangular": 2,
+   "spherical": 117
+  }
+ },
+ "overlay_LmIHvLMLqFk": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "null": 1,
+   "perspective": 1045,
+   "fisheye": 35,
+   "equirectangular": 2,
+   "spherical": 117
+  }
+ },
+ "overlay_wJsEQTCAg1c": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "spherical": 41,
+   "perspective": 1159
+  }
+ },
+ "overlay_ZhGb8q1kliY": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "perspective": 160,
+   "equirectangular": 397,
+   "spherical": 643
+  }
+ },
+ "overlay_g5lnpYCk1Ec": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "perspective": 160,
+   "equirectangular": 397,
+   "spherical": 643
+  }
+ },
+ "overlay_y66ZkRpUh4k": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "null": 5,
+   "perspective": 1155,
+   "equirectangular": 26,
+   "fisheye": 4,
+   "spherical": 7,
+   "brown": 3
+  }
+ },
+ "overlay_bF5IfC2ZHjQ": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "null": 1,
+   "perspective": 781,
+   "fisheye": 304,
+   "equirectangular": 16,
+   "spherical": 98
+  }
+ },
+ "overlay_5b-tgjtwb2U": {
+  "n": 1500,
+  "resolved": 1500,
+  "types": {
+   "equirectangular": 44,
+   "perspective": 1429,
+   "fisheye": 15,
+   "brown": 12
+  }
+ },
+ "overlay_zt8rHvHKBUU": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "null": 3,
+   "perspective": 1167,
+   "fisheye": 23,
+   "equirectangular": 3,
+   "spherical": 4
+  }
+ },
+ "overlay_4LvkBo69jZo": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "spherical": 165,
+   "perspective": 994,
+   "equirectangular": 41
+  }
+ },
+ "overlay_1bGf8OD9Fqo": {
+  "n": 1200,
+  "resolved": 1200,
+  "types": {
+   "null": 5,
+   "perspective": 818,
+   "fisheye": 241,
+   "equirectangular": 5,
+   "spherical": 131
+  }
+ }
+}

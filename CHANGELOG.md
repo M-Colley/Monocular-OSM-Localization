@@ -19,6 +19,15 @@ All notable changes to this project are documented here. This project adheres to
   pass-1 area is right (Bern 168 to 20 m), but not on the far misses.
 - It stays opt-in and off by default, and is not a held-out candidate.
 - See `docs/c2f_extension_dev_2026-11.md`.
+- Two pass-1 reference diagnostics (`docs/reference_inputs_2026-11.md`) found
+  neither lead strong enough to pre-register:
+  - Coverage: misses have only 6-31 % of their route within 50 m of a served
+    reference, against 61-62 % for clips that localize. Spreading the 1,200
+    references evenly helps some routes and hurts others.
+  - Panoramas: they are 87 % of references only in Detroit, and 1-17 %
+    elsewhere.
+  - Scripts: `scripts/ref_route_coverage.py` and
+    `scripts/pass1_camera_types.py`.
 
 ### Held-out test4: assisted v4 (November 2026)
 
