@@ -910,7 +910,12 @@
       "decision": "Only if D1 and D2 both hold is the dense pass 1 a candidate for a fresh held-out test (new data, user approval, its own rule). It stays opt-in and off by default in every case.",
       "report": "every clip whichever way it comes out",
       "disclosure": "In-sample on every clip: all 30 were used in earlier held-out tests, in the failure taxonomy and in the coverage diagnostic that motivated this check. Single rep per arm. Both arms embed queries on the GPU (fp16); the ordinary arm reuses cached pass-1 reference descriptors computed on CPU (fp32) where warm, while the dense arm computes all of its references on the GPU. The dense arm's listing has its own cache signature, so it is fetched later than the ordinary arm's cached listing. The goal 'all within 200 m' cannot be certified by in-sample evidence.",
-      "feasibility": "Before registration, unscored dev runs at 4a671a9: berlin_0-420 took a title-named seed (the cap did not apply, 210 s); overlay_LmIHvLMLqFk took the city-extent branch: cap 24000, 23,968 references served, pass-1 decoder viterbi on the GPU, 1,328 s wall, GPU peak 9.5 GB, 1.8 GB cache. Neither run's error was computed; dev clips are not in this check."
+      "feasibility": "Before registration, unscored dev runs at 4a671a9: berlin_0-420 took a title-named seed (the cap did not apply, 210 s); overlay_LmIHvLMLqFk took the city-extent branch: cap 24000, 23,968 references served, pass-1 decoder viterbi on the GPU, 1,328 s wall, GPU peak 9.5 GB, 1.8 GB cache. Neither run's error was computed; dev clips are not in this check.",
+      "infra_check": {
+        "recorded": "2026-11-17, after the run ended (04:28 UTC) and before any score or aggregate was computed",
+        "runs": "58 of 60 runs exit 0 with a retrieval-track answer (answer.method vpr_track_only). All 21 dense runs on city-extent clips served 23,930-24,000 pass-1 references with the Viterbi decoder; the 8 other-branch clips used the same 1,494-1,500-reference pass 1 in both arms; every ordinary run used Viterbi with 1,196-1,500 references.",
+        "not_run": "overlay_yd5g7jsWiEM in both arms: the runner's pre-existing city-fairness guard (benchmark.py city_fairness_problem, e0b37a6) refused it before any computation, because its cached title names the city in Romanian ('Buzau - Bucuresti') and the guard's text match does not recognise 'Bucharest'. The guard only checks once a clip's metadata is cached, which is why the earlier test4 run went ahead. The refusal is deterministic and symmetric, so a rerun at the same commit would refuse again; the comparison is therefore over 29 clips (20 city-extent, 8 other branch, plus no change to the decision thresholds). Disclosed in the report."
+      }
     }
   }
 }
