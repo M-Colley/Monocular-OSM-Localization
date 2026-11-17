@@ -153,7 +153,8 @@ def main() -> int:
     for r in [r for r in rows if r.get("status") == "UNVERIFIED_FRAMES" and r["id"] not in resolved]:
         centre = s.geocode(r["city"])
         if centre is None:
-            raise RuntimeError("named-city geocode unavailable; screen not advanced")
+            print("named-city geocode unavailable; screen not advanced", flush=True)
+            return 75
         retry = {**{k: r[k] for k in ("city", "id", "title", "duration_s", "query", "rank", "eligible",
                                       "matched_key", "registered_city")},
                  **screen_one(s, centre, r["id"], r["duration_s"]), "retry_of_unverified": True}
@@ -206,7 +207,8 @@ def main() -> int:
                     if centre is None:
                         centre = s.geocode(city)
                         if centre is None:
-                            raise RuntimeError("named-city geocode unavailable; screen not advanced")
+                            print("named-city geocode unavailable; screen not advanced", flush=True)
+                            return 75
                     row.update(screen_one(s, centre, vid, duration))
                 else:
                     row["status"] = "TITLE_OR_DURATION_INELIGIBLE"
