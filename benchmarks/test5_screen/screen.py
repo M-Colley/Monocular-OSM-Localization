@@ -150,6 +150,22 @@ def main() -> int:
     s = load_screen5()
     # An unread frame is retried unchanged before the screen advances.
     resolved = {r["id"] for r in rows if r.get("id") and r.get("status") != "UNVERIFIED_FRAMES"}
+    # Amendment 05: a stream that stays unread after three attempts under the
+    # amended reader (each with up to three opens) is recorded as unreadable
+    # and the screen advances, instead of blocking the fixed order forever.
+    for vid in dict.fromkeys(r["id"] for r in rows if r.get("status") == "UNVERIFIED_FRAMES"
+                             and r["id"] not in resolved):
+        tries = [r for r in rows if r.get("id") == vid and r.get("status") == "UNVERIFIED_FRAMES"
+                 and "n_frames_read" in r]
+        if len(tries) >= 3:
+            last = tries[-1]
+            rows.append({**{k: last[k] for k in ("city", "id", "title", "duration_s", "query", "rank",
+                                                  "eligible", "matched_key", "registered_city")},
+                         "ok": False, "status": "FRAMES_UNREADABLE", "unverified_attempts": len(tries),
+                         "amendment": "operational_amendment_05"})
+            save(rows)
+            resolved.add(vid)
+            print(json.dumps(rows[-1], ensure_ascii=True), flush=True)
     for r in [r for r in rows if r.get("status") == "UNVERIFIED_FRAMES" and r["id"] not in resolved]:
         centre = s.geocode(r["city"])
         if centre is None:
