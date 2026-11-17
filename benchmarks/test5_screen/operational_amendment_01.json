@@ -1,0 +1,10 @@
+{
+ "amendment": "test5 screen operational amendment 01",
+ "recorded_utc": "2026-11-17T10:38:12.741002+00:00",
+ "before": "any further screen outcome after the second unverified read of YJmgh_0SoGs; no localization exists",
+ "problem": "screen5's frame selector 'bv*[height<=1080][ext=mp4]/bv*[height<=1080]' resolves, with yt-dlp 2026.10.26 (updated before this screen per the project note on stale versions), to an HLS (m3u8) VP9 stream for some uploads (format 614 for YJmgh_0SoGs). OpenCV cannot seek it, so every frame read times out (UNVERIFIED_FRAMES twice). Retrying unchanged would loop indefinitely.",
+ "change": "benchmarks/test5_screen/screen.py reads the same three frames (25/50/75 %) from a seekable HTTPS stream first: 'bv*[height<=1080][ext=mp4][protocol=https]/bv*[height<=1080][protocol=https]/bv*[height<=1080][ext=mp4]/bv*[height<=1080]'. Eligibility, stamp reading, the 40 km rule and the >=2-of-3 criterion are unchanged; screen5.py itself is untouched.",
+ "verification": "positive control pFbUvfr8k-Q (a test4 pass): format 137 (https, avc1, 1080p) selected, 3 of 3 frames read in the bottom region. The pending candidate was not probed outside the screen.",
+ "effect_on_earlier_rows": "none: every earlier SCREEN_NOT_PASSED row except one had no thumbnail stamp and never reached the frame reader; the one that did (g11JScTnX6k) read 3 of 3 frames.",
+ "next": "the driver retries YJmgh_0SoGs with the amended reader, as an ordinary retry of an unverified read."
+}

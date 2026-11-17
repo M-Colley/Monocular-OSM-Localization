@@ -68,9 +68,38 @@ def load_screen5():
     return s
 
 
+#: Operational amendment 01 (operational_amendment_01.json): seekable HTTPS
+#: streams first. screen5 asks for "bv*[height<=1080][ext=mp4]/...", which
+#: with yt-dlp 2026.10.26 can resolve to an HLS (m3u8) stream that OpenCV
+#: cannot seek, so every frame read times out. Same frames, same criterion.
+SECTION_FORMAT = ("bv*[height<=1080][ext=mp4][protocol=https]/bv*[height<=1080][protocol=https]/"
+                  "bv*[height<=1080][ext=mp4]/bv*[height<=1080]")
+
+
+def section_fixes(s, vid, dur):
+    """screen5.section_fixes with SECTION_FORMAT; otherwise identical."""
+    import subprocess as _sp
+    out = []
+    try:
+        url = s.youtube(["-g", "-f", SECTION_FORMAT, f"https://www.youtube.com/watch?v={vid}"],
+                        90).strip().splitlines()[0]
+    except (IndexError, _sp.TimeoutExpired):
+        return out
+    cap = s.cv2.VideoCapture(url, s.cv2.CAP_FFMPEG)
+    for frac in (0.25, 0.5, 0.75):
+        t = int(dur * frac)
+        cap.set(s.cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+        ok, img = cap.read()
+        got = s.read_stamp(img) if ok else None
+        if got:
+            out.append({"t": t, "region": got[0], "lat": got[1][0], "lon": got[1][1]})
+    cap.release()
+    return out
+
+
 def screen_one(s, centre, vid, duration) -> dict:
     thumbs = s.thumb_fixes(vid)
-    fixes = s.section_fixes(vid, duration) if thumbs else []
+    fixes = section_fixes(s, vid, duration) if thumbs else []
     near = [f for f in fixes if s.geodesic_distance_m(centre[0], centre[1], f["lat"], f["lon"]) < 40000]
     row = {"thumbnail_stamp": bool(thumbs), "n_sections_read": len(fixes), "n_near": len(near),
            "ok": len(near) >= 2, "region": fixes[0]["region"] if fixes else None,
