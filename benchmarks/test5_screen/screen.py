@@ -90,12 +90,25 @@ def section_fixes(s, vid, dur):
     # Amendment 03: without a JavaScript runtime yt-dlp warns that "some
     # formats may be missing"; the seekable HTTPS stream then sometimes is.
     js = ["--js-runtimes", "node"] if shutil.which("node") else []
-    try:
-        url = s.youtube([*js, "-g", "-f", SECTION_FORMAT, f"https://www.youtube.com/watch?v={vid}"],
-                        90).strip().splitlines()[0]
-    except (IndexError, _sp.TimeoutExpired):
+    # Amendment 04: the stream host intermittently refuses an open (instant
+    # isOpened() False for a URL that opens on the next request), so fetch a
+    # fresh URL and reopen up to three times before the frames count as unread.
+    cap = None
+    for attempt in range(3):
+        try:
+            url = s.youtube([*js, "-g", "-f", SECTION_FORMAT, f"https://www.youtube.com/watch?v={vid}"],
+                            90).strip().splitlines()[0]
+        except (IndexError, _sp.TimeoutExpired):
+            url = None
+        if url:
+            cap = s.cv2.VideoCapture(url, s.cv2.CAP_FFMPEG)
+            if cap.isOpened():
+                break
+            cap.release()
+            cap = None
+        time.sleep(10)
+    if cap is None:
         return out, n_read
-    cap = s.cv2.VideoCapture(url, s.cv2.CAP_FFMPEG)
     for frac in (0.25, 0.5, 0.75):
         t = int(dur * frac)
         cap.set(s.cv2.CAP_PROP_POS_MSEC, t * 1000.0)
