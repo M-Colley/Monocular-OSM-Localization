@@ -6,6 +6,28 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Dense city-wide pass 1: development check (November 2026)
+
+- New opt-in `--vpr-pass1-cap N` (`4a671a9`, `b66b9ee`) sets the number of
+  references in the tokened city-wide pass 1 (default 1,200).
+  - Above 6,000 references, descriptors are streamed and no pixel store is
+    kept.
+  - The exact Viterbi decode then runs in torch on a CUDA GPU. Before, it
+    fell back to argmax.
+  - Default paths are unchanged.
+- Checked in-sample on the 29 runnable test-split clips at 24,000
+  references, paired with the default (rule `dense_pass1_dev_2026_11`).
+  Both decision hypotheses hold:
+  - No clip lost across 200 m.
+  - Five gained across 200 m: Sofia 945 to 27 m, Trondheim 207 to 22 m,
+    Warsaw 335 to 15 m, Katowice 2,687 to 89 m, Zagreb 272 to 12 m.
+  - Within 200 m: 11/29 to 16/29. 16 better, 3 worse, 10 tied (sign test
+    p = 0.002). Median 325 to 144 m.
+- It is now a candidate for a fresh held-out test (new data needed). It
+  stays opt-in.
+- See `docs/dense_pass1_dev_2026-11.md`; paired scoring with
+  `scripts/compare_paired_arms.py`.
+
 ### Coarse-to-fine frontier extension: development check (November 2026)
 
 - Opt-in `--vpr-c2f-extend` (`8581acd`) follows a drive past the 2 km pass-2

@@ -915,6 +915,39 @@
         "recorded": "2026-11-17, after the run ended (04:28 UTC) and before any score or aggregate was computed",
         "runs": "58 of 60 runs exit 0 with a retrieval-track answer (answer.method vpr_track_only). All 21 dense runs on city-extent clips served 23,930-24,000 pass-1 references with the Viterbi decoder; the 8 other-branch clips used the same 1,494-1,500-reference pass 1 in both arms; every ordinary run used Viterbi with 1,196-1,500 references.",
         "not_run": "overlay_yd5g7jsWiEM in both arms: the runner's pre-existing city-fairness guard (benchmark.py city_fairness_problem, e0b37a6) refused it before any computation, because its cached title names the city in Romanian ('Buzau - Bucuresti') and the guard's text match does not recognise 'Bucharest'. The guard only checks once a clip's metadata is cached, which is why the earlier test4 run went ahead. The refusal is deterministic and symmetric, so a rerun at the same commit would refuse again; the comparison is therefore over 29 clips (21 city-extent, 8 other branch), with the decision thresholds unchanged. Disclosed in the report."
+      },
+      "outcome_recorded": {
+        "date": "2026-11-17",
+        "runs": "E:/claude-scoring/wt-dense/output/benchmark_runs/dense_{ord,24k}_{test4,test2,test,test3}",
+        "n_compared": "29 (overlay_yd5g7jsWiEM refused in both arms, see infra_check)",
+        "D1_no_harm": "holds: no clip goes from within 200 m to above 200 m",
+        "D2_gains": "holds: five gains, no losses (Sofia 945->27 m, Trondheim 207->22 m, Warsaw lCm2a3kOEmE 335->15 m, Katowice 5ewPAw_gIeI 2,687->89 m, Zagreb 272->12 m)",
+        "D3": {
+          "better": 16,
+          "worse": 3,
+          "tie": 10,
+          "sign_test_one_sided_p": 0.0022,
+          "within_200_ordinary": 11,
+          "within_200_dense": 16,
+          "median_ordinary_m": 325.2,
+          "median_dense_m": 143.9,
+          "pass1_centre_within_2km_of_route_city_branch": {
+            "ordinary": 14,
+            "dense": 16,
+            "of": 21
+          },
+          "c2f_kept_pass1_city_branch": {
+            "ordinary": 0,
+            "dense": 13,
+            "of": 21
+          },
+          "mean_wall_s": {
+            "ordinary": 225,
+            "dense": 926
+          }
+        },
+        "decision": "both hold: the dense pass 1 is a candidate for a fresh held-out test (new data, user approval, its own rule); it stays opt-in and off by default",
+        "report": "docs/dense_pass1_dev_2026-11.md"
       }
     }
   }

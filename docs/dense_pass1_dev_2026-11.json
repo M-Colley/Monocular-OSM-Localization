@@ -1,0 +1,748 @@
+{
+ "summary": {
+  "n": 29,
+  "better": 16,
+  "worse": 3,
+  "tie": 10,
+  "sign_test_one_sided_p": 0.0022,
+  "gains": [
+   "overlay_jkkl1QgsPSo",
+   "overlay_pFbUvfr8k-Q",
+   "overlay_lCm2a3kOEmE",
+   "overlay_5ewPAw_gIeI",
+   "overlay_7n4XQUBEH5Y"
+  ],
+  "losses": [],
+  "within_200_ordinary": 11,
+  "within_200_new": 16,
+  "median_ordinary_m": 325.2,
+  "median_new_m": 143.9
+ },
+ "clips": [
+  {
+   "split": "test4",
+   "clip": "overlay_ZLmQWroXthY",
+   "name": "Kansas City (ZLmQWroXthY)",
+   "ordinary_m": 511.3,
+   "new_m": 392.6,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    387,
+    85
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1199,
+    23983
+   ],
+   "wall_s": [
+    244,
+    1023
+   ]
+  },
+  {
+   "split": "test4",
+   "clip": "overlay_jkkl1QgsPSo",
+   "name": "Sofia (jkkl1QgsPSo)",
+   "ordinary_m": 945.4,
+   "new_m": 27.0,
+   "change": "better",
+   "crossing": "gain",
+   "pass1_to_route_m": [
+    80,
+    11
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1200,
+    23999
+   ],
+   "wall_s": [
+    221,
+    1076
+   ]
+  },
+  {
+   "split": "test4",
+   "clip": "overlay_jz6o-_Y6r2E",
+   "name": "Albuquerque (jz6o-_Y6r2E)",
+   "ordinary_m": 9670.8,
+   "new_m": 11175.9,
+   "change": "worse",
+   "crossing": "",
+   "pass1_to_route_m": [
+    9581,
+    11141
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1200,
+    24000
+   ],
+   "wall_s": [
+    52,
+    1137
+   ]
+  },
+  {
+   "split": "test4",
+   "clip": "overlay_pFbUvfr8k-Q",
+   "name": "Trondheim (pFbUvfr8k-Q)",
+   "ordinary_m": 207.0,
+   "new_m": 22.0,
+   "change": "better",
+   "crossing": "gain",
+   "pass1_to_route_m": [
+    61,
+    81
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1200,
+    23989
+   ],
+   "wall_s": [
+    84,
+    1330
+   ]
+  },
+  {
+   "split": "test4",
+   "clip": "overlay_tK7bHJXAJX8",
+   "name": "Bucharest (tK7bHJXAJX8)",
+   "ordinary_m": 410.4,
+   "new_m": 350.5,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    1016,
+    69
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1197,
+    23984
+   ],
+   "wall_s": [
+    288,
+    1385
+   ]
+  },
+  {
+   "split": "test2",
+   "clip": "overlay_0jJbdTcDseI",
+   "name": "Montreal (0jJbdTcDseI)",
+   "ordinary_m": 3457.6,
+   "new_m": 12893.7,
+   "change": "worse",
+   "crossing": "",
+   "pass1_to_route_m": [
+    3260,
+    12887
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1200,
+    24000
+   ],
+   "wall_s": [
+    356,
+    1242
+   ]
+  },
+  {
+   "split": "test2",
+   "clip": "overlay_1bGf8OD9Fqo",
+   "name": "Budapest (1bGf8OD9Fqo)",
+   "ordinary_m": 157.3,
+   "new_m": 24.3,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    51,
+    259
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1199,
+    23930
+   ],
+   "wall_s": [
+    157,
+    1513
+   ]
+  },
+  {
+   "split": "test2",
+   "clip": "overlay_2sS6glBBm8g",
+   "name": "Amsterdam (2sS6glBBm8g)",
+   "ordinary_m": 177.5,
+   "new_m": 175.1,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    153,
+    32
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1199,
+    23995
+   ],
+   "wall_s": [
+    427,
+    1380
+   ]
+  },
+  {
+   "split": "test2",
+   "clip": "overlay_GnXsgpVPvww",
+   "name": "Warsaw (GnXsgpVPvww)",
+   "ordinary_m": 89.5,
+   "new_m": 89.5,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    31,
+    31
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1499,
+    1499
+   ],
+   "wall_s": [
+    317,
+    138
+   ]
+  },
+  {
+   "split": "test2",
+   "clip": "overlay_HpBfjRA60ws",
+   "name": "Paris (HpBfjRA60ws)",
+   "ordinary_m": 24363.8,
+   "new_m": 11703.3,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    22597,
+    8314
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1199,
+    23993
+   ],
+   "wall_s": [
+    333,
+    1229
+   ]
+  },
+  {
+   "split": "test2",
+   "clip": "overlay_XO6H3mGMKYg",
+   "name": "Munich (XO6H3mGMKYg)",
+   "ordinary_m": 8130.3,
+   "new_m": 8130.3,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    7896,
+    7896
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1494,
+    1494
+   ],
+   "wall_s": [
+    232,
+    27
+   ]
+  },
+  {
+   "split": "test2",
+   "clip": "overlay_lCm2a3kOEmE",
+   "name": "Warsaw (lCm2a3kOEmE)",
+   "ordinary_m": 334.7,
+   "new_m": 15.0,
+   "change": "better",
+   "crossing": "gain",
+   "pass1_to_route_m": [
+    310,
+    28
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1199,
+    23984
+   ],
+   "wall_s": [
+    306,
+    1065
+   ]
+  },
+  {
+   "split": "test",
+   "clip": "overlay_-1xwoetuoOg",
+   "name": "Sydney (-1xwoetuoOg)",
+   "ordinary_m": 183.6,
+   "new_m": 143.9,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    16,
+    78
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1199,
+    23983
+   ],
+   "wall_s": [
+    454,
+    1325
+   ]
+  },
+  {
+   "split": "test",
+   "clip": "overlay_4LvkBo69jZo",
+   "name": "Strasbourg (4LvkBo69jZo)",
+   "ordinary_m": 43.4,
+   "new_m": 10.3,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    164,
+    64
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1200,
+    24000
+   ],
+   "wall_s": [
+    202,
+    1312
+   ]
+  },
+  {
+   "split": "test",
+   "clip": "overlay_5b-tgjtwb2U",
+   "name": "Manchester (5b-tgjtwb2U)",
+   "ordinary_m": 54.9,
+   "new_m": 54.9,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    56,
+    56
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1500,
+    1500
+   ],
+   "wall_s": [
+    91,
+    38
+   ]
+  },
+  {
+   "split": "test",
+   "clip": "overlay_bF5IfC2ZHjQ",
+   "name": "Ottawa (bF5IfC2ZHjQ)",
+   "ordinary_m": 1418.8,
+   "new_m": 350.0,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    1788,
+    267
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1200,
+    24000
+   ],
+   "wall_s": [
+    161,
+    1444
+   ]
+  },
+  {
+   "split": "test",
+   "clip": "overlay_iJ2JvNk4Rmk",
+   "name": "Frankfurt am Main (iJ2JvNk4Rmk)",
+   "ordinary_m": 325.2,
+   "new_m": 325.2,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    92,
+    92
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1500,
+    1500
+   ],
+   "wall_s": [
+    310,
+    81
+   ]
+  },
+  {
+   "split": "test",
+   "clip": "overlay_nsONSyk9wtc",
+   "name": "NYC (nsONSyk9wtc)",
+   "ordinary_m": 51.4,
+   "new_m": 51.4,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    1617,
+    1617
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1499,
+    1499
+   ],
+   "wall_s": [
+    243,
+    60
+   ]
+  },
+  {
+   "split": "test",
+   "clip": "overlay_zt8rHvHKBUU",
+   "name": "Bern (zt8rHvHKBUU)",
+   "ordinary_m": 168.2,
+   "new_m": 16.1,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    930,
+    62
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1200,
+    24000
+   ],
+   "wall_s": [
+    197,
+    1318
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_5ewPAw_gIeI",
+   "name": "Katowice (5ewPAw_gIeI)",
+   "ordinary_m": 2686.9,
+   "new_m": 89.1,
+   "change": "better",
+   "crossing": "gain",
+   "pass1_to_route_m": [
+    2316,
+    251
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1200,
+    23981
+   ],
+   "wall_s": [
+    220,
+    987
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_5koGsNdaVvE",
+   "name": "Bratislava (5koGsNdaVvE)",
+   "ordinary_m": 24.2,
+   "new_m": 18.2,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    124,
+    134
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1200,
+    24000
+   ],
+   "wall_s": [
+    159,
+    1254
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_6GciDYJ1FUc",
+   "name": "Eindhoven (6GciDYJ1FUc)",
+   "ordinary_m": 21.0,
+   "new_m": 21.0,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    82,
+    82
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1499,
+    1499
+   ],
+   "wall_s": [
+    149,
+    112
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_7n4XQUBEH5Y",
+   "name": "Zagreb (7n4XQUBEH5Y)",
+   "ordinary_m": 271.8,
+   "new_m": 12.0,
+   "change": "better",
+   "crossing": "gain",
+   "pass1_to_route_m": [
+    88,
+    64
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1198,
+    23974
+   ],
+   "wall_s": [
+    152,
+    1221
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_8BUtb7TKUFA",
+   "name": "D\u00fcsseldorf (8BUtb7TKUFA)",
+   "ordinary_m": 260.3,
+   "new_m": 260.3,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    7,
+    7
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1500,
+    1500
+   ],
+   "wall_s": [
+    94,
+    77
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_G6bUX4GvSbE",
+   "name": "Bristol (G6bUX4GvSbE)",
+   "ordinary_m": 6322.4,
+   "new_m": 8683.6,
+   "change": "worse",
+   "crossing": "",
+   "pass1_to_route_m": [
+    6183,
+    8636
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1196,
+    23968
+   ],
+   "wall_s": [
+    211,
+    1151
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_HfK2LuXQtfA",
+   "name": "D\u00fcsseldorf (HfK2LuXQtfA)",
+   "ordinary_m": 4126.8,
+   "new_m": 4126.8,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    3942,
+    3942
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1500,
+    1500
+   ],
+   "wall_s": [
+    216,
+    71
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_K_54XHyzRn8",
+   "name": "Riga (K_54XHyzRn8)",
+   "ordinary_m": 31.0,
+   "new_m": 15.2,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    170,
+    225
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-1 (pass-2 sim worse)"
+   ],
+   "pass1_refs": [
+    1197,
+    23961
+   ],
+   "wall_s": [
+    131,
+    1394
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_MMKAehhi-tA",
+   "name": "Katowice (MMKAehhi-tA)",
+   "ordinary_m": 37762.5,
+   "new_m": 37762.5,
+   "change": "tie",
+   "crossing": "",
+   "pass1_to_route_m": [
+    35360,
+    35439
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1200,
+    23981
+   ],
+   "wall_s": [
+    325,
+    1165
+   ]
+  },
+  {
+   "split": "test3",
+   "clip": "overlay_vp_D8mxgEkA",
+   "name": "Cork (vp_D8mxgEkA)",
+   "ordinary_m": 4679.0,
+   "new_m": 418.5,
+   "change": "better",
+   "crossing": "",
+   "pass1_to_route_m": [
+    3835,
+    192
+   ],
+   "c2f_kept": [
+    "pass-2",
+    "pass-2"
+   ],
+   "pass1_refs": [
+    1200,
+    23998
+   ],
+   "wall_s": [
+    191,
+    1288
+   ]
+  }
+ ]
+}
