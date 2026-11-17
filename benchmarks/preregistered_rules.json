@@ -949,6 +949,22 @@
         "decision": "both hold: the dense pass 1 is a candidate for a fresh held-out test (new data, user approval, its own rule); it stays opt-in and off by default",
         "report": "docs/dense_pass1_dev_2026-11.md"
       }
+    },
+    "test5_2026_11": {
+      "registered": "2026-11-17",
+      "description": "Held-out test of the dense city-wide pass 1 on new footage, registered with its data selection (benchmarks/test5_screen/selection_preregistration.json) before any search, download, ground truth or localization. The dense pass 1 passed its in-sample check (dense_pass1_dev_2026_11: 11/29 -> 16/29 within 200 m, no loss).",
+      "data": "the clips frozen by benchmarks/test5_screen (target 10, split test5); every frozen clip is run and reported",
+      "method": "pipeline code identical to b66b9ee (git tree of monocular_osm/ = 00624b0578c6b9c4143be05485842b33440cb997), verified before the run and run from a clean worktree at the commit that adds the test5 clips to benchmarks/manifest.json. The plain retrieval-track pipeline with --retrieval-only. Two arms per clip, interleaved: ordinary (default pass-1 cap 1,200) and dense (--vpr-pass1-cap 24000). GPU visible to both arms. Runner flags as in dense_pass1_dev_2026_11 (--skip-download --timeout 7200 --min-free-vram-gb 8 --min-free-commit-gb 12 --infra-retries 4 --infra-wait 900), data dir data/test5. No parameter is changed after seeing any test5 outcome.",
+      "infrastructure": "Before any score is read: a run that exits non-zero, times out or lacks a retrieval track is rerun at the same commit; so is a dense run on a city-extent clip that served fewer than min(12,000, half of the listed images) pass-1 references or whose decoder is not viterbi. A clip the runner refuses in both arms (e.g. its city-fairness guard) is reported as not run.",
+      "comparison": "paired per clip, both arms scored by benchmark.py aggregate --offline (symmetric mean route error); scripts/compare_paired_arms.py",
+      "hypotheses": {
+        "T1": "No harm: at most one clip goes from within 200 m (ordinary) to above 200 m (dense).",
+        "T2": "Benefit: more clips are within 200 m with the dense arm than with the ordinary arm.",
+        "T3": "Descriptive: within-200 m share of each arm with Wilson 95 % intervals (statsmodels); better / worse / tied (10 % band) and one-sided sign test; medians; whether the pass-1 centre lies within 2 km of the true route.",
+        "goal_check": "whether every clip is within 200 m in the dense arm"
+      },
+      "decision": "If T1 and T2 hold, the dense pass 1 is supported on new footage and may be proposed as the recommended GPU configuration; changing the default is a separate decision. Otherwise it stays opt-in. Every clip is reported whichever way it comes out.",
+      "disclosure": "About 10 clips gives low power; a T2 failure is not proof of no effect, and a pass is not proof of a large one. Single rep per arm. The ordinary arm reuses no earlier cache for these new clips; both arms list and download fresh, at different times (interleaved per clip)."
     }
   }
 }

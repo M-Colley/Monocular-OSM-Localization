@@ -1,0 +1,8 @@
+{
+ "status": "TEST5_SELECTION_AND_METHOD_REGISTERED_BEFORE_SEARCH_DOWNLOAD_GT_OR_LOCALIZATION",
+ "registered_utc": "2026-11-17T08:43:24.233299+00:00",
+ "selection_sha256": "261e71c6ccc2ed84c7d121253ce04ad47aedaad57ae005a13c9903f158fe3f3d",
+ "preregistered_rules_sha256": "c73719d77a2852f4f418adca36608df38d4b09718b0209c80a65d741fceca108",
+ "method_rule": "test5_2026_11",
+ "parent_commit": "e2f94e606a7e0a4d094e8d9459ed9431124e197b"
+}
