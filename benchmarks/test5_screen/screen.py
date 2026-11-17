@@ -84,10 +84,14 @@ def section_fixes(s, vid, dur):
     were read, so a video whose frames read but show no parseable stamp would
     be retried forever. Only unread frames are unverified.
     """
+    import shutil
     import subprocess as _sp
     out, n_read = [], 0
+    # Amendment 03: without a JavaScript runtime yt-dlp warns that "some
+    # formats may be missing"; the seekable HTTPS stream then sometimes is.
+    js = ["--js-runtimes", "node"] if shutil.which("node") else []
     try:
-        url = s.youtube(["-g", "-f", SECTION_FORMAT, f"https://www.youtube.com/watch?v={vid}"],
+        url = s.youtube([*js, "-g", "-f", SECTION_FORMAT, f"https://www.youtube.com/watch?v={vid}"],
                         90).strip().splitlines()[0]
     except (IndexError, _sp.TimeoutExpired):
         return out, n_read

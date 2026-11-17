@@ -1,0 +1,9 @@
+{
+ "amendment": "test5 screen operational amendment 03",
+ "recorded_utc": "2026-11-17T16:11:23.021125+00:00",
+ "before": "the next retry of TumUQ_PrVQk (third UNVERIFIED_FRAMES, 0 frames decoded); no localization exists",
+ "problem": "yt-dlp 2026.10.26 without a JavaScript runtime warns that 'some formats may be missing'. A direct check outside the screen (frame decode only, no stamp read) opened TumUQ_PrVQk's format-137 HTTPS stream and decoded all three frames, so the screen's 0-frame reads come from requests on which the seekable formats were missing.",
+ "change": "the screen's stream lookup passes '--js-runtimes node' to yt-dlp when node is on PATH (Node.js v24.18 is installed), and the official yt-dlp-ejs 0.8.0 challenge-solver package was installed from PyPI (pip install 'yt-dlp[default]'). Frames, stamp reading and thresholds are unchanged. Search queries, thumbnails and the GT builder are untouched.",
+ "verification": "yt-dlp --js-runtimes node selects format 137 (https, avc1) for TumUQ_PrVQk with no missing-format warning.",
+ "next": "the driver retries TumUQ_PrVQk under amendments 01-03."
+}
