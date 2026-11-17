@@ -77,33 +77,42 @@ SECTION_FORMAT = ("bv*[height<=1080][ext=mp4][protocol=https]/bv*[height<=1080][
 
 
 def section_fixes(s, vid, dur):
-    """screen5.section_fixes with SECTION_FORMAT; otherwise identical."""
+    """screen5.section_fixes with SECTION_FORMAT; also counts frames actually read.
+
+    Returns ``(fixes, n_frames_read)``. Amendment 02: screen5 marks a stamped
+    thumbnail with no parsed frame stamp UNVERIFIED whether or not the frames
+    were read, so a video whose frames read but show no parseable stamp would
+    be retried forever. Only unread frames are unverified.
+    """
     import subprocess as _sp
-    out = []
+    out, n_read = [], 0
     try:
         url = s.youtube(["-g", "-f", SECTION_FORMAT, f"https://www.youtube.com/watch?v={vid}"],
                         90).strip().splitlines()[0]
     except (IndexError, _sp.TimeoutExpired):
-        return out
+        return out, n_read
     cap = s.cv2.VideoCapture(url, s.cv2.CAP_FFMPEG)
     for frac in (0.25, 0.5, 0.75):
         t = int(dur * frac)
         cap.set(s.cv2.CAP_PROP_POS_MSEC, t * 1000.0)
         ok, img = cap.read()
+        n_read += bool(ok and img is not None)
         got = s.read_stamp(img) if ok else None
         if got:
             out.append({"t": t, "region": got[0], "lat": got[1][0], "lon": got[1][1]})
     cap.release()
-    return out
+    return out, n_read
 
 
 def screen_one(s, centre, vid, duration) -> dict:
     thumbs = s.thumb_fixes(vid)
-    fixes = section_fixes(s, vid, duration) if thumbs else []
+    fixes, n_frames_read = section_fixes(s, vid, duration) if thumbs else ([], 0)
     near = [f for f in fixes if s.geodesic_distance_m(centre[0], centre[1], f["lat"], f["lon"]) < 40000]
-    row = {"thumbnail_stamp": bool(thumbs), "n_sections_read": len(fixes), "n_near": len(near),
+    row = {"thumbnail_stamp": bool(thumbs), "n_frames_read": n_frames_read,
+           "n_sections_read": len(fixes), "n_near": len(near),
            "ok": len(near) >= 2, "region": fixes[0]["region"] if fixes else None,
-           "status": "PASS" if len(near) >= 2 else ("UNVERIFIED_FRAMES" if thumbs and not fixes else "SCREEN_NOT_PASSED")}
+           "status": "PASS" if len(near) >= 2 else (
+               "UNVERIFIED_FRAMES" if thumbs and not n_frames_read else "SCREEN_NOT_PASSED")}
     evidence = {"thumbs": thumbs, "fixes": fixes}
     row["screen_evidence_sha256"] = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
     PRIVATE.mkdir(parents=True, exist_ok=True)

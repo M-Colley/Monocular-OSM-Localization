@@ -1,0 +1,9 @@
+{
+ "amendment": "test5 screen operational amendment 02",
+ "recorded_utc": "2026-11-17T15:40:04.725702+00:00",
+ "before": "the next retry of TumUQ_PrVQk (second UNVERIFIED_FRAMES); no localization exists",
+ "problem": "screen5's rule marks a candidate UNVERIFIED_FRAMES whenever its thumbnail has a stamp and no frame stamp was parsed, whether or not the frames were read. The registered protocol says unread frames are unverified; frames that are read but show no parseable stamp are not unread. With a seekable stream selected (format 137 for TumUQ_PrVQk), such a candidate would be retried indefinitely.",
+ "change": "section_fixes also counts frames actually decoded (n_frames_read). UNVERIFIED_FRAMES only when a stamped thumbnail's three frames could not be read at all; otherwise the unchanged >=2-of-3-within-40-km rule decides PASS or SCREEN_NOT_PASSED. Stamp reading and thresholds are unchanged.",
+ "effect_on_earlier_rows": "none recorded as final: earlier PASS rows read 3 frames; earlier SCREEN_NOT_PASSED rows had no thumbnail stamp or read 3 frames; the two UNVERIFIED rows (YJmgh_0SoGs, since passed, and TumUQ_PrVQk) are the only ones the rule touched.",
+ "next": "the driver retries TumUQ_PrVQk once more under the corrected classification."
+}
