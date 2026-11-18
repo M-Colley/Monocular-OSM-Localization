@@ -1263,7 +1263,8 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
     ``outer_radius_m`` (> ``radius_m``) adds a sparser ring: a second listing
     of the wider disc, capped at ``outer_cap``, in its own cache dir
     (``<cache_dir>_outer``), minus the ids already in the core set. The core
-    set is exactly what it would be without the ring.
+    listing is exactly what it would be without the ring. The combined pool
+    must contain at least 30 embeddable references.
 
     Returns ``(idx, sims[n_query, n_ref], ref_xy[n_ref, 2])`` or ``None`` when
     references are unavailable / too sparse. Callers own the tail (single
@@ -1283,14 +1284,16 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
                                       device, resolved, **reference_options)
     else:
         refs = _fetch_refs_for(source, center, radius_m, cache_dir, cap, token)
-        if len(refs) < 30:
+        search_outer = cache_dir and outer_radius_m and outer_radius_m > radius_m
+        if len(refs) < 30 and not search_outer:
             LAST_FAILURE = (f"only {len(refs)} {source} reference images within "
                             f"{radius_m:.0f} m (need 30)")
             return None
-        ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved,
-                                     **reference_options)
-        if (outer_radius_m and outer_radius_m > radius_m and cache_dir
-                and ref_emb is not None):
+        ref_emb = ref_xy = None
+        if refs:
+            ref_emb, ref_xy = _embed_refs(refs, device, cache_dir, model_name=resolved,
+                                         **reference_options)
+        if search_outer:
             core_stats = dict(LAST_FETCH_STATS)
             outer_dir = f"{cache_dir}_outer"
             outer = _fetch_refs_for(source, center, outer_radius_m, outer_dir,
@@ -1304,9 +1307,12 @@ def _prepare_refs_and_query(frames_bgr, center, radius_m, cache_dir, n_query,
                 o_emb, o_xy = _embed_refs(outer, device, outer_dir, model_name=resolved,
                                          **reference_options)
                 if o_emb is not None and len(o_xy):
-                    ref_emb = torch.cat([ref_emb, o_emb])
-                    ref_xy = np.vstack([np.asarray(ref_xy, dtype=float),
-                                        np.asarray(o_xy, dtype=float)])
+                    if ref_emb is None:
+                        ref_emb, ref_xy = o_emb, o_xy
+                    else:
+                        ref_emb = torch.cat([ref_emb, o_emb])
+                        ref_xy = np.vstack([np.asarray(ref_xy, dtype=float),
+                                            np.asarray(o_xy, dtype=float)])
                     added = int(len(o_xy))
             LAST_RING = {"outer_radius_m": float(outer_radius_m),
                          "outer_cap": int(outer_cap or cap), "n_core": int(len(refs)),
