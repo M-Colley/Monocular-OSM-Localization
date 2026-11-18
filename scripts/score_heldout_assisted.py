@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import json
 import statistics
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,6 +42,7 @@ _spec = importlib.util.spec_from_file_location("_build_manifest", ROOT / "benchm
 _build_manifest = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_build_manifest)
 gt_waypoints_digest = _build_manifest.gt_waypoints_digest
+MANIFEST_PATH = _build_manifest.MANIFEST_PATH
 from monocular_osm import baselines as B  # noqa: E402
 from monocular_osm.metrics import score_route  # noqa: E402
 from scripts import failure_taxonomy as FT  # noqa: E402
@@ -54,6 +56,32 @@ def _json(path: Path) -> dict:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _frozen_manifest(freeze: dict, path: Path | None) -> dict:
+    revision = freeze.get("manifest_commit")
+    if path is None and revision:
+        source = f"{revision}:{MANIFEST_PATH.as_posix()}"
+        try:
+            content = subprocess.check_output(["git", "show", source], cwd=ROOT,
+                                              stderr=subprocess.PIPE)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise SystemExit(f"cannot read frozen manifest {source}; provide --manifest") from exc
+    else:
+        path = path if path is not None else ROOT / MANIFEST_PATH
+        source = str(path)
+        content = path.read_bytes()
+    expected = freeze["manifest_sha256"]
+    if hashlib.sha256(content).hexdigest() != expected:
+        raise SystemExit(f"manifest {source} is not the frozen one ({expected})")
+    return json.loads(content)
+
+
+def _require_clean_commit(result: dict, commit: str, path: Path) -> None:
+    git = ((result.get("provenance") or {}).get("git") or {})
+    if git.get("commit") != commit or git.get("dirty") is not False:
+        raise SystemExit(f"{path}: expected clean result from {commit}; "
+                         f"found commit {git.get('commit')} (dirty={git.get('dirty')})")
 
 
 def wilson(k: int, n: int) -> list[float]:
@@ -73,7 +101,7 @@ def _score(pred, gt) -> float | None:
     return float(score_route(pred.route_latlon, gt).symmetric_mean_m)
 
 
-def score_clip(entry: dict, run_dir: Path) -> dict:
+def score_clip(entry: dict, run_dir: Path, *, commit: str) -> dict:
     vid = entry["id"].removeprefix("overlay_")
     gt_doc = _json(ROOT / entry["gt"])
     if gt_waypoints_digest(gt_doc) != entry["gt_waypoints_sha256"]:
@@ -86,6 +114,7 @@ def score_clip(entry: dict, run_dir: Path) -> dict:
         raise SystemExit(f"{entry['id']}: run did not complete ({status})")
     out = _one(sorted((rep / "pipeline_out").glob("*/result.json")), f"{vid} result.json")
     result = _json(out)
+    _require_clean_commit(result, commit, out)
 
     assisted = B.assisted_policy(result)
     answer = B.answer(result)
@@ -95,7 +124,9 @@ def score_clip(entry: dict, run_dir: Path) -> dict:
     selected = trace["selected_candidate"]
 
     child = _one(sorted(out.parent.glob("children/*/baseline/result.json")), f"{vid} baseline child")
-    baseline = B.answer(_json(child))
+    child_result = _json(child)
+    _require_clean_commit(child_result, commit, child)
+    baseline = B.answer(child_result)
     centre = B.city_centroid(entry["city"], allow_network=False)
     if centre is None:
         raise SystemExit(f"{entry['id']}: no geocode snapshot for {entry['city']!r}")
@@ -149,23 +180,24 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--run-dir", type=Path, required=True)
     ap.add_argument("--rule", default="test4_2026_11")
-    ap.add_argument("--manifest", type=Path, default=ROOT / "benchmarks" / "manifest.json")
+    ap.add_argument("--manifest", type=Path, help="frozen manifest file (defaults to the rule's Git snapshot)")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args(argv)
 
     rule = _json(ROOT / "benchmarks" / "preregistered_rules.json")["rules"][args.rule]
+    manifest = _frozen_manifest(rule["dataset_freeze"], args.manifest)
     frozen = rule["dataset_freeze"]["manifest_sha256"]
-    if _sha256(args.manifest) != frozen:
-        raise SystemExit(f"manifest {args.manifest} is not the frozen one ({frozen})")
     run_config = _json(args.run_dir / "run_config.json")
     if run_config["manifest_sha256"] != rule["runner_manifest"]["sha256"]:
         raise SystemExit("run used a different runner manifest than the rule registers")
-    commit = run_config["runner_git"]["commit"]
-    if not rule["method"].startswith(f"commit {commit[:7]}") or run_config["runner_git"]["dirty"]:
-        raise SystemExit(f"run commit {commit} (dirty={run_config['runner_git']['dirty']}) is not the rule's")
+    runner_git = run_config["runner_git"]
+    commit = runner_git.get("commit")
+    dirty = runner_git.get("dirty")
+    if not commit or not rule["method"].startswith(f"commit {commit[:7]}") or dirty is not False:
+        raise SystemExit(f"run commit {commit} (dirty={dirty}) is not the rule's")
 
-    entries = {c["id"]: c for c in _json(args.manifest)["clips"]}
-    clips = [score_clip(entries[f"overlay_{vid}"], args.run_dir) for vid in rule["clips"]]
+    entries = {c["id"]: c for c in manifest["clips"]}
+    clips = [score_clip(entries[f"overlay_{vid}"], args.run_dir, commit=commit) for vid in rule["clips"]]
 
     n = len(clips)
     k = sum(c["assisted_within"] for c in clips)

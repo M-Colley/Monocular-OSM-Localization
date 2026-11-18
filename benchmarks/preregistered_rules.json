@@ -717,6 +717,7 @@
       "dataset_freeze": {
         "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
         "selection_outcome_sha256": "db319d461a7dcb87e74cf5dde7a797f1bc15576408db1af40c54402f3526f72d",
+        "manifest_commit": "fa7df5e303ad6fba2a1a5daa367d824fb3841740",
         "manifest_sha256": "7f4150ffe9ed8092872836bed2fec1508f9a1fa72506678d1d4e4e20b9b748b6"
       },
       "method": "commit 409a959 (the assisted_v4_fleet commit), --assisted-only --assisted-profile=v4 --assisted-cpu-threads=16; nothing changed",

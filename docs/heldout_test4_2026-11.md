@@ -179,6 +179,10 @@ decides the outcome.
 python scripts/score_heldout_assisted.py --run-dir E:/claude-scoring/wt-test4-v4/output/benchmark_runs/assisted_v4_test4 --out docs/heldout_test4_2026-11.json
 ```
 
+The scorer reads the manifest from the Git commit recorded in the rule. If that
+commit is unavailable, pass `--manifest` with a copy matching the registered
+SHA-256.
+
 The script checks three things before scoring:
 - the frozen manifest and every ground-truth digest;
 - the run's runner-manifest hash;
