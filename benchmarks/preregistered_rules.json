@@ -971,6 +971,27 @@
         "runs": "16/16 runs exit 0 with a retrieval-track answer (answer.method vpr_track_only); no refusals, timeouts or tracebacks; every decoder viterbi",
         "branches": "5 clips took the city-extent pass-1 branch, and their dense runs served 23,984-24,000 references (ordinary 1,199-1,200): overlay_FPQyfJsbjWM, overlay_kMQOOXaUBh0, overlay_VaPcyHM-Wtc, overlay_3cT07o9aXyQ, overlay_zsqxTSNLw5A. 3 took another branch and used the same 1,500-reference pass 1 in both arms, so they are ties by construction: overlay_YJmgh_0SoGs (OCR frame prior), overlay_ml4PPnpc-Kw (city extent within the default disc), overlay_qgaSRWY8Aio (title-named prior).",
         "decision": "no infrastructure failure; no rerun"
+      },
+      "outcome_recorded": {
+        "date": "2026-11-18",
+        "n": 8,
+        "branches": "5 city-extent, 3 other (ties by construction)",
+        "T1_no_harm": "holds: no loss across 200 m",
+        "T2_benefit": "holds: dense 2/8 vs ordinary 1/8 within 200 m; the only gain is overlay_VaPcyHM-Wtc (Calgary) 6,881 -> 171 m",
+        "T3": {
+          "within_200_ordinary": "1/8 (Wilson 95 % 2-47 %)",
+          "within_200_dense": "2/8 (Wilson 95 % 7-59 %)",
+          "better": 1,
+          "worse": 1,
+          "tie": 6,
+          "sign_test_one_sided_p": 0.75,
+          "median_ordinary_m": 7042,
+          "median_dense_m": 5548,
+          "worse_clip": "overlay_kMQOOXaUBh0 (Houston) 7,203 -> 16,274 m, wrong area in both arms"
+        },
+        "goal_check": "not met: 2/8 within 200 m",
+        "decision": "T1 and T2 hold, so by the rule the dense pass 1 may be proposed as the recommended GPU configuration; the support is a single clip and absolute held-out accuracy is low, so no default change is proposed here",
+        "report": "docs/heldout_test5_2026-11.md"
       }
     }
   }

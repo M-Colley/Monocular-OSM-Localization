@@ -6,6 +6,25 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Held-out test5: dense pass 1 on new footage (November 2026)
+
+- Eight new clips were selected under a 40-city rule registered before any
+  search: Melbourne, Rotterdam, Glasgow, Houston, Calgary, Belgrade and two
+  from Portland. The target was 10. The ordinary and dense (24,000-reference)
+  pass 1 were then compared (rule `test5_2026_11`).
+- Both registered hypotheses hold, on a single clip:
+  - No loss across 200 m.
+  - Within 200 m: dense 2/8 vs ordinary 1/8. The gain is Calgary, 6,881 to
+    171 m.
+  - 1 better, 1 worse, 6 tied (sign test p = 0.75). Wilson 95 % intervals:
+    dense 7-59 %, ordinary 2-47 %.
+- The goal "all within 200 m" is not met on new footage (2/8).
+- Wrong-area misses (Houston, Portland, Glasgow) remain. The default is
+  unchanged.
+- The screen needed five recorded operational amendments for YouTube stream
+  access. They are in `benchmarks/test5_screen/`.
+- See `docs/heldout_test5_2026-11.md`.
+
 ### Dense city-wide pass 1: development check (November 2026)
 
 - New opt-in `--vpr-pass1-cap N` (`4a671a9`, `b66b9ee`) sets the number of
