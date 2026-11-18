@@ -964,7 +964,14 @@
         "goal_check": "whether every clip is within 200 m in the dense arm"
       },
       "decision": "If T1 and T2 hold, the dense pass 1 is supported on new footage and may be proposed as the recommended GPU configuration; changing the default is a separate decision. Otherwise it stays opt-in. Every clip is reported whichever way it comes out.",
-      "disclosure": "About 10 clips gives low power; a T2 failure is not proof of no effect, and a pass is not proof of a large one. Single rep per arm. The ordinary arm reuses no earlier cache for these new clips; both arms list and download fresh, at different times (interleaved per clip)."
+      "disclosure": "About 10 clips gives low power; a T2 failure is not proof of no effect, and a pass is not proof of a large one. Single rep per arm. The ordinary arm reuses no earlier cache for these new clips; both arms list and download fresh, at different times (interleaved per clip).",
+      "infra_check": {
+        "recorded": "2026-11-18, after the run ended (06:52 UTC) and before any score or aggregate was computed",
+        "run": "worktree E:/claude-scoring/wt-test5 at 3f8f8f1 (monocular_osm tree 00624b0578c6b9c4143be05485842b33440cb997, the bound b66b9ee tree); script E:/claude-scoring/test5run/run_test5.sh; run names t5_ord / t5_24k",
+        "runs": "16/16 runs exit 0 with a retrieval-track answer (answer.method vpr_track_only); no refusals, timeouts or tracebacks; every decoder viterbi",
+        "branches": "5 clips took the city-extent pass-1 branch, and their dense runs served 23,984-24,000 references (ordinary 1,199-1,200): overlay_FPQyfJsbjWM, overlay_kMQOOXaUBh0, overlay_VaPcyHM-Wtc, overlay_3cT07o9aXyQ, overlay_zsqxTSNLw5A. 3 took another branch and used the same 1,500-reference pass 1 in both arms, so they are ties by construction: overlay_YJmgh_0SoGs (OCR frame prior), overlay_ml4PPnpc-Kw (city extent within the default disc), overlay_qgaSRWY8Aio (title-named prior).",
+        "decision": "no infrastructure failure; no rerun"
+      }
     }
   }
 }
