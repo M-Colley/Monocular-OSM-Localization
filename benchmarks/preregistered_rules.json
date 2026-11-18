@@ -720,6 +720,7 @@
         "manifest_commit": "fa7df5e303ad6fba2a1a5daa367d824fb3841740",
         "manifest_sha256": "7f4150ffe9ed8092872836bed2fec1508f9a1fa72506678d1d4e4e20b9b748b6"
       },
+      "method_commit": "409a9595f22b8d726b71a3ab6f848559773fc9a3",
       "method": "commit 409a959 (the assisted_v4_fleet commit), --assisted-only --assisted-profile=v4 --assisted-cpu-threads=16; nothing changed",
       "run": "one rep per clip, CPU only (CUDA_VISIBLE_DEVICES=-1), clean worktree at 409a959 (E:/claude-scoring/wt-test4-v4), runner flags exactly as the v4 fleet: --skip-download --timeout 14400 --min-free-vram-gb 0 --min-free-commit-gb 12 --infra-retries 4 --infra-wait 900; inputs are hard links of the frozen data/test4 downloads staged as <pipeline slug>/input.mp4 in a fresh data dir (C:/Users/markc/test4-eval/data, cold caches) with a copy of data/test4/metadata_cache. Runs that fail on infrastructure are rerun at the same commit before any score is looked at.",
       "runner_manifest": {

@@ -110,6 +110,31 @@ def test_refuses_results_without_the_registered_clean_commit(tmp_path, source, g
         S.score_clip(entry, run, commit=COMMIT)
 
 
+def test_refuses_a_commit_that_shares_only_the_registered_prefix():
+    rule = S._json(S.ROOT / "benchmarks" / "preregistered_rules.json")["rules"]["test4_2026_11"]
+    assert S._registered_commit(rule, {"commit": COMMIT, "dirty": False}) == COMMIT
+
+    with pytest.raises(SystemExit, match="is not the rule's"):
+        S._registered_commit(rule, {"commit": COMMIT[:7] + "0" * 33, "dirty": False})
+
+
+def test_uses_only_the_benchmark_geocode_for_the_baseline_and_coverage(tmp_path, monkeypatch):
+    entry, run = _clip(tmp_path, answer_lat=63.43, baseline_lat=63.43)
+    _write(tmp_path / "data" / "geocode_cache.json", {CITY: [48.0, 8.0]})
+    _write(tmp_path / "benchmarks" / "geocode_snapshot.json",
+           {CITY: {"lat": 63.43, "lon": 10.40}})
+    monkeypatch.setattr(S, "ROOT", tmp_path)
+    monkeypatch.setattr(S.B, "DEFAULT_SNAPSHOTS",
+                        (tmp_path / "data" / "geocode_cache.json",
+                         tmp_path / "benchmarks" / "geocode_snapshot.json"))
+
+    rec = S.score_clip(entry, run, commit=COMMIT)
+
+    assert rec["centre_source"] == "snapshot:benchmarks/geocode_snapshot.json"
+    assert rec["city_centre_m"] < 1000
+    assert rec["pass1_share"] == 1.0
+
+
 def test_wilson_matches_the_recorded_intervals():
     assert [round(100 * x) for x in S.wilson(1, 6)] == [3, 56]
     assert [round(100 * x) for x in S.wilson(14, 15)] == [70, 99]

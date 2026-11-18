@@ -48,6 +48,7 @@ from monocular_osm.metrics import score_route  # noqa: E402
 from scripts import failure_taxonomy as FT  # noqa: E402
 
 THRESHOLD_M = 200.0
+GEOCODE_SNAPSHOT = Path("benchmarks") / "geocode_snapshot.json"
 
 
 def _json(path: Path) -> dict:
@@ -75,6 +76,17 @@ def _frozen_manifest(freeze: dict, path: Path | None) -> dict:
     if hashlib.sha256(content).hexdigest() != expected:
         raise SystemExit(f"manifest {source} is not the frozen one ({expected})")
     return json.loads(content)
+
+
+def _registered_commit(rule: dict, runner_git: dict) -> str:
+    commit = runner_git.get("commit")
+    dirty = runner_git.get("dirty")
+    expected = rule.get("method_commit")
+    matches = (commit == expected if expected else
+               bool(commit) and rule["method"].startswith(f"commit {commit[:7]}"))
+    if not matches or dirty is not False:
+        raise SystemExit(f"run commit {commit} (dirty={dirty}) is not the rule's")
+    return commit
 
 
 def _require_clean_commit(result: dict, commit: str, path: Path) -> None:
@@ -127,7 +139,8 @@ def score_clip(entry: dict, run_dir: Path, *, commit: str) -> dict:
     child_result = _json(child)
     _require_clean_commit(child_result, commit, child)
     baseline = B.answer(child_result)
-    centre = B.city_centroid(entry["city"], allow_network=False)
+    centre = B.city_centroid(entry["city"], snapshots=(GEOCODE_SNAPSHOT,),
+                             root=ROOT, allow_network=False)
     if centre is None:
         raise SystemExit(f"{entry['id']}: no geocode snapshot for {entry['city']!r}")
 
@@ -190,11 +203,7 @@ def main(argv=None) -> int:
     run_config = _json(args.run_dir / "run_config.json")
     if run_config["manifest_sha256"] != rule["runner_manifest"]["sha256"]:
         raise SystemExit("run used a different runner manifest than the rule registers")
-    runner_git = run_config["runner_git"]
-    commit = runner_git.get("commit")
-    dirty = runner_git.get("dirty")
-    if not commit or not rule["method"].startswith(f"commit {commit[:7]}") or dirty is not False:
-        raise SystemExit(f"run commit {commit} (dirty={dirty}) is not the rule's")
+    commit = _registered_commit(rule, run_config["runner_git"])
 
     entries = {c["id"]: c for c in manifest["clips"]}
     clips = [score_clip(entries[f"overlay_{vid}"], args.run_dir, commit=commit) for vid in rule["clips"]]
