@@ -993,6 +993,48 @@
         "decision": "T1 and T2 hold, so by the rule the dense pass 1 may be proposed as the recommended GPU configuration; the support is a single clip and absolute held-out accuracy is low, so no default change is proposed here",
         "report": "docs/heldout_test5_2026-11.md"
       }
+    },
+    "metro_dense_dev_2026_11": {
+      "registered": "2026-11-18",
+      "description": "In-sample development check of unified metro-dense VPR (--vpr-metro-dense, commit d9daa83, monocular_osm tree 17ec29e0eb30597f62fc211e92b0adeff24e107f) plus the exonym/Unicode city-fairness fix, registered before any scored run. Motivated by docs/search_area_coverage_2026-11.md and docs/heldout_test5_2026-11.md: misses in test4 and test5 stem from (1) suburban routes 8.5-25 km outside the 8 km city-extent cap, (2) 3 km seed-clamping bypassing dense pass 1 (Melbourne, Belgrade), (3) tiny rank-1 Nominatim polygons (Glasgow), (4) downtown traverse stacking in raw sha1 subsampling, and (5) single-disc 2 km Pass-2 clipping long routes or losing Pass-1 matches. Every existing split is used, so this is development evidence only; certifying generalization requires the fresh 6-continent split registered under benchmarks/test6_screen.",
+      "method": "commit d9daa83 (monocular_osm tree 17ec29e0eb30597f62fc211e92b0adeff24e107f), the retrieval-track pipeline (--answer track, default) with --retrieval-only --vpr-metro-dense --vpr-region-cache-dir E:/claude-scoring/metro_dense_cache: 20 km metropolitan Pass-1 disc around the city geocode with 25 m micro-cell deduplication (cap 24,000), additive title/frame seed regions (up to 60 km out, 15 m dedup) unioned into Pass 1 without clamping the metro disc, tiled exact GPU Viterbi decode, and multi-disc (up to 4 x 2.5 km, 8 m dedup, cap 2,500/disc) Corridor Pass 2 unioned with local Pass-1 references.",
+      "clips": {
+        "test5": {
+          "data_dir": "data/test5",
+          "clips": [
+            "overlay_YJmgh_0SoGs",
+            "overlay_FPQyfJsbjWM",
+            "overlay_ml4PPnpc-Kw",
+            "overlay_kMQOOXaUBh0",
+            "overlay_VaPcyHM-Wtc",
+            "overlay_qgaSRWY8Aio",
+            "overlay_3cT07o9aXyQ",
+            "overlay_zsqxTSNLw5A"
+          ]
+        },
+        "test4": {
+          "data_dir": "C:/Users/markc/test4-eval/data",
+          "clips": [
+            "overlay_tK7bHJXAJX8",
+            "overlay_yd5g7jsWiEM",
+            "overlay_jkkl1QgsPSo",
+            "overlay_ZLmQWroXthY",
+            "overlay_jz6o-_Y6r2E",
+            "overlay_pFbUvfr8k-Q"
+          ]
+        }
+      },
+      "run": "one rep per clip on CUDA GPU (C:/Users/markc/AppData/Local/Programs/Python/Python312/python.exe) from clean detached worktree E:/claude-scoring/wt-metro-dense at the registration commit (with untracked data/test5 and data/test4 directory junctions to the main checkout's builder downloads, as in c2f_extension_dev_2026_11 and dense_pass1_dev_2026_11); run names metro_dense_test5 and metro_dense_test4; benchmark.py run --manifest benchmarks/manifest.json --fleet all --split <split> --clips <clips> --skip-download --pipeline-arg=--retrieval-only --pipeline-arg=--vpr-metro-dense --pipeline-arg=--vpr-region-cache-dir=E:/claude-scoring/metro_dense_cache --timeout 7200 --min-free-vram-gb 8 --min-free-commit-gb 10 --infra-retries 3 --infra-wait 600 --data-dir <data_dir>.",
+      "infrastructure": "Before any score or aggregate is computed, every run is checked. A run is an infrastructure failure (rerun at the same commit) if it exits non-zero, times out, lacks a retrieval-track answer (answer.method vpr_track_only), or its Pass-1 decoder is not viterbi/viterbi_tiled_cuda.",
+      "comparison": "paired per clip against both recorded baselines on the same 14 clips: (a) ordinary retrieval (t5_ord on test5, dense_ord_test4 on test4; 13 run + overlay_yd5g7jsWiEM previously refused by the pre-exonym fairness guard) and (b) dense 24k pass 1 (t5_24k on test5, dense_24k_test4 on test4; 13 run + overlay_yd5g7jsWiEM refused), scored identically by benchmark.py aggregate --offline (symmetric mean route error).",
+      "hypotheses": {
+        "M1": "No harm vs dense_24k: at most one of the 4 clips already within 200 m in dense_24k (Denver, Calgary, Sofia, Warsaw pFbU) moves above 200 m.",
+        "M2": "Gains over dense_24k: at least 3 clips move from above 200 m (or unrun) in dense_24k to within 200 m in metro_dense, and net gains exceed losses by at least 3.",
+        "M3": "Descriptive: within-200 m counts across ordinary / dense_24k / metro_dense on the 13 paired clips and all 14 clips; 10 % band better/worse/tie and one-sided sign test vs dense_24k; Pass-1 centre distance to route; Corridor Pass-2 disc counts and wall-clock."
+      },
+      "decision": "Only if M1 and M2 both hold is --vpr-metro-dense a candidate for the fresh held-out 6-continent split (benchmarks/test6_screen). It remains opt-in and off by default pending held-out certification.",
+      "feasibility": "Before registration, unscored dev feasibility checks on berlin_0-420 verified C-vectorized 25 m tile deduplication, 200-ID Graph API URL batching, 8 m Corridor Pass-2 deduplication, and result.json health (rc=0, 912.6 s wall on 4K60 input, sim p1 0.212 -> p2 0.260, degraded=[], leaks=[]); no GT error was computed.",
+      "disclosure": "In-sample on all 14 clips (test4 and test5 failure modes directly informed the design). Baseline ordinary and dense_24k arms are the existing committed runs in E:/claude-scoring/wt-test5 and E:/claude-scoring/wt-dense rather than fresh reruns, so listing timestamps differ by 1-2 days."
     }
   }
 }
