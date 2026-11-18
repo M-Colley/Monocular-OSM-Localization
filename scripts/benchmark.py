@@ -1625,6 +1625,7 @@ def aggregate(run_dir: Path, manifest: dict, *, allow_mixed: bool = False,
         },
         "provenance": prov, "warnings": warnings,
         "thresholds_m": list(THRESHOLDS_M),
+        "repeat_score_precision": "unrounded",
         "clips": clips_out, "fleets": fleets,
         "reps": [{k_: v for k_, v in r.items() if k_ != "provenance"} | {
             "commit": r["provenance"]["commit"],
