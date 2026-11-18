@@ -144,6 +144,32 @@ def test_vpr_observations_are_used_only_when_asked_and_available(tmp_path, monke
     assert list(seen["obs"]) == []                              # not asked: not used
 
 
+def test_vpr_observations_follow_actual_filter_state_times(tmp_path, monkeypatch):
+    import monocular_osm.graph_filter as gf_mod
+
+    real = gf_mod.run_filter
+    observed_steps = []
+
+    def spy(net, odom, cfg=None, *, position_obs):
+        observed_steps.extend(obs.step for obs in position_obs)
+        return real(net, odom, cfg, position_obs=position_obs)
+
+    monkeypatch.setattr(gf_mod, "run_filter", spy)
+    ctx = _ctx(tmp_path, graph_filter=True, graph_filter_vpr=True,
+               graph_filter_speed="unit")
+    ctx.traj = _vo_like_trajectory(n=8)
+    ctx.frames.timestamps = [10.0, 10.1, 10.2, 10.4, 10.8, 10.9, 11.0, 11.1]
+    ctx.anchor_origin = "vpr"
+    latlon = gf_mod.RoadNetwork.from_graph(ctx.road.graph).local_to_latlon(
+        np.array([[0.0, 0.0]]))
+    ctx.vpr_track = (np.array([0, 3, 5, 7]), np.repeat(latlon, 4, axis=0), np.ones(4))
+
+    graph_filter_channel(ctx)
+
+    assert ctx.result["filter_position"]["route_t_sec"] == [10.0, 10.9, 11.1]
+    assert observed_steps == [0, 0, 1, 2]
+
+
 def _with_images(ctx):
     n = len(ctx.traj.xz)
     ctx.frames = SimpleNamespace(timestamps=list(np.arange(n) * 0.5),

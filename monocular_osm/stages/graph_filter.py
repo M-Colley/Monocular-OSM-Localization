@@ -166,8 +166,12 @@ def graph_filter_channel(ctx: RunContext) -> None:
             # outlier probability keep one bad frame from pulling the cloud.
             idx, latlons, _sims = ctx.vpr_track
             xy = latlon_to_xy(np.asarray(latlons, float), net.crs)
+            # States are at the initial pose and the end of each aggregate.
+            # A short final aggregate or uneven timestamps shifts the nearest state.
+            state_times = np.concatenate((timestamps[:1], timestamps[odom.frame_index]))
             for fi, (x, y) in zip(np.asarray(idx, int), xy):
-                obs.append(PositionObservation(step=int(round(fi / factor)),
+                step = int(np.argmin(np.abs(state_times - timestamps[fi])))
+                obs.append(PositionObservation(step=step,
                                                x=float(x), y=float(y),
                                                sigma_m=40.0, outlier=0.4))
         fcfg = FilterConfig(n_particles=int(cfg.graph_filter_particles),
