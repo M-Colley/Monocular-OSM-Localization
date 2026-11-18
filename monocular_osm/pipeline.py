@@ -254,6 +254,19 @@ class PipelineConfig:
     # decode runs on the GPU (kartaview_vpr._embed_refs_streaming,
     # _viterbi_decode_torch); docs/reference_inputs_2026-11.md.
     vpr_pass1_cap: int | None = None
+    # Unified metro-dense VPR (opt-in): searches the full metropolitan disc
+    # (vpr_metro_radius_m, default 20 km) with spatial micro-cell deduplication
+    # (vpr_spatial_dedup_m, default 25 m), pools title/frame seeds additively
+    # instead of clamping to 3 km, and refines with up to vpr_corridor_max_discs
+    # overlapping corridor discs unioned with local Pass-1 references.
+    vpr_metro_dense: bool = False
+    vpr_metro_cap: int = 24000
+    vpr_spatial_dedup_m: float = 25.0
+    vpr_corridor_radius_m: float = 2500.0
+    vpr_corridor_max_discs: int = 4
+    vpr_corridor_cap: int = 2500
+    vpr_auto_fallback_sources: bool = True
+    infer_city_from_video: bool = False
     video_title: str | None = None
     video_description: str | None = None
     # The route the method answers with, written to result["answer"]
@@ -488,6 +501,16 @@ class PipelineConfig:
         if self.vpr_pass1_cap is not None and (type(self.vpr_pass1_cap) is not int
                                                or self.vpr_pass1_cap < 30):
             raise ValueError("vpr_pass1_cap must be an integer of at least 30")
+        if type(self.vpr_metro_cap) is not int or self.vpr_metro_cap < 30:
+            raise ValueError("vpr_metro_cap must be an integer of at least 30")
+        if not math.isfinite(self.vpr_spatial_dedup_m) or self.vpr_spatial_dedup_m < 0:
+            raise ValueError("vpr_spatial_dedup_m must be finite and non-negative")
+        if not math.isfinite(self.vpr_corridor_radius_m) or self.vpr_corridor_radius_m <= 0:
+            raise ValueError("vpr_corridor_radius_m must be finite and positive")
+        if type(self.vpr_corridor_max_discs) is not int or self.vpr_corridor_max_discs < 1:
+            raise ValueError("vpr_corridor_max_discs must be a positive integer")
+        if type(self.vpr_corridor_cap) is not int or self.vpr_corridor_cap < 30:
+            raise ValueError("vpr_corridor_cap must be an integer of at least 30")
         if self.retrieval_only and self.answer != "track":
             raise ValueError("retrieval_only requires answer='track'")
 

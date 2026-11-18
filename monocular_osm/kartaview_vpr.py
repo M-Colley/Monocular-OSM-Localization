@@ -98,11 +98,51 @@ def _cdn_url(lth_name: str) -> str:
     return f"https://cdn.kartaview.org/pr:sharp/{b64}"
 
 
-def _fetch_signature(center, radius_m, cap) -> dict:
+def _fetch_signature(center, radius_m, cap, *, spatial_dedup_m: float | None = None) -> dict:
     """Cache key of a metadata fetch: without it, changing --vpr-search-radius
     or the seed centre silently returns the stale refs (audit kartaview:45)."""
-    return {"center": [round(float(center[0]), 4), round(float(center[1]), 4)],
-            "radius_m": float(radius_m), "cap": int(cap)}
+    sig = {"center": [round(float(center[0]), 4), round(float(center[1]), 4)],
+           "radius_m": float(radius_m), "cap": int(cap)}
+    if spatial_dedup_m is not None and float(spatial_dedup_m) > 0:
+        sig["spatial_dedup_m"] = round(float(spatial_dedup_m), 3)
+    return sig
+
+
+def _spatial_cell_steps_deg(center_lat: float, cell_m: float) -> tuple[float, float]:
+    """Metric micro-cell step sizes (dlat, dlon) in degrees around ``center_lat``."""
+    dlat = float(cell_m) / 111320.0
+    dlon = dlat / max(float(np.cos(np.radians(float(center_lat)))), 0.2)
+    return dlat, dlon
+
+
+def _spatial_dedup_arrays(ids_list: list[str], ll: np.ndarray,
+                          dlat: float, dlon: float) -> tuple[np.ndarray, list[str], np.ndarray]:
+    """Vectorized C-level micro-cell deduplication: keeps the lexicographically
+    smallest id in every ``(floor(lat/dlat), floor(lon/dlon))`` cell."""
+    if not ids_list or not len(ll):
+        return np.empty(0, dtype=np.int64), [], np.zeros((0, 2), dtype=np.float64)
+    cy = np.floor(ll[:, 0] / dlat).astype(np.int64)
+    cx = np.floor(ll[:, 1] / dlon).astype(np.int64)
+    codes = (cy << 32) ^ (cx & np.int64(0xFFFFFFFF))
+    id_arr = np.asarray(ids_list)
+    order = np.lexsort((id_arr, codes))
+    sorted_codes = codes[order]
+    uniq_codes, first_pos = np.unique(sorted_codes, return_index=True)
+    pick = order[first_pos]
+    return uniq_codes, [ids_list[int(k)] for k in pick], ll[pick]
+
+
+def _spatial_dedup_dict(listed: dict[str, list], center_lat: float,
+                        cell_m: float) -> dict[str, list]:
+    """Keep at most one reference per ``cell_m`` x ``cell_m`` road patch,
+    deterministically selecting the canonical id per cell."""
+    if not listed or cell_m is None or float(cell_m) <= 0:
+        return listed
+    dlat, dlon = _spatial_cell_steps_deg(center_lat, float(cell_m))
+    keys = [str(k) for k in listed.keys()]
+    ll = np.asarray(list(listed.values()), dtype=np.float64).reshape(-1, 2)
+    _, kept_ids, kept_ll = _spatial_dedup_arrays(keys, ll, dlat, dlon)
+    return {ks: [float(la), float(lo)] for ks, (la, lo) in zip(kept_ids, kept_ll)}
 
 
 def _refs_fingerprint(refs) -> str:
@@ -163,21 +203,22 @@ def _legacy_img_paths(cache_dir, fp: str) -> list[str]:
 
 
 
-def _fetch_refs(center, radius_m, cache_dir, cap=1500):
+def _fetch_refs(center, radius_m, cache_dir, cap=1500, *, spatial_dedup_m: float | None = None):
     import requests
-    sig = _fetch_signature(center, radius_m, cap)
+    sig = _fetch_signature(center, radius_m, cap, spatial_dedup_m=spatial_dedup_m)
     meta = None
     if cache_dir:
-        meta = os.path.join(cache_dir, "ref_meta.json")
-        if os.path.exists(meta):
-            try:
-                blob = json.load(open(meta))
-            except Exception:
-                blob = None
-            # Legacy caches (a bare list) carry no fetch params, so they can't
-            # be trusted against the requested (center, radius, cap): refetch.
-            if isinstance(blob, dict) and blob.get("signature") == sig:
-                return blob["refs"]
+        tag_meta = os.path.join(cache_dir, f"ref_meta_{_sig_tag(sig)}.json")
+        legacy_meta = os.path.join(cache_dir, "ref_meta.json")
+        meta = tag_meta if spatial_dedup_m is not None else legacy_meta
+        for mpath in ([tag_meta, legacy_meta] if spatial_dedup_m is not None else [legacy_meta]):
+            if os.path.exists(mpath):
+                try:
+                    blob = json.load(open(mpath))
+                except Exception:
+                    blob = None
+                if isinstance(blob, dict) and blob.get("signature") == sig:
+                    return blob["refs"]
     clat, clon = center
     dlat, dlon = degree_half_extent(clat, clon, radius_m)
     sess = requests.Session()
@@ -185,7 +226,12 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
     # Latitude-aware lon step so query discs tile uniformly at any latitude
     # (a fixed degree step leaves coverage strips near the equator).
     step_lat = 0.0028
+    _kv_est = lambda s: (int(2 * dlat / s) + 1) * (  # noqa: E731
+        int(2 * dlon / (s / max(np.cos(np.radians(clat)), 0.2))) + 1)
+    while _kv_est(step_lat) > 400:
+        step_lat *= 1.3
     step_lon = step_lat / max(np.cos(np.radians(clat)), 0.2)
+    kv_qrad = max(200, min(2000, int(step_lat * 80000)))
     grid = [(la, lo) for la in np.arange(clat - dlat, clat + dlat, step_lat)
             for lo in np.arange(clon - dlon, clon + dlon, step_lon)]
 
@@ -193,7 +239,7 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
         la, lo = cell
         try:
             r = sess.post("https://api.openstreetcam.org/1.0/list/nearby-photos/",
-                          data={"lat": la, "lng": lo, "radius": 200}, timeout=30)
+                          data={"lat": la, "lng": lo, "radius": kv_qrad}, timeout=30)
             return r.json().get("currentPageItems", [])
         except Exception:
             return []
@@ -203,6 +249,10 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
             for it in items:
                 refs[it["id"]] = {"lat": float(it["lat"]), "lon": float(it["lng"]),
                                   "url": _cdn_url(it.get("lth_name") or it["name"])}
+    if spatial_dedup_m is not None and float(spatial_dedup_m) > 0 and refs:
+        dedup_coords = _spatial_dedup_dict(
+            {str(k): [v["lat"], v["lon"]] for k, v in refs.items()}, clat, float(spatial_dedup_m))
+        refs = {k: v for k, v in refs.items() if str(k) in dedup_coords}
     refs = [{"id": k, **v} for k, v in refs.items()]
     if len(refs) > cap:
         refs = [refs[i] for i in np.linspace(0, len(refs) - 1, cap).astype(int)]
@@ -213,7 +263,7 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500):
 
 
 def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
-                          listing="tiles"):
+                          listing="tiles", *, spatial_dedup_m: float | None = None):
     """Mapillary street-level refs (Graph API v4) as ``[{id,lat,lon,url}]`` —
     a *much* denser source than KartaView on most areas (validated: a MegaLoc
     prior from these lands 3-31 m from the GT route on all clips, incl. the
@@ -235,7 +285,7 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
     # offline regression sweeps run without MLY_TOKEN.
     global LAST_FETCH_STATS
     LAST_FETCH_STATS = {}
-    sig = _fetch_signature(center, radius_m, cap)
+    sig = _fetch_signature(center, radius_m, cap, spatial_dedup_m=spatial_dedup_m)
     # Signature-TAGGED meta (variants coexist) with the legacy untagged file
     # as a read fallback so pre-existing warm caches keep serving.
     metas = ([os.path.join(cache_dir, f"mly_ref_meta_{_sig_tag(sig)}.json"),
@@ -293,6 +343,22 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
                             return refs_m
                 except Exception:
                     pass
+            # Streamed descriptor cache (ref_emb_stream_<model>_<fp[:10]>.npz):
+            # large sets (> _STREAM_MIN_REFS) and metro-dense caches store
+            # descriptors directly under request_fingerprint == fp without a
+            # multi-GB pixel archive; serve warm hits offline without refetching.
+            if cache_dir and os.path.isdir(cache_dir):
+                suffix = f"_{fp[:10]}.npz"
+                for fname in os.listdir(cache_dir):
+                    if fname.startswith("ref_emb_stream_") and fname.endswith(suffix):
+                        try:
+                            with np.load(os.path.join(cache_dir, fname), allow_pickle=True) as d:
+                                if ("request_fingerprint" in d.files
+                                        and str(d["request_fingerprint"]) == fp):
+                                    _restore_mapillary_fetch_stats(blob, refs_m)
+                                    return refs_m
+                        except Exception:
+                            pass
             # not enough pixels anywhere -> fall through to the token fetch
         except Exception:
             pass
@@ -301,6 +367,8 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
         return []
     import requests
     sess = requests.Session()
+    if hasattr(sess, "mount"):
+        sess.mount("https://", requests.adapters.HTTPAdapter(pool_connections=16, pool_maxsize=16))
     stats = {"listing": listing, "tiles": 0, "split": 0, "lost": 0}
     lock = threading.Lock()
 
@@ -313,7 +381,8 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
     listed: dict[str, list] = {}
     urls: dict[str, str] = {}
     if listing == "tiles":
-        listed = _mly_tile_listing(center, radius_m, token, sess, count, stats)
+        dedup_kw = {"spatial_dedup_m": spatial_dedup_m} if spatial_dedup_m is not None else {}
+        listed = _mly_tile_listing(center, radius_m, token, sess, count, stats, **dedup_kw)
         if stats["tiles"] and stats["lost"] == stats["tiles"]:
             print("      -> mapillary coverage tiles unavailable; listing with "
                   "the Graph API bbox search instead")
@@ -324,6 +393,8 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
         listed = {k: [v["lat"], v["lon"]] for k, v in graph.items()}
         urls = {k: v["url"] for k, v in graph.items()}
         del graph
+        if spatial_dedup_m is not None and float(spatial_dedup_m) > 0:
+            listed = _spatial_dedup_dict(listed, center[0], float(spatial_dedup_m))
     if stats["lost"]:
         print(f"      -> mapillary listing: {stats['lost']} of {stats['tiles']} tiles "
               f"(after {stats['split']} splits) returned nothing; the reference set "
@@ -341,6 +412,10 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
         except Exception:
             union = {}
     union.update(listed)
+    if spatial_dedup_m is not None and float(spatial_dedup_m) > 0:
+        union = _spatial_dedup_dict(union, center[0], float(spatial_dedup_m))
+        stats["spatial_dedup_m"] = float(spatial_dedup_m)
+        stats["dedup_cells"] = len(union)
     if store and union:
         os.makedirs(cache_dir, exist_ok=True)
         _atomic_write_json(store, union)
@@ -383,12 +458,14 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
     return out
 
 
-def _mly_tile_listing(center, radius_m, token, sess, count, stats) -> dict:
+def _mly_tile_listing(center, radius_m, token, sess, count, stats,
+                      *, spatial_dedup_m: float | None = None) -> dict:
     """``{id: [lat, lon]}`` of every image in the disc's bounding box, read from
     Mapillary's zoom-14 coverage tiles (``mly1_public``, layer ``image``): one
     response per ~1.5 km tile lists all its images, where the Graph API bbox
     search times out over dense centres and truncates answers it does give
     (the same Berlin 100 m box returned 339, 34 or 22 images by page size)."""
+    import math
     import mercantile
 
     from .mvt import decode_points
@@ -397,6 +474,9 @@ def _mly_tile_listing(center, radius_m, token, sess, count, stats) -> dict:
     w, s, e, n = clon - dlon, clat - dlat, clon + dlon, clat + dlat
     tiles = list(mercantile.tiles(w, s, e, n, 14))
     stats["tiles"] = len(tiles)
+    dedup = spatial_dedup_m is not None and float(spatial_dedup_m) > 0
+    cell_dlat, cell_dlon = (_spatial_cell_steps_deg(clat, float(spatial_dedup_m))
+                            if dedup else (0.0, 0.0))
 
     def one(t):
         for attempt in range(3):
@@ -405,13 +485,48 @@ def _mly_tile_listing(center, radius_m, token, sess, count, stats) -> dict:
                              f"{t.z}/{t.x}/{t.y}", params={"access_token": token},
                              timeout=60)
                 if r.status_code == 200:
-                    return decode_points(r.content, "image", t.z, t.x, t.y)
+                    ids, ll = decode_points(r.content, "image", t.z, t.x, t.y)
+                    if not dedup:
+                        return ids, ll
+                    if not len(ll):
+                        return None, None
+                    inside = ((ll[:, 0] >= s) & (ll[:, 0] <= n)
+                              & (ll[:, 1] >= w) & (ll[:, 1] <= e))
+                    valid_idx = [idx_k for idx_k in np.flatnonzero(inside)
+                                 if ids[int(idx_k)] is not None]
+                    if not valid_idx:
+                        return None, None
+                    sub_ids = [str(ids[int(idx_k)]) for idx_k in valid_idx]
+                    sub_ll = ll[valid_idx]
+                    codes, kept_ids, kept_ll = _spatial_dedup_arrays(
+                        sub_ids, sub_ll, cell_dlat, cell_dlon
+                    )
+                    return (codes, kept_ids, kept_ll), None
                 raise RuntimeError(f"HTTP {r.status_code}")
             except Exception:
                 if attempt < 2:
                     time.sleep(2.0 * (attempt + 1))
         count("lost")
-        return [], np.zeros((0, 2))
+        return (None, None) if dedup else ([], np.zeros((0, 2)))
+
+    if dedup:
+        all_ids: list[str] = []
+        all_ll: list[np.ndarray] = []
+        with ThreadPoolExecutor(max_workers=12) as ex:
+            for packed, _ in ex.map(one, tiles):
+                if packed is None:
+                    continue
+                _, k_ids, k_ll = packed
+                if k_ids:
+                    all_ids.extend(k_ids)
+                    all_ll.append(k_ll)
+        if not all_ids:
+            return {}
+        merged_ll = np.vstack(all_ll)
+        _, final_ids, final_ll = _spatial_dedup_arrays(
+            all_ids, merged_ll, cell_dlat, cell_dlon
+        )
+        return {ks: [float(la), float(lo)] for ks, (la, lo) in zip(final_ids, final_ll)}
 
     refs = {}
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -426,9 +541,9 @@ def _mly_tile_listing(center, radius_m, token, sess, count, stats) -> dict:
     return refs
 
 
-def _mly_lookup_urls(ids, token, sess, batch=100) -> dict:
+def _mly_lookup_urls(ids, token, sess, batch=200) -> dict:
     """``{id: thumb_1024_url}`` for ``ids`` via the Graph API (at most 300 ids
-    per call; 100 answer in ~3 s). Ids it cannot resolve are left out."""
+    per call; 200 halves round-trips). Ids it cannot resolve are left out."""
     chunks = [ids[k:k + batch] for k in range(0, len(ids), batch)]
 
     def one(chunk):
@@ -447,7 +562,7 @@ def _mly_lookup_urls(ids, token, sess, batch=100) -> dict:
         return {}
 
     out = {}
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=12) as ex:
         for got in ex.map(one, chunks):
             out.update(got)
     return out
@@ -537,7 +652,8 @@ def _mly_graph_listing(center, radius_m, token, sess, count, stats) -> dict:
     return refs
 
 
-def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):
+def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500,
+                          *, spatial_dedup_m: float | None = None):
     """Panoramax street-level refs (federated open imagery, STAC ``/search``)
     as ``[{id,lat,lon,url}]`` — tokenless and openly licensed; the coverage
     complement to Mapillary (105M+ images across 12 instances by mid-2026,
@@ -547,15 +663,20 @@ def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):
     reruns are reproducible and offline.
     """
     import requests
-    sig = _fetch_signature(center, radius_m, cap)
-    meta = os.path.join(cache_dir, "pnx_ref_meta.json") if cache_dir else None
-    if meta and os.path.exists(meta):
-        try:
-            blob = json.load(open(meta))
-            if isinstance(blob, dict) and blob.get("signature") == sig:
-                return blob["refs"]
-        except Exception:
-            pass
+    sig = _fetch_signature(center, radius_m, cap, spatial_dedup_m=spatial_dedup_m)
+    meta = None
+    if cache_dir:
+        tag_meta = os.path.join(cache_dir, f"pnx_ref_meta_{_sig_tag(sig)}.json")
+        legacy_meta = os.path.join(cache_dir, "pnx_ref_meta.json")
+        meta = tag_meta if spatial_dedup_m is not None else legacy_meta
+        for mpath in ([tag_meta, legacy_meta] if spatial_dedup_m is not None else [legacy_meta]):
+            if os.path.exists(mpath):
+                try:
+                    blob = json.load(open(mpath))
+                    if isinstance(blob, dict) and blob.get("signature") == sig:
+                        return blob["refs"]
+                except Exception:
+                    pass
     clat, clon = center
     dlat, dlon = degree_half_extent(clat, clon, radius_m)
     # The meta-catalog serves at most ~500 features per search and (observed)
@@ -605,6 +726,10 @@ def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500):
                                           "url": a["href"]}
                 except Exception:
                     continue
+    if spatial_dedup_m is not None and float(spatial_dedup_m) > 0 and refs:
+        dedup_coords = _spatial_dedup_dict(
+            {str(k): [v["lat"], v["lon"]] for k, v in refs.items()}, clat, float(spatial_dedup_m))
+        refs = {k: v for k, v in refs.items() if str(k) in dedup_coords}
     # Sort by id so the subsample (hence the image-cache fingerprint and the
     # prior) is reproducible run-to-run, like the Mapillary fetcher.
     refs = [{"id": k, **refs[k]} for k in sorted(refs)]
@@ -627,16 +752,19 @@ def has_mapillary_cache(cache_dir) -> bool:
         return False
     return bool(_glob.glob(os.path.join(cache_dir, "mly_ref_meta*.json"))
                 and (os.path.exists(os.path.join(cache_dir, "ref_img_store.npz"))
-                     or _glob.glob(os.path.join(cache_dir, "ref_imgs*.npz"))))
+                     or _glob.glob(os.path.join(cache_dir, "ref_imgs*.npz"))
+                     or _glob.glob(os.path.join(cache_dir, "ref_emb_stream_*.npz"))))
 
 
-def _fetch_refs_for(source, center, radius_m, cache_dir, cap, token):
+def _fetch_refs_for(source, center, radius_m, cache_dir, cap, token,
+                    *, spatial_dedup_m: float | None = None):
     """Dispatch to the requested VPR reference source."""
+    kw = {"spatial_dedup_m": spatial_dedup_m} if spatial_dedup_m is not None else {}
     if source == "mapillary":
-        return _fetch_refs_mapillary(center, radius_m, cache_dir, cap=cap, token=token)
+        return _fetch_refs_mapillary(center, radius_m, cache_dir, cap=cap, token=token, **kw)
     if source == "panoramax":
-        return _fetch_refs_panoramax(center, radius_m, cache_dir, cap=cap)
-    return _fetch_refs(center, radius_m, cache_dir, cap=cap)
+        return _fetch_refs_panoramax(center, radius_m, cache_dir, cap=cap, **kw)
+    return _fetch_refs(center, radius_m, cache_dir, cap=cap, **kw)
 
 
 def _union_refs(center, radius_m, cache_dir, cap, token, device, model_name, *, batch_size=24):
@@ -1123,10 +1251,10 @@ def _embed_refs_streaming(refs, device, cache_dir, model_name="model", *, batch_
             pass   # corrupt cache -> recompute
     sess = requests.Session()
     if hasattr(sess, "mount"):   # one pooled connection per download thread
-        sess.mount("https://", requests.adapters.HTTPAdapter(pool_connections=16, pool_maxsize=16))
+        sess.mount("https://", requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=32))
     todo = [r for r in refs if r.get("url")]
     embs, xy, ids = [], [], []
-    with ThreadPoolExecutor(max_workers=16) as ex:
+    with ThreadPoolExecutor(max_workers=32) as ex:
         for start in range(0, len(todo), chunk):
             part = todo[start:start + chunk]
             pixels = list(ex.map(lambda r: _fetch_ref_pixels(sess, r), part))
@@ -1149,6 +1277,11 @@ def _embed_refs_streaming(refs, device, cache_dir, model_name="model", *, batch_
 def _embed_refs(refs, device, cache_dir, model_name="model", *, batch_size=24):
     if len(refs) > _STREAM_MIN_REFS:
         return _embed_refs_streaming(refs, device, cache_dir, model_name, batch_size=batch_size)
+    if cache_dir:
+        req_fp = _refs_fingerprint(refs)
+        spath = os.path.join(cache_dir, f"ref_emb_stream_{model_name}_{req_fp[:10]}.npz")
+        if os.path.exists(spath):
+            return _embed_refs_streaming(refs, device, cache_dir, model_name, batch_size=batch_size)
     # Fully-warm fast path: store holds every ref + embeddings cached -> return
     # without loading a single pixel or hitting the network (audit K2).
     peek = _peek_store(refs, cache_dir)
@@ -1632,13 +1765,20 @@ def _viterbi_decode(sims: np.ndarray, ref_latlon: np.ndarray,
     return path
 
 
-def _viterbi_decode_torch(sims: np.ndarray, ref_latlon: np.ndarray, dt_s: float,
-                          device="cuda") -> np.ndarray:
-    """``_viterbi_decode``'s float32 arithmetic in torch on ``device``.
+#: Above this reference count, ``_viterbi_decode_torch`` tiles target columns so
+#: peak VRAM stays under ~500 MB even at 60k-150k metro-wide references instead
+#: of allocating three dense n x n float32 matrices (~43 GB at 60k).
+_VITERBI_TILE_THRESHOLD = 8192
 
-    For reference sets beyond the numpy path's memory bound: each n x n
-    matrix is about 2.3 GB at 24,000 references, so distances are formed in
-    place and the per-step candidate matrix reuses one buffer.
+
+def _viterbi_decode_torch(sims: np.ndarray, ref_latlon: np.ndarray, dt_s: float,
+                          device="cuda", *, block_size: int = 2048) -> np.ndarray:
+    """``_viterbi_decode``'s exact float32 arithmetic in torch on ``device``.
+
+    For moderate sets (``<= 8,192``) the full ``n x n`` transition matrix is
+    reused across query steps; for larger metro-scale sets it tiles destination
+    columns in blocks of ``block_size`` so identical exact paths are decoded in
+    ``O(n * block_size)`` memory (< 500 MB VRAM at 60,000+ references).
     """
     import torch
     sims = np.asarray(sims)
@@ -1648,21 +1788,39 @@ def _viterbi_decode_torch(sims: np.ndarray, ref_latlon: np.ndarray, dt_s: float,
                        float(np.mean(ref_latlon[:, 1])))
     xy = torch.from_numpy(np.column_stack(frame.to_xy(ref_latlon[:, 0], ref_latlon[:, 1])
                                           ).astype(np.float32)).to(device)
+    free = 30.0 + 40.0 * max(float(dt_s), 0.5)
     with torch.no_grad():
-        trans = xy[:, None, 0] - xy[None, :, 0]
-        dy = xy[:, None, 1] - xy[None, :, 1]
-        trans.mul_(trans).add_(dy.mul_(dy)).sqrt_()       # d, as np.linalg.norm
-        del dy
-        free = 30.0 + 40.0 * max(dt_s, 0.5)
-        trans.sub_(free).clamp_(min=0.0).mul_(-0.02)       # -0.02 * max(0, d - free)
         q_sims = torch.from_numpy(sims.astype(np.float32)).to(device)
         score = q_sims[0].clone()
         back = torch.zeros((n_q, n_r), dtype=torch.int64, device=device)
-        cand = torch.empty_like(trans)
-        for q in range(1, n_q):
-            torch.add(score[:, None], trans, out=cand)
-            best, back[q] = torch.max(cand, dim=0)
-            score = best + q_sims[q]
+        if n_r <= _VITERBI_TILE_THRESHOLD and n_r <= block_size * 4:
+            trans = xy[:, None, 0] - xy[None, :, 0]
+            dy = xy[:, None, 1] - xy[None, :, 1]
+            trans.mul_(trans).add_(dy.mul_(dy)).sqrt_()       # d, as np.linalg.norm
+            del dy
+            trans.sub_(free).clamp_(min=0.0).mul_(-0.02)       # -0.02 * max(0, d - free)
+            cand = torch.empty_like(trans)
+            for q in range(1, n_q):
+                torch.add(score[:, None], trans, out=cand)
+                best, back[q] = torch.max(cand, dim=0)
+                score = best + q_sims[q]
+        else:
+            step = max(64, int(block_size))
+            next_score = torch.empty(n_r, dtype=torch.float32, device=device)
+            for q in range(1, n_q):
+                for j0 in range(0, n_r, step):
+                    j1 = min(j0 + step, n_r)
+                    dx = xy[:, None, 0] - xy[None, j0:j1, 0]
+                    dy = xy[:, None, 1] - xy[None, j0:j1, 1]
+                    dx.mul_(dx).add_(dy.mul_(dy)).sqrt_()
+                    del dy
+                    dx.sub_(free).clamp_(min=0.0).mul_(-0.02)
+                    dx.add_(score[:, None])
+                    best, arg = torch.max(dx, dim=0)
+                    back[q, j0:j1] = arg
+                    next_score[j0:j1] = best + q_sims[q, j0:j1]
+                    del dx
+                score.copy_(next_score)
         back = back.cpu().numpy()
         last = int(torch.argmax(score).item())
     path = np.zeros(n_q, dtype=np.int32)

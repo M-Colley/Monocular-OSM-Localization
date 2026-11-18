@@ -833,7 +833,15 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                 _city_cache = (getattr(cfg, "vpr_city_cover", False)
                                and any(has_mapillary_cache(str(p)) for p in
                                        _city_cache_directories(cfg, _vpr_src)))
-                if has_mapillary_cache(str(cfg.data_dir / _vpr_src)) or _regional_cache or _city_cache:
+                _metro_root = (Path(cfg.vpr_region_cache_dir) / "_metro_shared"
+                               if getattr(cfg, "vpr_region_cache_dir", None) is not None
+                               else cfg.data_dir.parent / "_metro_shared")
+                _metro_cache = (getattr(cfg, "vpr_metro_dense", False)
+                                and _metro_root.is_dir()
+                                and any(has_mapillary_cache(str(p)) for p in
+                                        _metro_root.glob("metro_mapillary_*")))
+                if (has_mapillary_cache(str(cfg.data_dir / _vpr_src))
+                        or _regional_cache or _city_cache or _metro_cache):
                     # Existence-only check: the fetch itself still verifies
                     # the cache SIGNATURE (centre/radius/cap) — if the query
                     # moved since the cache was written, refs come back empty
@@ -844,6 +852,112 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     print("      -> mapillary source needs MLY_TOKEN env var; "
                           "falling back to kartaview")
                     _vpr_src = "kartaview"
+            if getattr(cfg, "vpr_metro_dense", False):
+                from ..metro_vpr import run_metro_dense_vpr
+                if cfg.osm_around is not None and cfg.osm_around_source == "user":
+                    _metro_center = (float(cfg.osm_around[0]), float(cfg.osm_around[1]))
+                else:
+                    _metro_center = _city_centre(cfg.city, cfg.data_dir / "geocode_cache.json")
+                    if _metro_center is None:
+                        _metro_center = (
+                            (float(ctx.osm_around[0]), float(ctx.osm_around[1]))
+                            if ctx.osm_around is not None
+                            else tuple(map(float, ox.geocode(cfg.city)))
+                        )
+                _ts = np.asarray(frames.timestamps, dtype=np.float64)
+                _qn = max(min(80, len(frames.frames)) - 1, 1)
+                _qdt = float((_ts[-1] - _ts[0]) / _qn) if len(_ts) >= 2 else 4.0
+                _metro_cap = (int(cfg.vpr_pass1_cap)
+                              if getattr(cfg, "vpr_pass1_cap", None) is not None
+                              else int(getattr(cfg, "vpr_metro_cap", 24000)))
+                _shared_root = (Path(cfg.vpr_region_cache_dir) / "_metro_shared"
+                                if getattr(cfg, "vpr_region_cache_dir", None) is not None
+                                else cfg.data_dir.parent / "_metro_shared")
+                tr, _metro_diag = run_metro_dense_vpr(
+                    frames.frames,
+                    frames.timestamps,
+                    city=cfg.city,
+                    city_center=_metro_center,
+                    seed_around=ctx.osm_around,
+                    video_title=getattr(cfg, "video_title", None),
+                    video_description=getattr(cfg, "video_description", None),
+                    data_dir=cfg.data_dir,
+                    shared_cache_root=_shared_root,
+                    metro_radius_m=float(getattr(cfg, "vpr_metro_radius_m", 20000.0)),
+                    metro_cap=_metro_cap,
+                    spatial_dedup_m=float(getattr(cfg, "vpr_spatial_dedup_m", 25.0)),
+                    corridor_radius_m=float(getattr(cfg, "vpr_corridor_radius_m", 2500.0)),
+                    corridor_max_discs=int(getattr(cfg, "vpr_corridor_max_discs", 4)),
+                    corridor_disc_cap=int(getattr(cfg, "vpr_corridor_cap", 2500)),
+                    source=_vpr_src,
+                    token=_vpr_token,
+                    device=_vpr_device,
+                    query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+                    query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                    query_cache=_query_cache,
+                    sequence_decode=cfg.vpr_viterbi,
+                    query_dt_s=_qdt,
+                    auto_fallback_sources=bool(getattr(cfg, "vpr_auto_fallback_sources", True)),
+                )
+                ctx.result["metro_dense_retrieval"] = _metro_diag
+                _dec = {k: _metro_diag[k] for k in ("pass1", "pass2") if k in _metro_diag}
+                if _dec:
+                    ctx.result["vpr_decoding"] = _dec
+                _listings = {}
+                for _i, _reg in enumerate(_metro_diag.get("pass1_regions") or ()):
+                    _mly_l = (_reg.get("listings") or {}).get("mapillary")
+                    if _mly_l:
+                        _listings[f"pass1_{_i}_{_reg.get('role', 'region')}"] = _mly_l
+                for _i, _reg in enumerate(_metro_diag.get("corridor_discs") or ()):
+                    _mly_l = (_reg.get("listings") or {}).get("mapillary")
+                    if _mly_l:
+                        _listings[f"corridor_{_i}"] = _mly_l
+                if _listings:
+                    ctx.vpr_listing = _listings
+                if tr is not None:
+                    ctx.vpr_track = tr
+                    v_idx, v_ll, v_sims = tr
+                    ctx.vpr_center = _robust_center(v_ll, v_sims)
+                    ctx.anchor_origin = "vpr"
+                    _p1_info = _metro_diag.get("pass1") or {}
+                    _p2_info = _metro_diag.get("pass2") or {}
+                    ctx.c2f_info = {
+                        "pass1_center": _p1_info.get("center"),
+                        "pass2_center": _p2_info.get("center"),
+                        "kept": _metro_diag.get("kept"),
+                        "pass1_sim": _p1_info.get("median_sim"),
+                        "pass2_sim": _p2_info.get("median_sim"),
+                        "n_corridor_discs": _p2_info.get("n_corridor_discs"),
+                    }
+                    _all_regs = list(_metro_diag.get("pass1_regions") or ()) + list(
+                        _metro_diag.get("corridor_discs") or ()
+                    )
+                    _used_open = any(
+                        (_r.get("provider_counts") or {}).get("panoramax", 0) > 0
+                        or (_r.get("provider_counts") or {}).get("kartaview", 0) > 0
+                        for _r in _all_regs
+                    )
+                    ctx.vpr_source_used = (
+                        "union" if (_vpr_src == "mapillary" and _used_open) else _vpr_src
+                    )
+                    distances = geodesic_distance_m(
+                        ctx.vpr_center[0], ctx.vpr_center[1], v_ll[:, 0], v_ll[:, 1]
+                    )
+                    _tight = max(float(cfg.vpr_c2f_radius_m), 0.6 * float(estimated_length_m))
+                    _req = max(_tight, float(np.max(distances))) + _C2F_SNAP_TOL_M
+                    _g = 0.0001
+                    _slat = round(float(ctx.vpr_center[0]) / _g) * _g
+                    _slon = round(float(ctx.vpr_center[1]) / _g) * _g
+                    ctx.osm_around = (_slat, _slon, min(_req, _PASS1_COVER_MAX_M))
+                    print(f"      -> [metro-dense] VPR prior {ctx.vpr_center[0]:.5f}, "
+                          f"{ctx.vpr_center[1]:.5f} ({len(v_idx)}-frame track); "
+                          f"graph re-centred ({_slat:.4f}, {_slon:.4f}, "
+                          f"{ctx.osm_around[2]:.0f} m)")
+                else:
+                    _why = _metro_diag.get("reason") or "no reference track"
+                    print(f"      -> VPR unavailable ({_why}); keeping full-city graph")
+                    _record_channel(channel_status, "vpr", "inactive", reason=_why)
+                return
             # Never search VPR wider than the OSM graph disc: on SPARSE-coverage
             # areas (e.g. KITTI Karlsruhe) a 3 km disc dilutes the few on-route
             # refs under the ref cap and the robust-centre drifts off-route

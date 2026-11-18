@@ -146,19 +146,21 @@ def _validate_input_args(
     videos: list[Path] | None,
     urls: list[str] | None,
     city: str | None,
+    *,
+    infer_city: bool = False,
 ) -> None:
     """Reject invalid --video / --url / --city combinations.
 
     Local files have no title metadata worth trusting for city
-    inference, so --video makes --city mandatory: the contract is
-    "video + city in, position out".
+    inference, so --video makes --city mandatory unless
+    --infer-city-from-video (Stage 0 visual geolocation) is enabled.
     """
     if videos and urls:
         raise ValueError("Pass either --video or --url, not both.")
-    if videos and not city:
+    if videos and not city and not infer_city:
         raise ValueError(
             "--city is required when using --video "
-            "(e.g. --city 'Ulm, Germany')."
+            "(e.g. --city 'Ulm, Germany'), or pass --infer-city-from-video."
         )
 
 
@@ -174,8 +176,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "retains the URL's cached uploader metadata and cache identity")
     p.add_argument("--city", default=None,
                    help="City the video was filmed in, as 'City, Country' "
-                        "(e.g. 'Ulm, Germany'). Required with --video; inferred "
-                        "from the video title for URLs when omitted.")
+                        "(e.g. 'Ulm, Germany'). Required with --video unless "
+                        "--infer-city-from-video is set; inferred from the video "
+                        "title for URLs when omitted.")
+    p.add_argument("--infer-city-from-video", action="store_true",
+                   help="Stage 0 planet-scale city inference: when --city is omitted "
+                        "(or cannot be inferred from the title), estimate the city "
+                        "visually across world metros via StreetCLIP/CLIP (+ optional VLM).")
     p.add_argument("--data-dir", type=Path, default=Path("data"))
     p.add_argument("--output-dir", type=Path, default=Path("output"))
     p.add_argument("--max-frames", type=int, default=None,
@@ -225,6 +232,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Experimental: references kept in the tokened city-wide pass-1 "
                         "disc (default 1200). Above 6000 they are embedded in streamed "
                         "chunks and the sequence decode needs a CUDA GPU.")
+    p.add_argument("--vpr-metro-dense", action=argparse.BooleanOptionalAction, default=False,
+                   help="Unified metro-scale VPR: search the full metropolitan disc "
+                        "(--vpr-metro-radius, default 20 km) with spatial micro-cell "
+                        "deduplication, additive title/frame seeds, and multi-disc "
+                        "corridor Pass-2 refinement.")
+    p.add_argument("--vpr-metro-cap", type=int, default=24000,
+                   help="Reference budget for the metro-dense Pass-1 disc (default 24000).")
+    p.add_argument("--vpr-spatial-dedup-m", type=float, default=25.0,
+                   help="Spatial micro-cell deduplication step in metres for metro-dense "
+                        "Pass 1 (default 25.0; 0 disables).")
+    p.add_argument("--vpr-corridor-radius", type=float, default=2500.0,
+                   help="Radius in metres of each corridor Pass-2 disc (default 2500).")
+    p.add_argument("--vpr-corridor-max-discs", type=int, default=4,
+                   help="Maximum overlapping corridor discs along the Pass-1 track (default 4).")
+    p.add_argument("--vpr-corridor-cap", type=int, default=2500,
+                   help="Reference budget per corridor Pass-2 disc (default 2500).")
+    p.add_argument("--vpr-auto-fallback-sources", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="Automatically augment thin primary VPR regions with open "
+                        "Panoramax and KartaView imagery in metro-dense mode (default on).")
     p.add_argument("--vpr-region-cap", type=int, default=6,
                    help="Maximum retrieval regions including the original search "
                         "region (default 6).")
@@ -751,7 +778,8 @@ def main() -> None:
     except ValueError as error:
         p.error(str(error))
     try:
-        _validate_input_args(args.video, args.url, args.city)
+        _validate_input_args(args.video, args.url, args.city,
+                             infer_city=args.infer_city_from_video)
     except ValueError as e:
         p.error(str(e))
 
@@ -813,10 +841,40 @@ def main() -> None:
         effective_title = metadata.title if args.video_title is None else args.video_title
         effective_description = (getattr(metadata, "description", None)
                                  if args.video_description is None else args.video_description)
+        city_guess = None
         if args.video:
-            city = args.city  # guaranteed by _validate_input_args
+            city = args.city
         else:
-            city = _resolve_city(args.city, metadata.url, effective_title)
+            try:
+                city = _resolve_city(args.city, metadata.url, effective_title)
+            except ValueError:
+                if not args.infer_city_from_video:
+                    raise
+                city = None
+        if not city and args.infer_city_from_video:
+            from .global_geoloc import infer_city_worldwide
+            probe_vid = local_path
+            if probe_vid is None:
+                from .pipeline import pick_cached_input
+                slug_hint = slugify_submission(metadata.video_id, metadata.title, None,
+                                               fallback_seed=metadata.url)
+                for cand_dir in sorted(args.data_dir.glob(f"{slug_hint}*")):
+                    probe_vid = pick_cached_input(cand_dir)
+                    if probe_vid is not None:
+                        break
+            city_guess = infer_city_worldwide(
+                video_path=probe_vid,
+                title=effective_title if not args.video else args.video_title,
+                start_sec=start,
+                end_sec=end,
+                use_vlm=bool(args.coarse_from_vlm or args.use_vlm_anchor),
+            )
+            if city_guess is None:
+                p.error("Stage 0 --infer-city-from-video could not determine a city; "
+                        "pass --city explicitly.")
+            city = city_guess.city
+            print(f"[stage0] worldwide city inference: {city!r} "
+                  f"(conf={city_guess.confidence:.3f}, method={city_guess.method})")
         submission_slug = slugify_submission(
             metadata.video_id,
             metadata.title,
@@ -981,6 +1039,14 @@ def main() -> None:
             vpr_c2f_extend=args.vpr_c2f_extend,
             vpr_c2f_extend_max=args.vpr_c2f_extend_max,
             vpr_pass1_cap=args.vpr_pass1_cap,
+            vpr_metro_dense=args.vpr_metro_dense,
+            vpr_metro_cap=args.vpr_metro_cap,
+            vpr_spatial_dedup_m=args.vpr_spatial_dedup_m,
+            vpr_corridor_radius_m=args.vpr_corridor_radius,
+            vpr_corridor_max_discs=args.vpr_corridor_max_discs,
+            vpr_corridor_cap=args.vpr_corridor_cap,
+            vpr_auto_fallback_sources=args.vpr_auto_fallback_sources,
+            infer_city_from_video=args.infer_city_from_video,
             video_title=effective_title,
             video_description=effective_description,
             answer=args.answer,
@@ -1017,6 +1083,12 @@ def main() -> None:
         print(f"\n=== Submission: {metadata.title or metadata.url} ===")
         print(f"    city={city!r}  data_dir={cfg.data_dir}  output_dir={cfg.output_dir}")
         result = run_pipeline(cfg)
+        if city_guess is not None:
+            result["city_inference"] = city_guess.to_dict()
+            res_path = cfg.output_dir / "result.json"
+            if res_path.is_file():
+                from .stages.report import _write_result_json
+                _write_result_json(res_path, result)
         result["video_title"] = metadata.title
         result["submission_slug"] = submission_slug
         results.append(result)

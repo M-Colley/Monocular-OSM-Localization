@@ -276,6 +276,7 @@ VPR_CACHE_DIRS: tuple[str, ...] = (
     "mapillary_outer", "kartaview_outer", "panoramax_outer",
     "mapillary_regions", "kartaview_regions", "panoramax_regions", "union_regions",
     "mapillary_city", "kartaview_city", "panoramax_city", "union_city",
+    "mapillary_metro_seeds", "kartaview_metro_seeds", "panoramax_metro_seeds", "union_metro_seeds",
 )
 ASIDE_DIR = "_benchmark_vpr_warm_aside"
 COLD_ARCHIVE_DIR = "_benchmark_cold_vpr"
@@ -329,10 +330,105 @@ def _regional_cache_root_from_argv(argv: list[str]) -> Path | None:
     return path if path.is_absolute() else ROOT / path
 
 
+_FOLD_SUBS: dict[str, str] = {
+    "ł": "l", "Ł": "l", "ø": "o", "Ø": "o", "đ": "d", "Đ": "d",
+    "ð": "d", "Ð": "d", "þ": "th", "Þ": "th", "æ": "ae", "Æ": "ae",
+    "œ": "oe", "Œ": "oe", "ß": "ss", "ı": "i", "İ": "i",
+}
+
+#: Bidirectional exonym / endonym / script equivalence groups for city fairness
+#: checks. An upload titled in the local language ('Buzau - Bucuresti',
+#: 'Београд', '東京', '서울', 'Köln', 'Warszawa') names the same city a user
+#: types in English ('Bucharest', 'Belgrade', 'Tokyo', 'Seoul', 'Cologne',
+#: 'Warsaw'), and vice versa.
+_CITY_EXONYM_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("bucharest", "bucuresti"),
+    ("munich", "munchen", "muenchen"),
+    ("cologne", "koln", "koeln"),
+    ("nuremberg", "nurnberg", "nuernberg"),
+    ("dusseldorf", "duesseldorf"),
+    ("zurich", "zuerich"),
+    ("warsaw", "warszawa"),
+    ("krakow", "cracow"),
+    ("prague", "praha"),
+    ("vienna", "wien"),
+    ("brussels", "bruxelles", "brussel"),
+    ("antwerp", "antwerpen", "anvers"),
+    ("geneva", "geneve", "genf"),
+    ("rome", "roma"),
+    ("milan", "milano"),
+    ("turin", "torino"),
+    ("naples", "napoli"),
+    ("florence", "firenze"),
+    ("venice", "venezia"),
+    ("lisbon", "lisboa"),
+    ("porto", "oporto"),
+    ("seville", "sevilla"),
+    ("copenhagen", "kobenhavn"),
+    ("gothenburg", "goteborg"),
+    ("helsinki", "helsingfors"),
+    ("the hague", "den haag"),
+    ("athens", "athina", "αθηνα"),
+    ("sofia", "софия", "sofiya"),
+    ("belgrade", "beograd", "београд"),
+    ("moscow", "москва", "moskva"),
+    ("kyiv", "kiev", "киів", "київ"),
+    ("cairo", "القاهرة", "alqahira"),
+    ("dubai", "دبي"),
+    ("jerusalem", "ירושלים", "alquds"),
+    ("tel aviv", "תל אביב"),
+    ("mumbai", "bombay", "मुंबई"),
+    ("bengaluru", "bangalore"),
+    ("kolkata", "calcutta"),
+    ("chennai", "madras"),
+    ("beijing", "peking", "北京"),
+    ("shanghai", "上海"),
+    ("guangzhou", "canton", "广州", "廣州"),
+    ("shenzhen", "深圳"),
+    ("hong kong", "香港"),
+    ("taipei", "台北", "臺北"),
+    ("tokyo", "東京", "とうきょう"),
+    ("osaka", "大阪"),
+    ("kyoto", "京都"),
+    ("yokohama", "横浜"),
+    ("seoul", "서울"),
+    ("busan", "부산", "pusan"),
+    ("bangkok", "กรุงเทพ", "krung thep"),
+    ("ho chi minh", "ho chi minh city", "saigon", "sai gon"),
+)
+
+_EXONYM_MAP: dict[str, tuple[str, ...]] = {}
+for _grp in _CITY_EXONYM_GROUPS:
+    for _alias in _grp:
+        _EXONYM_MAP[_alias] = _grp
+
+
 def _fold(text: str) -> str:
     import unicodedata
-    return "".join(ch for ch in unicodedata.normalize("NFKD", text or "")
-                   if not unicodedata.combining(ch)).casefold()
+    s = text or ""
+    for k, v in _FOLD_SUBS.items():
+        if k in s:
+            s = s.replace(k, v)
+    nfkc = unicodedata.normalize("NFKC", s)
+    out = []
+    for ch in nfkc:
+        if 0xAC00 <= ord(ch) <= 0xD7AF:
+            out.append(ch)
+        else:
+            for sub in unicodedata.normalize("NFKD", ch):
+                if not unicodedata.combining(sub):
+                    out.append(sub)
+    return "".join(out).casefold()
+
+
+def _city_name_variants(head_folded: str) -> tuple[str, ...]:
+    """Folded city name plus any known endonym/exonym equivalents."""
+    variants = [head_folded]
+    for alias in _EXONYM_MAP.get(head_folded, ()):
+        f = _fold(alias)
+        if f and f not in variants:
+            variants.append(f)
+    return tuple(variants)
 
 
 def city_fairness_problem(entry: dict, title: str | None,
@@ -340,8 +436,9 @@ def city_fairness_problem(entry: dict, title: str | None,
     """Is ``entry['city']`` what a user would type, or route knowledge?
 
     The 0.1.x table used "Daly City" and "Vaughan", narrower than anything a
-    viewer could know. A YouTube clip's city must be named in its title or
-    description; a dataset clip needs a documented ``city_basis``. Returns
+    viewer could know. A YouTube clip's city (or its native endonym/exonym, e.g.
+    'Bucuresti' for 'Bucharest', '東京' for 'Tokyo') must be named in its title
+    or description; a dataset clip needs a documented ``city_basis``. Returns
     None when fair or when the metadata is not cached yet (checked again at
     the next run)."""
     city = entry["city"]
@@ -350,13 +447,16 @@ def city_fairness_problem(entry: dict, title: str | None,
         if title is None and description is None:
             return None
         text = _fold(" ".join(t for t in (title, description) if t))
-        # The full name, or its distinctive first word: a title saying
-        # "Newcastle" lets a user type "Newcastle upon Tyne".
-        first = head.split()[0] if head.split() else head
         squash = lambda t: re.sub(r"[\s\-_]+", "", t)          # noqa: E731
-        named = (head in text or squash(head) in squash(text)    # "denhaag" names Den Haag
-                 or (len(first) >= 5 and re.search(
-                     rf"(?<!\w){re.escape(first)}(?!\w)", text) is not None))
+        squashed_text = squash(text)
+        named = False
+        for variant in _city_name_variants(head):
+            first = variant.split()[0] if variant.split() else variant
+            if (variant in text or squash(variant) in squashed_text
+                    or (len(first) >= 5 and re.search(
+                        rf"(?<!\w){re.escape(first)}(?!\w)", text) is not None)):
+                named = True
+                break
         if not named:
             return (f"{entry['id']}: city {city!r} is not named in the video's title or "
                     f"description, so a user could not know it")

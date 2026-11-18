@@ -63,28 +63,40 @@ class StreetAnchor:
                        # "you are here" time (car is ON this street then)
 
 
-_NON_ALNUM = re.compile(r"[^0-9A-Za-zÀ-ÿ]+")
+def _is_cjk_char(ch: str) -> bool:
+    cp = ord(ch)
+    return (
+        0x3040 <= cp <= 0x30FF      # Hiragana + Katakana
+        or 0x3400 <= cp <= 0x4DBF   # CJK Extension A
+        or 0x4E00 <= cp <= 0x9FFF   # CJK Unified Ideographs
+        or 0xAC00 <= cp <= 0xD7AF   # Hangul Syllables
+        or 0xF900 <= cp <= 0xFAFF   # CJK Compatibility Ideographs
+    )
 
 
 def is_geocodable_text(text: str, *, min_letters: int = 4) -> bool:
     """Heuristic gate before spending a (rate-limited) geocode call.
 
     Rejects pure numbers, times/dates, and short or mostly-punctuation
-    fragments. We deliberately keep the bar low — the bbox filter in
-    :func:`geocode_texts` is what actually rejects bad geocodes; this
-    just avoids obviously-useless queries (``"535"``, ``"22-6h"``).
+    fragments while supporting all Unicode scripts (Extended Latin, Cyrillic,
+    Greek, Arabic, Hebrew, CJK, Hangul, Thai, Devanagari, etc.). Dense CJK /
+    Kana / Hangul glyphs count as 2 letters so 2-character station/district
+    names (e.g. '新宿', '강남') qualify at ``min_letters=4``.
     """
-    letters = re.sub(r"[^A-Za-zÀ-ÿ]", "", text)
-    if len(letters) < min_letters:
+    alpha_chars = [c for c in text if c.isalpha()]
+    effective_letters = sum(2 if _is_cjk_char(c) else 1 for c in alpha_chars)
+    if effective_letters < min_letters:
         return False
+    alnum_count = sum(1 for c in text if c.isalnum())
     # Reject things that are mostly digits/punctuation (e.g. "29.13.9.2023").
-    if len(letters) < 0.5 * len(_NON_ALNUM.sub("", text)):
+    if len(alpha_chars) < 0.5 * alnum_count:
         return False
     return True
 
 
 def _clean(text: str) -> str:
-    return _NON_ALNUM.sub(" ", text).strip()
+    cleaned = "".join(ch if ch.isalnum() else " " for ch in text)
+    return " ".join(cleaned.split())
 
 
 # ---------------------------------------------------------------------------
@@ -201,19 +213,38 @@ def city_extent_radius(
         return (v[0], v[1], v[2]) if isinstance(v, list) and len(v) >= 3 else None
     result: tuple[float, float, float] | None = None
     cacheable = True
-    try:
-        gdf = ox.geocode_to_gdf(city)
+    def _bbox_extent(gdf) -> tuple[float, float, float]:
         min_lon, min_lat, max_lon, max_lat = (float(x) for x in gdf.total_bounds)
         clat = (min_lat + max_lat) / 2.0
         clon = (min_lon + max_lon) / 2.0
-        # Centre-to-farthest-corner WGS84 geodesic: the radius of the disc
-        # around (clat, clon) that covers the whole bbox (the half-diagonal
-        # of a flat rectangle).
         half_diag = float(geodesic_distance_m(
             clat, clon, [min_lat, min_lat, max_lat, max_lat],
             [min_lon, max_lon, min_lon, max_lon]).max())
-        result = (clat, clon, half_diag)
-        cache[key] = [clat, clon, half_diag]
+        return (clat, clon, half_diag)
+
+    try:
+        gdf = ox.geocode_to_gdf(city)
+        result = _bbox_extent(gdf)
+        # Nominatim's first polygon for some major cities (e.g. 'Glasgow, UK'
+        # where rank-1 is a point node and the first polygon is a small inner
+        # ward <4 km across) understates the municipality. Probe ranks 2..5
+        # for a nearby administrative/place boundary when the initial polygon
+        # is suspiciously small (<4 km).
+        if result[2] < 4000.0:
+            ref_lat, ref_lon = result[0], result[1]
+            for which in (2, 3, 4, 5):
+                try:
+                    alt = ox.geocode_to_gdf(city, which_result=which)
+                except TypeError:
+                    break   # injected 1-arg test double
+                except Exception:
+                    continue
+                cand = _bbox_extent(alt)
+                if (cand[2] > result[2]
+                        and cand[2] <= 60_000.0
+                        and geodesic_distance_m(ref_lat, ref_lon, cand[0], cand[1]) <= 35_000.0):
+                    result = cand
+        cache[key] = [result[0], result[1], result[2]]
     except Exception:
         cacheable = False        # transient/lookup failure -> retry next run
     if cacheable and cp is not None:

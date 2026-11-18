@@ -22,7 +22,9 @@ from .geo import geodesic_distance_m
 
 __all__ = ["resolve_coarse_prior", "resolve_retrieval_regions", "extract_place_candidates"]
 
-_PLACE = r"[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*"
+_CASED_PLACE = r"[A-ZÀ-ÖØ-ÞĀ-ŽͰ-ϿЀ-Я][A-Za-zÀ-ÖØ-öø-ÿĀ-žͰ-ϿЀ-я'’.-]*"
+_CJK_PLACE = r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]{2,12}"
+_PLACE = rf"(?:{_CASED_PLACE}|{_CJK_PLACE})"
 _PHRASE = rf"{_PLACE}(?:[ \-]{_PLACE}){{0,3}}"
 # split the text into route segments before scanning for place phrases
 _SEP = re.compile(r"[,\|/·—–>\n\t;:]+|→|➜|»|\bto\b|\bvia\b|\bthen\b", re.IGNORECASE)
@@ -30,17 +32,22 @@ _SEP = re.compile(r"[,\|/·—–>\n\t;:]+|→|➜|»|\bto\b|\bvia\b|\bthen\b", 
 # Generic words that are NOT place names on their own; a phrase made only of
 # these is dropped. Real names survive because they carry a proper token.
 _GENERIC = {
-    "best", "dashcam", "dash", "cam", "drive", "driving", "driver", "ride",
-    "street", "streets", "road", "roads", "avenue", "boulevard", "walk",
-    "walking", "trip", "travel", "tour", "touring", "night", "day", "morning",
-    "evening", "sunset", "rain", "rainy", "snow", "winter", "summer", "autumn",
-    "spring", "traffic", "highway", "motorway", "autobahn", "freeway", "city",
-    "downtown", "center", "centre", "central", "old", "town", "pov", "hd",
-    "hdr", "uhd", "4k", "8k", "60fps", "asmr", "relaxing", "scenic", "route",
-    "part", "episode", "vol", "full", "video", "footage", "germany", "france",
-    "spain", "italy", "usa", "canada", "uk", "england", "japan", "the", "and",
-    "a", "an", "of", "in", "on", "at", "west", "east", "north", "south",
-    "gmbh", "official", "channel", "subscribe", "like", "https", "http", "www",
+    "best", "dashcam", "dashcams", "dash", "cam", "camera", "cameras", "lens",
+    "viofo", "garmin", "nextbase", "blackvue", "vantrue", "70mai", "ddpai",
+    "thinkware", "gopro", "insta360", "sony", "starvis", "drive", "driving",
+    "driver", "ride", "virtual", "street", "streets", "road", "roads",
+    "avenue", "boulevard", "walk", "walking", "trip", "travel", "tour",
+    "touring", "night", "day", "morning", "evening", "sunset", "rain", "rainy",
+    "snow", "winter", "summer", "autumn", "spring", "traffic", "highway",
+    "motorway", "autobahn", "freeway", "city", "downtown", "center", "centre",
+    "central", "old", "town", "pov", "hd", "hdr", "uhd", "4k", "8k", "60fps",
+    "1080p", "1440p", "2160p", "4k60", "fps", "gps", "asmr", "relaxing",
+    "scenic", "route", "part", "episode", "vol", "full", "video", "footage",
+    "germany", "france", "spain", "italy", "usa", "canada", "uk", "england",
+    "scotland", "japan", "china", "korea", "india", "australia", "brazil",
+    "the", "and", "a", "an", "of", "in", "on", "at", "west", "east", "north",
+    "south", "gmbh", "official", "channel", "subscribe", "like", "https",
+    "http", "www",
 }
 
 
@@ -59,11 +66,13 @@ def extract_place_candidates(title: str | None, description: str | None,
         for m in re.finditer(_PHRASE, part):
             phrase = m.group().strip(" -–—.'’")
             toks = [t for t in phrase.split() if t]
-            if len(phrase) < 3 or not toks:
+            has_cjk = any("\u3040" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af" for ch in phrase)
+            if (len(phrase) < 2 if has_cjk else len(phrase) < 3) or not toks:
                 continue
             # keep only phrases with a SUBSTANTIVE token (non-generic, >=3
-            # chars) — drops "K Driving Tour" (from "4K"), "Night Drive", etc.
-            if not any(t.lower().strip(".'’-") not in _GENERIC and len(t) >= 3
+            # chars, or >=2 CJK/Hangul chars) — drops "K Driving Tour", "Night Drive", etc.
+            if not any(t.lower().strip(".'’-") not in _GENERIC
+                       and (len(t) >= 2 if has_cjk else len(t) >= 3)
                        for t in toks):
                 continue
             key = phrase.lower()
