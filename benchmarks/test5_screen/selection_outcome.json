@@ -1,0 +1,93 @@
+{
+ "schema": "test5-selection-outcome-v1",
+ "closed_utc": "2026-11-18T04:22:06.193951+00:00",
+ "target": 10,
+ "frozen_count": 8,
+ "target_met": false,
+ "pool": "all 40 cities x 3 queries screened (120/120); fixed pool exhausted",
+ "frozen_clips_in_pass_order": [
+  {
+   "id": "YJmgh_0SoGs",
+   "city": "Melbourne, Australia",
+   "video_path": "data/test5/yjmgh-0sogs-viofo-a119-dashcam-1440p-10-minute-night-time-test-melbourne-austral/input_0-600.mp4",
+   "gt_path": "ground_truth/overlay_YJmgh_0SoGs.json",
+   "download_duration_s": 599.9666666666667
+  },
+  {
+   "id": "FPQyfJsbjWM",
+   "city": "Rotterdam, Netherlands",
+   "video_path": "data/test5/fpqyfjsbjwm-4k-hdr-rotterdam-dashcam-night-drive-fascinating-and-relaxing-moment/input_0-600.mp4",
+   "gt_path": "ground_truth/overlay_FPQyfJsbjWM.json",
+   "download_duration_s": 600.0
+  },
+  {
+   "id": "ml4PPnpc-Kw",
+   "city": "Glasgow, UK",
+   "video_path": "data/test5/ml4ppnpc-kw-scott-drive-howwood-to-glasgow/input_0-600.mp4",
+   "gt_path": "ground_truth/overlay_ml4PPnpc-Kw.json",
+   "download_duration_s": 600.0
+  },
+  {
+   "id": "kMQOOXaUBh0",
+   "city": "Houston, Texas, USA",
+   "video_path": "data/test5/kmqooxaubh0-commute-to-work-in-houston-viofo-a119-dash-cam/input_0-600.mp4",
+   "gt_path": "ground_truth/overlay_kMQOOXaUBh0.json",
+   "download_duration_s": 600.0
+  },
+  {
+   "id": "VaPcyHM-Wtc",
+   "city": "Calgary, Canada",
+   "video_path": "data/test5/vapcyhm-wtc-daily-driving-in-calgary-bright-clear-blue-sky-dashcam-drive-4k-nove/input_0-600.mp4",
+   "gt_path": "ground_truth/overlay_VaPcyHM-Wtc.json",
+   "download_duration_s": 600.0
+  },
+  {
+   "id": "qgaSRWY8Aio",
+   "city": "Belgrade, Serbia",
+   "video_path": "data/test5/qgasrwy8aio-driving-in-belgrade-ikea-city-center-4k-dashcam/input_0-600.mp4",
+   "gt_path": "ground_truth/overlay_qgaSRWY8Aio.json",
+   "download_duration_s": 600.0
+  },
+  {
+   "id": "3cT07o9aXyQ",
+   "city": "Portland, Oregon, USA",
+   "video_path": "data/test5/3ct07o9axyq-virtual-drive-1080p-in-clackamas-happy-valley-gresham-and-portland-o/input_0-600.mp4",
+   "gt_path": "ground_truth/overlay_3cT07o9aXyQ.json",
+   "download_duration_s": 600.0
+  },
+  {
+   "id": "zsqxTSNLw5A",
+   "city": "Portland, Oregon, USA",
+   "video_path": "data/test5/zsqxtsnlw5a-i-205-north-exit-17-to-i-84-east-to-exit-14-1080p-virtual-drive-port/input_0-600.mp4",
+   "gt_path": "ground_truth/overlay_zsqxTSNLw5A.json",
+   "download_duration_s": 600.0
+  }
+ ],
+ "excluded": [
+  {
+   "id": "jKBKJ3Js-4A",
+   "city": "Brisbane, Australia",
+   "status": "FRAMES_UNREADABLE"
+  },
+  {
+   "id": "t0n5zDnaTdM",
+   "city": "Nuremberg, Germany",
+   "status": "FRAMES_UNREADABLE"
+  }
+ ],
+ "counts": {
+  "TITLE_OR_DURATION_INELIGIBLE": 861,
+  "SCREEN_NOT_PASSED": 387,
+  "UNVERIFIED_FRAMES": 12,
+  "FRAMES_UNREADABLE": 2,
+  "PASS": 8
+ },
+ "amendments": [
+  "operational_amendment_01.json",
+  "operational_amendment_02.json",
+  "operational_amendment_03.json",
+  "operational_amendment_04.json",
+  "operational_amendment_05.json"
+ ],
+ "localization_executed": false
+}

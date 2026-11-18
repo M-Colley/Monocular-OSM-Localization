@@ -1,0 +1,110 @@
+{
+  "video_id": "ml4PPnpc-Kw",
+  "video_url": "https://www.youtube.com/watch?v=ml4PPnpc-Kw",
+  "city": "Glasgow, UK",
+  "vo_segment": "45:595",
+  "description": "test5 screen pass: Glasgow, UK query 'Glasgow dashcam GPS' rank 4. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 111 OCR fixes over 45-595 s (9.84 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 45.0,
+      "lat": 55.811418,
+      "lon": -4.551392
+    },
+    {
+      "t_sec": 75.0,
+      "lat": 55.81154,
+      "lon": -4.551492
+    },
+    {
+      "t_sec": 105.0,
+      "lat": 55.812174,
+      "lon": -4.550457
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 55.812646,
+      "lon": -4.549799
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 55.81416,
+      "lon": -4.543993
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 55.815747,
+      "lon": -4.545327
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 55.818115,
+      "lon": -4.540512
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 55.820939,
+      "lon": -4.534413
+    },
+    {
+      "t_sec": 275.0,
+      "lat": 55.823185,
+      "lon": -4.530802
+    },
+    {
+      "t_sec": 305.0,
+      "lat": 55.826424,
+      "lon": -4.533598
+    },
+    {
+      "t_sec": 335.0,
+      "lat": 55.829891,
+      "lon": -4.533723
+    },
+    {
+      "t_sec": 365.0,
+      "lat": 55.83182,
+      "lon": -4.534165
+    },
+    {
+      "t_sec": 390.0,
+      "lat": 55.835531,
+      "lon": -4.52719
+    },
+    {
+      "t_sec": 420.0,
+      "lat": 55.84012,
+      "lon": -4.517572
+    },
+    {
+      "t_sec": 450.0,
+      "lat": 55.842887,
+      "lon": -4.504405
+    },
+    {
+      "t_sec": 480.0,
+      "lat": 55.844149,
+      "lon": -4.490018
+    },
+    {
+      "t_sec": 510.0,
+      "lat": 55.84882,
+      "lon": -4.478865
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 55.853101,
+      "lon": -4.46982
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 55.855648,
+      "lon": -4.456385
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 55.859489,
+      "lon": -4.44492
+    }
+  ]
+}

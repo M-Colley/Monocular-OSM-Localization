@@ -69,6 +69,9 @@ SPLITS = {
     "test4": "Fresh road/dashcam batch selected under the 2026-11-10 data rule after "
              "test3 was scored. Its global method binding is frozen separately before "
              "any localization. `run` requires explicit --split test4.",
+    "test5": "Fresh road/dashcam batch selected under the 2026-11-17 data rule for the "
+             "dense pass-1 held-out test (rule test5_2026_11), registered with its method "
+             "before any search. `run` requires explicit --split test5.",
 }
 
 #: The core fleet. Strings only — no coordinates are maintained here; the
@@ -264,6 +267,15 @@ OVERLAY_TITLE_CITY: dict[str, str] = {
     "ZLmQWroXthY": "Kansas City, Missouri, USA",
     "jz6o-_Y6r2E": "Albuquerque, New Mexico, USA",
     "pFbUvfr8k-Q": "Trondheim, Norway",
+    # Test5, fixed before localization (2026-11-17).
+    "YJmgh_0SoGs": "Melbourne, Australia",
+    "FPQyfJsbjWM": "Rotterdam, Netherlands",
+    "ml4PPnpc-Kw": "Glasgow, UK",
+    "kMQOOXaUBh0": "Houston, Texas, USA",
+    "VaPcyHM-Wtc": "Calgary, Canada",
+    "qgaSRWY8Aio": "Belgrade, Serbia",
+    "3cT07o9aXyQ": "Portland, Oregon, USA",
+    "zsqxTSNLw5A": "Portland, Oregon, USA",
 }
 
 
@@ -348,7 +360,7 @@ def _overlay_entries(root: Path, *, video_ids: set[str] | None = None) -> list[d
                             f"to edit cuts)."),
             "city": city,
             "city_basis": ("the fixed screen's title-named city (intercity titles may name other places)"
-                           if clip.split == "test4" else "the first place the upload title names"),
+                           if clip.split in ("test4", "test5") else "the first place the upload title names"),
             "city_alternatives": alts, "city_alternatives_notes": notes,
             "legacy_city": c["city"],
             "available_locally": True,

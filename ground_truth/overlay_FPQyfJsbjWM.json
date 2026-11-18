@@ -1,0 +1,110 @@
+{
+  "video_id": "FPQyfJsbjWM",
+  "video_url": "https://www.youtube.com/watch?v=FPQyfJsbjWM",
+  "city": "Rotterdam, Netherlands",
+  "vo_segment": "20:540",
+  "description": "test5 screen pass: Rotterdam, Netherlands query 'Rotterdam dashcam drive' rank 5. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 82 OCR fixes over 20-540 s (3.67 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 20.0,
+      "lat": 51.933105,
+      "lon": 4.472387
+    },
+    {
+      "t_sec": 55.0,
+      "lat": 51.932392,
+      "lon": 4.471555
+    },
+    {
+      "t_sec": 85.0,
+      "lat": 51.931194,
+      "lon": 4.469942
+    },
+    {
+      "t_sec": 110.0,
+      "lat": 51.93042,
+      "lon": 4.469057
+    },
+    {
+      "t_sec": 135.0,
+      "lat": 51.929276,
+      "lon": 4.467497
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 51.927914,
+      "lon": 4.465785
+    },
+    {
+      "t_sec": 195.0,
+      "lat": 51.926563,
+      "lon": 4.462572
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 51.926353,
+      "lon": 4.461546
+    },
+    {
+      "t_sec": 245.0,
+      "lat": 51.924503,
+      "lon": 4.46216
+    },
+    {
+      "t_sec": 290.0,
+      "lat": 51.920486,
+      "lon": 4.463305
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 51.920174,
+      "lon": 4.463287
+    },
+    {
+      "t_sec": 350.0,
+      "lat": 51.919346,
+      "lon": 4.46325
+    },
+    {
+      "t_sec": 370.0,
+      "lat": 51.919346,
+      "lon": 4.46327
+    },
+    {
+      "t_sec": 395.0,
+      "lat": 51.919338,
+      "lon": 4.463283
+    },
+    {
+      "t_sec": 425.0,
+      "lat": 51.916767,
+      "lon": 4.462773
+    },
+    {
+      "t_sec": 445.0,
+      "lat": 51.914413,
+      "lon": 4.463421
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 51.912109,
+      "lon": 4.46352
+    },
+    {
+      "t_sec": 495.0,
+      "lat": 51.909782,
+      "lon": 4.464695
+    },
+    {
+      "t_sec": 520.0,
+      "lat": 51.906738,
+      "lon": 4.46641
+    },
+    {
+      "t_sec": 540.0,
+      "lat": 51.904411,
+      "lon": 4.467474
+    }
+  ]
+}

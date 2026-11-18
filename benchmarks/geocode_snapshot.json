@@ -20,6 +20,13 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:49+00:00"
   },
+  "Belgrade, Serbia": {
+    "lat": 44.8178131,
+    "lon": 20.4568974,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-18T04:22:54+00:00"
+  },
   "Berlin, Germany": {
     "lat": 52.5173885,
     "lon": 13.3951309,
@@ -61,6 +68,13 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-11-06T03:53:02+00:00"
+  },
+  "Calgary, Canada": {
+    "lat": 51.0456064,
+    "lon": -114.057541,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-18T04:22:54+00:00"
   },
   "Chicago, Illinois, USA": {
     "lat": 41.8755616,
@@ -104,6 +118,20 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-24T18:52:39+00:00"
   },
+  "Glasgow, UK": {
+    "lat": 55.861155,
+    "lon": -4.2501687,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-18T04:22:54+00:00"
+  },
+  "Houston, Texas, USA": {
+    "lat": 29.7589382,
+    "lon": -95.3676974,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-18T04:22:54+00:00"
+  },
   "Kansas City, Missouri, USA": {
     "lat": 39.100105,
     "lon": -94.5781416,
@@ -124,6 +152,13 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-24T18:52:42+00:00"
+  },
+  "Melbourne, Australia": {
+    "lat": -37.8142454,
+    "lon": 144.9631732,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-18T04:22:54+00:00"
   },
   "Montreal, Canada": {
     "lat": 45.5031824,
@@ -181,12 +216,26 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:56+00:00"
   },
+  "Portland, Oregon, USA": {
+    "lat": 45.5202471,
+    "lon": -122.674194,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-18T04:22:54+00:00"
+  },
   "Riga, Latvia": {
     "lat": 56.9493977,
     "lon": 24.1051846,
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-11-08T02:34:41+00:00"
+  },
+  "Rotterdam, Netherlands": {
+    "lat": 51.9244424,
+    "lon": 4.47775,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-18T04:22:54+00:00"
   },
   "San Francisco Peninsula, California, USA": {
     "lat": 37.5338023,

@@ -47,7 +47,8 @@ class OverlayClip:
     #: "test2" is the second held-out set, for methods built after "test" was
     #: scored (added 2026-11-05); "test3" the third, for methods built after
     #: "test2" was scored (added 2026-11-07); "test4" is the fresh batch
-    #: registered after test3 was scored (added 2026-11-10).
+    #: registered after test3 was scored (added 2026-11-10); "test5" the batch for
+    #: the dense pass-1 held-out test (added 2026-11-17).
     split: str = "dev"
 
     @property
@@ -367,6 +368,47 @@ CLIPS: tuple[OverlayClip, ...] = (
         video_id="pFbUvfr8k-Q", region="bottom", window=_W, split="test4",
         city_override="Trondheim, Norway", overlay="GPS coordinate stamp (bottom)",
         note="First passing candidate of the preregistered replacement search: Trondheim query 1, rank 4; GT QC pending at selection. No localization used.",
+    ),
+    # Test5, selected under benchmarks/test5_screen before any localization (2026-11-17).
+    OverlayClip(
+        video_id="YJmgh_0SoGs", region="bottom", window=_W, split="test5",
+        city_override="Melbourne, Australia", overlay="GPS coordinate stamp (bottom)",
+        note="test5 screen pass: Melbourne, Australia query 'Melbourne dashcam VIOFO' rank 9; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="FPQyfJsbjWM", region="bottom", window=_W, split="test5",
+        city_override="Rotterdam, Netherlands", overlay="GPS coordinate stamp (bottom)",
+        note="test5 screen pass: Rotterdam, Netherlands query 'Rotterdam dashcam drive' rank 5; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="ml4PPnpc-Kw", region="bottom", window=_W, split="test5",
+        city_override="Glasgow, UK", overlay="GPS coordinate stamp (bottom)",
+        note="test5 screen pass: Glasgow, UK query 'Glasgow dashcam GPS' rank 4; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="kMQOOXaUBh0", region="bottom", window=_W, split="test5",
+        city_override="Houston, Texas, USA", overlay="GPS coordinate stamp (bottom)",
+        note="test5 screen pass: Houston, Texas, USA query 'Houston dashcam VIOFO' rank 0; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="VaPcyHM-Wtc", region="bottom", window=_W, split="test5",
+        city_override="Calgary, Canada", overlay="GPS coordinate stamp (bottom)",
+        note="test5 screen pass: Calgary, Canada query 'Calgary dashcam drive' rank 2; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="qgaSRWY8Aio", region="bottom", window=_W, split="test5",
+        city_override="Belgrade, Serbia", overlay="GPS coordinate stamp (bottom)",
+        note="test5 screen pass: Belgrade, Serbia query 'Belgrade dashcam drive' rank 7; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="3cT07o9aXyQ", region="bottom", window=_W, split="test5",
+        city_override="Portland, Oregon, USA", overlay="GPS coordinate stamp (bottom)",
+        note="test5 screen pass: Portland, Oregon, USA query 'Portland dashcam GPS' rank 10; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="zsqxTSNLw5A", region="bottom", window=_W, split="test5",
+        city_override="Portland, Oregon, USA", overlay="GPS coordinate stamp (bottom)",
+        note="test5 screen pass: Portland, Oregon, USA query 'Portland dashcam GPS' rank 11; GT QC passed before any localization.",
     ),
 )
 

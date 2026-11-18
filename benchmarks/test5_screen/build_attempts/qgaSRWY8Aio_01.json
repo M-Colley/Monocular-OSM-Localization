@@ -1,0 +1,28 @@
+{
+  "id": "qgaSRWY8Aio",
+  "city": "Belgrade, Serbia",
+  "split": "test5",
+  "attempt": 1,
+  "started_utc": "2026-11-18T02:32:41.018973+00:00",
+  "selection_sha256": "261e71c6ccc2ed84c7d121253ce04ad47aedaad57ae005a13c9903f158fe3f3d",
+  "source_sha256": {
+    "scripts/build_overlay_fleet.py": "a3dbdaa18d770d1f61eea5103806c17f0080c7cf9fa02d4a697aa6675c423287",
+    "scripts/check_overlay_gt.py": "e94c82f5edda02c85515ea58ad1755f8eed4005e8446a648ec1ba0e04c3d57e1",
+    "scripts/overlay_clips.py": "726989224e465e375cd07bbf3854a1eed56173888bf05ddf71435ef3988abba9",
+    "monocular_osm/gps_overlay.py": "54de6afc8b6b77a197a6a2ff6869686b969d0393d1aa997f8aef11ef9c33cd0b",
+    "monocular_osm/scene_text.py": "338f4cff507900ebb96b501a88fb6126ea13d75596bcaa57f04652c15d4ee5ba",
+    "monocular_osm/download.py": "102ae0be6968114d5daf18714de2115a1fe5afc80d18721efac40ee53512fa70",
+    "benchmarks/test5_screen/build_one.py": "80ff362f961327f4dc60c80993b3dbfd9e4396123e1608f93d7952d259ee6331"
+  },
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "data/test5/qgasrwy8aio-driving-in-belgrade-ikea-city-center-4k-dashcam/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_qgaSRWY8Aio.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-18T03:00:25.379051+00:00",
+  "qc_log_sha256": "ee439fc1a8901306c6d7ec035ad873eaca4f17e9a0b8d383a75b2e5104ead2be"
+}

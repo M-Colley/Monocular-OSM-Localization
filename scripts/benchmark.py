@@ -2222,7 +2222,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--manifest", default=MANIFEST_PATH.as_posix())
     r.add_argument("--fleet", choices=("core", "overlay", "all"), default="core")
     r.add_argument("--clips", nargs="+", default=None, metavar="ID")
-    r.add_argument("--split", choices=("dev", "test", "test2", "test3", "test4", "all"), default="dev")
+    r.add_argument("--split", choices=("dev", "test", "test2", "test3", "test4", "test5", "all"), default="dev")
     r.add_argument("--repeats", type=int, default=1)
     r.add_argument("--city-variant", type=int, default=None, metavar="I",
                    help="use city_alternatives[I] instead of the manifest city "
