@@ -8,7 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from ..provenance import config_snapshot, file_sha256, snapshot_sources
+from ..provenance import config_snapshot, file_sha256, snapshot_prediction_sources
 from ..visual_odometry import default_intrinsics
 from .context import _record_channel
 from .report import _write_result_json
@@ -36,12 +36,11 @@ def run_filter_only(ctx, *, extract, run_vo, run_filter, finalize):
     try:
         extract(ctx)
         h, w = ctx.frames.frames[0].shape[:2]
-        root = Path(__file__).resolve().parents[2]
-        sources = [root / "main.py", *[root / "monocular_osm" / relative for relative in (
+        sources = (
             "cli.py", "pipeline.py", "visual_odometry.py", "frame_extraction.py",
             "graph_filter.py", "plane_speed.py", "osm_data.py", "provenance.py",
             "position.py", "baselines.py", "stages/context.py", "stages/acquire.py",
-            "stages/trajectory.py", "stages/graph_filter.py", "stages/filter_only.py", "stages/report.py")]]
+            "stages/trajectory.py", "stages/graph_filter.py", "stages/filter_only.py", "stages/report.py")
         inputs = {
             "created_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "input_policy": {key: False for key in ("calibration", "raw_images", "sensor_timestamps",
@@ -55,7 +54,7 @@ def run_filter_only(ctx, *, extract, run_vo, run_filter, finalize):
                            "frame_max_width": cfg.frame_max_width},
             "camera": {"intrinsics": "generic_70_degree_hfov", "K": default_intrinsics(w, h).tolist(),
                        "height_m": cfg.camera_height_m, "vo_rng_seed": 0},
-            "source_sha256": snapshot_sources(sources, cfg.output_dir),
+            "source_sha256": snapshot_prediction_sources(cfg.output_dir, sources),
         }
         ctx.result["filter_inputs"] = inputs
         _write_result_json(cfg.output_dir / "filter_inputs.json", {**inputs, "config": config_snapshot(cfg)})

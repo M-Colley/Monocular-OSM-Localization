@@ -1516,8 +1516,9 @@ def audit_assisted(rep, score, city, segment, *, poi_issues, filter_issues, read
         require(policy["version"] == audit["policy_version"] == POLICY_VERSION
                 and policy["config_sha256"] == audit["config_sha256"] == CONFIG_SHA256
                 and policy["config"] == policy_config(), "assisted policy constants/version changed")
-        declared = {str(key).replace("\\", "/"): value for key, value in inputs["source_sha256"].items()}
-        required_sources = {"main.py", "monocular_osm/assisted_policy.py", "monocular_osm/assisted_worker.py",
+        declared = posix_sources(inputs["source_sha256"])
+        # Both entry points use this module. Only checkouts ship the root shim.
+        required_sources = {"monocular_osm/cli.py", "monocular_osm/assisted_policy.py", "monocular_osm/assisted_worker.py",
             "monocular_osm/stages/assisted.py", "monocular_osm/stages/prior.py", "monocular_osm/pipeline.py",
             "monocular_osm/kartaview_vpr.py", "monocular_osm/poi_clues.py", "monocular_osm/poi_alignment.py",
             "monocular_osm/poi_localization.py", "monocular_osm/poi_image_track.py", "monocular_osm/assisted_motion.py"}

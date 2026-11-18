@@ -11,7 +11,7 @@ import uuid
 import numpy as np
 from ..assisted_policy import CONFIG_SHA256, POLICY_VERSION, decide_assisted_policy, policy_config
 from ..assisted_profiles import V3_FAMILY, resolve_policy
-from ..provenance import config_snapshot, file_sha256, snapshot_sources
+from ..provenance import config_snapshot, file_sha256, snapshot_prediction_sources
 from .context import _record_channel
 from .poi_only import _safe
 from .report import _write_result_json
@@ -213,8 +213,6 @@ def child_record(kind, child, output, expected=None, *, profile="v1"):
 
 
 def begin(ctx):
-    root = Path(__file__).resolve().parents[2]
-    sources = [root / "main.py", *sorted((root / "monocular_osm").rglob("*.py"))]
     execution_id = uuid.uuid4().hex
     policy = resolve_policy(getattr(ctx.cfg, "assisted_profile", "v1"))
     ctx.assisted_child_root = ctx.cfg.output_dir / "children" / execution_id
@@ -227,7 +225,7 @@ def begin(ctx):
             "raw_images", "gps_or_oxts", "manual_region_coordinates", "external_trajectory", "external_ocr_video")},
         "policy": {"version": policy.POLICY_VERSION, "config": policy.policy_config(), "config_sha256": policy.CONFIG_SHA256,
                    "source_sha256": file_sha256(Path(policy.__file__))},
-        "source_sha256": snapshot_sources(sources, ctx.cfg.output_dir), "config": config_snapshot(ctx.cfg)}
+        "source_sha256": snapshot_prediction_sources(ctx.cfg.output_dir), "config": config_snapshot(ctx.cfg)}
     if getattr(ctx.cfg, "assisted_profile", "v1") in V3_FAMILY:
         declared = {name.replace("\\", "/") for name in inputs["source_sha256"]}
         required = V3_REQUIRED_SOURCES | (V4_REQUIRED_SOURCES if ctx.cfg.assisted_profile == "v4" else set())
