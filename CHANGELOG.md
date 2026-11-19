@@ -6,6 +6,48 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Unified metro-dense VPR, worldwide Unicode/exonym support & Stage 0 city inference (November 2026)
+
+- **Opt-in unified metro-dense VPR (`--vpr-metro-dense`, commit `d9daa83`):**
+  - Searches a full 20 km metropolitan Pass-1 disc (`--vpr-metro-radius`,
+    `--vpr-metro-cap 24000`) with C-vectorized 25 m micro-cell deduplication
+    (`--vpr-spatial-dedup-m`) so single-traverse suburban streets receive the
+    same per-road-km density as multi-traverse downtown corridors, shared across
+    clips in `_metro_shared`.
+  - Pools uploader-named suburbs (up to 60 km out) and frame seeds
+    **additively** into Pass 1 instead of clamping the search to 3 km, decodes
+    arbitrary pool sizes (`24k–60k+`) via tiled exact GPU/CPU Viterbi
+    (`kartaview_vpr._viterbi_decode_torch`), refines with up to 4 overlapping
+    2.5 km Corridor Pass-2 discs (8 m deduplication) unioned with local Pass-1
+    references, and automatically augments thin Mapillary regions with open
+    Panoramax and KartaView imagery (`--vpr-auto-fallback-sources`).
+- **Worldwide script & exonym fairness fixes (`d9daa83`):**
+  - Preserves Cyrillic, CJK, Hangul, Arabic, Greek, Hebrew, Devanagari, Thai,
+    and Extended-Latin ligatures (`Łódź`, `København`) across
+    `osm_gazetteer.py`, `text_anchor.py`, `location_prior.py`, and
+    `city_inference.py`, and indexes multilingual OSM name tags (`name:en`,
+    `int_name`, `alt_name`).
+  - Fixes Nominatim small-polygon extent sizing (`Glasgow` `<4 km` inner-ward
+    rank-1 polygon) and expands `benchmark.py:city_fairness_problem` with 50+
+    bidirectional exonym/endonym/script groups (`Bucharest` / `Bucuresti`,
+    `Belgrade` / `Београд`, `Tokyo` / `東京`, `Seoul` / `서울`, `Cologne` / `Köln`).
+- **Stage 0 planet-scale city inference (`--infer-city-from-video`):** optional
+  city-free front-end (`monocular_osm/global_geoloc.py`) combining multilingual
+  title parsing, StreetCLIP/CLIP zero-shot scoring over 115+ world metros across
+  all 6 inhabited continents, and optional Gemma 4 VLM voting.
+- **In-sample check (`metro_dense_dev_2026_11`, 14 clips across `test5` + `test4`):**
+  both decision hypotheses hold (`0` losses, `+5` paired gains + `+1` unlocked
+  exonym gain vs `dense_24k`, paired exact McNemar `p = 0.031`):
+  - Within 200 m (13 paired): **1/13** ordinary → **4/13** `dense_24k` → **9/13**
+    `metro_dense` (**10/14 = 71.4 %** across all 14 clips, all 10 `<= 56.5 m`;
+    median `1,346 m` → `678 m` → **`49.8 m`**; Glasgow `11,085 -> 422.9 m`).
+  - Gains across 200 m: Portland `3cT07o9aXyQ` (`9,750 -> 25.6 m`), Portland
+    `zsqxTSNLw5A` (`10,501 -> 18.3 m`), Belgrade (`678 -> 32.4 m`), Kansas City
+    (`393 -> 56.5 m`), Bucharest `tK7bHJXAJX8` (`351 -> 49.8 m`), plus unlocked
+    Bucharest `yd5g7jsWiEM` (`10.5 m`); Calgary tightened `171 -> 14.7 m`.
+  - Stays opt-in pending held-out certification on the 6-continent protocol
+    scaffolded in `benchmarks/test6_screen/`. See `docs/metro_dense_dev_2026-11.md`.
+
 ### Held-out test5: dense pass 1 on new footage (November 2026)
 
 - Eight new clips were selected under a 40-city rule registered before any

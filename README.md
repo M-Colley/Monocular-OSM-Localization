@@ -80,6 +80,31 @@ Over 30 held-out clips the retrieval track is within 200 m on 13 (Wilson
 95 % 27-61 %). The commits are `ccd0bbe` on test1-test2, `f582928` on test3,
 and `409a959`'s baseline track (which decided assisted v4's answer) on test4.
 
+**Dense city-wide pass 1 & held-out `test5`** (`--vpr-pass1-cap 24000`, opt-in,
+GPU): streaming 24,000 references with exact GPU Viterbi improved the 29
+runnable `test1`–`test4` clips in-sample from **11/29 to 16/29** within 200 m
+(median 325 m → 144 m, zero losses; [record](docs/dense_pass1_dev_2026-11.md)).
+On eight new pre-registered clips (`split=test5`, rule `test5_2026_11`),
+within-200 m moved from **1/8** (ordinary) to **2/8** (dense; Calgary
+6,881 → 171 m; [record](docs/heldout_test5_2026-11.md)), because suburban routes
+lay 8.5–21 km outside the 8 km city-extent cap or were clamped to 3 km by
+title/OCR seeds ([coverage diagnostic](docs/search_area_coverage_2026-11.md)).
+
+**Unified metro-dense VPR & worldwide support** (`--vpr-metro-dense`, opt-in,
+GPU; plus optional Stage 0 `--infer-city-from-video` when `--city` is unknown):
+searches a 20 km metropolitan disc with 25 m micro-cell deduplication, pools
+title/frame seeds additively up to 60 km out without clamping the metro disc,
+refines along the driven route with up to 4 overlapping 2.5 km corridor discs
+unioned with local Pass-1 references, auto-augments thin Mapillary areas with
+Panoramax/KartaView, and preserves non-Latin scripts (Cyrillic, CJK, Hangul,
+Arabic, Greek) and city exonyms. Checked in-sample on all 14 `test5` + `test4`
+clips (`metro_dense_dev_2026_11`), within-200 m rises from **1/13** (ordinary)
+and **4/13** (`dense_24k`) to **9/13** paired and **10/14 (71.4 %)** overall
+(all 10 `<= 56.5 m`, median **47.9 m**, zero losses;
+[record](docs/metro_dense_dev_2026-11.md)). Because `test4` and `test5` are
+used splits, certifying generalization awaits the 6-continent held-out split in
+`benchmarks/test6_screen/`.
+
 The [October research and method tests](docs/recent_methods_2026-10.md) cover
 recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled
 ImAge test passes the night clip. Full-gallery SelaVPR++, camera-heading and

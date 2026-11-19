@@ -16,9 +16,12 @@ city name. **It is not met, and in-sample evidence cannot certify it.**
 | held out test1-test4 (30 clips) | frozen methods, pooled | 13/30 | `docs/heldout_test*_2026-1*.md` |
 | test4 (6) | assisted v4 | 1/6 | `docs/heldout_test4_2026-11.md` |
 | test5 (8, newest) | plain pipeline, ordinary vs dense pass 1 | 1/8 vs 2/8 | `docs/heldout_test5_2026-11.md` |
+| test5 + test4 (14, in-sample check) | `--vpr-metro-dense` (`d9daa83`, GPU) | **10/14** (`9/13` paired vs `4/13` dense_24k & `1/13` ordinary, 0 losses, median 47.9 m) | `docs/metro_dense_dev_2026-11.md` |
 
-**Every split (test, test2, test3, test4, test5) is now used.** Any new
-method needs a fresh held-out split before it can claim generalisation (§6).
+**Every split (test, test2, test3, test4, test5) is now used.** `--vpr-metro-dense`
+passed both pre-registered in-sample hypotheses (`M1` no harm, `M2` +6 gains / 0
+losses) on `test5` + `test4`, and a 6-continent stratified selection protocol is
+scaffolded in `benchmarks/test6_screen/` for fresh held-out certification (§6).
 
 ## 2. Repository and branch
 
