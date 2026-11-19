@@ -1034,7 +1034,14 @@
       },
       "decision": "Only if M1 and M2 both hold is --vpr-metro-dense a candidate for the fresh held-out 6-continent split (benchmarks/test6_screen). It remains opt-in and off by default pending held-out certification.",
       "feasibility": "Before registration, unscored dev feasibility checks on berlin_0-420 verified C-vectorized 25 m tile deduplication, 200-ID Graph API URL batching, 8 m Corridor Pass-2 deduplication, and result.json health (rc=0, 912.6 s wall on 4K60 input, sim p1 0.212 -> p2 0.260, degraded=[], leaks=[]); no GT error was computed.",
-      "disclosure": "In-sample on all 14 clips (test4 and test5 failure modes directly informed the design). Baseline ordinary and dense_24k arms are the existing committed runs in E:/claude-scoring/wt-test5 and E:/claude-scoring/wt-dense rather than fresh reruns, so listing timestamps differ by 1-2 days."
+      "disclosure": "In-sample on all 14 clips (test4 and test5 failure modes directly informed the design). Baseline ordinary and dense_24k arms are the existing committed runs in E:/claude-scoring/wt-test5 and E:/claude-scoring/wt-dense rather than fresh reruns, so listing timestamps differ by 1-2 days.",
+      "infra_check": {
+        "recorded": "2026-11-19, after the run ended (02:46 UTC) and before any score or aggregate was computed",
+        "run": "worktree E:/claude-scoring/wt-metro-dense at 39885be (monocular_osm tree 17ec29e0eb30597f62fc211e92b0adeff24e107f, clean dirty=False); run names metro_dense_test5 and metro_dense_test4",
+        "runs": "14/14 runs exit 0 (no timeouts, refusals, degraded channels, or leak warnings), all 14 answer.method vpr_track_only; overlay_yd5g7jsWiEM (Bucharest 'Buzau - Bucuresti') passed the exonym fairness guard and completed in 355.6 s reusing the shared Bucharest metro cache",
+        "decoders_and_refs": "14/14 Pass-1 runs used viterbi_tiled_cuda over 23,981-28,102 metro+seed references; 14/14 Pass-2 runs kept pass-2-corridor across 1-4 corridor discs (1,906-13,700 references, viterbi or viterbi_tiled_cuda)",
+        "decision": "no infrastructure failure; zero reruns"
+      }
     }
   }
 }
