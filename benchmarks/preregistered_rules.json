@@ -1076,6 +1076,57 @@
         "decision": "M1 and M2 both hold: --vpr-metro-dense is a candidate for fresh held-out evaluation on the 6-continent test6 split (benchmarks/test6_screen); stays opt-in pending held-out certification",
         "report": "docs/metro_dense_dev_2026-11.md"
       }
+    },
+    "metro_dense_v2_all38_dev_2026_11": {
+      "registered": "2026-11-19",
+      "description": "Complete 38-clip in-sample evaluation of Metro-Dense v2 (--vpr-metro-dense at commit 31a6f57, monocular_osm tree 75f8e90cdc63fdc328069264a72fcd02e5a2ace5) across all five existing test splits: test (7), test2 (7), test3 (10), test4 (6), and test5 (8). Adds (1) corroborated seed recovery on low-cosine (<0.155) night drives, (2) span-adaptive corridor disc scaling up to 8 discs on >7.5 km highway drives, (3) open Panoramax/KartaView augmentation when Pass-1 cosine <0.150, and (4) full-video OCR seed candidate scanning (max_candidates=60). In-sample development evidence across all 38 clips.",
+      "method": "commit 31a6f57 (monocular_osm tree 75f8e90cdc63fdc328069264a72fcd02e5a2ace5), retrieval-track pipeline (--answer track) with --retrieval-only --vpr-metro-dense --vpr-region-cache-dir E:/claude-scoring/metro_dense_cache.",
+      "clips": {
+        "test": {
+          "data_dir": "E:/claude-scoring/test1-replay/data",
+          "clips": ["overlay_nsONSyk9wtc", "overlay_bF5IfC2ZHjQ", "overlay_5b-tgjtwb2U", "overlay_zt8rHvHKBUU", "overlay_4LvkBo69jZo", "overlay_iJ2JvNk4Rmk", "overlay_-1xwoetuoOg"]
+        },
+        "test2": {
+          "data_dir": "E:/claude-scoring/test2/data",
+          "clips": ["overlay_2sS6glBBm8g", "overlay_GnXsgpVPvww", "overlay_lCm2a3kOEmE", "overlay_0jJbdTcDseI", "overlay_HpBfjRA60ws", "overlay_1bGf8OD9Fqo", "overlay_XO6H3mGMKYg"]
+        },
+        "test3": {
+          "data_dir": "E:/claude-scoring/test3/data",
+          "clips": ["overlay_8BUtb7TKUFA", "overlay_HfK2LuXQtfA", "overlay_6GciDYJ1FUc", "overlay_G6bUX4GvSbE", "overlay_vp_D8mxgEkA", "overlay_K_54XHyzRn8", "overlay_5koGsNdaVvE", "overlay_MMKAehhi-tA", "overlay_5ewPAw_gIeI", "overlay_7n4XQUBEH5Y"]
+        },
+        "test4": {
+          "data_dir": "C:/Users/markc/test4-eval/data",
+          "clips": ["overlay_tK7bHJXAJX8", "overlay_yd5g7jsWiEM", "overlay_jkkl1QgsPSo", "overlay_ZLmQWroXthY", "overlay_jz6o-_Y6r2E", "overlay_pFbUvfr8k-Q"]
+        },
+        "test5": {
+          "data_dir": "data/test5",
+          "clips": ["overlay_YJmgh_0SoGs", "overlay_FPQyfJsbjWM", "overlay_ml4PPnpc-Kw", "overlay_kMQOOXaUBh0", "overlay_VaPcyHM-Wtc", "overlay_qgaSRWY8Aio", "overlay_3cT07o9aXyQ", "overlay_zsqxTSNLw5A"]
+        }
+      },
+      "run": "one rep per clip on CUDA GPU from clean detached worktree E:/claude-scoring/wt-metro-dense-v2 at the registration commit (with untracked data/ directory junctions to main checkout builder downloads as in wt-dense and wt-test5); run names mdv2_<split>; benchmark.py run --skip-download --pipeline-arg=--retrieval-only --pipeline-arg=--vpr-metro-dense --pipeline-arg=--vpr-region-cache-dir=E:/claude-scoring/metro_dense_cache --timeout 7200 --min-free-vram-gb 8 --min-free-commit-gb 10 --infra-retries 3 --infra-wait 600.",
+      "infrastructure": "Before any score is read: check every run exits 0 without timeout, produces answer.method vpr_track_only, and decodes Pass 1 via viterbi/viterbi_tiled_cuda.",
+      "comparison": "paired per clip across all 37 clips run in dense_24k / ordinary (wt-dense + wt-test5) plus unlocked overlay_yd5g7jsWiEM (38 total), scored offline by benchmark.py aggregate --offline.",
+      "hypotheses": {
+        "V1": "No net harm on test1-test3 vs dense_24k: at most 1 clip within 200 m in dense_24k moves above 200 m on test1-test3.",
+        "V2": "All-split gains: across the 37 paired clips, within-200 m increases by at least +6 clips over dense_24k (18/37) and +12 clips over ordinary (12/37), with one-sided McNemar p < 0.05.",
+        "V3": "Descriptive: within-200 m and median symmetric route error per split and pooled across all 38 clips; Melbourne night seed recovery and Glasgow adaptive corridor disc diagnostics."
+      },
+      "disclosure": "In-sample across all 38 clips (test1-test5 failure modes informed the design). test4 and test5 reuse warm _metro_shared 20 km Mapillary caches from metro_dense_dev_2026_11."
+    },
+    "test6_worldwide_2026_11": {
+      "registered": "2026-11-19",
+      "description": "Blind 6-continent held-out evaluation of frozen Metro-Dense v2 (--vpr-metro-dense, monocular_osm tree 75f8e90cdc63fdc328069264a72fcd02e5a2ace5) paired against the ordinary baseline on new globally stratified footage (benchmarks/test6_screen, selection_sha256 4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073: target 12 clips across Asia 3, Latin America 2, Middle East & Africa 2, Europe 2, North America 2, Oceania 1), registered before any YouTube search, download, GT extraction, or localization.",
+      "data": "all clips passing QC under benchmarks/test6_screen/drive.py (split=test6, data_dir E:/claude-scoring/test6/data); every passing clip is added to benchmarks/manifest.json and evaluated without exclusion.",
+      "method": "pipeline code identical to commit 31a6f57 (monocular_osm tree 75f8e90cdc63fdc328069264a72fcd02e5a2ace5), verified before the run and executed from a clean detached worktree at the manifest-freeze commit. Two arms per clip on CUDA GPU: ordinary (--retrieval-only) and metro_dense (--retrieval-only --vpr-metro-dense --vpr-region-cache-dir E:/claude-scoring/metro_dense_cache). No parameter is changed after seeing any test6 clip or outcome.",
+      "infrastructure": "Before any score is read: verify exit 0, no timeout, answer.method vpr_track_only (or documented sparse-provider unavailability if all 3 street-view providers have <30 images in a city); rerun genuine infrastructure faults at the same commit before scoring.",
+      "comparison": "paired per clip on split=test6, scored offline by benchmark.py aggregate --offline (symmetric mean route error).",
+      "hypotheses": {
+        "W1": "No harm: at most 1 clip within 200 m in the ordinary arm moves above 200 m in metro_dense.",
+        "W2": "Worldwide benefit: strictly more test6 clips achieve symmetric_mean_m <= 200 m in metro_dense than in the ordinary arm.",
+        "W3": "Descriptive: within-200 m share per arm with Wilson 95 % intervals, per-continent breakdown across all 6 continents, medians, and 10 % better/worse/tie sign test.",
+        "goal_check": "whether all test6 clips achieve symmetric_mean_m <= 200 m."
+      },
+      "decision": "If W1 and W2 hold on blind 6-continent held-out data, --vpr-metro-dense is certified as generalizing worldwide on new footage and may be promoted as the recommended worldwide GPU configuration."
     }
   }
 }
