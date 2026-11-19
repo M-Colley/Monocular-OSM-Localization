@@ -1,7 +1,9 @@
 # Project code knowledge
 
-Refreshed 12 November 2026 from the current checkout and closed experiment
-records, including masked-native DVLT source `3823286`, road-context source `67be7cb`, semantic-sidecar source `f2e8ee5`, joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
+Refreshed 19 November 2026 from the current checkout and closed experiment
+records, including unified metro-dense VPR & worldwide Unicode/exonym source
+`d9daa83` (outcome recorded at `10456fd`), `test5` / dense pass-1 source
+`b66b9ee`/`f67822b`, masked-native DVLT source `3823286`, road-context source `67be7cb`, semantic-sidecar source `f2e8ee5`, joint-initial-proposal source `ad9cd96`, raw-query-veto source `b872862`, native multiview source `a902b8f`, 500k trial source `fcc3203`, adaptive-resampling source
 `54a85e4`, earlier heading-variance
 source `6d2768c` and dataset addition `fa7df5e`. Read this alongside the
 dated records; a test passing or a candidate
@@ -55,19 +57,40 @@ failed development clips or change that denominator.
 - Metro-ring's **20/29 versus 16/29** development comparison did not
   generalize to test3. It stays off by default. The denser first-pass pilot
   moved one Katowice result to 745 m; it crossed no clip below 200 m.
+- Dense city-wide pass 1 (`--vpr-pass1-cap 24000`, `b66b9ee`, GPU streamed
+  descriptors + torch Viterbi) reached **16/29** vs **11/29** ordinary
+  in-sample (`dense_pass1_dev_2026_11`, zero losses). On the eight new
+  `test5` clips (`test5_2026_11`, manifest now **56 entries, 53 available**),
+  it scored **2/8** vs **1/8** ordinary ([test5 record](heldout_test5_2026-11.md)),
+  because suburban routes lay outside the 8 km city-extent cap or were clamped
+  to 3 km by frame/title seeds ([coverage diagnostic](search_area_coverage_2026-11.md)).
+- Unified metro-dense VPR (`--vpr-metro-dense`, `d9daa83`: 20 km metro Pass 1
+  with C-vectorized 25 m cell deduplication, additive seeds up to 60 km, tiled
+  GPU Viterbi, 1–4 x 2.5 km Corridor Pass-2 discs unioned with local Pass-1
+  refs, Panoramax/KartaView auto-fallback, plus Unicode/exonym normalization)
+  scored **10/14 (71.4 %, median 47.9 m)** in-sample across `test5` + `test4`
+  (`metro_dense_dev_2026_11`), up from **4/13** (`dense_24k`) and **1/13**
+  (ordinary), with zero losses ([metro-dense record](metro_dense_dev_2026-11.md)).
+  Certifying generalization requires a fresh held-out run on the 6-continent
+  protocol in `benchmarks/test6_screen/`.
 
 Sources: [assisted fleet](assisted_fleet_2026-11.md),
 [test1](heldout_test_2026-10.md), [test2](heldout_test2_2026-11.md),
-[test3](heldout_test3_2026-11.md), and
+[test3](heldout_test3_2026-11.md), [test4](heldout_test4_2026-11.md),
+[test5](heldout_test5_2026-11.md), [metro-dense](metro_dense_dev_2026-11.md), and
 [benchmark declarations](../benchmarks/preregistered_rules.json).
 
 ## Code map
 
 - `monocular_osm/pipeline.py` defines `PipelineConfig` and dispatches staged
   execution through `monocular_osm/stages/` and `RunContext`.
-- `stages/prior.py`, `kartaview_vpr.py`, `regional_retrieval.py`, and
-  `city_retrieval.py` implement the ordinary street-image retrieval track,
+- `stages/prior.py`, `kartaview_vpr.py`, `metro_vpr.py`, `regional_retrieval.py`,
+  and `city_retrieval.py` implement street-image retrieval tracks, unified
+  20 km metro-dense + multi-disc corridor retrieval (`--vpr-metro-dense`),
   region searches, and municipal coarse-to-fine search.
+- `global_geoloc.py` implements opt-in Stage 0 planet-scale city inference
+  (`--infer-city-from-video`) via multilingual title parsing, StreetCLIP/CLIP
+  zero-shot ranking across 115+ world metros, and optional Gemma 4 VLM voting.
 - `assisted_policy*.py` select among isolated children in
   `assisted_worker.py`. V4 adds literal shop-sign site verification in
   `poi_site_verify.py` to v3's retrieval, OCR/POI, and road-filter stages.
