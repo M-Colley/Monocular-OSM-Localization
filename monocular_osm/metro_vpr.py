@@ -118,7 +118,16 @@ def plan_corridor_discs(
         return centres
 
     cand_pts = sm[coherent_idx]
-    while len(centres) < max_discs:
+    eff_max = max_discs
+    if max_discs >= 4 and len(cand_pts) >= 2:
+        import math
+        min_lat, min_lon = np.min(cand_pts, axis=0)
+        max_lat, max_lon = np.max(cand_pts, axis=0)
+        span_m = float(geodesic_distance_m(min_lat, min_lon, max_lat, max_lon))
+        if span_m > 7500.0:
+            eff_max = min(8, max(max_discs, int(math.ceil(span_m / 2500.0)) + 1))
+
+    while len(centres) < eff_max:
         min_dists = np.min(
             np.column_stack([
                 geodesic_distance_m(c[0], c[1], cand_pts[:, 0], cand_pts[:, 1])
@@ -412,6 +421,46 @@ def run_metro_dense_vpr(
     p1_track_sims = sims_p1[np.arange(len(q_idx)), path_p1].astype(float)
     p1_center = kv._robust_center(p1_track_xy, p1_track_sims)
     p1_med_sim = float(np.median(p1_track_sims)) if len(p1_track_sims) else 0.0
+
+    # When primary Mapillary Pass-1 confidence is weak (< 0.150, e.g. local
+    # Mapillary desert in US Sunbelt / Asia / LatAm suburbs), augment the metro
+    # pool with open Panoramax and KartaView imagery even if downtown Mapillary
+    # had >= 300 references.
+    low_sim_augment = bool(auto_fallback_sources and source == "mapillary" and p1_med_sim < 0.150)
+    if low_sim_augment:
+        aug_added = 0
+        for extra_src, extra_cap in (("panoramax", 5000), ("kartaview", 3000)):
+            if (m_meta.get("provider_counts") or {}).get(extra_src, 0) > 0:
+                continue
+            extra_dir = metro_dir / extra_src
+            e_emb, e_xy, e_meta = _fetch_and_embed_region(
+                extra_src, city_center, metro_radius_m, extra_dir, extra_cap, None,
+                device, resolved_model, spatial_dedup_m=spatial_dedup_m,
+                batch_size=max(batch_sz, 24), auto_fallback=False,
+            )
+            e_meta["role"] = f"low_sim_open:{extra_src}"
+            region_records.append(e_meta)
+            if e_emb is not None and e_xy is not None and len(e_xy):
+                p1_embs.append(e_emb)
+                p1_xys.append(e_xy)
+                aug_added += int(len(e_xy))
+        if aug_added > 0:
+            p1_emb, p1_xy = _dedup_pool(p1_embs, p1_xys)
+            print(f"      -> [metro-dense] augmented weak pass-1 ({p1_med_sim:.3f}) "
+                  f"with +{aug_added} open-provider refs (pool={len(p1_xy)})")
+            sims_p1 = kv._query_similarities(
+                frames_bgr, q_idx, p1_emb, device, mode=query_mode,
+                batch_size=query_batch_size, **q_opts,
+            )
+            if sequence_decode:
+                path_p1, dec_p1 = _decode_exact(sims_p1, p1_xy, float(query_dt_s), device)
+            else:
+                path_p1, dec_p1 = sims_p1.argmax(axis=1).astype(np.int32), "argmax"
+            p1_track_xy = p1_xy[path_p1].astype(float)
+            p1_track_sims = sims_p1[np.arange(len(q_idx)), path_p1].astype(float)
+            p1_center = kv._robust_center(p1_track_xy, p1_track_sims)
+            p1_med_sim = float(np.median(p1_track_sims)) if len(p1_track_sims) else 0.0
+
     diagnostics["pass1"] = {
         "decoder": dec_p1,
         "n_references": int(len(p1_xy)),
@@ -444,6 +493,7 @@ def run_metro_dense_vpr(
             c_embs.append(p1_emb.index_select(0, idx_near))
             c_xys.append(p1_xy[near_mask])
 
+    corridor_fb_min = (corridor_disc_cap + 1) if low_sim_augment else 50
     corridor_records = []
     for c_i, cc in enumerate(corridor_centres):
         c_tag = hashlib.sha256(
@@ -454,13 +504,23 @@ def run_metro_dense_vpr(
             source, cc, corridor_radius_m, c_dir, corridor_disc_cap, token,
             device, resolved_model, spatial_dedup_m=8.0,
             batch_size=max(batch_sz, 24), auto_fallback=auto_fallback_sources,
-            fallback_min_refs=50,
+            fallback_min_refs=corridor_fb_min,
         )
         cmeta["disc_index"] = c_i
         corridor_records.append(cmeta)
         if ce is not None and cxy is not None:
             c_embs.append(ce)
             c_xys.append(cxy)
+
+    # Retain local Pass-1 references near seed_around before freeing p1_emb in
+    # case low-cosine night-drive seed recovery is needed below.
+    seed_local_pair = None
+    if seed_around is not None:
+        s_lat, s_lon, s_rad = float(seed_around[0]), float(seed_around[1]), float(seed_around[2])
+        s_mask = geodesic_distance_m(s_lat, s_lon, p1_xy[:, 0], p1_xy[:, 1]) <= max(s_rad, 3500.0) + 1000.0
+        if s_mask.any():
+            idx_s = torch.tensor(np.flatnonzero(s_mask), dtype=torch.long)
+            seed_local_pair = (p1_emb.index_select(0, idx_s), p1_xy[s_mask])
 
     # Free the large Pass-1 descriptor tensor before Pass-2 similarity matmul.
     del p1_emb
@@ -489,6 +549,71 @@ def run_metro_dense_vpr(
     kept_label = "pass-2-corridor" if keep_p2 else "pass-1 (corridor sim lower)"
     final_xy = p2_track_xy if keep_p2 else p1_track_xy
     final_sims = p2_track_sims if keep_p2 else p1_track_sims
+    final_center = p2_center if keep_p2 else p1_center
+    final_med_sim = p2_med_sim if keep_p2 else p1_med_sim
+
+    # Step 3: Corroborated-seed recovery on low-cosine (e.g. night) drives.
+    # When visual appearance cosines stay weak across the entire metro (< 0.155,
+    # typical of pitch-black night footage against daytime street imagery) AND
+    # a corroborated multi-vote OCR/plate/title seed exists that the noisy wide
+    # decode drifted away from, evaluate a dense local seed corridor and keep it
+    # unless the distant track clearly beats it by > 0.025 cosine.
+    if seed_around is not None and final_med_sim < 0.155:
+        s_lat, s_lon, s_rad = float(seed_around[0]), float(seed_around[1]), float(seed_around[2])
+        drift_m = float(geodesic_distance_m(final_center[0], final_center[1], s_lat, s_lon))
+        if drift_m > s_rad + 1500.0:
+            r_seed_dense = float(np.clip(s_rad, 3500.0, 6000.0))
+            s_tag = hashlib.sha256(
+                f"{source}:night_seed:{s_lat:.4f}:{s_lon:.4f}:{r_seed_dense:.0f}:6000:10.0".encode()
+            ).hexdigest()[:12]
+            s_dir = Path(data_dir) / f"{source}_metro_seeds" / f"dense_seed_{s_tag}"
+            se, sxy, smeta = _fetch_and_embed_region(
+                source, (s_lat, s_lon), r_seed_dense, s_dir, 6000, token,
+                device, resolved_model, spatial_dedup_m=10.0,
+                batch_size=max(batch_sz, 24), auto_fallback=auto_fallback_sources,
+                fallback_min_refs=200,
+            )
+            seed_embs, seed_xys = [], []
+            if seed_local_pair is not None:
+                seed_embs.append(seed_local_pair[0])
+                seed_xys.append(seed_local_pair[1])
+            if se is not None and sxy is not None:
+                seed_embs.append(se)
+                seed_xys.append(sxy)
+            seed_pool_emb, seed_pool_xy = _dedup_pool(seed_embs, seed_xys)
+            if seed_pool_emb is not None and seed_pool_xy is not None and len(seed_pool_xy) >= 30:
+                sims_seed = kv._query_similarities(
+                    frames_bgr, q_idx, seed_pool_emb, device, mode=query_mode,
+                    batch_size=query_batch_size, **q_opts,
+                )
+                if sequence_decode:
+                    path_seed, dec_seed = _decode_exact(sims_seed, seed_pool_xy, float(query_dt_s), device)
+                else:
+                    path_seed, dec_seed = sims_seed.argmax(axis=1).astype(np.int32), "argmax"
+                s_track_xy = seed_pool_xy[path_seed].astype(float)
+                s_track_sims = sims_seed[np.arange(len(q_idx)), path_seed].astype(float)
+                s_med_sim = float(np.median(s_track_sims)) if len(s_track_sims) else 0.0
+                s_center = kv._robust_center(s_track_xy, s_track_sims)
+                accepted_seed = s_med_sim >= final_med_sim - 0.025
+                diagnostics["seed_recovery"] = {
+                    "triggered": True,
+                    "drift_m": round(drift_m, 1),
+                    "seed_radius_m": r_seed_dense,
+                    "n_references": int(len(seed_pool_xy)),
+                    "decoder": dec_seed,
+                    "seed_median_sim": round(s_med_sim, 4),
+                    "global_median_sim": round(final_med_sim, 4),
+                    "accepted": accepted_seed,
+                }
+                if accepted_seed:
+                    final_xy, final_sims = s_track_xy, s_track_sims
+                    p2_center, p2_med_sim = s_center, s_med_sim
+                    kept_label = "seed-corridor (low-cosine recovery)"
+                    print(
+                        f"      -> [metro-dense] low-cosine ({final_med_sim:.3f}) drifted "
+                        f"{drift_m:.0f} m from corroborated seed; recovered seed-corridor "
+                        f"(sim {s_med_sim:.3f}, refs={len(seed_pool_xy)})"
+                    )
 
     diagnostics.update(
         status="ok",

@@ -42,6 +42,7 @@ _GENERIC = {
     "motorway", "autobahn", "freeway", "city", "downtown", "center", "centre",
     "central", "old", "town", "pov", "hd", "hdr", "uhd", "4k", "8k", "60fps",
     "1080p", "1440p", "2160p", "4k60", "fps", "gps", "asmr", "relaxing",
+    "no", "music", "talking", "silent", "ambient", "sound", "sounds",
     "scenic", "route", "part", "episode", "vol", "full", "video", "footage",
     "germany", "france", "spain", "italy", "usa", "canada", "uk", "england",
     "scotland", "japan", "china", "korea", "india", "australia", "brazil",
@@ -181,6 +182,7 @@ def resolve_coarse_prior(
     max_radius_m: float = 6000.0,
     min_places: int = 1,
     route_length_m: float | None = None,
+    max_candidates: int = 14,
 ) -> tuple[float, float, float, list[str]] | None:
     """Coarse prior ``(lat, lon, radius_m, matched_places)`` from named places
     in the video's title + description, or ``None`` if none resolve usefully.
@@ -204,7 +206,7 @@ def resolve_coarse_prior(
     # itself or coarser: never a refinement ("Michigan" geocoded to a station
     # and became an 800 m gate on a Detroit clip).
     city_parts = {p.strip().casefold() for p in city.split(",") if p.strip()}
-    cands = extract_place_candidates(title, description)
+    cands = extract_place_candidates(title, description, max_candidates=max_candidates)
     hits: list[tuple[str, tuple[float, float]]] = []
     for c in cands:
         if c.strip().casefold() in city_parts:

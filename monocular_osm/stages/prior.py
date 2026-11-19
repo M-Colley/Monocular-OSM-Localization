@@ -135,7 +135,8 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
                                    max_km_from_city=reach_m / 1000.0,
                                    min_places=_OCR_SEED_MIN_PLACES,
                                    route_length_m=(_auto_estimated_length_m(seg_s)
-                                                   if seg_s else None))
+                                                   if seg_s else None),
+                                   max_candidates=60)
               if reach_m is not None else None)
         if pr is not None:
             return (pr[0], pr[1], pr[2],

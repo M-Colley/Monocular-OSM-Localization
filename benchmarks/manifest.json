@@ -24,7 +24,8 @@
     "test2": "Second held-out set (added 2026-11-05) for its preregistered frozen methods; later used in development and not a fresh test for newer methods. `run` requires explicit --split test2.",
     "test3": "Third held-out set (added 2026-11-07) for the frozen metro-ring search; later post-hoc diagnostics do not constitute a fresh test of newer methods. `run` requires explicit --split test3.",
     "test4": "Fresh road/dashcam batch selected under the 2026-11-10 data rule after test3 was scored. Its global method binding is frozen separately before any localization. `run` requires explicit --split test4.",
-    "test5": "Fresh road/dashcam batch selected under the 2026-11-17 data rule for the dense pass-1 held-out test (rule test5_2026_11), registered with its method before any search. `run` requires explicit --split test5."
+    "test5": "Fresh road/dashcam batch selected under the 2026-11-17 data rule for the dense pass-1 held-out test (rule test5_2026_11), registered with its method before any search. `run` requires explicit --split test5.",
+    "test6": "Globally stratified 6-continent road/dashcam batch selected under benchmarks/test6_screen/selection_preregistration.json (Asia, Latin America, Middle East & Africa, Europe, North America, Oceania) for worldwide certification (rule test6_worldwide_2026_11). `run` requires explicit --split test6."
   },
   "clips": [
     {

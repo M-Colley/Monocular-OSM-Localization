@@ -72,6 +72,10 @@ SPLITS = {
     "test5": "Fresh road/dashcam batch selected under the 2026-11-17 data rule for the "
              "dense pass-1 held-out test (rule test5_2026_11), registered with its method "
              "before any search. `run` requires explicit --split test5.",
+    "test6": "Globally stratified 6-continent road/dashcam batch selected under "
+             "benchmarks/test6_screen/selection_preregistration.json (Asia, Latin America, "
+             "Middle East & Africa, Europe, North America, Oceania) for worldwide "
+             "certification (rule test6_worldwide_2026_11). `run` requires explicit --split test6.",
 }
 
 #: The core fleet. Strings only — no coordinates are maintained here; the
@@ -360,7 +364,7 @@ def _overlay_entries(root: Path, *, video_ids: set[str] | None = None) -> list[d
                             f"to edit cuts)."),
             "city": city,
             "city_basis": ("the fixed screen's title-named city (intercity titles may name other places)"
-                           if clip.split in ("test4", "test5") else "the first place the upload title names"),
+                           if clip.split in ("test4", "test5", "test6") else "the first place the upload title names"),
             "city_alternatives": alts, "city_alternatives_notes": notes,
             "legacy_city": c["city"],
             "available_locally": True,

@@ -265,9 +265,17 @@ def test_plan_corridor_discs_adapts_to_short_vs_highway_routes():
     hwy_ll[37] = [48.62, 10.20]  # isolated single-frame outlier must be ignored
     hwy_sims = np.full(80, 0.35)
     c_hwy = metro_vpr.plan_corridor_discs(hwy_ll, hwy_sims, radius_m=2500.0, max_discs=4)
-    assert 2 <= len(c_hwy) <= 4
+    assert 2 <= len(c_hwy) <= 6
     # No disc should be placed on the isolated outlier at 48.62
     assert all(c[0] < 48.52 for c in c_hwy)
+
+    # 18 km inter-city highway drive (e.g. Howwood -> Glasgow): span-adaptive expansion > 4 discs
+    inter_ll = np.column_stack([
+        np.linspace(55.81, 55.97, 80),
+        np.full(80, -4.40),
+    ])
+    c_inter = metro_vpr.plan_corridor_discs(inter_ll, np.full(80, 0.30), radius_m=2500.0, max_discs=4)
+    assert 5 <= len(c_inter) <= 8
 
 
 def test_metro_dense_recovers_suburban_route_despite_bad_3km_seed_and_falls_back(tmp_path, monkeypatch):
@@ -405,3 +413,63 @@ def test_stage0_global_geoloc_and_cli_validation(monkeypatch, tmp_path):
     dummy_frames = [np.zeros((16, 16, 3), dtype=np.uint8)]
     g_vis = global_geoloc.infer_city_worldwide(frames_bgr=dummy_frames, title=None)
     assert g_vis is not None and g_vis.city == "Singapore"
+
+
+def test_low_cosine_night_drive_recovers_corroborated_seed(tmp_path, monkeypatch):
+    """When pitch-black night frames produce weak cosines (<0.155) everywhere in
+    the 20 km metro and drift 40 km away from a corroborated OCR seed, Step 3
+    recovers the dense seed corridor."""
+    city_center = (-37.814, 144.963)
+    good_ocr_seed = (-38.069, 145.313, 3500.0)  # 42 km SE (e.g. Berwick, Melbourne)
+
+    monkeypatch.setattr(kv, "_resolve_backbone", lambda m, d: "fake")
+    monkeypatch.setattr(kv, "_MODEL_NAME", "megaloc")
+    monkeypatch.setattr(kv, "_MODEL_DEVICE", "cpu")
+
+    def fake_fetch_for(src, center, radius_m, cache_dir, cap=1500, token=None, **kw):
+        if src != "mapillary":
+            return []
+        near_seed = abs(center[0] - good_ocr_seed[0]) < 0.05
+        base_lat, base_lon = (good_ocr_seed[0], good_ocr_seed[1]) if near_seed else city_center
+        tag = "seed" if near_seed else "city"
+        return [
+            {"id": f"{tag}_{i}", "lat": base_lat + i * 1e-4, "lon": base_lon, "url": f"https://u/{tag}_{i}"}
+            for i in range(40)
+        ]
+
+    def fake_embed(refs, device, cache_dir, model_name="model", **kw):
+        vecs, xy = [], []
+        for r in refs:
+            # City-centre daytime distractor scores 0.132 against dark query; seed scores 0.125
+            # unless dense_seed (cap=6000) is queried where a streetlamp ref scores 0.130.
+            is_seed = str(r["id"]).startswith("seed_")
+            c_val = 0.128 if is_seed else 0.132
+            s_val = float(np.sqrt(1.0 - c_val ** 2))
+            vecs.append([c_val, s_val, 0.0, 0.0])
+            xy.append([float(r["lat"]), float(r["lon"])])
+        return torch.tensor(vecs, dtype=torch.float32), np.asarray(xy, dtype=np.float64)
+
+    def fake_qsims(frames_bgr, q_idx, ref_emb, device, **kw):
+        q = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * len(q_idx), dtype=torch.float32)
+        return (q @ ref_emb.T).numpy()
+
+    monkeypatch.setattr(kv, "_fetch_refs_for", fake_fetch_for)
+    monkeypatch.setattr(kv, "_embed_refs_streaming", fake_embed)
+    monkeypatch.setattr(kv, "_query_similarities", fake_qsims)
+
+    frames = [np.zeros((16, 16, 3), dtype=np.uint8) for _ in range(10)]
+    ts = np.arange(10, dtype=np.float64) * 4.0
+    tr, diag = metro_vpr.run_metro_dense_vpr(
+        frames, ts,
+        city="Melbourne, Australia",
+        city_center=city_center,
+        seed_around=good_ocr_seed,
+        data_dir=tmp_path / "d",
+        shared_cache_root=tmp_path / "shared",
+        token="tok",
+        device="cpu",
+    )
+    assert tr is not None
+    assert diag.get("seed_recovery", {}).get("accepted") is True
+    assert abs(float(np.median(tr[1][:, 0])) - good_ocr_seed[0]) < 0.02
+
