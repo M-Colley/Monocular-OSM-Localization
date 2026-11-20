@@ -13,6 +13,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PAUSE_S = 15
 MAX_INFRA_STREAK = 20
+AMENDMENT_03_UTC = "2026-11-20T08:40:00+00:00"
+MAX_NONBOT_BUILD_RETRIES = 3
 
 
 def attempts() -> list[dict]:
@@ -23,7 +25,19 @@ def attempts() -> list[dict]:
 def unbuilt_passes() -> list[str]:
     res_path = HERE / "screen_results.json"
     rows = json.loads(res_path.read_text(encoding="utf-8")) if res_path.exists() else []
-    final = {a["id"] for a in attempts() if a["status"] != "UNVERIFIED_INFRASTRUCTURE"}
+    atts = attempts()
+    final = {a["id"] for a in atts if a["status"] != "UNVERIFIED_INFRASTRUCTURE"}
+    nonbot_post_a03: dict[str, int] = {}
+    for a in atts:
+        if (
+            a["status"] == "UNVERIFIED_INFRASTRUCTURE"
+            and not a.get("bot_check")
+            and a.get("started_utc", "") >= AMENDMENT_03_UTC
+        ):
+            nonbot_post_a03[a["id"]] = nonbot_post_a03.get(a["id"], 0) + 1
+    for vid, cnt in nonbot_post_a03.items():
+        if cnt >= MAX_NONBOT_BUILD_RETRIES:
+            final.add(vid)
     out = []
     for r in rows:
         if r.get("ok") and r["id"] not in final and r["id"] not in out:

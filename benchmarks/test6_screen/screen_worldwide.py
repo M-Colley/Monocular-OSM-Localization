@@ -26,10 +26,29 @@ RECEIPT_PATH = HERE / "preregistration_receipt.json"
 RESULTS_PATH = HERE / "screen_results.json"
 
 EXCLUDE_RE = re.compile(
-    r"time[\s-]?lapse|hyperlapse|sped[\s-]?up|\b[2-9]x\b|\b10x\b|"
-    r"rear[\s-]?cam|rear[\s-]?view|\bflying\b|\bflight\b|aircraft|drone|"
-    r"helicopter|\btrain\b|\btram\b|railway|\bwalk(?:ing)?\b|cycling|bicycle|"
+    r"time[\s-]?lapse|timelaps|zeitraffer|acc[ée]l[ée]r[ée]|"
+    r"hyper[\s-]?lapse|sped[\s-]?up|speed\s*up|\b[2-9]x\b|\b10x\b|"
+    r"rear[\s-]?cam|rear[\s-]?view|rear\s+camera|backwards|"
+    r"\bflying\b|\bflight\b|aircraft|drone|helicopter|"
+    r"\btrain\b|\btram\b|railway|gautrain|metro\s+line|subway|"
+    r"\bwalk(?:ing)?\b|cycling|bicycle|"
     r"gta\s*5|assetto\s*corsa|euro\s*truck|simulator|beamng|forza",
+    re.I,
+)
+
+# Restores test4 V3 generic motor-vehicle aliases (title_eligibility_v3.py) plus
+# global road & GPS-dashcam model aliases (operational_amendment_03.json).
+GLOBAL_V3_ROAD_RE = re.compile(
+    r"dash\s*cam|dashboard\s*cam(?:era)?|driv(?:e|ing)|driveassist|\bcar\b|road|"
+    r"motorway|highway|autobahn|expressway|freeway|parkway|tollway|turnpike|ring\s*road|bypass|"
+    r"motorcycle|motorbike|\bbus\b|truck|taxi|\bi-\d|"
+    r"\b(?:flixbus|coaches?|camions?|camionnettes?|autocars?|voitures?|poids[\s-]+lourds?|"
+    r"auto|lkw|pkw|autofahrt|busfahrt|motorrad|motorradtour|vrachtwagen|motorfiets|"
+    r"bil|biltur|bilkjøring|bilkjoring|buss|autolla|autoilu|automatka|"
+    r"ddpai|vantrue|thinkware|rexing|mio\s*mivue|transcend|drivepro|gs9000|qvia|lukas|papago|dvr|"
+    r"autopista|autov[ií]a|rodovia|estrada|ruta|ruas|avenida|marginal|"
+    r"recorrido|viaje|trajeto|passeio|c[aâ]mara|c[aâ]mera|conduzindo|conduzir)\b|"
+    r"قيادة|شارع|طريق|كاميرا|נהיגה|כביש|מצלמת\s*דרך|οδήγηση|δρόμος|ขับรถ|กล้องติดรถยนต์",
     re.I,
 )
 
@@ -49,7 +68,7 @@ def is_multilingual_road_title(title: str, road_terms: list[str]) -> bool:
     if not title or EXCLUDE_RE.search(title):
         return False
     folded = title.casefold()
-    return any(term.casefold() in folded for term in road_terms)
+    return any(term.casefold() in folded for term in road_terms) or bool(GLOBAL_V3_ROAD_RE.search(title))
 
 
 def match_worldwide_city_key(title: str, keys: list[list[str]]) -> list[str] | None:

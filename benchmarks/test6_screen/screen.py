@@ -227,10 +227,76 @@ def main() -> int:
 
     done = {(r["city"], r["query"]) for r in rows if r.get("query_complete")}
     manifest = json.loads((ROOT / "benchmarks/manifest.json").read_text(encoding="utf-8"))["clips"]
-    seen = {c["video"].get("url", "").split("v=")[-1] for c in manifest} | {r["id"] for r in rows if r.get("id")}
+    manifest_ids = {c["video"].get("url", "").split("v=")[-1] for c in manifest}
+    already_screened = manifest_ids | {
+        r["id"] for r in rows
+        if r.get("id") and (
+            r.get("n_frames_read", 0) > 0
+            or r.get("status") in ("PASS", "FRAMES_UNREADABLE", "UNVERIFIED_FRAMES")
+        )
+    }
     snapshots = HERE / "queries"
     snapshots.mkdir(exist_ok=True)
     road_terms = sel["multilingual_road_terms"]
+    hw_templates = (
+        "{word} VIOFO dashcam",
+        "{word} 70mai dashcam",
+        "{word} Garmin dashcam",
+        "{word} Nextbase dashcam",
+        "{word} Rove dashcam",
+    )
+
+    # Operational amendment 03: check existing snapshots for candidates that now
+    # qualify under restored test4 V3 + global road/dashcam aliases or were
+    # suppressed by unmatched cross-city appearances (never revisiting any
+    # completed frame/stamp/GT verdict).
+    for entry in sel["city_order"]:
+        city = entry["city"]
+        creg = entry["region"]
+        if have_counts[creg] >= quotas.get(creg, 0):
+            continue
+        word = city.split(",")[0].strip()
+        keys = entry["title_keys"]
+        centre = None
+        snap_specs = (
+            [(q, f"{city}::{q}") for q in entry["local_queries"]]
+            + [(t.format(word=word), f"{city}::hw::{t.format(word=word)}") for t in hw_templates]
+        )
+        for query, snap_key in snap_specs:
+            snapshot = snapshots / (hashlib.sha256(snap_key.encode()).hexdigest()[:16] + ".json")
+            if not snapshot.exists():
+                continue
+            entries = json.loads(snapshot.read_text(encoding="utf-8")).get("entries", [])
+            for rank, e in enumerate(entries):
+                vid, title, duration = e.get("id"), e.get("title") or "", e.get("duration") or 0
+                if not vid or vid in already_screened:
+                    continue
+                key = match_worldwide_city_key(title, keys)
+                eligible = bool(
+                    duration >= 300
+                    and is_multilingual_road_title(title, road_terms)
+                    and key is not None
+                )
+                if not eligible:
+                    continue
+                if centre is None:
+                    centre = s.geocode(city)
+                    if centre is None:
+                        return 75
+                row = {
+                    "city": city, "continent_region": creg, "id": vid, "title": title,
+                    "duration_s": duration, "query": query, "rank": rank,
+                    "eligible": True, "ok": False, "matched_key": key,
+                    "registered_city": registered_city(city, key[1]),
+                    "amendment": "operational_amendment_03",
+                }
+                row.update(screen_one(s, centre, vid, duration))
+                rows.append(row)
+                save(rows)
+                already_screened.add(vid)
+                print(json.dumps(row, ensure_ascii=True), flush=True)
+                if row["ok"]:
+                    return 0
 
     for entry in sel["city_order"]:
         city = entry["city"]
@@ -239,6 +305,7 @@ def main() -> int:
             continue
         keys = entry["title_keys"]
         centre = None
+        city_seen = already_screened | {r["id"] for r in rows if r.get("city") == city and r.get("id")}
         for query in entry["local_queries"]:
             if (city, query) in done:
                 continue
@@ -264,9 +331,9 @@ def main() -> int:
             entries = json.loads(snapshot.read_text(encoding="utf-8")).get("entries", [])
             for rank, e in enumerate(entries):
                 vid, title, duration = e.get("id"), e.get("title") or "", e.get("duration") or 0
-                if not vid or vid in seen:
+                if not vid or vid in city_seen:
                     continue
-                seen.add(vid)
+                city_seen.add(vid)
                 key = match_worldwide_city_key(title, keys)
                 eligible = bool(
                     duration >= 300
@@ -286,6 +353,7 @@ def main() -> int:
                             print(f"geocode unavailable for {city}", flush=True)
                             return 75
                     row.update(screen_one(s, centre, vid, duration))
+                    already_screened.add(vid)
                 else:
                     row["status"] = "TITLE_OR_DURATION_INELIGIBLE"
                 rows.append(row)
@@ -301,15 +369,8 @@ def main() -> int:
             })
             save(rows)
 
-    # Operational amendment 02: fixed hardware GPS-dashcam model queries in the
-    # exact registered city_order for continents still below continent_quotas.
-    hw_templates = (
-        "{word} VIOFO dashcam",
-        "{word} 70mai dashcam",
-        "{word} Garmin dashcam",
-        "{word} Nextbase dashcam",
-        "{word} Rove dashcam",
-    )
+    # Operational amendment 02 (+ 03 thumb_gate=False): fixed hardware GPS-dashcam
+    # model queries in the exact registered city_order for continents below quota.
     for entry in sel["city_order"]:
         city = entry["city"]
         creg = entry["region"]
@@ -318,6 +379,7 @@ def main() -> int:
         word = city.split(",")[0].strip()
         keys = entry["title_keys"]
         centre = None
+        city_seen = already_screened | {r["id"] for r in rows if r.get("city") == city and r.get("id")}
         for tmpl in hw_templates:
             query = tmpl.format(word=word)
             if (city, query) in done:
@@ -345,9 +407,9 @@ def main() -> int:
             entries = json.loads(snapshot.read_text(encoding="utf-8")).get("entries", [])
             for rank, e in enumerate(entries):
                 vid, title, duration = e.get("id"), e.get("title") or "", e.get("duration") or 0
-                if not vid or vid in seen:
+                if not vid or vid in city_seen:
                     continue
-                seen.add(vid)
+                city_seen.add(vid)
                 key = match_worldwide_city_key(title, keys)
                 eligible = bool(
                     duration >= 300
@@ -366,7 +428,8 @@ def main() -> int:
                         centre = s.geocode(city)
                         if centre is None:
                             return 75
-                    row.update(screen_one(s, centre, vid, duration, thumb_gate=True))
+                    row.update(screen_one(s, centre, vid, duration))
+                    already_screened.add(vid)
                 else:
                     row["status"] = "TITLE_OR_DURATION_INELIGIBLE"
                 rows.append(row)
@@ -378,6 +441,87 @@ def main() -> int:
                 "city": city, "continent_region": creg, "query": query,
                 "id": None, "query_complete": True, "n_results": len(entries),
                 "amendment": "operational_amendment_02",
+            })
+            save(rows)
+
+    # Operational amendment 03: exact-quoted city queries so YouTube requires the
+    # city phrase in metadata rather than returning generic English product reviews.
+    quoted_templates = (
+        '"{word}" dashcam GPS',
+        '"{word}" dashcam',
+        '"{word}" VIOFO',
+        '"{word}" 70mai',
+    )
+    for entry in sel["city_order"]:
+        city = entry["city"]
+        creg = entry["region"]
+        if have_counts[creg] >= quotas.get(creg, 0):
+            continue
+        word = city.split(",")[0].strip()
+        keys = entry["title_keys"]
+        centre = None
+        city_seen = already_screened | {r["id"] for r in rows if r.get("city") == city and r.get("id")}
+        for tmpl in quoted_templates:
+            query = tmpl.format(word=word)
+            if (city, query) in done:
+                continue
+            snapshot = snapshots / (hashlib.sha256(f"{city}::q03::{query}".encode()).hexdigest()[:16] + ".json")
+            if not snapshot.exists():
+                time.sleep(5)
+                js = ["--js-runtimes", "node"] if shutil.which("node") else []
+                p = subprocess.run(
+                    ["yt-dlp", *js, "--flat-playlist", "-J", f"ytsearch{sel['results_per_query']}:{query}"],
+                    capture_output=True, timeout=180,
+                )
+                if p.returncode:
+                    err = p.stderr.decode("utf-8", "replace")
+                    rows.append({
+                        "city": city, "continent_region": creg, "query": query, "id": None,
+                        "status": "UNVERIFIED_INFRASTRUCTURE", "bot_check": bool(s.BOT.search(err)),
+                        "query_complete": False, "amendment": "operational_amendment_03",
+                        "utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    })
+                    save(rows)
+                    return 75
+                with snapshot.open("x", encoding="utf-8") as f:
+                    json.dump(json.loads(p.stdout.decode("utf-8")), f, ensure_ascii=False, indent=2)
+            entries = json.loads(snapshot.read_text(encoding="utf-8")).get("entries", [])
+            for rank, e in enumerate(entries):
+                vid, title, duration = e.get("id"), e.get("title") or "", e.get("duration") or 0
+                if not vid or vid in city_seen:
+                    continue
+                city_seen.add(vid)
+                key = match_worldwide_city_key(title, keys)
+                eligible = bool(
+                    duration >= 300
+                    and is_multilingual_road_title(title, road_terms)
+                    and key is not None
+                )
+                row = {
+                    "city": city, "continent_region": creg, "id": vid, "title": title,
+                    "duration_s": duration, "query": query, "rank": rank,
+                    "eligible": eligible, "ok": False, "matched_key": key,
+                    "registered_city": registered_city(city, key[1]) if key else None,
+                    "amendment": "operational_amendment_03",
+                }
+                if eligible:
+                    if centre is None:
+                        centre = s.geocode(city)
+                        if centre is None:
+                            return 75
+                    row.update(screen_one(s, centre, vid, duration))
+                    already_screened.add(vid)
+                else:
+                    row["status"] = "TITLE_OR_DURATION_INELIGIBLE"
+                rows.append(row)
+                save(rows)
+                print(json.dumps(row, ensure_ascii=True), flush=True)
+                if row["ok"]:
+                    return 0
+            rows.append({
+                "city": city, "continent_region": creg, "query": query,
+                "id": None, "query_complete": True, "n_results": len(entries),
+                "amendment": "operational_amendment_03",
             })
             save(rows)
 
