@@ -94,7 +94,11 @@ def section_fixes(s, vid: str, dur: float):
         time.sleep(8)
     if cap is None:
         return out, n_read
-    for frac in (0.25, 0.5, 0.75):
+    for idx_f, frac in enumerate((0.25, 0.5, 0.75)):
+        # Under the >=2-of-3 stamp rule, if the first two readable frames yielded
+        # zero stamps, the third frame cannot reach 2.
+        if idx_f == 2 and n_read == 2 and len(out) == 0:
+            break
         t = int(dur * frac)
         cap.set(s.cv2.CAP_PROP_POS_MSEC, t * 1000.0)
         ok, img = cap.read()
@@ -108,7 +112,7 @@ def section_fixes(s, vid: str, dur: float):
 
 def screen_one(s, centre, vid: str, duration: float) -> dict:
     thumbs = s.thumb_fixes(vid)
-    fixes, n_frames_read = section_fixes(s, vid, duration) if thumbs else ([], 0)
+    fixes, n_frames_read = section_fixes(s, vid, duration)
     near = [f for f in fixes if s.geodesic_distance_m(centre[0], centre[1], f["lat"], f["lon"]) < 40000]
     row = {
         "thumbnail_stamp": bool(thumbs),
@@ -118,7 +122,7 @@ def screen_one(s, centre, vid: str, duration: float) -> dict:
         "ok": len(near) >= 2,
         "region": fixes[0]["region"] if fixes else None,
         "status": ("PASS" if len(near) >= 2 else
-                   ("UNVERIFIED_FRAMES" if thumbs and not n_frames_read else "SCREEN_NOT_PASSED")),
+                   ("UNVERIFIED_FRAMES" if not n_frames_read else "SCREEN_NOT_PASSED")),
     }
     evidence = {"thumbs": thumbs, "fixes": fixes}
     row["screen_evidence_sha256"] = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
@@ -178,6 +182,42 @@ def main() -> int:
         save(rows)
         print(json.dumps(retry, ensure_ascii=True), flush=True)
         return 0 if retry["ok"] else (75 if retry["status"] == "UNVERIFIED_FRAMES" else 1)
+
+    # Operational amendment 01: inspect 1080p frames in exact recorded order on
+    # eligible candidates that were previously skipped solely by the low-res
+    # thumbnail pre-filter (n_frames_read == 0 and status == SCREEN_NOT_PASSED).
+    frame_checked_ids = {
+        r["id"] for r in rows
+        if r.get("id") and (
+            r.get("n_frames_read", 0) > 0
+            or r.get("status") in ("PASS", "FRAMES_UNREADABLE", "UNVERIFIED_FRAMES")
+        )
+    }
+    for r in [r for r in rows
+              if r.get("eligible")
+              and r.get("status") == "SCREEN_NOT_PASSED"
+              and r.get("n_frames_read", 0) == 0
+              and r["id"] not in frame_checked_ids]:
+        reg_name = r.get("continent_region")
+        if reg_name and have_counts[reg_name] >= quotas.get(reg_name, 0):
+            continue
+        centre = s.geocode(r["city"])
+        if centre is None:
+            return 75
+        recheck = {
+            **{k: r[k] for k in ("city", "continent_region", "id", "title", "duration_s",
+                                 "query", "rank", "eligible", "matched_key", "registered_city")},
+            **screen_one(s, centre, r["id"], r["duration_s"]),
+            "amendment": "operational_amendment_01",
+        }
+        rows.append(recheck)
+        save(rows)
+        print(json.dumps(recheck, ensure_ascii=True), flush=True)
+        if recheck["ok"]:
+            return 0
+        if recheck.get("status") == "UNVERIFIED_FRAMES":
+            return 75
+        frame_checked_ids.add(r["id"])
 
     done = {(r["city"], r["query"]) for r in rows if r.get("query_complete")}
     manifest = json.loads((ROOT / "benchmarks/manifest.json").read_text(encoding="utf-8"))["clips"]

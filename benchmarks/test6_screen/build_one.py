@@ -27,6 +27,7 @@ def screen_pass(vid: str) -> dict:
 
 
 def main(vid: str) -> int:
+    import socket
     import cv2
     from functools import partial
     import build_overlay_fleet as b
@@ -34,6 +35,7 @@ def main(vid: str) -> int:
     from overlay_clips import OverlayClip
     from monocular_osm.scene_text import RapidOcrReader
 
+    socket.setdefaulttimeout(60)
     cv2.setNumThreads(2)
     cpu_reader = RapidOcrReader(params={
         "EngineConfig.onnxruntime.intra_op_num_threads": 2,
@@ -57,13 +59,12 @@ def main(vid: str) -> int:
 
     out = HERE / "build_attempts"
     out.mkdir(exist_ok=True)
-    attempt = 1
-    while (out / f"{vid}_{attempt:02d}.json").exists():
-        attempt += 1
-
     private = Path("E:/claude-scoring/test6/private_qc_logs")
     private.mkdir(parents=True, exist_ok=True)
     Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
+    attempt = 1
+    while (out / f"{vid}_{attempt:02d}.json").exists() or (private / f"{vid}_{attempt:02d}.log").exists():
+        attempt += 1
     log_path = private / f"{vid}_{attempt:02d}.log"
 
     args = SimpleNamespace(
@@ -109,6 +110,7 @@ def main(vid: str) -> int:
                         result.update(status="AVAILABLE_GT_QC_PASSED", available=True)
                         code = 0
                     else:
+                        (ROOT / built["gt_path"]).unlink(missing_ok=True)
                         log.write(repr(problems) + "\n")
                         result.update(status="GT_QC_FAILED", available=False)
         except Exception as exc:

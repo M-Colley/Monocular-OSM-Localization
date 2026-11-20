@@ -1,0 +1,1052 @@
+{
+  "summary": {
+    "n_total": 38,
+    "n_paired": 37,
+    "within_200m_paired_37": {
+      "ordinary": 12,
+      "dense_24k": 18,
+      "metro_dense_v2": 30,
+      "wilson_95_pct": [
+        65.8,
+        90.5
+      ]
+    },
+    "within_200m_all_38": {
+      "metro_dense_v2": 31,
+      "wilson_95_pct": [
+        66.6,
+        90.8
+      ]
+    },
+    "within_100m_all_38": 31,
+    "within_500m_all_38": 34,
+    "per_split": {
+      "test": {
+        "n": 7,
+        "within_200_ordinary": 5,
+        "within_200_dense_24k": 5,
+        "within_200_metro_dense_v2": 7,
+        "median_m_metro_dense_v2": 19.3
+      },
+      "test2": {
+        "n": 7,
+        "within_200_ordinary": 3,
+        "within_200_dense_24k": 4,
+        "within_200_metro_dense_v2": 5,
+        "median_m_metro_dense_v2": 76.5
+      },
+      "test3": {
+        "n": 10,
+        "within_200_ordinary": 3,
+        "within_200_dense_24k": 5,
+        "within_200_metro_dense_v2": 10,
+        "median_m_metro_dense_v2": 24.1
+      },
+      "test4": {
+        "n": 6,
+        "within_200_ordinary": 0,
+        "within_200_dense_24k": 2,
+        "within_200_metro_dense_v2": 5,
+        "median_m_metro_dense_v2": 45.2
+      },
+      "test5": {
+        "n": 8,
+        "within_200_ordinary": 1,
+        "within_200_dense_24k": 2,
+        "within_200_metro_dense_v2": 4,
+        "median_m_metro_dense_v2": 235.6
+      }
+    },
+    "crossings_vs_dense_24k": {
+      "gains": [
+        "overlay_bF5IfC2ZHjQ",
+        "overlay_iJ2JvNk4Rmk",
+        "overlay_XO6H3mGMKYg",
+        "overlay_8BUtb7TKUFA",
+        "overlay_G6bUX4GvSbE",
+        "overlay_HfK2LuXQtfA",
+        "overlay_MMKAehhi-tA",
+        "overlay_vp_D8mxgEkA",
+        "overlay_ZLmQWroXthY",
+        "overlay_tK7bHJXAJX8",
+        "overlay_qgaSRWY8Aio",
+        "overlay_zsqxTSNLw5A"
+      ],
+      "unlocked_gains": [
+        "overlay_yd5g7jsWiEM"
+      ],
+      "losses": [],
+      "losses_test1_test3": [],
+      "mcnemar_one_sided_p": 0.000244
+    },
+    "crossings_vs_ordinary": {
+      "gains_count": 18,
+      "losses_count": 0,
+      "mcnemar_one_sided_p": 4e-06
+    },
+    "vs_dense_24k_10pct_band": {
+      "better": 25,
+      "worse": 7,
+      "tie": 5,
+      "sign_test_one_sided_p": 0.00105
+    },
+    "medians_m_paired_37": {
+      "ordinary": 511.3,
+      "dense_24k": 260.3,
+      "metro_dense_v2": 41.7
+    },
+    "median_m_all_38_metro_dense_v2": 41.2
+  },
+  "clips": [
+    {
+      "split": "test",
+      "clip": "overlay_-1xwoetuoOg",
+      "name": "Sydney (-1xwoetuoOg)",
+      "ordinary_m": 183.6,
+      "dense_24k_m": 143.9,
+      "metro_dense_v2_m": 56.6,
+      "metro_start_m": 96.7,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 16.2,
+        "dense_24k": 78.0,
+        "metro_dense_v2": 4.5
+      },
+      "metro_pass1_refs": 26832,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 5076,
+      "wall_s": {
+        "ordinary": 454.0,
+        "dense_24k": 1325.3,
+        "metro_dense_v2": 1412.0
+      }
+    },
+    {
+      "split": "test",
+      "clip": "overlay_4LvkBo69jZo",
+      "name": "Strasbourg (4LvkBo69jZo)",
+      "ordinary_m": 43.4,
+      "dense_24k_m": 10.3,
+      "metro_dense_v2_m": 10.9,
+      "metro_start_m": 84.0,
+      "vs_dense_24k": "tie",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 164.3,
+        "dense_24k": 64.3,
+        "metro_dense_v2": 101.2
+      },
+      "metro_pass1_refs": 24789,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 8444,
+      "wall_s": {
+        "ordinary": 201.7,
+        "dense_24k": 1312.4,
+        "metro_dense_v2": 1284.6
+      }
+    },
+    {
+      "split": "test",
+      "clip": "overlay_5b-tgjtwb2U",
+      "name": "Manchester (5b-tgjtwb2U)",
+      "ordinary_m": 54.9,
+      "dense_24k_m": 54.9,
+      "metro_dense_v2_m": 11.7,
+      "metro_start_m": 23.1,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 56.3,
+        "dense_24k": 56.3,
+        "metro_dense_v2": 13.0
+      },
+      "metro_pass1_refs": 24796,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 6432,
+      "wall_s": {
+        "ordinary": 90.7,
+        "dense_24k": 38.4,
+        "metro_dense_v2": 959.9
+      }
+    },
+    {
+      "split": "test",
+      "clip": "overlay_bF5IfC2ZHjQ",
+      "name": "Ottawa (bF5IfC2ZHjQ)",
+      "ordinary_m": 1418.8,
+      "dense_24k_m": 350.0,
+      "metro_dense_v2_m": 41.7,
+      "metro_start_m": 421.8,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 1787.7,
+        "dense_24k": 267.4,
+        "metro_dense_v2": 1085.0
+      },
+      "metro_pass1_refs": 24130,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 9743,
+      "wall_s": {
+        "ordinary": 160.9,
+        "dense_24k": 1443.8,
+        "metro_dense_v2": 1513.4
+      }
+    },
+    {
+      "split": "test",
+      "clip": "overlay_iJ2JvNk4Rmk",
+      "name": "Frankfurt am Main (iJ2JvNk4Rmk)",
+      "ordinary_m": 325.2,
+      "dense_24k_m": 325.2,
+      "metro_dense_v2_m": 19.3,
+      "metro_start_m": 11.7,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 91.8,
+        "dense_24k": 91.8,
+        "metro_dense_v2": 87.6
+      },
+      "metro_pass1_refs": 24838,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 3972,
+      "wall_s": {
+        "ordinary": 310.2,
+        "dense_24k": 80.7,
+        "metro_dense_v2": 1073.4
+      }
+    },
+    {
+      "split": "test",
+      "clip": "overlay_nsONSyk9wtc",
+      "name": "NYC (nsONSyk9wtc)",
+      "ordinary_m": 51.4,
+      "dense_24k_m": 51.4,
+      "metro_dense_v2_m": 53.7,
+      "metro_start_m": 76.1,
+      "vs_dense_24k": "tie",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 1617.3,
+        "dense_24k": 1617.3,
+        "metro_dense_v2": 33.7
+      },
+      "metro_pass1_refs": 24875,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 7085,
+      "wall_s": {
+        "ordinary": 242.9,
+        "dense_24k": 59.8,
+        "metro_dense_v2": 1242.6
+      }
+    },
+    {
+      "split": "test",
+      "clip": "overlay_zt8rHvHKBUU",
+      "name": "Bern (zt8rHvHKBUU)",
+      "ordinary_m": 168.2,
+      "dense_24k_m": 16.1,
+      "metro_dense_v2_m": 16.1,
+      "metro_start_m": 86.0,
+      "vs_dense_24k": "tie",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 930.5,
+        "dense_24k": 61.7,
+        "metro_dense_v2": 122.4
+      },
+      "metro_pass1_refs": 23999,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 9627,
+      "wall_s": {
+        "ordinary": 197.4,
+        "dense_24k": 1317.9,
+        "metro_dense_v2": 1194.0
+      }
+    },
+    {
+      "split": "test2",
+      "clip": "overlay_0jJbdTcDseI",
+      "name": "Montreal (0jJbdTcDseI)",
+      "ordinary_m": 3457.6,
+      "dense_24k_m": 12893.7,
+      "metro_dense_v2_m": 392.4,
+      "metro_start_m": 259.2,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 3260.1,
+        "dense_24k": 12886.8,
+        "metro_dense_v2": 17.8
+      },
+      "metro_pass1_refs": 23985,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 4848,
+      "wall_s": {
+        "ordinary": 356.1,
+        "dense_24k": 1242.4,
+        "metro_dense_v2": 1078.2
+      }
+    },
+    {
+      "split": "test2",
+      "clip": "overlay_1bGf8OD9Fqo",
+      "name": "Budapest (1bGf8OD9Fqo)",
+      "ordinary_m": 157.3,
+      "dense_24k_m": 24.3,
+      "metro_dense_v2_m": 99.1,
+      "metro_start_m": 312.3,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 50.9,
+        "dense_24k": 259.4,
+        "metro_dense_v2": 39.1
+      },
+      "metro_pass1_refs": 23976,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 4796,
+      "wall_s": {
+        "ordinary": 156.7,
+        "dense_24k": 1512.8,
+        "metro_dense_v2": 1125.7
+      }
+    },
+    {
+      "split": "test2",
+      "clip": "overlay_2sS6glBBm8g",
+      "name": "Amsterdam (2sS6glBBm8g)",
+      "ordinary_m": 177.5,
+      "dense_24k_m": 175.1,
+      "metro_dense_v2_m": 76.5,
+      "metro_start_m": 110.0,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 153.0,
+        "dense_24k": 31.5,
+        "metro_dense_v2": 95.3
+      },
+      "metro_pass1_refs": 23985,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 4533,
+      "wall_s": {
+        "ordinary": 426.8,
+        "dense_24k": 1380.3,
+        "metro_dense_v2": 1199.4
+      }
+    },
+    {
+      "split": "test2",
+      "clip": "overlay_GnXsgpVPvww",
+      "name": "Warsaw (GnXsgpVPvww)",
+      "ordinary_m": 89.5,
+      "dense_24k_m": 89.5,
+      "metro_dense_v2_m": 30.8,
+      "metro_start_m": 30.0,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 31.2,
+        "dense_24k": 31.2,
+        "metro_dense_v2": 36.5
+      },
+      "metro_pass1_refs": 24833,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 6352,
+      "wall_s": {
+        "ordinary": 316.7,
+        "dense_24k": 137.5,
+        "metro_dense_v2": 1170.3
+      }
+    },
+    {
+      "split": "test2",
+      "clip": "overlay_HpBfjRA60ws",
+      "name": "Paris (HpBfjRA60ws)",
+      "ordinary_m": 24363.8,
+      "dense_24k_m": 11703.3,
+      "metro_dense_v2_m": 370.8,
+      "metro_start_m": 6974.5,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 22597.3,
+        "dense_24k": 8314.2,
+        "metro_dense_v2": 215.6
+      },
+      "metro_pass1_refs": 28827,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 8073,
+      "wall_s": {
+        "ordinary": 332.6,
+        "dense_24k": 1228.7,
+        "metro_dense_v2": 1417.4
+      }
+    },
+    {
+      "split": "test2",
+      "clip": "overlay_XO6H3mGMKYg",
+      "name": "Munich (XO6H3mGMKYg)",
+      "ordinary_m": 8130.3,
+      "dense_24k_m": 8130.3,
+      "metro_dense_v2_m": 12.7,
+      "metro_start_m": 11.8,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 7896.0,
+        "dense_24k": 7896.0,
+        "metro_dense_v2": 56.4
+      },
+      "metro_pass1_refs": 31219,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 3409,
+      "wall_s": {
+        "ordinary": 231.6,
+        "dense_24k": 27.2,
+        "metro_dense_v2": 1584.0
+      }
+    },
+    {
+      "split": "test2",
+      "clip": "overlay_lCm2a3kOEmE",
+      "name": "Warsaw (lCm2a3kOEmE)",
+      "ordinary_m": 334.7,
+      "dense_24k_m": 15.0,
+      "metro_dense_v2_m": 16.1,
+      "metro_start_m": 236.2,
+      "vs_dense_24k": "tie",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 309.8,
+        "dense_24k": 28.5,
+        "metro_dense_v2": 109.9
+      },
+      "metro_pass1_refs": 28730,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 10670,
+      "wall_s": {
+        "ordinary": 306.2,
+        "dense_24k": 1064.6,
+        "metro_dense_v2": 879.6
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_5ewPAw_gIeI",
+      "name": "Katowice (5ewPAw_gIeI)",
+      "ordinary_m": 2686.9,
+      "dense_24k_m": 89.1,
+      "metro_dense_v2_m": 21.2,
+      "metro_start_m": 130.5,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 2315.7,
+        "dense_24k": 250.7,
+        "metro_dense_v2": 265.9
+      },
+      "metro_pass1_refs": 27630,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 10097,
+      "wall_s": {
+        "ordinary": 220.4,
+        "dense_24k": 986.8,
+        "metro_dense_v2": 581.8
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_5koGsNdaVvE",
+      "name": "Bratislava (5koGsNdaVvE)",
+      "ordinary_m": 24.2,
+      "dense_24k_m": 18.2,
+      "metro_dense_v2_m": 16.3,
+      "metro_start_m": 192.6,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 123.6,
+        "dense_24k": 133.8,
+        "metro_dense_v2": 84.6
+      },
+      "metro_pass1_refs": 24826,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 9376,
+      "wall_s": {
+        "ordinary": 159.0,
+        "dense_24k": 1254.0,
+        "metro_dense_v2": 1292.1
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_6GciDYJ1FUc",
+      "name": "Eindhoven (6GciDYJ1FUc)",
+      "ordinary_m": 21.0,
+      "dense_24k_m": 21.0,
+      "metro_dense_v2_m": 27.1,
+      "metro_start_m": 25.3,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 81.5,
+        "dense_24k": 81.5,
+        "metro_dense_v2": 113.5
+      },
+      "metro_pass1_refs": 24851,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 7112,
+      "wall_s": {
+        "ordinary": 148.7,
+        "dense_24k": 112.1,
+        "metro_dense_v2": 1318.2
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_7n4XQUBEH5Y",
+      "name": "Zagreb (7n4XQUBEH5Y)",
+      "ordinary_m": 271.8,
+      "dense_24k_m": 12.0,
+      "metro_dense_v2_m": 16.8,
+      "metro_start_m": 139.1,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 88.1,
+        "dense_24k": 64.0,
+        "metro_dense_v2": 67.3
+      },
+      "metro_pass1_refs": 23967,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 8032,
+      "wall_s": {
+        "ordinary": 152.5,
+        "dense_24k": 1221.1,
+        "metro_dense_v2": 1118.8
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_8BUtb7TKUFA",
+      "name": "D\u00fcsseldorf (8BUtb7TKUFA)",
+      "ordinary_m": 260.3,
+      "dense_24k_m": 260.3,
+      "metro_dense_v2_m": 75.9,
+      "metro_start_m": 339.0,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 6.7,
+        "dense_24k": 6.7,
+        "metro_dense_v2": 14.0
+      },
+      "metro_pass1_refs": 26751,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 3726,
+      "wall_s": {
+        "ordinary": 94.3,
+        "dense_24k": 77.3,
+        "metro_dense_v2": 1157.4
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_G6bUX4GvSbE",
+      "name": "Bristol (G6bUX4GvSbE)",
+      "ordinary_m": 6322.4,
+      "dense_24k_m": 8683.6,
+      "metro_dense_v2_m": 43.1,
+      "metro_start_m": 137.8,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 6183.2,
+        "dense_24k": 8635.7,
+        "metro_dense_v2": 42.1
+      },
+      "metro_pass1_refs": 25246,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 3308,
+      "wall_s": {
+        "ordinary": 210.9,
+        "dense_24k": 1150.8,
+        "metro_dense_v2": 1043.3
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_HfK2LuXQtfA",
+      "name": "D\u00fcsseldorf (HfK2LuXQtfA)",
+      "ordinary_m": 4126.8,
+      "dense_24k_m": 4126.8,
+      "metro_dense_v2_m": 11.1,
+      "metro_start_m": 62.5,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 3941.6,
+        "dense_24k": 3941.6,
+        "metro_dense_v2": 20.6
+      },
+      "metro_pass1_refs": 26752,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 2978,
+      "wall_s": {
+        "ordinary": 216.0,
+        "dense_24k": 71.1,
+        "metro_dense_v2": 243.5
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_K_54XHyzRn8",
+      "name": "Riga (K_54XHyzRn8)",
+      "ordinary_m": 31.0,
+      "dense_24k_m": 15.2,
+      "metro_dense_v2_m": 15.3,
+      "metro_start_m": 488.7,
+      "vs_dense_24k": "tie",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 169.6,
+        "dense_24k": 224.5,
+        "metro_dense_v2": 29.9
+      },
+      "metro_pass1_refs": 26771,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 5826,
+      "wall_s": {
+        "ordinary": 130.7,
+        "dense_24k": 1394.4,
+        "metro_dense_v2": 1664.4
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_MMKAehhi-tA",
+      "name": "Katowice (MMKAehhi-tA)",
+      "ordinary_m": 37762.5,
+      "dense_24k_m": 37762.5,
+      "metro_dense_v2_m": 70.1,
+      "metro_start_m": 624.9,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 35359.6,
+        "dense_24k": 35439.2,
+        "metro_dense_v2": 54.7
+      },
+      "metro_pass1_refs": 25692,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 2346,
+      "wall_s": {
+        "ordinary": 325.2,
+        "dense_24k": 1164.9,
+        "metro_dense_v2": 1130.2
+      }
+    },
+    {
+      "split": "test3",
+      "clip": "overlay_vp_D8mxgEkA",
+      "name": "Cork (vp_D8mxgEkA)",
+      "ordinary_m": 4679.0,
+      "dense_24k_m": 418.5,
+      "metro_dense_v2_m": 63.2,
+      "metro_start_m": 771.7,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 3834.6,
+        "dense_24k": 192.2,
+        "metro_dense_v2": 301.7
+      },
+      "metro_pass1_refs": 23999,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 9634,
+      "wall_s": {
+        "ordinary": 190.9,
+        "dense_24k": 1288.0,
+        "metro_dense_v2": 1070.3
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_ZLmQWroXthY",
+      "name": "Kansas City (ZLmQWroXthY)",
+      "ordinary_m": 511.3,
+      "dense_24k_m": 392.6,
+      "metro_dense_v2_m": 56.3,
+      "metro_start_m": 221.9,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 386.9,
+        "dense_24k": 85.3,
+        "metro_dense_v2": 305.5
+      },
+      "metro_pass1_refs": 26487,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 9445,
+      "wall_s": {
+        "ordinary": 244.1,
+        "dense_24k": 1023.0,
+        "metro_dense_v2": 369.7
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_jkkl1QgsPSo",
+      "name": "Sofia (jkkl1QgsPSo)",
+      "ordinary_m": 945.4,
+      "dense_24k_m": 27.0,
+      "metro_dense_v2_m": 21.6,
+      "metro_start_m": 59.3,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 80.0,
+        "dense_24k": 10.9,
+        "metro_dense_v2": 197.3
+      },
+      "metro_pass1_refs": 23995,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 13700,
+      "wall_s": {
+        "ordinary": 220.9,
+        "dense_24k": 1075.7,
+        "metro_dense_v2": 185.0
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_jz6o-_Y6r2E",
+      "name": "Albuquerque (jz6o-_Y6r2E)",
+      "ordinary_m": 9670.8,
+      "dense_24k_m": 11175.9,
+      "metro_dense_v2_m": 16108.4,
+      "metro_start_m": 15966.0,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 9580.7,
+        "dense_24k": 11141.0,
+        "metro_dense_v2": 14200.5
+      },
+      "metro_pass1_refs": 24001,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 1906,
+      "wall_s": {
+        "ordinary": 51.8,
+        "dense_24k": 1137.0,
+        "metro_dense_v2": 128.9
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_pFbUvfr8k-Q",
+      "name": "Trondheim (pFbUvfr8k-Q)",
+      "ordinary_m": 207.0,
+      "dense_24k_m": 22.0,
+      "metro_dense_v2_m": 40.7,
+      "metro_start_m": 260.6,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 61.4,
+        "dense_24k": 81.4,
+        "metro_dense_v2": 78.8
+      },
+      "metro_pass1_refs": 28992,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 13053,
+      "wall_s": {
+        "ordinary": 84.3,
+        "dense_24k": 1330.3,
+        "metro_dense_v2": 870.2
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_tK7bHJXAJX8",
+      "name": "Bucharest (tK7bHJXAJX8)",
+      "ordinary_m": 410.4,
+      "dense_24k_m": 350.5,
+      "metro_dense_v2_m": 49.8,
+      "metro_start_m": 189.6,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 1015.6,
+        "dense_24k": 68.7,
+        "metro_dense_v2": 34.6
+      },
+      "metro_pass1_refs": 24539,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 11181,
+      "wall_s": {
+        "ordinary": 288.3,
+        "dense_24k": 1384.8,
+        "metro_dense_v2": 415.5
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_yd5g7jsWiEM",
+      "name": "Bucharest (yd5g7jsWiEM)",
+      "ordinary_m": null,
+      "dense_24k_m": null,
+      "metro_dense_v2_m": 10.5,
+      "metro_start_m": 1.5,
+      "vs_dense_24k": null,
+      "crossing_vs_dense_24k": "gain_unlocked",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": null,
+        "dense_24k": null,
+        "metro_dense_v2": 16.5
+      },
+      "metro_pass1_refs": 24000,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 4251,
+      "wall_s": {
+        "ordinary": null,
+        "dense_24k": null,
+        "metro_dense_v2": 222.8
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_3cT07o9aXyQ",
+      "name": "Portland (3cT07o9aXyQ)",
+      "ordinary_m": 9762.5,
+      "dense_24k_m": 9749.7,
+      "metro_dense_v2_m": 856.5,
+      "metro_start_m": 77.1,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 9973.7,
+        "dense_24k": 9140.2,
+        "metro_dense_v2": 508.6
+      },
+      "metro_pass1_refs": 31974,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 5618,
+      "wall_s": {
+        "ordinary": 398.2,
+        "dense_24k": 1417.5,
+        "metro_dense_v2": 987.7
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_FPQyfJsbjWM",
+      "name": "Rotterdam (FPQyfJsbjWM)",
+      "ordinary_m": 25.7,
+      "dense_24k_m": 25.4,
+      "metro_dense_v2_m": 48.4,
+      "metro_start_m": 474.7,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 67.8,
+        "dense_24k": 16.0,
+        "metro_dense_v2": 34.6
+      },
+      "metro_pass1_refs": 24817,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 3477,
+      "wall_s": {
+        "ordinary": 347.7,
+        "dense_24k": 1234.6,
+        "metro_dense_v2": 436.0
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_VaPcyHM-Wtc",
+      "name": "Calgary (VaPcyHM-Wtc)",
+      "ordinary_m": 6880.8,
+      "dense_24k_m": 171.0,
+      "metro_dense_v2_m": 14.8,
+      "metro_start_m": 250.6,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 6371.8,
+        "dense_24k": 179.3,
+        "metro_dense_v2": 72.6
+      },
+      "metro_pass1_refs": 24772,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 9134,
+      "wall_s": {
+        "ordinary": 328.4,
+        "dense_24k": 1108.6,
+        "metro_dense_v2": 573.4
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_YJmgh_0SoGs",
+      "name": "Melbourne (YJmgh_0SoGs)",
+      "ordinary_m": 1345.9,
+      "dense_24k_m": 1345.9,
+      "metro_dense_v2_m": 828.0,
+      "metro_start_m": 6031.4,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "seed-corridor (low-cosine recovery)",
+      "pass1_to_route_m": {
+        "ordinary": 210.3,
+        "dense_24k": 210.3,
+        "metro_dense_v2": 48676.0
+      },
+      "metro_pass1_refs": 26414,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 2690,
+      "wall_s": {
+        "ordinary": 297.2,
+        "dense_24k": 120.4,
+        "metro_dense_v2": 455.3
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_kMQOOXaUBh0",
+      "name": "Houston (kMQOOXaUBh0)",
+      "ordinary_m": 7203.1,
+      "dense_24k_m": 16273.7,
+      "metro_dense_v2_m": 36759.1,
+      "metro_start_m": 37755.9,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 5842.0,
+        "dense_24k": 16125.5,
+        "metro_dense_v2": 36316.2
+      },
+      "metro_pass1_refs": 24126,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 3672,
+      "wall_s": {
+        "ordinary": 365.5,
+        "dense_24k": 1367.1,
+        "metro_dense_v2": 351.8
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_ml4PPnpc-Kw",
+      "name": "Glasgow (ml4PPnpc-Kw)",
+      "ordinary_m": 11085.0,
+      "dense_24k_m": 11085.0,
+      "metro_dense_v2_m": 422.9,
+      "metro_start_m": 2267.0,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 9907.2,
+        "dense_24k": 9907.2,
+        "metro_dense_v2": 276.2
+      },
+      "metro_pass1_refs": 28205,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 7360,
+      "wall_s": {
+        "ordinary": 237.9,
+        "dense_24k": 73.1,
+        "metro_dense_v2": 335.9
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_qgaSRWY8Aio",
+      "name": "Belgrade (qgaSRWY8Aio)",
+      "ordinary_m": 677.8,
+      "dense_24k_m": 677.8,
+      "metro_dense_v2_m": 28.6,
+      "metro_start_m": 203.3,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 6.0,
+        "dense_24k": 6.0,
+        "metro_dense_v2": 138.3
+      },
+      "metro_pass1_refs": 29728,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 9929,
+      "wall_s": {
+        "ordinary": 221.7,
+        "dense_24k": 33.9,
+        "metro_dense_v2": 873.5
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_zsqxTSNLw5A",
+      "name": "Portland (zsqxTSNLw5A)",
+      "ordinary_m": 10051.9,
+      "dense_24k_m": 10500.5,
+      "metro_dense_v2_m": 18.4,
+      "metro_start_m": 36.3,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "kept": "pass-2-corridor",
+      "pass1_to_route_m": {
+        "ordinary": 9059.5,
+        "dense_24k": 9299.9,
+        "metro_dense_v2": 1079.8
+      },
+      "metro_pass1_refs": 25476,
+      "metro_corridor_discs": 6,
+      "metro_pass2_refs": 13346,
+      "wall_s": {
+        "ordinary": 325.4,
+        "dense_24k": 1028.0,
+        "metro_dense_v2": 393.0
+      }
+    }
+  ]
+}

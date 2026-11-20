@@ -41,9 +41,19 @@ def last_row_was_bot_check() -> bool:
     return bool(atts and atts[-1].get("bot_check"))
 
 
-def run(args: list[str]) -> int:
+def run(args: list[str], timeout_s: int = 900) -> int:
     print("$", *args, flush=True)
-    return subprocess.run([sys.executable, *args]).returncode
+    proc = subprocess.Popen([sys.executable, *args])
+    try:
+        return proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            proc.kill()
+        proc.wait()
+        print(f"TIMEOUT ({timeout_s}s) running: {args}", flush=True)
+        return 75
 
 
 def main() -> int:

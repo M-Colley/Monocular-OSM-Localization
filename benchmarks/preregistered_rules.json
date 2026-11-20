@@ -1117,6 +1117,37 @@
         "run": "worktree E:/claude-scoring/wt-metro-dense-v2 at aec5008 (monocular_osm tree 75f8e90cdc63fdc328069264a72fcd02e5a2ace5, clean dirty=False); run names mdv2_{test5,test4,test,test2,test3}",
         "runs": "38/38 runs exit 0 (0 timeouts, 0 refusals, 0 degraded channels, 0 leak warnings); all 38 answer.method vpr_track_only; low-cosine corroborated seed recovery triggered only on overlay_YJmgh_0SoGs (Melbourne night drive, accepted=True); span-adaptive >4 corridor discs triggered on overlay_zsqxTSNLw5A (6 discs); 14 low-cosine Pass-1 runs augmented with open Panoramax/KartaView",
         "decision": "no infrastructure failure; zero reruns"
+      },
+      "outcome_recorded": {
+        "date": "2026-11-20",
+        "runs": "E:/claude-scoring/wt-metro-dense-v2/output/benchmark_runs/mdv2_{test,test2,test3,test4,test5}",
+        "n_total": 38,
+        "n_paired": 37,
+        "V1_no_harm": "holds: 0 losses across test1-test3 (and 0 losses across all 38 clips)",
+        "V2_gains": "holds: 30/37 (81.1 %, Wilson 65.8-90.5 %) within 200 m on paired clips vs 18/37 (48.6 %) dense_24k (+12 gains, 0 losses, one-sided McNemar p = 0.000244) and 12/37 (32.4 %) ordinary (+18 gains, 0 losses, one-sided McNemar p = 0.000004); 31/38 (81.6 %, Wilson 66.6-90.8 %) across all 38 clips (all 31 <= 99.1 m; 34/38 <= 500 m; 36/38 <= 900 m)",
+        "V3": {
+          "per_split_within_200": {
+            "test": "7/7 (100 %, median 19.3 m)",
+            "test2": "5/7 (71 %, 7/7 <= 393 m, median 76.5 m)",
+            "test3": "10/10 (100 %, median 24.1 m)",
+            "test4": "5/6 (83 %, median 45.2 m)",
+            "test5": "4/8 (50 %, median 235.6 m)"
+          },
+          "vs_dense_24k_10pct_band": {
+            "better": 25,
+            "worse": 7,
+            "tie": 5,
+            "sign_test_one_sided_p": 0.00105
+          },
+          "medians_m_paired_37": {
+            "ordinary": 511.3,
+            "dense_24k": 260.3,
+            "metro_dense_v2": 41.7
+          },
+          "median_m_all_38": 41.2,
+          "melbourne_night_recovery": "49,603.3 m (v1) / 1,345.9 m (ordinary) -> 828.0 m via seed-corridor"
+        },
+        "report": "docs/metro_dense_v2_all38_2026-11.md"
       }
     },
     "test6_worldwide_2026_11": {

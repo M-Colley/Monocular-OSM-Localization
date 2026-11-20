@@ -1,0 +1,7 @@
+{
+  "amendment": "test6 screen operational amendment 01",
+  "recorded_utc": "2026-11-20T05:52:00+00:00",
+  "before": "zero localization or scoring has been executed on any test6 clip (1 clip URC3D7Xzpq0 in Kuala Lumpur, Malaysia passed QC so far)",
+  "problem": "Across the 748 frozen search candidates, 104 met multilingual road-video and duration eligibility across all 6 continents, but YouTube's low-resolution thumbnails (320x180-480x360) blurred small 1080p/4K dashcam corner GPS stamps on 92 of the 104 eligible candidates (asia: 18, middle_east_africa: 18, latin_america: 13, north_america: 10, oceania: 15, europe: 18), causing screen_one's thumbnail pre-filter (`if thumbs else ([], 0)`) to skip reading 1080p frames on 88 % of eligible videos.",
+  "change": "1) Socket/process timeouts (60 s socket timeout in build_one.py, 900 s child timeout in drive.py) prevent stalled stream hangs. 2) Remove the low-resolution thumbnail pre-filter so section_fixes reads 1080p frames at 25/50/75 % directly on eligible candidates (short-circuiting 75 % when both 25 % and 50 % read cleanly with 0 stamps, which is mathematically identical under the >=2-of-3 rule), re-evaluating the 92 skipped eligible candidates in their exact frozen pre-registered order subject to continent_quotas. City order, frozen query snapshots, title eligibility, >=2 stamps within 40 km, continent quotas, and GT QC are unchanged."
+}
