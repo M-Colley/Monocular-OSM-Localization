@@ -11,8 +11,8 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-PAUSE_S = 120
-MAX_INFRA_STREAK = 4
+PAUSE_S = 15
+MAX_INFRA_STREAK = 20
 
 
 def attempts() -> list[dict]:

@@ -110,10 +110,17 @@ def section_fixes(s, vid: str, dur: float):
     return out, n_read
 
 
-def screen_one(s, centre, vid: str, duration: float) -> dict:
+def screen_one(s, centre, vid: str, duration: float, *, thumb_gate: bool = False) -> dict:
     thumbs = s.thumb_fixes(vid)
-    fixes, n_frames_read = section_fixes(s, vid, duration)
+    if thumb_gate and not thumbs:
+        fixes, n_frames_read = [], 0
+    else:
+        fixes, n_frames_read = section_fixes(s, vid, duration)
     near = [f for f in fixes if s.geodesic_distance_m(centre[0], centre[1], f["lat"], f["lon"]) < 40000]
+    status = (
+        "PASS" if len(near) >= 2 else
+        ("FRAMES_UNREADABLE" if (not thumb_gate or thumbs) and not n_frames_read else "SCREEN_NOT_PASSED")
+    )
     row = {
         "thumbnail_stamp": bool(thumbs),
         "n_frames_read": n_frames_read,
@@ -121,8 +128,7 @@ def screen_one(s, centre, vid: str, duration: float) -> dict:
         "n_near": len(near),
         "ok": len(near) >= 2,
         "region": fixes[0]["region"] if fixes else None,
-        "status": ("PASS" if len(near) >= 2 else
-                   ("UNVERIFIED_FRAMES" if not n_frames_read else "SCREEN_NOT_PASSED")),
+        "status": status,
     }
     evidence = {"thumbs": thumbs, "fixes": fixes}
     row["screen_evidence_sha256"] = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
@@ -294,6 +300,87 @@ def main() -> int:
                 "id": None, "query_complete": True, "n_results": len(entries),
             })
             save(rows)
+
+    # Operational amendment 02: fixed hardware GPS-dashcam model queries in the
+    # exact registered city_order for continents still below continent_quotas.
+    hw_templates = (
+        "{word} VIOFO dashcam",
+        "{word} 70mai dashcam",
+        "{word} Garmin dashcam",
+        "{word} Nextbase dashcam",
+        "{word} Rove dashcam",
+    )
+    for entry in sel["city_order"]:
+        city = entry["city"]
+        creg = entry["region"]
+        if have_counts[creg] >= quotas.get(creg, 0):
+            continue
+        word = city.split(",")[0].strip()
+        keys = entry["title_keys"]
+        centre = None
+        for tmpl in hw_templates:
+            query = tmpl.format(word=word)
+            if (city, query) in done:
+                continue
+            snapshot = snapshots / (hashlib.sha256(f"{city}::hw::{query}".encode()).hexdigest()[:16] + ".json")
+            if not snapshot.exists():
+                time.sleep(5)
+                js = ["--js-runtimes", "node"] if shutil.which("node") else []
+                p = subprocess.run(
+                    ["yt-dlp", *js, "--flat-playlist", "-J", f"ytsearch{sel['results_per_query']}:{query}"],
+                    capture_output=True, timeout=180,
+                )
+                if p.returncode:
+                    err = p.stderr.decode("utf-8", "replace")
+                    rows.append({
+                        "city": city, "continent_region": creg, "query": query, "id": None,
+                        "status": "UNVERIFIED_INFRASTRUCTURE", "bot_check": bool(s.BOT.search(err)),
+                        "query_complete": False, "amendment": "operational_amendment_02",
+                        "utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    })
+                    save(rows)
+                    return 75
+                with snapshot.open("x", encoding="utf-8") as f:
+                    json.dump(json.loads(p.stdout.decode("utf-8")), f, ensure_ascii=False, indent=2)
+            entries = json.loads(snapshot.read_text(encoding="utf-8")).get("entries", [])
+            for rank, e in enumerate(entries):
+                vid, title, duration = e.get("id"), e.get("title") or "", e.get("duration") or 0
+                if not vid or vid in seen:
+                    continue
+                seen.add(vid)
+                key = match_worldwide_city_key(title, keys)
+                eligible = bool(
+                    duration >= 300
+                    and is_multilingual_road_title(title, road_terms)
+                    and key is not None
+                )
+                row = {
+                    "city": city, "continent_region": creg, "id": vid, "title": title,
+                    "duration_s": duration, "query": query, "rank": rank,
+                    "eligible": eligible, "ok": False, "matched_key": key,
+                    "registered_city": registered_city(city, key[1]) if key else None,
+                    "amendment": "operational_amendment_02",
+                }
+                if eligible:
+                    if centre is None:
+                        centre = s.geocode(city)
+                        if centre is None:
+                            return 75
+                    row.update(screen_one(s, centre, vid, duration, thumb_gate=True))
+                else:
+                    row["status"] = "TITLE_OR_DURATION_INELIGIBLE"
+                rows.append(row)
+                save(rows)
+                print(json.dumps(row, ensure_ascii=True), flush=True)
+                if row["ok"]:
+                    return 0
+            rows.append({
+                "city": city, "continent_region": creg, "query": query,
+                "id": None, "query_complete": True, "n_results": len(entries),
+                "amendment": "operational_amendment_02",
+            })
+            save(rows)
+
     print("fixed test6 worldwide pool exhausted", flush=True)
     return 2
 
