@@ -1111,7 +1111,13 @@
         "V2": "All-split gains: across the 37 paired clips, within-200 m increases by at least +6 clips over dense_24k (18/37) and +12 clips over ordinary (12/37), with one-sided McNemar p < 0.05.",
         "V3": "Descriptive: within-200 m and median symmetric route error per split and pooled across all 38 clips; Melbourne night seed recovery and Glasgow adaptive corridor disc diagnostics."
       },
-      "disclosure": "In-sample across all 38 clips (test1-test5 failure modes informed the design). test4 and test5 reuse warm _metro_shared 20 km Mapillary caches from metro_dense_dev_2026_11."
+      "disclosure": "In-sample across all 38 clips (test1-test5 failure modes informed the design). test4 and test5 reuse warm _metro_shared 20 km Mapillary caches from metro_dense_dev_2026_11.",
+      "infra_check": {
+        "recorded": "2026-11-20, after all 38 runs ended (04:44 UTC) and before any score or aggregate was computed",
+        "run": "worktree E:/claude-scoring/wt-metro-dense-v2 at aec5008 (monocular_osm tree 75f8e90cdc63fdc328069264a72fcd02e5a2ace5, clean dirty=False); run names mdv2_{test5,test4,test,test2,test3}",
+        "runs": "38/38 runs exit 0 (0 timeouts, 0 refusals, 0 degraded channels, 0 leak warnings); all 38 answer.method vpr_track_only; low-cosine corroborated seed recovery triggered only on overlay_YJmgh_0SoGs (Melbourne night drive, accepted=True); span-adaptive >4 corridor discs triggered on overlay_zsqxTSNLw5A (6 discs); 14 low-cosine Pass-1 runs augmented with open Panoramax/KartaView",
+        "decision": "no infrastructure failure; zero reruns"
+      }
     },
     "test6_worldwide_2026_11": {
       "registered": "2026-11-19",
