@@ -395,6 +395,8 @@ _CITY_EXONYM_GROUPS: tuple[tuple[str, ...], ...] = (
     ("busan", "부산", "pusan"),
     ("bangkok", "กรุงเทพ", "krung thep"),
     ("ho chi minh", "ho chi minh city", "saigon", "sai gon"),
+    ("mexico city", "ciudad de mexico", "cdmx"),
+    ("kuala lumpur", "kl"),
 )
 
 _EXONYM_MAP: dict[str, tuple[str, ...]] = {}
