@@ -1,0 +1,110 @@
+{
+  "video_id": "XZrRUsdupM8",
+  "video_url": "https://www.youtube.com/watch?v=XZrRUsdupM8",
+  "city": "Toronto, Ontario, Canada",
+  "vo_segment": "4:596",
+  "description": "test6 worldwide screen pass (north_america): Toronto, Ontario, Canada query 'Toronto Rove dashcam' rank 4. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 120 OCR fixes over 5-597 s (0.80 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 34.8,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 69.6,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 99.4,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 129.3,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 159.1,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 193.9,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 223.7,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 253.6,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 283.4,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 318.2,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 348.0,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 377.8,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 407.7,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 442.5,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 472.3,
+      "lat": 43.557222,
+      "lon": -79.710278
+    },
+    {
+      "t_sec": 502.1,
+      "lat": 43.557222,
+      "lon": -79.71
+    },
+    {
+      "t_sec": 532.0,
+      "lat": 43.556944,
+      "lon": -79.71
+    },
+    {
+      "t_sec": 566.8,
+      "lat": 43.554167,
+      "lon": -79.711389
+    },
+    {
+      "t_sec": 596.6,
+      "lat": 43.552778,
+      "lon": -79.708889
+    }
+  ]
+}

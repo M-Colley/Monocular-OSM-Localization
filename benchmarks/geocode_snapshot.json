@@ -13,6 +13,13 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-11-06T01:22:51+00:00"
   },
+  "Athens, Greece": {
+    "lat": 37.9755648,
+    "lon": 23.7348324,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-21T11:21:16+00:00"
+  },
   "Atlanta, Georgia, USA": {
     "lat": 33.7544657,
     "lon": -84.3898151,
@@ -20,12 +27,26 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:00:49+00:00"
   },
+  "Bangkok, Thailand": {
+    "lat": 13.7524938,
+    "lon": 100.4935089,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-21T11:21:16+00:00"
+  },
   "Belgrade, Serbia": {
     "lat": 44.8178131,
     "lon": 20.4568974,
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-11-18T04:22:54+00:00"
+  },
+  "Bengaluru, India": {
+    "lat": 12.9767936,
+    "lon": 77.590082,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-21T11:21:16+00:00"
   },
   "Berlin, Germany": {
     "lat": 52.5173885,
@@ -146,6 +167,13 @@
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-11-08T02:34:39+00:00"
   },
+  "Kuala Lumpur, Malaysia": {
+    "lat": 3.1516964,
+    "lon": 101.6942371,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-21T11:21:16+00:00"
+  },
   "Manchester, UK": {
     "lat": 53.4794892,
     "lon": -2.2451148,
@@ -159,6 +187,13 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-11-18T04:22:54+00:00"
+  },
+  "Mexico City, Mexico": {
+    "lat": 19.4326296,
+    "lon": -99.1331785,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-21T11:21:16+00:00"
   },
   "Montreal, Canada": {
     "lat": 45.5031824,
@@ -250,6 +285,13 @@
     "geocoder": "osmnx.geocode (Nominatim)",
     "osmnx": "2.1.1",
     "retrieved_utc": "2026-10-10T13:01:00+00:00"
+  },
+  "Santiago, Chile": {
+    "lat": -33.4376995,
+    "lon": -70.6510671,
+    "geocoder": "osmnx.geocode (Nominatim)",
+    "osmnx": "2.1.1",
+    "retrieved_utc": "2026-11-21T11:21:16+00:00"
   },
   "Scottsdale, Arizona, USA": {
     "lat": 33.4942189,

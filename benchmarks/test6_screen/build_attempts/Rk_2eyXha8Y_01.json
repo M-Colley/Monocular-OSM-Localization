@@ -1,0 +1,16 @@
+{
+  "id": "Rk_2eyXha8Y",
+  "pool_city": "Perth, Australia",
+  "city": "Perth, Australia",
+  "continent_region": "oceania",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-20T20:34:19.661096+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "status": "GT_BUILD_DECLINED",
+  "available": false,
+  "completed_utc": "2026-11-20T20:48:23.587448+00:00",
+  "qc_log_sha256": "3d9cec3345d843cd031186bc9bef8ec8c4b968bddc8cdadca498893bc7d3247b"
+}

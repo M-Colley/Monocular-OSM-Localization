@@ -1,0 +1,21 @@
+{
+  "id": "vLp-FJYtkgs",
+  "pool_city": "Brisbane, Australia",
+  "city": "Brisbane, Australia",
+  "continent_region": "oceania",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-19T20:00:20.741294+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/vlp-fjytkgs-random-brisbane-drivers-on-dashcam-3/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_vLp-FJYtkgs.json",
+  "plausibility_passed": false,
+  "route_at_least_500m": false,
+  "download_duration_s": 570.96,
+  "status": "GT_QC_FAILED",
+  "available": false,
+  "completed_utc": "2026-11-19T20:14:07.529796+00:00",
+  "qc_log_sha256": "2b4dc6d07c51b627d1ae7c03a6f7ac76214cd6f3a97d85e5407230fb80d26f96"
+}

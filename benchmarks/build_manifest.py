@@ -280,6 +280,15 @@ OVERLAY_TITLE_CITY: dict[str, str] = {
     "qgaSRWY8Aio": "Belgrade, Serbia",
     "3cT07o9aXyQ": "Portland, Oregon, USA",
     "zsqxTSNLw5A": "Portland, Oregon, USA",
+    # Test6 worldwide split, fixed before localization (2026-11-20).
+    "URC3D7Xzpq0": "Kuala Lumpur, Malaysia",
+    "lc2YfKXCUv8": "Bangkok, Thailand",
+    "h1wnOrVzgKg": "Santiago, Chile",
+    "XZrRUsdupM8": "Toronto, Ontario, Canada",
+    "bQI9M_lpBEM": "Athens, Greece",
+    "hjkt-LEF4UU": "Santiago, Chile",
+    "nlQdg-FiNns": "Mexico City, Mexico",
+    "MR4dqJcW4Ao": "Bengaluru, India",
 }
 
 

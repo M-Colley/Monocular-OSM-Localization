@@ -1,0 +1,137 @@
+{
+  "schema": "test6-worldwide-selection-outcome-v1",
+  "closed_utc": "2026-11-21T11:21:12.279917+00:00",
+  "target": 12,
+  "frozen_count": 8,
+  "target_met": false,
+  "pool": "all 24 cities across 6 continents screened across initial + hardware + quoted passes; fixed pool exhausted",
+  "frozen_by_continent": {
+    "asia": 3,
+    "latin_america": 2,
+    "north_america": 2,
+    "europe": 1
+  },
+  "frozen_clips_in_pass_order": [
+    {
+      "id": "URC3D7Xzpq0",
+      "city": "Kuala Lumpur, Malaysia",
+      "continent_region": "asia",
+      "video_path": "E:/claude-scoring/test6/data/urc3d7xzpq0-pinoy-in-malaysia-sunday-drive-grand-saga-highway-kuala-lumpur-with/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_URC3D7Xzpq0.json",
+      "download_duration_s": 600.0
+    },
+    {
+      "id": "lc2YfKXCUv8",
+      "city": "Bangkok, Thailand",
+      "continent_region": "asia",
+      "video_path": "E:/claude-scoring/test6/data/lc2yfkxcuv8-dash-cam-one-day-with-traffic-in-bangkok/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_lc2YfKXCUv8.json",
+      "download_duration_s": 600.0327666666667
+    },
+    {
+      "id": "h1wnOrVzgKg",
+      "city": "Santiago, Chile",
+      "continent_region": "latin_america",
+      "video_path": "E:/claude-scoring/test6/data/h1wnorvzgkg-dashcam-70mai-a500-santiago-hacia-puente-alto/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_h1wnOrVzgKg.json",
+      "download_duration_s": 600.0
+    },
+    {
+      "id": "XZrRUsdupM8",
+      "city": "Toronto, Ontario, Canada",
+      "continent_region": "north_america",
+      "video_path": "E:/claude-scoring/test6/data/xzrrusdupm8-rove-dashcam-footage-compilation-greater-toronto-area-mississauga/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_XZrRUsdupM8.json",
+      "download_duration_s": 600.0327666666667
+    },
+    {
+      "id": "bQI9M_lpBEM",
+      "city": "Athens, Greece",
+      "continent_region": "europe",
+      "video_path": "E:/claude-scoring/test6/data/bqi9m-lpbem-driving-in-athens-from-vouliagmeni-to-varkiza/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_bQI9M_lpBEM.json",
+      "download_duration_s": 390.02296666666666
+    },
+    {
+      "id": "hjkt-LEF4UU",
+      "city": "Santiago, Chile",
+      "continent_region": "latin_america",
+      "video_path": "E:/claude-scoring/test6/data/hjkt-lef4uu-bad-drivers-in-dash-cam-nov-2021-santiago-chile/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_hjkt-LEF4UU.json",
+      "download_duration_s": 534.7
+    },
+    {
+      "id": "nlQdg-FiNns",
+      "city": "Mexico City, Mexico",
+      "continent_region": "north_america",
+      "video_path": "E:/claude-scoring/test6/data/nlqdg-finns-calles-de-cdmx-trayecto-zocalo-cdmx-a-santa-fe-70mai/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_nlQdg-FiNns.json",
+      "download_duration_s": 600.0327666666667
+    },
+    {
+      "id": "MR4dqJcW4Ao",
+      "city": "Bengaluru, India",
+      "continent_region": "asia",
+      "video_path": "E:/claude-scoring/test6/data/mr4dqjcw4ao-bengaluru-rainy-evening-drive-relaxing-monsoon-drive-through-bangalo/input_0-600.mp4",
+      "gt_path": "ground_truth/overlay_MR4dqJcW4Ao.json",
+      "download_duration_s": 600.0
+    }
+  ],
+  "build_declined_or_qc_failed": [
+    {
+      "id": "HKpWhtbyC7o",
+      "city": "Osaka, Japan",
+      "continent_region": "asia",
+      "status": "GT_QC_FAILED"
+    },
+    {
+      "id": "ORLdnWwwOLU",
+      "city": "Lisbon, Portugal",
+      "continent_region": "europe",
+      "status": "GT_QC_FAILED"
+    },
+    {
+      "id": "Rk_2eyXha8Y",
+      "city": "Perth, Australia",
+      "continent_region": "oceania",
+      "status": "GT_BUILD_DECLINED"
+    },
+    {
+      "id": "ZMWPMBShOZ4",
+      "city": "Perth, Australia",
+      "continent_region": "oceania",
+      "status": "GT_BUILD_DECLINED"
+    },
+    {
+      "id": "lP3_Yf_ZZlw",
+      "city": "Perth, Australia",
+      "continent_region": "oceania",
+      "status": "GT_BUILD_DECLINED"
+    },
+    {
+      "id": "vLp-FJYtkgs",
+      "city": "Brisbane, Australia",
+      "continent_region": "oceania",
+      "status": "GT_QC_FAILED"
+    },
+    {
+      "id": "zZqiM297POc",
+      "city": "Perth, Australia",
+      "continent_region": "oceania",
+      "status": "GT_BUILD_DECLINED"
+    }
+  ],
+  "screen_status_counts": {
+    "TITLE_OR_DURATION_INELIGIBLE": 1966,
+    "SCREEN_NOT_PASSED": 290,
+    "UNVERIFIED_FRAMES": 9,
+    "FRAMES_UNREADABLE": 111,
+    "PASS": 15
+  },
+  "amendments": [
+    "operational_amendment_01.json",
+    "operational_amendment_02.json",
+    "operational_amendment_03.json"
+  ],
+  "localization_executed": false
+}

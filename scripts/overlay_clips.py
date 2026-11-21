@@ -410,6 +410,47 @@ CLIPS: tuple[OverlayClip, ...] = (
         city_override="Portland, Oregon, USA", overlay="GPS coordinate stamp (bottom)",
         note="test5 screen pass: Portland, Oregon, USA query 'Portland dashcam GPS' rank 11; GT QC passed before any localization.",
     ),
+    # Test6, globally stratified held-out set selected under benchmarks/test6_screen before any localization (2026-11-20).
+    OverlayClip(
+        video_id="URC3D7Xzpq0", region="bottom", window=_W, split="test6",
+        city_override="Kuala Lumpur, Malaysia", overlay="GPS coordinate stamp (bottom)",
+        note="test6 worldwide screen pass (asia): Kuala Lumpur, Malaysia query 'Kuala Lumpur dashcam GPS' rank 1; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="lc2YfKXCUv8", region="bottom", window=_W, split="test6",
+        city_override="Bangkok, Thailand", overlay="GPS coordinate stamp (bottom)",
+        note="test6 worldwide screen pass (asia): Bangkok, Thailand query 'Bangkok 70mai dashcam' rank 3; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="h1wnOrVzgKg", region="bottom", window=_W, split="test6",
+        city_override="Santiago, Chile", overlay="GPS coordinate stamp (bottom)",
+        note="test6 worldwide screen pass (latin_america): Santiago, Chile query 'Santiago 70mai dashcam' rank 5; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="XZrRUsdupM8", region="bottom", window=_W, split="test6",
+        city_override="Toronto, Ontario, Canada", overlay="GPS coordinate stamp (bottom)",
+        note="test6 worldwide screen pass (north_america): Toronto, Ontario, Canada query 'Toronto Rove dashcam' rank 4; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="bQI9M_lpBEM", region="bottom", window=_W, split="test6",
+        city_override="Athens, Greece", overlay="GPS coordinate stamp (bottom)",
+        note="test6 worldwide screen pass (europe): Athens, Greece query 'Athens 70mai dashcam' rank 10; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="hjkt-LEF4UU", region="bottom", window=_W, split="test6",
+        city_override="Santiago, Chile", overlay="GPS coordinate stamp (bottom)",
+        note="test6 worldwide screen pass (latin_america): Santiago, Chile query '\"Santiago\" 70mai' rank 11; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="nlQdg-FiNns", region="bottom", window=_W, split="test6",
+        city_override="Mexico City, Mexico", overlay="GPS coordinate stamp (bottom)",
+        note="test6 worldwide screen pass (north_america): Mexico City, Mexico query '\"Mexico City\" 70mai' rank 3; GT QC passed before any localization.",
+    ),
+    OverlayClip(
+        video_id="MR4dqJcW4Ao", region="bottom", window=_W, split="test6",
+        city_override="Bengaluru, India", overlay="GPS coordinate stamp (bottom)",
+        note="test6 worldwide screen pass (asia): Bengaluru, India query '\"Bengaluru\" dashcam' rank 6; GT QC passed before any localization.",
+    ),
 )
 
 BY_ID = {c.video_id: c for c in CLIPS}

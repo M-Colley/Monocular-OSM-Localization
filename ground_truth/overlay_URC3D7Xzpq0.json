@@ -1,0 +1,110 @@
+{
+  "video_id": "URC3D7Xzpq0",
+  "video_url": "https://www.youtube.com/watch?v=URC3D7Xzpq0",
+  "city": "Kuala Lumpur, Malaysia",
+  "vo_segment": "230:595",
+  "description": "test6 worldwide screen pass (asia): Kuala Lumpur, Malaysia query 'Kuala Lumpur dashcam GPS' rank 1. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 74 OCR fixes over 230-595 s (6.08 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 230.0,
+      "lat": 3.0753,
+      "lon": 101.7584
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 3.0766,
+      "lon": 101.7544
+    },
+    {
+      "t_sec": 270.0,
+      "lat": 3.078,
+      "lon": 101.7508
+    },
+    {
+      "t_sec": 290.0,
+      "lat": 3.0786,
+      "lon": 101.7481
+    },
+    {
+      "t_sec": 305.0,
+      "lat": 3.0789,
+      "lon": 101.7459
+    },
+    {
+      "t_sec": 325.0,
+      "lat": 3.079913,
+      "lon": 101.7427
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 3.0824,
+      "lon": 101.7418
+    },
+    {
+      "t_sec": 365.0,
+      "lat": 3.0845,
+      "lon": 101.7418
+    },
+    {
+      "t_sec": 385.0,
+      "lat": 3.0859,
+      "lon": 101.7418
+    },
+    {
+      "t_sec": 405.0,
+      "lat": 3.0879,
+      "lon": 101.7414
+    },
+    {
+      "t_sec": 420.0,
+      "lat": 3.0898,
+      "lon": 101.7408
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 3.0925,
+      "lon": 101.74
+    },
+    {
+      "t_sec": 460.0,
+      "lat": 3.0959,
+      "lon": 101.739
+    },
+    {
+      "t_sec": 480.0,
+      "lat": 3.0989,
+      "lon": 101.7375
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 3.1013,
+      "lon": 101.7351
+    },
+    {
+      "t_sec": 520.0,
+      "lat": 3.104,
+      "lon": 101.7328
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 3.1061,
+      "lon": 101.7313
+    },
+    {
+      "t_sec": 555.0,
+      "lat": 3.109,
+      "lon": 101.7302
+    },
+    {
+      "t_sec": 575.0,
+      "lat": 3.1118,
+      "lon": 101.7292
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 3.1141,
+      "lon": 101.7285
+    }
+  ]
+}

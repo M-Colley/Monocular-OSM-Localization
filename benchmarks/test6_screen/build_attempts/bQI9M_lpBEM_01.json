@@ -1,0 +1,21 @@
+{
+  "id": "bQI9M_lpBEM",
+  "pool_city": "Athens, Greece",
+  "city": "Athens, Greece",
+  "continent_region": "europe",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-20T12:50:11.851688+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/bqi9m-lpbem-driving-in-athens-from-vouliagmeni-to-varkiza/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_bQI9M_lpBEM.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 390.02296666666666,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-20T12:58:23.257624+00:00",
+  "qc_log_sha256": "699364ad0086209fac40f45276bfe576af2c3a5c2bfeabf3bbaa5a4cc38d73ac"
+}

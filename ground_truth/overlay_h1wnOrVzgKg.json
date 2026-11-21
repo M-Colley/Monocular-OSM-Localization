@@ -1,0 +1,110 @@
+{
+  "video_id": "h1wnOrVzgKg",
+  "video_url": "https://www.youtube.com/watch?v=h1wnOrVzgKg",
+  "city": "Santiago, Chile",
+  "vo_segment": "5:595",
+  "description": "test6 worldwide screen pass (latin_america): Santiago, Chile query 'Santiago 70mai dashcam' rank 5. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 86 OCR fixes over 5-595 s (2.54 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": -33.4755,
+      "lon": -70.6436
+    },
+    {
+      "t_sec": 30.0,
+      "lat": -33.4775,
+      "lon": -70.6425
+    },
+    {
+      "t_sec": 60.0,
+      "lat": -33.4784,
+      "lon": -70.642
+    },
+    {
+      "t_sec": 90.0,
+      "lat": -33.4794,
+      "lon": -70.6419
+    },
+    {
+      "t_sec": 115.0,
+      "lat": -33.4798,
+      "lon": -70.6419
+    },
+    {
+      "t_sec": 140.0,
+      "lat": -33.4799,
+      "lon": -70.6419
+    },
+    {
+      "t_sec": 165.0,
+      "lat": -33.4799,
+      "lon": -70.6419
+    },
+    {
+      "t_sec": 185.0,
+      "lat": -33.4805,
+      "lon": -70.6419
+    },
+    {
+      "t_sec": 210.0,
+      "lat": -33.4805,
+      "lon": -70.6419
+    },
+    {
+      "t_sec": 230.0,
+      "lat": -33.4807,
+      "lon": -70.6418
+    },
+    {
+      "t_sec": 270.0,
+      "lat": -33.4814,
+      "lon": -70.6418
+    },
+    {
+      "t_sec": 315.0,
+      "lat": -33.4819,
+      "lon": -70.6417
+    },
+    {
+      "t_sec": 375.0,
+      "lat": -33.4826,
+      "lon": -70.6416
+    },
+    {
+      "t_sec": 395.0,
+      "lat": -33.483,
+      "lon": -70.641567
+    },
+    {
+      "t_sec": 425.0,
+      "lat": -33.4834,
+      "lon": -70.6415
+    },
+    {
+      "t_sec": 445.0,
+      "lat": -33.4838,
+      "lon": -70.6415
+    },
+    {
+      "t_sec": 475.0,
+      "lat": -33.4861,
+      "lon": -70.6411
+    },
+    {
+      "t_sec": 500.0,
+      "lat": -33.4884,
+      "lon": -70.6408
+    },
+    {
+      "t_sec": 545.0,
+      "lat": -33.4915,
+      "lon": -70.6404
+    },
+    {
+      "t_sec": 595.0,
+      "lat": -33.4958,
+      "lon": -70.6399
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "video_id": "lc2YfKXCUv8",
+  "video_url": "https://www.youtube.com/watch?v=lc2YfKXCUv8",
+  "city": "Bangkok, Thailand",
+  "vo_segment": "233:323",
+  "description": "test6 worldwide screen pass (asia): Bangkok, Thailand query 'Bangkok 70mai dashcam' rank 3. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 19 OCR fixes over 234-323 s (1.84 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 233.7,
+      "lat": 13.66372,
+      "lon": 100.4924
+    },
+    {
+      "t_sec": 238.6,
+      "lat": 13.66382,
+      "lon": 100.4924
+    },
+    {
+      "t_sec": 243.6,
+      "lat": 13.66412,
+      "lon": 100.4928
+    },
+    {
+      "t_sec": 248.6,
+      "lat": 13.66372,
+      "lon": 100.4934
+    },
+    {
+      "t_sec": 253.6,
+      "lat": 13.66332,
+      "lon": 100.4948
+    },
+    {
+      "t_sec": 258.5,
+      "lat": 13.66312,
+      "lon": 100.4955
+    },
+    {
+      "t_sec": 263.5,
+      "lat": 13.66402,
+      "lon": 100.4957
+    },
+    {
+      "t_sec": 268.5,
+      "lat": 13.66502,
+      "lon": 100.4957
+    },
+    {
+      "t_sec": 273.4,
+      "lat": 13.66622,
+      "lon": 100.4959
+    },
+    {
+      "t_sec": 278.4,
+      "lat": 13.66712,
+      "lon": 100.4948
+    },
+    {
+      "t_sec": 283.4,
+      "lat": 13.66752,
+      "lon": 100.4934
+    },
+    {
+      "t_sec": 288.4,
+      "lat": 13.66792,
+      "lon": 100.4922
+    },
+    {
+      "t_sec": 293.3,
+      "lat": 13.66862,
+      "lon": 100.4912
+    },
+    {
+      "t_sec": 298.3,
+      "lat": 13.66952,
+      "lon": 100.4916
+    },
+    {
+      "t_sec": 303.3,
+      "lat": 13.67052,
+      "lon": 100.4923
+    },
+    {
+      "t_sec": 308.2,
+      "lat": 13.67112,
+      "lon": 100.4927
+    },
+    {
+      "t_sec": 313.2,
+      "lat": 13.67112,
+      "lon": 100.4927
+    },
+    {
+      "t_sec": 318.2,
+      "lat": 13.67132,
+      "lon": 100.4929
+    },
+    {
+      "t_sec": 323.2,
+      "lat": 13.67202,
+      "lon": 100.4914
+    }
+  ]
+}

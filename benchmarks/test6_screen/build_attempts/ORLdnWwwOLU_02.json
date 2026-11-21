@@ -1,0 +1,21 @@
+{
+  "id": "ORLdnWwwOLU",
+  "pool_city": "Lisbon, Portugal",
+  "city": "Lisbon, Portugal",
+  "continent_region": "europe",
+  "split": "test6",
+  "attempt": 2,
+  "started_utc": "2026-11-20T11:37:20.501536+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/orldnwwwolu-rove-s-tubal-to-lisbon-airport-to-barreiro-portugal-2023b24e-road-cu/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_ORLdnWwwOLU.json",
+  "plausibility_passed": false,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0,
+  "status": "GT_QC_FAILED",
+  "available": false,
+  "completed_utc": "2026-11-20T11:50:02.817197+00:00",
+  "qc_log_sha256": "31e18527dcfacd0742e2d0a816c984e39f7b97464e9a237884d71189b60ff8b2"
+}

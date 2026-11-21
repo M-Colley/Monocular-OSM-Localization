@@ -1,0 +1,18 @@
+{
+  "id": "lc2YfKXCUv8",
+  "pool_city": "Bangkok, Thailand",
+  "city": "Bangkok, Thailand",
+  "continent_region": "asia",
+  "split": "test6",
+  "attempt": 10,
+  "started_utc": "2026-11-20T08:29:31.886418+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "status": "UNVERIFIED_INFRASTRUCTURE",
+  "available": false,
+  "exception_type": "DownloadError",
+  "bot_check": false,
+  "completed_utc": "2026-11-20T08:29:33.639410+00:00",
+  "qc_log_sha256": "2648dcca103e20d1acc6030a6e5cdb4d71d720c24af182a1e1926e246645b64c"
+}

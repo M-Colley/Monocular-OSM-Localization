@@ -1,0 +1,21 @@
+{
+  "id": "HKpWhtbyC7o",
+  "pool_city": "Osaka, Japan",
+  "city": "Osaka, Japan",
+  "continent_region": "asia",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-20T05:11:02.856963+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/hkpwhtbyc7o-4k-viofo-a129-pro-duo/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_HKpWhtbyC7o.json",
+  "plausibility_passed": false,
+  "route_at_least_500m": true,
+  "download_duration_s": 378.5448333333333,
+  "status": "GT_QC_FAILED",
+  "available": false,
+  "completed_utc": "2026-11-20T05:19:12.996906+00:00",
+  "qc_log_sha256": "fd7e7ab7f4deb839d865f3102235960ca806a45f6babfa5a58302160a7a072b8"
+}

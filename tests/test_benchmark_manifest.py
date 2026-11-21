@@ -83,7 +83,7 @@ def test_vocabularies_and_splits() -> None:
     for c in CLIPS:
         assert c["gt_source"] in vocab["gt_source"], c["id"]
         assert c["window_source"] in vocab["window_source"], c["id"]
-        assert c["split"] in ("dev", "test", "test2", "test3", "test4", "test5")
+        assert c["split"] in ("dev", "test", "test2", "test3", "test4", "test5", "test6")
     assert "test" in MANIFEST["splits"]
     # Every clip that existed while the method was tuned is dev; the held-out
     # clips (added 2026-10-24, before anything ran on them) are the only test ones.
@@ -120,7 +120,10 @@ def test_city_strings_are_not_gt_informed() -> None:
         if c["fleet"] == "overlay":
             # The city is the one the upload's title names.
             city_word = c["city"].split(",")[0].split()[0].casefold()
-            title_names = {"bucharest": ("bucharest", "bucuresti", "bucurești")}
+            title_names = {
+                "bucharest": ("bucharest", "bucuresti", "bucurești"),
+                "mexico": ("mexico", "cdmx"),
+            }
             assert any(name in c["title"].casefold()
                        for name in title_names.get(city_word, (city_word,)))
 
@@ -160,7 +163,7 @@ def test_overlay_clip_split_is_a_declared_field_defaulting_to_dev() -> None:
         spec.loader.exec_module(mod)
     finally:
         sys.modules.pop(spec.name, None)
-    assert {c.split for c in mod.CLIPS} <= {"dev", "test", "test2", "test3", "test4", "test5"}
+    assert {c.split for c in mod.CLIPS} <= {"dev", "test", "test2", "test3", "test4", "test5", "test6"}
     # The original fleet (used while the method was tuned) stays dev; held-out
     # clips added later are test.
     original = {"vCSEG6KaFng", "LmIHvLMLqFk", "wJsEQTCAg1c", "ZhGb8q1kliY", "1nF_7l07i-E",

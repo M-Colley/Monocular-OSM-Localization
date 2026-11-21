@@ -1,0 +1,21 @@
+{
+  "id": "h1wnOrVzgKg",
+  "pool_city": "Santiago, Chile",
+  "city": "Santiago, Chile",
+  "continent_region": "latin_america",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-20T09:02:37.826254+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/h1wnorvzgkg-dashcam-70mai-a500-santiago-hacia-puente-alto/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_h1wnOrVzgKg.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-20T09:15:42.665083+00:00",
+  "qc_log_sha256": "b62c2f774ed987ca6a94977f7e71079ecaac02a13ac43b5a35edf00458434743"
+}

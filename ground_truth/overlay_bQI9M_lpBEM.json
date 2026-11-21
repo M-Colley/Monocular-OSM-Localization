@@ -1,0 +1,110 @@
+{
+  "video_id": "bQI9M_lpBEM",
+  "video_url": "https://www.youtube.com/watch?v=bQI9M_lpBEM",
+  "city": "Athens, Greece",
+  "vo_segment": "79:377",
+  "description": "test6 worldwide screen pass (europe): Athens, Greece query 'Athens 70mai dashcam' rank 10. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 59 OCR fixes over 80-378 s (3.94 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 79.5,
+      "lat": 37.803634,
+      "lon": 23.784823
+    },
+    {
+      "t_sec": 94.5,
+      "lat": 37.802344,
+      "lon": 23.785624
+    },
+    {
+      "t_sec": 109.4,
+      "lat": 37.802645,
+      "lon": 23.787097
+    },
+    {
+      "t_sec": 124.3,
+      "lat": 37.801383,
+      "lon": 23.786796
+    },
+    {
+      "t_sec": 139.2,
+      "lat": 37.800346,
+      "lon": 23.787423
+    },
+    {
+      "t_sec": 154.1,
+      "lat": 37.801701,
+      "lon": 23.788721
+    },
+    {
+      "t_sec": 169.0,
+      "lat": 37.801917,
+      "lon": 23.791597
+    },
+    {
+      "t_sec": 184.0,
+      "lat": 37.801611,
+      "lon": 23.79434
+    },
+    {
+      "t_sec": 198.9,
+      "lat": 37.80116,
+      "lon": 23.796916
+    },
+    {
+      "t_sec": 213.8,
+      "lat": 37.803105,
+      "lon": 23.797408
+    },
+    {
+      "t_sec": 233.7,
+      "lat": 37.806116,
+      "lon": 23.798535
+    },
+    {
+      "t_sec": 248.6,
+      "lat": 37.807983,
+      "lon": 23.799679
+    },
+    {
+      "t_sec": 263.5,
+      "lat": 37.80957,
+      "lon": 23.800301
+    },
+    {
+      "t_sec": 278.4,
+      "lat": 37.811816,
+      "lon": 23.800126
+    },
+    {
+      "t_sec": 293.3,
+      "lat": 37.814197,
+      "lon": 23.800936
+    },
+    {
+      "t_sec": 308.2,
+      "lat": 37.816109,
+      "lon": 23.801192
+    },
+    {
+      "t_sec": 323.2,
+      "lat": 37.817505,
+      "lon": 23.801786
+    },
+    {
+      "t_sec": 338.1,
+      "lat": 37.818046,
+      "lon": 23.802083
+    },
+    {
+      "t_sec": 358.0,
+      "lat": 37.818355,
+      "lon": 23.802315
+    },
+    {
+      "t_sec": 377.8,
+      "lat": 37.820239,
+      "lon": 23.803483
+    }
+  ]
+}
