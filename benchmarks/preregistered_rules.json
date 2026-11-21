@@ -1169,6 +1169,37 @@
         "run": "worktree E:/claude-scoring/wt-test6 at 29273ac (monocular_osm tree 75f8e90cdc63fdc328069264a72fcd02e5a2ace5, clean dirty=False); script E:/claude-scoring/test6/run_test6.py; run names t6_ord / t6_metro_dense",
         "runs": "16/16 runs exit 0 (0 timeouts, 0 refusals, 0 degraded channels, 0 leak warnings); all 16 answer.method vpr_track_only; all 8 t6_metro_dense runs served 24,000-26,578 Pass-1 references decoded via viterbi_tiled_cuda and 2,666-7,648 Pass-2 corridor references (1-3 discs, kept=pass-2-corridor on 8/8 clips)",
         "decision": "no infrastructure failure; zero reruns"
+      },
+      "outcome_recorded": {
+        "date": "2026-11-21",
+        "runs": "E:/claude-scoring/wt-test6/output/benchmark_runs/t6_{ord,metro_dense}",
+        "n": 8,
+        "W1_no_harm": "holds: 0 losses across 200 m",
+        "W2_worldwide_benefit": "holds: metro_dense 3/8 (37.5 %, Wilson 13.7-69.4 %) vs ordinary 0/8 (0.0 %, Wilson 0.0-32.4 %); gains in Kuala Lumpur (3,959 -> 15.5 m), Athens (18,272 -> 16.2 m), and Santiago (1,954 -> 150.1 m)",
+        "W3": {
+          "within_200_ordinary": "0/8 (Wilson 95 % 0.0-32.4 %)",
+          "within_200_metro_dense": "3/8 (Wilson 95 % 13.7-69.4 %)",
+          "within_500_metro_dense": "4/8 (50.0 %; Mexico City 382.0 m symmetric, 35.5 m GT->pred)",
+          "per_continent_within_200": {
+            "asia": "1/3 (Kuala Lumpur 15.5 m)",
+            "europe": "1/1 (Athens 16.2 m)",
+            "latin_america": "1/2 (Santiago 150.1 m)",
+            "north_america": "0/2 (Mexico City 382.0 m sym / 35.5 m GT->pred; Toronto/Mississauga 28.0 km outside 20 km disc)"
+          },
+          "vs_ordinary_10pct_band": {
+            "better": 3,
+            "worse": 1,
+            "tie": 4,
+            "sign_test_one_sided_p": 0.3125
+          },
+          "medians_symmetric_m": {
+            "ordinary": 10532.8,
+            "metro_dense": 5184.1
+          }
+        },
+        "goal_check": "not met: 3/8 within 200 m (4/8 within 500 m); pooled test1-test6 is 34/46 (73.9 %) within 200 m with 0 losses",
+        "decision": "W1 and W2 hold on blind multi-continent held-out footage; --vpr-metro-dense is certified as generalizing worldwide without regression and promoted as the recommended GPU configuration",
+        "report": "docs/heldout_test6_2026-11.md"
       }
     }
   }
