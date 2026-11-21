@@ -214,7 +214,8 @@ def _fetch_refs(center, radius_m, cache_dir, cap=1500, *, spatial_dedup_m: float
         for mpath in ([tag_meta, legacy_meta] if spatial_dedup_m is not None else [legacy_meta]):
             if os.path.exists(mpath):
                 try:
-                    blob = json.load(open(mpath))
+                    with open(mpath, encoding="utf-8") as _fh:
+                        blob = json.load(_fh)
                 except Exception:
                     blob = None
                 if isinstance(blob, dict) and blob.get("signature") == sig:
@@ -310,7 +311,8 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
         if not os.path.exists(mpath):
             continue
         try:
-            blob = json.load(open(mpath))
+            with open(mpath, encoding="utf-8") as _fh:
+                blob = json.load(_fh)
             if not (isinstance(blob, dict) and blob.get("signature") == sig):
                 continue
             refs_m = blob.get("refs") or []
@@ -408,7 +410,8 @@ def _fetch_refs_mapillary(center, radius_m, cache_dir, cap=1500, token=None,
     union: dict[str, list] = {}
     if store and os.path.exists(store):
         try:
-            union = json.load(open(store))
+            with open(store, encoding="utf-8") as _fh:
+                union = json.load(_fh)
         except Exception:
             union = {}
     union.update(listed)
@@ -672,7 +675,8 @@ def _fetch_refs_panoramax(center, radius_m, cache_dir, cap=1500,
         for mpath in ([tag_meta, legacy_meta] if spatial_dedup_m is not None else [legacy_meta]):
             if os.path.exists(mpath):
                 try:
-                    blob = json.load(open(mpath))
+                    with open(mpath, encoding="utf-8") as _fh:
+                        blob = json.load(_fh)
                     if isinstance(blob, dict) and blob.get("signature") == sig:
                         return blob["refs"]
                 except Exception:

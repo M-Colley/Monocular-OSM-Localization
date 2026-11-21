@@ -429,6 +429,7 @@ def run_metro_dense_vpr(
     low_sim_augment = bool(auto_fallback_sources and source == "mapillary" and p1_med_sim < 0.150)
     if low_sim_augment:
         aug_added = 0
+        n_prev_chunks = len(p1_embs)
         for extra_src, extra_cap in (("panoramax", 5000), ("kartaview", 3000)):
             if (m_meta.get("provider_counts") or {}).get(extra_src, 0) > 0:
                 continue
@@ -445,21 +446,33 @@ def run_metro_dense_vpr(
                 p1_xys.append(e_xy)
                 aug_added += int(len(e_xy))
         if aug_added > 0:
-            p1_emb, p1_xy = _dedup_pool(p1_embs, p1_xys)
-            print(f"      -> [metro-dense] augmented weak pass-1 ({p1_med_sim:.3f}) "
-                  f"with +{aug_added} open-provider refs (pool={len(p1_xy)})")
-            sims_p1 = kv._query_similarities(
-                frames_bgr, q_idx, p1_emb, device, mode=query_mode,
+            aug_emb, aug_xy = _dedup_pool(p1_embs, p1_xys)
+            sims_aug = kv._query_similarities(
+                frames_bgr, q_idx, aug_emb, device, mode=query_mode,
                 batch_size=query_batch_size, **q_opts,
             )
             if sequence_decode:
-                path_p1, dec_p1 = _decode_exact(sims_p1, p1_xy, float(query_dt_s), device)
+                path_aug, dec_aug = _decode_exact(sims_aug, aug_xy, float(query_dt_s), device)
             else:
-                path_p1, dec_p1 = sims_p1.argmax(axis=1).astype(np.int32), "argmax"
-            p1_track_xy = p1_xy[path_p1].astype(float)
-            p1_track_sims = sims_p1[np.arange(len(q_idx)), path_p1].astype(float)
-            p1_center = kv._robust_center(p1_track_xy, p1_track_sims)
-            p1_med_sim = float(np.median(p1_track_sims)) if len(p1_track_sims) else 0.0
+                path_aug, dec_aug = sims_aug.argmax(axis=1).astype(np.int32), "argmax"
+            aug_track_xy = aug_xy[path_aug].astype(float)
+            aug_track_sims = sims_aug[np.arange(len(q_idx)), path_aug].astype(float)
+            aug_med_sim = float(np.median(aug_track_sims)) if len(aug_track_sims) else 0.0
+            primary_sparse = int((m_meta.get("provider_counts") or {}).get(source, 0)) < 5000
+            if primary_sparse or aug_med_sim >= p1_med_sim + 0.005:
+                p1_emb, p1_xy = aug_emb, aug_xy
+                sims_p1, path_p1, dec_p1 = sims_aug, path_aug, dec_aug
+                p1_track_xy, p1_track_sims = aug_track_xy, aug_track_sims
+                p1_center = kv._robust_center(p1_track_xy, p1_track_sims)
+                p1_med_sim = aug_med_sim
+                print(f"      -> [metro-dense] accepted open-provider augmentation "
+                      f"(+{aug_added} refs, sim {p1_med_sim:.3f}, pool={len(p1_xy)})")
+            else:
+                # Keep primary p1_embs/p1_xys un-diluted when Mapillary is already dense
+                # and open imagery did not raise median similarity by >= 0.005.
+                del p1_embs[n_prev_chunks:]
+                del p1_xys[n_prev_chunks:]
+                p1_emb, p1_xy = _dedup_pool(p1_embs, p1_xys)
 
     diagnostics["pass1"] = {
         "decoder": dec_p1,

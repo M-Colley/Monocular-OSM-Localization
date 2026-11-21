@@ -37,7 +37,7 @@ classifiers = [
 # gsplat, ...) is intentionally left out — it needs a CUDA-matched index URL and
 # is documented in the README instead.
 dependencies = [
-    "yt-dlp>=2026.3.17",
+    "yt-dlp[default]>=2026.10.26",
     "opencv-python>=4.13.0",
     "numpy>=2.5.0",
     "scipy>=1.17.1",

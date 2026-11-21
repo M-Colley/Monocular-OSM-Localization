@@ -29,9 +29,11 @@ def municipality_grid(geometry, city, *, radius_m=3000.0, max_cells=64):
     A fixed one-metre geometric margin absorbs projection/buffer roundoff;
     each retrieval disc retains exactly the requested radius.
     """
+    import numpy as np
+    import shapely
     from pyproj import CRS, Transformer
     from shapely.geometry import Point, Polygon
-    from shapely.ops import transform, unary_union
+    from shapely.ops import unary_union
 
     if geometry.geom_type not in {"Polygon", "MultiPolygon"} or geometry.is_empty:
         raise ValueError("a nonempty municipality polygon is required")
@@ -41,7 +43,10 @@ def municipality_grid(geometry, city, *, radius_m=3000.0, max_cells=64):
     crs = CRS.from_proj4(f"+proj=aeqd +lat_0={centre.y} +lon_0={centre.x} +datum=WGS84 +units=m")
     forward = Transformer.from_crs(4326, crs, always_xy=True)
     inverse = Transformer.from_crs(crs, 4326, always_xy=True)
-    polygon = transform(forward.transform, geometry)
+    polygon = shapely.transform(
+        geometry,
+        lambda coords: np.column_stack(forward.transform(coords[:, 0], coords[:, 1])),
+    )
     cell_radius = radius_m - 1.0
     dx, dy = 1.5 * cell_radius, math.sqrt(3) * cell_radius
     xmin, ymin, xmax, ymax = polygon.bounds

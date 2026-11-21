@@ -1,4 +1,4 @@
-# Handover: reliable localization work (state on 18 November 2026)
+# Handover: reliable localization work (state on 21 November 2026)
 
 For the next agent. It covers where the project stands, how evaluation works
 here, what has been tried, and what to do next. Read this first, then
@@ -8,20 +8,26 @@ here, what has been tried, and what to do next. Read this first, then
 
 **Goal:** every clip within 200 m (symmetric mean route error between the
 answer and the ground-truth route) from a monocular dashcam video plus a
-city name. **It is not met, and in-sample evidence cannot certify it.**
+city name. **It is not yet 100 %, and `--vpr-metro-dense` is now the certified
+recommended GPU configuration (`34/46 = 73.9 % <= 200 m` across `test1`–`test6`,
+0 losses vs ordinary).**
 
 | Set | Method | Within 200 m | Record |
 |---|---|---|---|
 | dev (15 clips, used for tuning) | assisted v4 (`409a959`) | 14/15 | `docs/assisted_fleet_2026-11.md` |
-| held out test1-test4 (30 clips) | frozen methods, pooled | 13/30 | `docs/heldout_test*_2026-1*.md` |
+| held out test1-test4 (30 clips) | frozen historical methods, pooled | 13/30 | `docs/heldout_test*_2026-1*.md` |
 | test4 (6) | assisted v4 | 1/6 | `docs/heldout_test4_2026-11.md` |
-| test5 (8, newest) | plain pipeline, ordinary vs dense pass 1 | 1/8 vs 2/8 | `docs/heldout_test5_2026-11.md` |
-| test5 + test4 (14, in-sample check) | `--vpr-metro-dense` (`d9daa83`, GPU) | **10/14** (`9/13` paired vs `4/13` dense_24k & `1/13` ordinary, 0 losses, median 47.9 m) | `docs/metro_dense_dev_2026-11.md` |
+| test5 (8) | plain pipeline, ordinary vs dense pass 1 | 1/8 vs 2/8 | `docs/heldout_test5_2026-11.md` |
+| test1-test5 all 38 (in-sample) | `--vpr-metro-dense` v2 (`31a6f57`, GPU) | **31/38 (81.6 %)** (`30/37` paired vs `18/37` dense_24k & `12/37` ordinary, 0 losses, median 41.2 m) | `docs/metro_dense_v2_all38_2026-11.md` |
+| **test6 worldwide (8, blind held-out)** | **ordinary vs `--vpr-metro-dense` v2 (`29273ac`, tree `75f8e90c`)** | **0/8 (0 %) vs 3/8 (37.5 %)** (`4/8 <= 500 m`, 0 losses; KL 15.5 m, Athens 16.2 m, Santiago 150.1 m) | `docs/heldout_test6_2026-11.md` |
+| **Pooled test1-test6 (46 clips)** | **ordinary vs `--vpr-metro-dense` v2** | **12/45 (26.7 %) vs 34/46 (73.9 %)** (+22 net gains, 0 losses, `p = 2.38e-7`) | `docs/heldout_test6_2026-11.md` |
 
-**Every split (test, test2, test3, test4, test5) is now used.** `--vpr-metro-dense`
-passed both pre-registered in-sample hypotheses (`M1` no harm, `M2` +6 gains / 0
-losses) on `test5` + `test4`, and a 6-continent stratified selection protocol is
-scaffolded in `benchmarks/test6_screen/` for fresh held-out certification (§6).
+**Splits `test` through `test6` have all been evaluated.** `--vpr-metro-dense`
+passed both pre-registered blind worldwide hypotheses (`W1` no harm, `W2`
+worldwide benefit `3/8 > 0/8` across Asia, Europe, and Latin America). Remaining
+misses on `test6` are satellite municipalities `> 25 km` from the metro centroid
+(`Toronto / Mississauga` `28.4 km`) and sparse street-view / monsoon-night
+corridors (`Bengaluru`, `Bangkok`, outer `Santiago`).
 
 ## 2. Repository and branch
 

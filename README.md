@@ -90,20 +90,28 @@ within-200 m moved from **1/8** (ordinary) to **2/8** (dense; Calgary
 lay 8.5–21 km outside the 8 km city-extent cap or were clamped to 3 km by
 title/OCR seeds ([coverage diagnostic](docs/search_area_coverage_2026-11.md)).
 
-**Unified metro-dense VPR & worldwide support** (`--vpr-metro-dense`, opt-in,
-GPU; plus optional Stage 0 `--infer-city-from-video` when `--city` is unknown):
-searches a 20 km metropolitan disc with 25 m micro-cell deduplication, pools
-title/frame seeds additively up to 60 km out without clamping the metro disc,
-refines along the driven route with up to 4 overlapping 2.5 km corridor discs
-unioned with local Pass-1 references, auto-augments thin Mapillary areas with
-Panoramax/KartaView, and preserves non-Latin scripts (Cyrillic, CJK, Hangul,
-Arabic, Greek) and city exonyms. Checked in-sample on all 14 `test5` + `test4`
-clips (`metro_dense_dev_2026_11`), within-200 m rises from **1/13** (ordinary)
-and **4/13** (`dense_24k`) to **9/13** paired and **10/14 (71.4 %)** overall
-(all 10 `<= 56.5 m`, median **47.9 m**, zero losses;
-[record](docs/metro_dense_dev_2026-11.md)). Because `test4` and `test5` are
-used splits, certifying generalization awaits the 6-continent held-out split in
-`benchmarks/test6_screen/`.
+**Unified metro-dense VPR & worldwide support** (`--vpr-metro-dense`,
+recommended GPU configuration; plus optional Stage 0 `--infer-city-from-video`
+when `--city` is unknown): searches a 20 km metropolitan disc with 25 m
+micro-cell deduplication, pools title/frame seeds additively up to 60 km out
+without clamping the metro disc, refines along the driven route with up to 8
+span-adaptive 2.5 km corridor discs unioned with local Pass-1 references,
+recovers corroborated seeds on low-cosine night drives, auto-augments thin
+Mapillary areas with Panoramax/KartaView, and preserves non-Latin scripts
+(Cyrillic, CJK, Hangul, Arabic, Greek) and city exonyms.
+- **All 38 `test1`–`test5` clips (`metro_dense_v2_all38_dev_2026_11`, in-sample):**
+  **31/38 (`81.6 %`, Wilson 66.6–90.8 %)** within 200 m (all 31 `<= 99.1 m`;
+  `34/38 <= 500 m`; median **41.2 m** vs 260.3 m `dense_24k` and 511.3 m
+  ordinary; **0 losses**; `test` 7/7, `test3` 10/10;
+  [record](docs/metro_dense_v2_all38_2026-11.md)).
+- **Blind worldwide held-out `test6` (`test6_worldwide_2026_11`, 8 clips across
+  Malaysia, Thailand, India, Chile, Mexico, Canada, Greece):** **3/8 (`37.5 %`)**
+  within 200 m vs **0/8 (`0.0 %`)** ordinary (**0 losses**; Kuala Lumpur
+  `3,959 -> 15.5 m`, Athens `18,272 -> 16.2 m`, Santiago `1,954 -> 150.1 m`;
+  `4/8 = 50 % <= 500 m` with Mexico City `35.5 m` GT→pred;
+  [record](docs/heldout_test6_2026-11.md)). Pooled across all 46 benchmark clips
+  (`test1`–`test6`), `--vpr-metro-dense` reaches **34/46 (`73.9 %`)** within
+  200 m vs **12/45 (`26.7 %`)** ordinary (`0` losses).
 
 The [October research and method tests](docs/recent_methods_2026-10.md) cover
 recent NeurIPS/CVPR/ICCV papers and released implementations. A controlled

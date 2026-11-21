@@ -6,6 +6,18 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Held-out worldwide `test6` certification & Metro-Dense v2 all-38 evaluation (November 2026)
+
+- **Metro-Dense v2 across all 38 `test1`–`test5` clips (`metro_dense_v2_all38_dev_2026_11`, commit `31a6f57` / `aec5008`):**
+  - Added low-cosine (`< 0.155`) corroborated-seed corridor recovery for night drives (`Melbourne` `49,603 -> 828 m`), span-adaptive corridor disc scaling (up to 8 discs on `> 7.5 km` highway drives), and open Panoramax/KartaView augmentation.
+  - Across all 38 clips (`37` paired): **31/38 (`81.6 %`, Wilson 95 % `66.6–90.8 %`) `<= 200 m`** (all 31 `<= 99.1 m`; `34/38 = 89.5 % <= 500 m`; `36/38 = 94.7 % <= 900 m`; median **`41.2 m`** vs `260.3 m` `dense_24k` and `511.3 m` `ordinary`; **0 losses**; `+12` paired gains vs `dense_24k`, `McNemar p = 0.000244`; `+18` paired gains vs `ordinary`, `McNemar p = 4.0e-6`; `test` `7/7 = 100 %`, `test3` `10/10 = 100 %`). See `docs/metro_dense_v2_all38_2026-11.md`.
+- **Blind held-out worldwide `test6` evaluation (`test6_worldwide_2026_11`, commit `29273ac`, tree `75f8e90c`):**
+  - Screened 24 global cities across 6 continents and froze all `8` QC-passed clips across `7` countries and `4` continents (`Kuala Lumpur`, `Bangkok`, `Bengaluru`, `Santiago` ×2, `Mexico City / CDMX`, `Toronto`, `Athens`) before any localization (`benchmarks/test6_screen/selection_outcome.json`).
+  - Both pre-registered hypotheses hold (`W1` zero losses across 200 m; `W2` **3/8 = 37.5 %** `<= 200 m` in `metro_dense` vs **0/8 = 0.0 %** in `ordinary`, with `4/8 = 50.0 % <= 500 m` and median halved `10,532.8 -> 5,184.1 m`): `Kuala Lumpur` `3,959 -> 15.5 m`, `Athens` `18,272 -> 16.2 m`, `Santiago` `1,954 -> 150.1 m`, and `Mexico City` `GT->pred 127.1 -> 35.5 m`.
+  - Pooled across all `46` benchmark clips (`test1`–`test6`): **34/46 (`73.9 %`, Wilson 95 % `59.7–84.4 %`) `<= 200 m`** (`38/46 = 82.6 % <= 500 m`) vs **12/45 (`26.7 %`)** in the ordinary baseline (`+22` net gains, `0` losses, `McNemar p = 2.38e-7`). See `docs/heldout_test6_2026-11.md`.
+- **Packaging, diagnostics & upstream OSS fixes:**
+  - Updated `pyproject.toml` and `requirements.txt` to `yt-dlp[default]>=2026.10.26` (installing `yt-dlp-ejs` automatically so YouTube EJS-protected streams do not fail with false unavailability), added `yt_dlp_ejs` checking to `monocular_osm/doctor.py`, gated `metro_vpr.py` open-provider Pass-1 replacement on `>= +0.005` similarity gain when Mapillary is already dense, migrated `scripts/probe_city_coverage.py` to `shapely.transform`, and closed Windows file-handle `ResourceWarning`s.
+
 ### Unified metro-dense VPR, worldwide Unicode/exonym support & Stage 0 city inference (November 2026)
 
 - **Opt-in unified metro-dense VPR (`--vpr-metro-dense`, commit `d9daa83`):**

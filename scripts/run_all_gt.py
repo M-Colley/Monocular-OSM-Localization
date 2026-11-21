@@ -273,7 +273,7 @@ def _load_fresh_result(res: Path, rc: int, run_start: float) -> dict | None:
         return None
     if res.stat().st_mtime < run_start:
         return None  # stale leftover from an earlier run
-    return json.load(open(res, encoding="utf-8"))
+    return json.loads(res.read_text(encoding="utf-8"))
 
 
 def _result_row(name: str, rc: int, result: dict | None) -> dict:

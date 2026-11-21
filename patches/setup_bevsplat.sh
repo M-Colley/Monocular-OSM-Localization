@@ -42,6 +42,8 @@ echo "Applying local patches (idempotent)..."
   || echo "  (patches already applied or partially applied — skipping)"
 
 # --- Windows/macOS case-collision guard for the DINO backbone ----------
+# Upstream PR submitted: https://github.com/wangqww/BevSplat/pull/5 (for #3).
+# Once merged upstream, this local case-collision & auxiliary.h workaround can be removed.
 # Upstream tracks two files differing only in case: models/dino_fit.py and
 # models/dino_Fit.py. On a case-insensitive filesystem (Windows NTFS, macOS
 # APFS) they map to ONE physical file, and git checks out dino_fit.py last
