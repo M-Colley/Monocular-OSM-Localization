@@ -1,0 +1,21 @@
+{
+  "id": "URC3D7Xzpq0",
+  "pool_city": "Kuala Lumpur, Malaysia",
+  "city": "Kuala Lumpur, Malaysia",
+  "continent_region": "asia",
+  "split": "test6",
+  "attempt": 2,
+  "started_utc": "2026-11-20T04:50:41.787122+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/urc3d7xzpq0-pinoy-in-malaysia-sunday-drive-grand-saga-highway-kuala-lumpur-with/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_URC3D7Xzpq0.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-20T05:01:06.645308+00:00",
+  "qc_log_sha256": "d404fe503fb35db7a0ef8a60f8c099b5a4e2ff367e5627bc6d6c99005df77857"
+}

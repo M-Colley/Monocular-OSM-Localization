@@ -1,0 +1,110 @@
+{
+  "video_id": "3cT07o9aXyQ",
+  "video_url": "https://www.youtube.com/watch?v=3cT07o9aXyQ",
+  "city": "Portland, Oregon, USA",
+  "vo_segment": "65:595",
+  "description": "test5 screen pass: Portland, Oregon, USA query 'Portland dashcam GPS' rank 10. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 104 OCR fixes over 65-595 s (8.70 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 65.0,
+      "lat": 45.48018,
+      "lon": -122.5688
+    },
+    {
+      "t_sec": 90.0,
+      "lat": 45.47873,
+      "lon": -122.56782
+    },
+    {
+      "t_sec": 120.0,
+      "lat": 45.47473,
+      "lon": -122.566
+    },
+    {
+      "t_sec": 145.0,
+      "lat": 45.46883,
+      "lon": -122.56585
+    },
+    {
+      "t_sec": 175.0,
+      "lat": 45.46204,
+      "lon": -122.5709
+    },
+    {
+      "t_sec": 200.0,
+      "lat": 45.45572,
+      "lon": -122.57332
+    },
+    {
+      "t_sec": 230.0,
+      "lat": 45.44794,
+      "lon": -122.5716
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 45.44216,
+      "lon": -122.56963
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 45.43506,
+      "lon": -122.56735
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 45.43316,
+      "lon": -122.56691
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 45.4333,
+      "lon": -122.56217
+    },
+    {
+      "t_sec": 375.0,
+      "lat": 45.433652,
+      "lon": -122.55475
+    },
+    {
+      "t_sec": 400.0,
+      "lat": 45.43364,
+      "lon": -122.55213
+    },
+    {
+      "t_sec": 425.0,
+      "lat": 45.43288,
+      "lon": -122.54707
+    },
+    {
+      "t_sec": 460.0,
+      "lat": 45.43022,
+      "lon": -122.54084
+    },
+    {
+      "t_sec": 485.0,
+      "lat": 45.42889,
+      "lon": -122.53975
+    },
+    {
+      "t_sec": 515.0,
+      "lat": 45.42868,
+      "lon": -122.53991
+    },
+    {
+      "t_sec": 540.0,
+      "lat": 45.42915,
+      "lon": -122.53965
+    },
+    {
+      "t_sec": 570.0,
+      "lat": 45.43005,
+      "lon": -122.53805
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 45.43376,
+      "lon": -122.53809
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "lc2YfKXCUv8",
+  "pool_city": "Bangkok, Thailand",
+  "city": "Bangkok, Thailand",
+  "continent_region": "asia",
+  "split": "test6",
+  "attempt": 21,
+  "started_utc": "2026-11-20T08:43:01.459107+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/lc2yfkxcuv8-dash-cam-one-day-with-traffic-in-bangkok/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_lc2YfKXCUv8.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0327666666667,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-20T08:55:57.816331+00:00",
+  "qc_log_sha256": "125c04004479eac60282566315ca2ade4d302a6be78c6da25ec6b1b6819a0f0f"
+}

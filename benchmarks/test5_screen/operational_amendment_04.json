@@ -1,0 +1,8 @@
+{
+ "amendment": "test5 screen operational amendment 04",
+ "recorded_utc": "2026-11-17T16:42:51.734956+00:00",
+ "before": "the fifth retry of TumUQ_PrVQk; no localization exists",
+ "problem": "Controlled checks (open only, no stamp read) showed the stream host intermittently refusing to open a freshly fetched URL: in one process the same video's URL failed to open, in the next it opened, independent of the screen setup or the JavaScript runtime. One open per 30-minute retry failed four times in a row.",
+ "change": "each frame-read attempt fetches a fresh URL and reopens up to three times (10 s apart) before the frames count as unread. Frames, stamp reading and thresholds are unchanged.",
+ "next": "the driver retries TumUQ_PrVQk under amendments 01-04."
+}

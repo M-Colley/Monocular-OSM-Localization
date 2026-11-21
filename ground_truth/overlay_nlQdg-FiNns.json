@@ -1,0 +1,110 @@
+{
+  "video_id": "nlQdg-FiNns",
+  "video_url": "https://www.youtube.com/watch?v=nlQdg-FiNns",
+  "city": "Mexico City, Mexico",
+  "vo_segment": "0:596",
+  "description": "test6 worldwide screen pass (north_america): Mexico City, Mexico query '\"Mexico City\" 70mai' rank 3. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 121 OCR fixes over 0-597 s (2.26 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 19.4394,
+      "lon": -99.1434
+    },
+    {
+      "t_sec": 29.8,
+      "lat": 19.4395,
+      "lon": -99.1433
+    },
+    {
+      "t_sec": 64.6,
+      "lat": 19.4399,
+      "lon": -99.1437
+    },
+    {
+      "t_sec": 94.5,
+      "lat": 19.4402,
+      "lon": -99.1439
+    },
+    {
+      "t_sec": 124.3,
+      "lat": 19.4403,
+      "lon": -99.1435
+    },
+    {
+      "t_sec": 159.1,
+      "lat": 19.4374,
+      "lon": -99.1466
+    },
+    {
+      "t_sec": 188.9,
+      "lat": 19.436,
+      "lon": -99.1487
+    },
+    {
+      "t_sec": 218.8,
+      "lat": 19.436,
+      "lon": -99.1487
+    },
+    {
+      "t_sec": 253.6,
+      "lat": 19.4355,
+      "lon": -99.1497
+    },
+    {
+      "t_sec": 283.4,
+      "lat": 19.4355,
+      "lon": -99.1497
+    },
+    {
+      "t_sec": 313.2,
+      "lat": 19.4338,
+      "lon": -99.1503
+    },
+    {
+      "t_sec": 343.0,
+      "lat": 19.4312,
+      "lon": -99.1514
+    },
+    {
+      "t_sec": 377.8,
+      "lat": 19.4312,
+      "lon": -99.1514
+    },
+    {
+      "t_sec": 407.7,
+      "lat": 19.4302,
+      "lon": -99.1508
+    },
+    {
+      "t_sec": 437.5,
+      "lat": 19.4293,
+      "lon": -99.1509
+    },
+    {
+      "t_sec": 472.3,
+      "lat": 19.4276,
+      "lon": -99.1516
+    },
+    {
+      "t_sec": 502.1,
+      "lat": 19.4276,
+      "lon": -99.1525
+    },
+    {
+      "t_sec": 532.0,
+      "lat": 19.4276,
+      "lon": -99.1526
+    },
+    {
+      "t_sec": 566.8,
+      "lat": 19.4276,
+      "lon": -99.1527
+    },
+    {
+      "t_sec": 596.6,
+      "lat": 19.4276,
+      "lon": -99.1527
+    }
+  ]
+}

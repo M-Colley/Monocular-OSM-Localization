@@ -1,0 +1,12 @@
+{
+  "id": "pFbUvfr8k-Q",
+  "city": "Trondheim, Norway",
+  "started_utc": "2026-11-10T22:15:03.630367+00:00",
+  "replacement_candidate_sha256": "fee53081a410dd3220d86846f38c7b4819899784aaea93ad84a7c739f2151013",
+  "purpose": "registered0-600prefix_only_noGT_or_localization",
+  "CPU_bound": 2,
+  "status": "DOWNLOADED_PREFIX",
+  "video_path": "data/test4/pfbuvfr8k-q-trondheim-by-night-from-a-garmin-dashcam/input_0-600.mp4",
+  "bytes": 255830759,
+  "completed_utc": "2026-11-10T22:24:03.193597+00:00"
+}

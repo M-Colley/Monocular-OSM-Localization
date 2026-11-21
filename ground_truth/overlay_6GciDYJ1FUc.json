@@ -1,0 +1,110 @@
+{
+  "video_id": "6GciDYJ1FUc",
+  "video_url": "https://www.youtube.com/watch?v=6GciDYJ1FUc",
+  "city": "Eindhoven, Netherlands",
+  "vo_segment": "125:595",
+  "description": "Titled 'From Eindhoven to Maasbree' (2016): leaves Eindhoven for Limburg. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 94 OCR fixes over 125-595 s (4.15 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 125.0,
+      "lat": 51.450169,
+      "lon": 5.458681
+    },
+    {
+      "t_sec": 150.0,
+      "lat": 51.450103,
+      "lon": 5.458619
+    },
+    {
+      "t_sec": 175.0,
+      "lat": 51.450378,
+      "lon": 5.458744
+    },
+    {
+      "t_sec": 200.0,
+      "lat": 51.448408,
+      "lon": 5.453017
+    },
+    {
+      "t_sec": 225.0,
+      "lat": 51.445378,
+      "lon": 5.448508
+    },
+    {
+      "t_sec": 245.0,
+      "lat": 51.442139,
+      "lon": 5.449411
+    },
+    {
+      "t_sec": 270.0,
+      "lat": 51.4411,
+      "lon": 5.449139
+    },
+    {
+      "t_sec": 295.0,
+      "lat": 51.440008,
+      "lon": 5.449903
+    },
+    {
+      "t_sec": 320.0,
+      "lat": 51.437261,
+      "lon": 5.451325
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 51.436731,
+      "lon": 5.451603
+    },
+    {
+      "t_sec": 370.0,
+      "lat": 51.434572,
+      "lon": 5.452711
+    },
+    {
+      "t_sec": 395.0,
+      "lat": 51.431006,
+      "lon": 5.455319
+    },
+    {
+      "t_sec": 420.0,
+      "lat": 51.429819,
+      "lon": 5.457917
+    },
+    {
+      "t_sec": 445.0,
+      "lat": 51.429281,
+      "lon": 5.459044
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 51.428281,
+      "lon": 5.460303
+    },
+    {
+      "t_sec": 490.0,
+      "lat": 51.428033,
+      "lon": 5.462444
+    },
+    {
+      "t_sec": 515.0,
+      "lat": 51.427961,
+      "lon": 5.462725
+    },
+    {
+      "t_sec": 540.0,
+      "lat": 51.427392,
+      "lon": 5.464567
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 51.426453,
+      "lon": 5.467575
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 51.425022,
+      "lon": 5.473144
+    }
+  ]
+}

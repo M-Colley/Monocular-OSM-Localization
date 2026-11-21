@@ -58,28 +58,61 @@ _TRANSIT_TAGS: dict[str, object] = {
 _HOUSENAME_TAGS: dict[str, object] = {"addr:housename": True}
 
 
-_NON_ALNUM = re.compile(r"[^0-9A-Za-zÀ-ſ]+")
+_LATIN_SUBS: dict[str, str] = {
+    "ä": "ae", "ö": "oe", "ü": "ue", "Ä": "ae", "Ö": "oe", "Ü": "ue", "ß": "ss",
+    "ł": "l", "Ł": "l", "ø": "o", "Ø": "o", "đ": "d", "Đ": "d",
+    "ð": "d", "Ð": "d", "þ": "th", "Þ": "th", "æ": "ae", "Æ": "ae",
+    "œ": "oe", "Œ": "oe", "ı": "i", "İ": "i",
+}
+
+
+def _is_cjk_char(ch: str) -> bool:
+    cp = ord(ch)
+    return (
+        0x3040 <= cp <= 0x30FF      # Hiragana + Katakana
+        or 0x3400 <= cp <= 0x4DBF   # CJK Extension A
+        or 0x4E00 <= cp <= 0x9FFF   # CJK Unified Ideographs
+        or 0xAC00 <= cp <= 0xD7AF   # Hangul Syllables
+        or 0xF900 <= cp <= 0xFAFF   # CJK Compatibility Ideographs
+    )
+
+
+def _effective_letter_count(text: str) -> int:
+    """Count alphabetic characters, weighting dense CJK/Kana/Hangul glyphs as 2."""
+    return sum(2 if _is_cjk_char(c) else (1 if c.isalpha() else 0) for c in text)
 
 
 def _ascii_fold(text: str) -> str:
-    """Casefold + strip diacritics so 'Sedelhöfe' -> 'sedelhofe'."""
+    """Unicode-safe fold: expand European ligatures/umlauts, strip combining
+    diacritics, and casefold while preserving non-Latin scripts (Cyrillic, CJK,
+    Arabic, Greek, Hebrew, Thai, Devanagari, etc.)."""
     if not text:
         return ""
-    # German umlaut expansion first (ö -> oe) so it matches OCR that
-    # rendered it either way; then NFKD strip for the rest.
-    subs = {"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "ae", "Ö": "oe",
-            "Ü": "ue", "ß": "ss"}
-    for k, v in subs.items():
-        text = text.replace(k, v)
-    nfkd = unicodedata.normalize("NFKD", text)
-    ascii_only = nfkd.encode("ascii", "ignore").decode("ascii")
-    return ascii_only.casefold()
+    for k, v in _LATIN_SUBS.items():
+        if k in text:
+            text = text.replace(k, v)
+    # Normalize compatibility forms (fullwidth ASCII/Katakana, Arabic forms),
+    # then strip combining marks so accented letters match unaccented OCR reads
+    # without erasing non-ASCII scripts. Note: preserve Korean Hangul syllables
+    # intact (NFKD decomposes Hangul into Jamo), so decompose per character only
+    # outside the Hangul syllable block.
+    nfkc = unicodedata.normalize("NFKC", text)
+    out: list[str] = []
+    for ch in nfkc:
+        if 0xAC00 <= ord(ch) <= 0xD7AF:
+            out.append(ch)
+        else:
+            for sub in unicodedata.normalize("NFKD", ch):
+                if not unicodedata.combining(sub):
+                    out.append(sub)
+    return "".join(out).casefold()
 
 
 def _norm_name(text: str) -> str:
-    """Normalized comparison key: ascii-folded, non-alnum -> single space."""
+    """Normalized comparison key: Unicode-folded, non-alnum -> single space."""
     folded = _ascii_fold(text)
-    return _NON_ALNUM.sub(" ", folded).strip()
+    cleaned = "".join(ch if ch.isalnum() else " " for ch in folded)
+    return " ".join(cleaned.split())
 
 
 def _have_rapidfuzz() -> bool:
@@ -252,19 +285,8 @@ def _download_entries(bbox: tuple[float, float, float, float]) -> list[dict]:
     if gdf is None or len(gdf) == 0:
         return entries
     cols = set(gdf.columns)
+    name_cols = ("name", "name:en", "int_name", "alt_name", "brand", "addr:housename")
     for _idx, row in gdf.iterrows():
-        # Prefer 'name'; fall back to housename for pure address features.
-        name = None
-        if "name" in cols:
-            name = row.get("name")
-        if (name is None or (isinstance(name, float) and math.isnan(name))) \
-                and "addr:housename" in cols:
-            name = row.get("addr:housename")
-        if name is None or (isinstance(name, float) and math.isnan(name)):
-            continue
-        name = str(name).strip()
-        if not name:
-            continue
         geom = row.get("geometry")
         if geom is None:
             continue
@@ -273,13 +295,32 @@ def _download_entries(bbox: tuple[float, float, float, float]) -> list[dict]:
             continue
         lat, lon = ll
         tags = {c: row.get(c) for c in cols if c != "geometry"}
-        entries.append({
-            "name": name,
-            "norm": _norm_name(name),
-            "lat": lat,
-            "lon": lon,
-            "kind": _kind_for_row(tags),
-        })
+        kind = _kind_for_row(tags)
+        seen_norms: set[str] = set()
+        primary_name = None
+        for col in name_cols:
+            if col not in cols:
+                continue
+            raw_val = row.get(col)
+            if raw_val is None or (isinstance(raw_val, float) and math.isnan(raw_val)):
+                continue
+            for part in str(raw_val).split(";"):
+                cand = part.strip()
+                if not cand:
+                    continue
+                if primary_name is None:
+                    primary_name = cand
+                norm = _norm_name(cand)
+                if not norm or norm in seen_norms:
+                    continue
+                seen_norms.add(norm)
+                entries.append({
+                    "name": primary_name or cand,
+                    "norm": norm,
+                    "lat": lat,
+                    "lon": lon,
+                    "kind": kind,
+                })
     return entries
 
 
@@ -348,7 +389,7 @@ def match_texts(
     by_norm: dict[str, list[dict]] = {}
     for e in entries:
         norm = e.get("norm") or _norm_name(e.get("name", ""))
-        if len(re.sub(r"[^a-z]", "", norm)) < min_letters:
+        if _effective_letter_count(norm) < min_letters:
             continue
         by_norm.setdefault(norm, []).append(e)
     gaz_norms = list(by_norm.keys())
@@ -365,7 +406,7 @@ def match_texts(
         if conf < min_confidence:
             continue
         norm = _norm_name(text)
-        if len(re.sub(r"[^a-z]", "", norm)) < min_letters:
+        if _effective_letter_count(norm) < min_letters:
             continue
         prev = best_det.get(norm)
         if prev is None or conf > prev[1]:

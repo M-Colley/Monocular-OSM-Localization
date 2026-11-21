@@ -1,0 +1,473 @@
+{
+  "schema": "test5-data-selection-v1",
+  "registered_utc": "2026-11-17T08:41:45.472489+00:00",
+  "target": 10,
+  "split": "test5",
+  "purpose": "New road/dashcam evaluation data for rule test5_2026_11 (dense pass 1 vs ordinary). Selection never reads a localization result, descriptor, predicted route or error.",
+  "city_order": [
+    {
+      "city": "Lyon, France",
+      "title_keys": [
+        [
+          "lyon",
+          "Lyon"
+        ]
+      ]
+    },
+    {
+      "city": "Gothenburg, Sweden",
+      "title_keys": [
+        [
+          "gothenburg",
+          "Gothenburg"
+        ],
+        [
+          "göteborg",
+          "Göteborg"
+        ],
+        [
+          "goteborg",
+          "Goteborg"
+        ]
+      ]
+    },
+    {
+      "city": "Leeds, UK",
+      "title_keys": [
+        [
+          "leeds",
+          "Leeds"
+        ]
+      ]
+    },
+    {
+      "city": "Denver, Colorado, USA",
+      "title_keys": [
+        [
+          "denver",
+          "Denver"
+        ]
+      ]
+    },
+    {
+      "city": "Brno, Czech Republic",
+      "title_keys": [
+        [
+          "brno",
+          "Brno"
+        ]
+      ]
+    },
+    {
+      "city": "Porto, Portugal",
+      "title_keys": [
+        [
+          "porto",
+          "Porto"
+        ],
+        [
+          "oporto",
+          "Oporto"
+        ]
+      ]
+    },
+    {
+      "city": "Hamburg, Germany",
+      "title_keys": [
+        [
+          "hamburg",
+          "Hamburg"
+        ]
+      ]
+    },
+    {
+      "city": "Melbourne, Australia",
+      "title_keys": [
+        [
+          "melbourne",
+          "Melbourne"
+        ]
+      ]
+    },
+    {
+      "city": "Vilnius, Lithuania",
+      "title_keys": [
+        [
+          "vilnius",
+          "Vilnius"
+        ]
+      ]
+    },
+    {
+      "city": "Seattle, Washington, USA",
+      "title_keys": [
+        [
+          "seattle",
+          "Seattle"
+        ]
+      ]
+    },
+    {
+      "city": "Kraków, Poland",
+      "title_keys": [
+        [
+          "kraków",
+          "Kraków"
+        ],
+        [
+          "krakow",
+          "Krakow"
+        ],
+        [
+          "cracow",
+          "Cracow"
+        ]
+      ]
+    },
+    {
+      "city": "Rotterdam, Netherlands",
+      "title_keys": [
+        [
+          "rotterdam",
+          "Rotterdam"
+        ]
+      ]
+    },
+    {
+      "city": "Glasgow, UK",
+      "title_keys": [
+        [
+          "glasgow",
+          "Glasgow"
+        ]
+      ]
+    },
+    {
+      "city": "Vancouver, Canada",
+      "title_keys": [
+        [
+          "vancouver",
+          "Vancouver"
+        ]
+      ]
+    },
+    {
+      "city": "Ljubljana, Slovenia",
+      "title_keys": [
+        [
+          "ljubljana",
+          "Ljubljana"
+        ]
+      ]
+    },
+    {
+      "city": "Valencia, Spain",
+      "title_keys": [
+        [
+          "valencia",
+          "Valencia"
+        ],
+        [
+          "valència",
+          "València"
+        ]
+      ]
+    },
+    {
+      "city": "Cologne, Germany",
+      "title_keys": [
+        [
+          "cologne",
+          "Cologne"
+        ],
+        [
+          "köln",
+          "Köln"
+        ],
+        [
+          "koln",
+          "Koln"
+        ],
+        [
+          "koeln",
+          "Koeln"
+        ]
+      ]
+    },
+    {
+      "city": "Houston, Texas, USA",
+      "title_keys": [
+        [
+          "houston",
+          "Houston"
+        ]
+      ]
+    },
+    {
+      "city": "Tallinn, Estonia",
+      "title_keys": [
+        [
+          "tallinn",
+          "Tallinn"
+        ]
+      ]
+    },
+    {
+      "city": "Turin, Italy",
+      "title_keys": [
+        [
+          "turin",
+          "Turin"
+        ],
+        [
+          "torino",
+          "Torino"
+        ]
+      ]
+    },
+    {
+      "city": "Copenhagen, Denmark",
+      "title_keys": [
+        [
+          "copenhagen",
+          "Copenhagen"
+        ],
+        [
+          "københavn",
+          "København"
+        ],
+        [
+          "kobenhavn",
+          "Kobenhavn"
+        ]
+      ]
+    },
+    {
+      "city": "Brisbane, Australia",
+      "title_keys": [
+        [
+          "brisbane",
+          "Brisbane"
+        ]
+      ]
+    },
+    {
+      "city": "Lisbon, Portugal",
+      "title_keys": [
+        [
+          "lisbon",
+          "Lisbon"
+        ],
+        [
+          "lisboa",
+          "Lisboa"
+        ]
+      ]
+    },
+    {
+      "city": "Minneapolis, Minnesota, USA",
+      "title_keys": [
+        [
+          "minneapolis",
+          "Minneapolis"
+        ]
+      ]
+    },
+    {
+      "city": "Helsinki, Finland",
+      "title_keys": [
+        [
+          "helsinki",
+          "Helsinki"
+        ]
+      ]
+    },
+    {
+      "city": "Wrocław, Poland",
+      "title_keys": [
+        [
+          "wrocław",
+          "Wrocław"
+        ],
+        [
+          "wroclaw",
+          "Wroclaw"
+        ]
+      ]
+    },
+    {
+      "city": "Antwerp, Belgium",
+      "title_keys": [
+        [
+          "antwerp",
+          "Antwerp"
+        ],
+        [
+          "antwerpen",
+          "Antwerpen"
+        ]
+      ]
+    },
+    {
+      "city": "Calgary, Canada",
+      "title_keys": [
+        [
+          "calgary",
+          "Calgary"
+        ]
+      ]
+    },
+    {
+      "city": "Nuremberg, Germany",
+      "title_keys": [
+        [
+          "nuremberg",
+          "Nuremberg"
+        ],
+        [
+          "nürnberg",
+          "Nürnberg"
+        ],
+        [
+          "nurnberg",
+          "Nurnberg"
+        ],
+        [
+          "nuernberg",
+          "Nuernberg"
+        ]
+      ]
+    },
+    {
+      "city": "Birmingham, UK",
+      "title_keys": [
+        [
+          "birmingham",
+          "Birmingham"
+        ]
+      ]
+    },
+    {
+      "city": "Prague, Czech Republic",
+      "title_keys": [
+        [
+          "prague",
+          "Prague"
+        ],
+        [
+          "praha",
+          "Praha"
+        ]
+      ]
+    },
+    {
+      "city": "Dallas, Texas, USA",
+      "title_keys": [
+        [
+          "dallas",
+          "Dallas"
+        ]
+      ]
+    },
+    {
+      "city": "Oslo, Norway",
+      "title_keys": [
+        [
+          "oslo",
+          "Oslo"
+        ]
+      ]
+    },
+    {
+      "city": "Marseille, France",
+      "title_keys": [
+        [
+          "marseille",
+          "Marseille"
+        ],
+        [
+          "marseilles",
+          "Marseilles"
+        ]
+      ]
+    },
+    {
+      "city": "Leipzig, Germany",
+      "title_keys": [
+        [
+          "leipzig",
+          "Leipzig"
+        ]
+      ]
+    },
+    {
+      "city": "Milan, Italy",
+      "title_keys": [
+        [
+          "milan",
+          "Milan"
+        ],
+        [
+          "milano",
+          "Milano"
+        ]
+      ]
+    },
+    {
+      "city": "Auckland, New Zealand",
+      "title_keys": [
+        [
+          "auckland",
+          "Auckland"
+        ]
+      ]
+    },
+    {
+      "city": "Belgrade, Serbia",
+      "title_keys": [
+        [
+          "belgrade",
+          "Belgrade"
+        ],
+        [
+          "beograd",
+          "Beograd"
+        ]
+      ]
+    },
+    {
+      "city": "Portland, Oregon, USA",
+      "title_keys": [
+        [
+          "portland",
+          "Portland"
+        ]
+      ]
+    },
+    {
+      "city": "Stockholm, Sweden",
+      "title_keys": [
+        [
+          "stockholm",
+          "Stockholm"
+        ]
+      ]
+    }
+  ],
+  "city_pool_basis": "40 large cities not used in any earlier split or in the test4 replacement screen (Tampere, Rennes, Grenoble, Dresden were exhausted there), interleaving Europe, North America and Oceania; fixed before any search.",
+  "queries": [
+    "{city} dashcam GPS",
+    "{city} dashcam VIOFO",
+    "{city} dashcam drive"
+  ],
+  "query_city_word": "the first word of the registered city string",
+  "results_per_query": 12,
+  "eligibility": "unchanged test4 V3 title eligibility (benchmarks/test4_screen/title_eligibility_v3.py: road/motor-vehicle wording, no timelapse/sped-up/rear-facing) plus the test4 non-road exclusion; duration >= 420 s; the title contains one of the city's title_keys as a word; IDs already in benchmarks/manifest.json are skipped; deduplicate in search order.",
+  "screen": "unchanged test3 screen5 helpers: a coordinate stamp in a YouTube frame thumbnail, then three full-resolution frames at 25/50/75 %; >= 2 must parse within 40 km of the registered city's geocode. No localization output is consulted. Unread frames are UNVERIFIED, not negative.",
+  "registered_city_string": "for a passing clip: the display form of the first title_key found in its title, followed by the registered city string after its first comma (e.g. 'Köln, Germany'), so a user could type it from the title",
+  "build": "first 0-600 s (or the whole shorter upload) at <= 1080p with the unchanged build_overlay_fleet.py CPU OCR (interval 5 s, min fixes 12, max 160 km/h, 20 waypoints, longest continuous run) and check_overlay_gt.py plausibility; require >= 500 m in the analysis window. Data dir data/test5.",
+  "order_and_stop": "Screen cities, then queries, then results in the fixed order. Each screen pass is built immediately; screening resumes after a definitive build outcome. Stop at 10 AVAILABLE_GT_QC_PASSED builds, or report the smaller count if the pool is exhausted.",
+  "failure_handling": "Keep every attempt, exclusion and GT failure. Bot checks and infrastructure errors pause and retry the same step unchanged. Localization failure never causes replacement.",
+  "evaluation_separation": "Only the registered city string reaches the pipeline. GT, raw stamp fixes and screen evidence stay in data QC (private evidence under output/test5_data_acquisition_20261117/). Stamps remain in the frames and are filtered from OCR cues by the existing policy.",
+  "method_binding": "rule test5_2026_11 in benchmarks/preregistered_rules.json, registered in the same commit as this selection, before any search"
+}

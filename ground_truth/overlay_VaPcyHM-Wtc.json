@@ -1,0 +1,110 @@
+{
+  "video_id": "VaPcyHM-Wtc",
+  "video_url": "https://www.youtube.com/watch?v=VaPcyHM-Wtc",
+  "city": "Calgary, Canada",
+  "vo_segment": "5:595",
+  "description": "test5 screen pass: Calgary, Canada query 'Calgary dashcam drive' rank 2. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 119 OCR fixes over 5-595 s (9.24 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": 51.0568,
+      "lon": -114.11043
+    },
+    {
+      "t_sec": 35.0,
+      "lat": 51.0571,
+      "lon": -114.1105
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 51.0573,
+      "lon": -114.114139
+    },
+    {
+      "t_sec": 100.0,
+      "lat": 51.0576,
+      "lon": -114.117935
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 51.0617,
+      "lon": -114.117863
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 51.0665,
+      "lon": -114.117967
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 51.0708,
+      "lon": -114.117811
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 51.0708,
+      "lon": -114.1178
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 51.0738,
+      "lon": -114.11812
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 51.0753,
+      "lon": -114.118957
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 51.0799,
+      "lon": -114.122575
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 51.0849,
+      "lon": -114.127979
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 51.0897,
+      "lon": -114.136078
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 51.0942,
+      "lon": -114.142682
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 51.0985,
+      "lon": -114.149882
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 51.1023,
+      "lon": -114.157285
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 51.1055,
+      "lon": -114.165679
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 51.1095,
+      "lon": -114.174774
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 51.1133,
+      "lon": -114.175865
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 51.1175,
+      "lon": -114.170773
+    }
+  ]
+}

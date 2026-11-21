@@ -1,0 +1,10 @@
+{
+ "amendment": "test5 screen operational amendment 05",
+ "recorded_utc": "2026-11-17T18:34:36.767714+00:00",
+ "before": "the third retry of jKBKJ3Js-4A; no localization exists",
+ "problem": "jKBKJ3Js-4A (Brisbane) has a seekable HTTPS stream listed (format 137), but its URL failed to open on every try: 2 screen attempts x 3 opens, 5 further standalone opens, an open with yt-dlp's own user agent, and a 2-second yt-dlp/ffmpeg section download that hung until killed. Other videos opened at the same time. The stream is unreadable from this machine, so 'retry unchanged' would block the fixed order indefinitely.",
+ "change": "a candidate with three UNVERIFIED_FRAMES attempts under the amended reader (rows that carry n_frames_read, i.e. amendments 02-04) is recorded as FRAMES_UNREADABLE and the screen advances. It is reported as an exclusion for inaccessibility, not as a screen failure. Thresholds unchanged.",
+ "counts_at_recording": {
+  "jKBKJ3Js-4A": "2 attempts under the amended reader; one more retry before the cap applies"
+ }
+}

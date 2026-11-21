@@ -1,0 +1,389 @@
+{
+  "summary": {
+    "n_total": 14,
+    "n_paired_with_dense_24k": 13,
+    "within_200m_paired_13": {
+      "ordinary": 1,
+      "dense_24k": 4,
+      "metro_dense": 9,
+      "metro_dense_wilson_95_pct": [
+        42.4,
+        87.3
+      ]
+    },
+    "within_200m_all_14": {
+      "metro_dense": 10,
+      "metro_dense_wilson_95_pct": [
+        45.4,
+        88.3
+      ]
+    },
+    "within_100m_all_14": 10,
+    "within_500m_all_14": 11,
+    "vs_dense_24k_10pct_band": {
+      "better": 8,
+      "worse": 5,
+      "tie": 0,
+      "sign_test_one_sided_p": 0.29053
+    },
+    "crossings_200m_vs_dense_24k": {
+      "paired_gains": [
+        "overlay_3cT07o9aXyQ",
+        "overlay_qgaSRWY8Aio",
+        "overlay_zsqxTSNLw5A",
+        "overlay_ZLmQWroXthY",
+        "overlay_tK7bHJXAJX8"
+      ],
+      "unlocked_gains": [
+        "overlay_yd5g7jsWiEM"
+      ],
+      "losses": []
+    },
+    "medians_m_paired_13": {
+      "ordinary": 1345.9,
+      "dense_24k": 677.8,
+      "metro_dense": 49.8
+    },
+    "median_m_all_14_metro_dense": 47.9,
+    "pass1_within_2km_of_route_all_14": 11,
+    "mean_wall_s_metro_dense": 1340.6
+  },
+  "clips": [
+    {
+      "split": "test5",
+      "clip": "overlay_3cT07o9aXyQ",
+      "name": "Portland (3cT07o9aXyQ)",
+      "ordinary_m": 9762.5,
+      "dense_24k_m": 9749.7,
+      "metro_dense_m": 25.6,
+      "metro_start_m": 38.3,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "pass1_to_route_m": {
+        "ordinary": 9973.7,
+        "dense_24k": 9140.2,
+        "metro_dense": 87.5
+      },
+      "metro_pass1_refs": 28102,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 8326,
+      "wall_s": {
+        "ordinary": 398.2,
+        "dense_24k": 1417.5,
+        "metro_dense": 2051.6
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_FPQyfJsbjWM",
+      "name": "Rotterdam (FPQyfJsbjWM)",
+      "ordinary_m": 25.7,
+      "dense_24k_m": 25.4,
+      "metro_dense_m": 46.0,
+      "metro_start_m": 46.2,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "pass1_to_route_m": {
+        "ordinary": 67.8,
+        "dense_24k": 16.0,
+        "metro_dense": 184.7
+      },
+      "metro_pass1_refs": 23987,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 3325,
+      "wall_s": {
+        "ordinary": 347.7,
+        "dense_24k": 1234.6,
+        "metro_dense": 1430.1
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_VaPcyHM-Wtc",
+      "name": "Calgary (VaPcyHM-Wtc)",
+      "ordinary_m": 6880.8,
+      "dense_24k_m": 171.0,
+      "metro_dense_m": 14.7,
+      "metro_start_m": 250.6,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "pass1_to_route_m": {
+        "ordinary": 6371.8,
+        "dense_24k": 179.3,
+        "metro_dense": 67.4
+      },
+      "metro_pass1_refs": 23981,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 8777,
+      "wall_s": {
+        "ordinary": 328.4,
+        "dense_24k": 1108.6,
+        "metro_dense": 1528.3
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_YJmgh_0SoGs",
+      "name": "Melbourne (YJmgh_0SoGs)",
+      "ordinary_m": 1345.9,
+      "dense_24k_m": 1345.9,
+      "metro_dense_m": 49603.3,
+      "metro_start_m": 47170.7,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "pass1_to_route_m": {
+        "ordinary": 210.3,
+        "dense_24k": 210.3,
+        "metro_dense": 48676.0
+      },
+      "metro_pass1_refs": 25997,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 2690,
+      "wall_s": {
+        "ordinary": 297.2,
+        "dense_24k": 120.4,
+        "metro_dense": 1566.1
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_kMQOOXaUBh0",
+      "name": "Houston (kMQOOXaUBh0)",
+      "ordinary_m": 7203.1,
+      "dense_24k_m": 16273.7,
+      "metro_dense_m": 36759.1,
+      "metro_start_m": 37755.9,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "pass1_to_route_m": {
+        "ordinary": 5842.0,
+        "dense_24k": 16125.5,
+        "metro_dense": 36316.2
+      },
+      "metro_pass1_refs": 23998,
+      "metro_corridor_discs": 2,
+      "metro_pass2_refs": 3670,
+      "wall_s": {
+        "ordinary": 365.5,
+        "dense_24k": 1367.1,
+        "metro_dense": 1517.5
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_ml4PPnpc-Kw",
+      "name": "Glasgow (ml4PPnpc-Kw)",
+      "ordinary_m": 11085.0,
+      "dense_24k_m": 11085.0,
+      "metro_dense_m": 422.9,
+      "metro_start_m": 2267.0,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "pass1_to_route_m": {
+        "ordinary": 9907.2,
+        "dense_24k": 9907.2,
+        "metro_dense": 276.2
+      },
+      "metro_pass1_refs": 26460,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 7358,
+      "wall_s": {
+        "ordinary": 237.9,
+        "dense_24k": 73.1,
+        "metro_dense": 1572.6
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_qgaSRWY8Aio",
+      "name": "Belgrade (qgaSRWY8Aio)",
+      "ordinary_m": 677.8,
+      "dense_24k_m": 677.8,
+      "metro_dense_m": 32.4,
+      "metro_start_m": 203.3,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "pass1_to_route_m": {
+        "ordinary": 6.0,
+        "dense_24k": 6.0,
+        "metro_dense": 84.9
+      },
+      "metro_pass1_refs": 24729,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 3218,
+      "wall_s": {
+        "ordinary": 221.7,
+        "dense_24k": 33.9,
+        "metro_dense": 1178.2
+      }
+    },
+    {
+      "split": "test5",
+      "clip": "overlay_zsqxTSNLw5A",
+      "name": "Portland (zsqxTSNLw5A)",
+      "ordinary_m": 10051.9,
+      "dense_24k_m": 10500.5,
+      "metro_dense_m": 18.3,
+      "metro_start_m": 36.3,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "pass1_to_route_m": {
+        "ordinary": 9059.5,
+        "dense_24k": 9299.9,
+        "metro_dense": 1079.8
+      },
+      "metro_pass1_refs": 26332,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 11583,
+      "wall_s": {
+        "ordinary": 325.4,
+        "dense_24k": 1028.0,
+        "metro_dense": 980.0
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_ZLmQWroXthY",
+      "name": "Kansas City (ZLmQWroXthY)",
+      "ordinary_m": 511.3,
+      "dense_24k_m": 392.6,
+      "metro_dense_m": 56.5,
+      "metro_start_m": 221.9,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "pass1_to_route_m": {
+        "ordinary": 386.9,
+        "dense_24k": 85.3,
+        "metro_dense": 486.6
+      },
+      "metro_pass1_refs": 25658,
+      "metro_corridor_discs": 4,
+      "metro_pass2_refs": 9342,
+      "wall_s": {
+        "ordinary": 244.1,
+        "dense_24k": 1023.0,
+        "metro_dense": 1706.0
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_jkkl1QgsPSo",
+      "name": "Sofia (jkkl1QgsPSo)",
+      "ordinary_m": 945.4,
+      "dense_24k_m": 27.0,
+      "metro_dense_m": 21.6,
+      "metro_start_m": 59.3,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "",
+      "pass1_to_route_m": {
+        "ordinary": 80.0,
+        "dense_24k": 10.9,
+        "metro_dense": 197.3
+      },
+      "metro_pass1_refs": 23995,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 13700,
+      "wall_s": {
+        "ordinary": 220.9,
+        "dense_24k": 1075.7,
+        "metro_dense": 1312.1
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_jz6o-_Y6r2E",
+      "name": "Albuquerque (jz6o-_Y6r2E)",
+      "ordinary_m": 9670.8,
+      "dense_24k_m": 11175.9,
+      "metro_dense_m": 16108.4,
+      "metro_start_m": 15966.0,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "pass1_to_route_m": {
+        "ordinary": 9580.7,
+        "dense_24k": 11141.0,
+        "metro_dense": 14200.5
+      },
+      "metro_pass1_refs": 24000,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 1906,
+      "wall_s": {
+        "ordinary": 51.8,
+        "dense_24k": 1137.0,
+        "metro_dense": 867.7
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_pFbUvfr8k-Q",
+      "name": "Trondheim (pFbUvfr8k-Q)",
+      "ordinary_m": 207.0,
+      "dense_24k_m": 22.0,
+      "metro_dense_m": 55.3,
+      "metro_start_m": 788.5,
+      "vs_dense_24k": "worse",
+      "crossing_vs_dense_24k": "",
+      "pass1_to_route_m": {
+        "ordinary": 61.4,
+        "dense_24k": 81.4,
+        "metro_dense": 57.8
+      },
+      "metro_pass1_refs": 23997,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 8732,
+      "wall_s": {
+        "ordinary": 84.3,
+        "dense_24k": 1330.3,
+        "metro_dense": 1233.0
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_tK7bHJXAJX8",
+      "name": "Bucharest (tK7bHJXAJX8)",
+      "ordinary_m": 410.4,
+      "dense_24k_m": 350.5,
+      "metro_dense_m": 49.8,
+      "metro_start_m": 189.6,
+      "vs_dense_24k": "better",
+      "crossing_vs_dense_24k": "gain",
+      "pass1_to_route_m": {
+        "ordinary": 1015.6,
+        "dense_24k": 68.7,
+        "metro_dense": 34.6
+      },
+      "metro_pass1_refs": 24000,
+      "metro_corridor_discs": 3,
+      "metro_pass2_refs": 11015,
+      "wall_s": {
+        "ordinary": 288.3,
+        "dense_24k": 1384.8,
+        "metro_dense": 1469.0
+      }
+    },
+    {
+      "split": "test4",
+      "clip": "overlay_yd5g7jsWiEM",
+      "name": "Bucharest (yd5g7jsWiEM)",
+      "ordinary_m": null,
+      "dense_24k_m": null,
+      "metro_dense_m": 10.5,
+      "metro_start_m": 1.5,
+      "vs_dense_24k": null,
+      "crossing_vs_dense_24k": "gain_unlocked",
+      "pass1_to_route_m": {
+        "ordinary": null,
+        "dense_24k": null,
+        "metro_dense": 16.5
+      },
+      "metro_pass1_refs": 24000,
+      "metro_corridor_discs": 1,
+      "metro_pass2_refs": 4251,
+      "wall_s": {
+        "ordinary": null,
+        "dense_24k": null,
+        "metro_dense": 355.6
+      }
+    }
+  ]
+}

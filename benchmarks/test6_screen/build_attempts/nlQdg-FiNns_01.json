@@ -1,0 +1,21 @@
+{
+  "id": "nlQdg-FiNns",
+  "pool_city": "Mexico City, Mexico",
+  "city": "Mexico City, Mexico",
+  "continent_region": "north_america",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-20T16:09:33.082255+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/nlqdg-finns-calles-de-cdmx-trayecto-zocalo-cdmx-a-santa-fe-70mai/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_nlQdg-FiNns.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0327666666667,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-20T16:22:48.316298+00:00",
+  "qc_log_sha256": "de42c883e2c40c2ae1a972dfcee4d0a88464071e43497c531320df1d625c56a6"
+}

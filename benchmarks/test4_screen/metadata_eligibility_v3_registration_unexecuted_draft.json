@@ -1,0 +1,69 @@
+{
+  "version": "ground-motor-title-aliases-v3",
+  "registered_utc": "2026-11-10T23:13:28.202133+00:00",
+  "reason": "Root authorized generic French/German/etc motor-vehicle aliases; existing selection criterion unchanged. No completed stamp/GT QC verdict revisited.",
+  "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+  "original_road_regex": "dash\\s*cam|driv(?:e|ing)|driveassist|\\bcar\\b|road|motorway|highway|autobahn|motorcycle|motorbike|\\bbus\\b|truck|taxi|\\bi-\\d",
+  "added_motor_aliases_regex": "\\b(?:flixbus|coaches?|camions?|camionnettes?|autocars?|voitures?|poids[\\s-]+lourds?|auto|lkw|pkw|autofahrt|busfahrt|motorrad|motorradtour|vrachtwagen|motorfiets|bil|biltur|bilkjøring|bilkjoring|buss|autolla|autoilu|automatka)\\b",
+  "new_road_regex": "(?:dash\\s*cam|driv(?:e|ing)|driveassist|\\bcar\\b|road|motorway|highway|autobahn|motorcycle|motorbike|\\bbus\\b|truck|taxi|\\bi-\\d)|(?:\\b(?:flixbus|coaches?|camions?|camionnettes?|autocars?|voitures?|poids[\\s-]+lourds?|auto|lkw|pkw|autofahrt|busfahrt|motorrad|motorradtour|vrachtwagen|motorfiets|bil|biltur|bilkjøring|bilkjoring|buss|autolla|autoilu|automatka)\\b)",
+  "eligibility_module_sha256": "ddc3fa349a43b3403192cb9758b4675906bf0cb8a7250e7244bdda6caf3624cc",
+  "screen_helper_sha256": "7e8fc8fab4e448403f4d8edf88a0e920d6418234587489921b4dc80fad3d253a",
+  "superseded_screen_helper_sha256": "8ed73a162eeee4a0c6165539367bcce66d6e8e66443371be7dd7ad6387bad71b",
+  "preserved_records_sha256": "7acf3827dbdfe2cea251256ae980da3f6baa9bbbc44c85a41a182bf4fcd00a9e",
+  "metadata_corrections": [
+    {
+      "id": "MN4j34O7yO4",
+      "original_record_sha256": "7bef01aa82092af1aea3f23d8be4a760b237a28a9ded2dd060e5152473f96f69",
+      "original_record": {
+        "city": "Rennes, France",
+        "id": "MN4j34O7yO4",
+        "title": "FLIXBUS 792 | VANNES RENNES PARIS | SETRA S516",
+        "duration_s": 21024,
+        "query": "Rennes dashcam GPS",
+        "rank": 1,
+        "eligible": false,
+        "ok": false,
+        "status": "TITLE_OR_DURATION_INELIGIBLE"
+      },
+      "supersession_status": "SUPERSEDED_METADATA_IMPLEMENTATION_ERROR",
+      "reason": "Generic motor-vehicle language alias omitted; no prior stamp/GT verdict exists."
+    },
+    {
+      "id": "H7crYxxr44A",
+      "original_record_sha256": "0e4d7b5b3838808a2f62d8c646bfb3a0dabb76e2c23db82badab15817b6df9d6",
+      "original_record": {
+        "city": "Rennes, France",
+        "id": "H7crYxxr44A",
+        "title": "FLIXBUS SUMMER 1602 | PARIS RENNES QUIBERON | TIMELAPS",
+        "duration_s": 684,
+        "query": "Rennes dashcam GPS",
+        "rank": 4,
+        "eligible": false,
+        "ok": false,
+        "status": "TITLE_OR_DURATION_INELIGIBLE"
+      },
+      "supersession_status": "SUPERSEDED_METADATA_IMPLEMENTATION_ERROR",
+      "reason": "Generic motor-vehicle language alias omitted; no prior stamp/GT verdict exists."
+    },
+    {
+      "id": "hlvB-OV9Mn4",
+      "original_record_sha256": "9a8fa67bfd88bff310aac9d6a5050209143f6004a9d279a1c7714d2f3be5a883",
+      "original_record": {
+        "city": "Rennes, France",
+        "id": "hlvB-OV9Mn4",
+        "title": "Bretigny sur Orge,D19,N20,N104,A10,A11,A81,N157,Rennes,Rhéu,Collissimo en Camion le 16/12/2025",
+        "duration_s": 16171,
+        "query": "Rennes dashcam VIOFO",
+        "rank": 11,
+        "eligible": false,
+        "ok": false,
+        "status": "TITLE_OR_DURATION_INELIGIBLE"
+      },
+      "supersession_status": "SUPERSEDED_METADATA_IMPLEMENTATION_ERROR",
+      "reason": "Generic motor-vehicle language alias omitted; no prior stamp/GT verdict exists."
+    }
+  ],
+  "before_new_V3_stamp_or_GT_reads": true,
+  "queries_order_duration_stamp_thresholds_models_preprocessing_unchanged": true,
+  "method_binding_pending": true
+}

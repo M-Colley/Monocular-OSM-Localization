@@ -1,0 +1,282 @@
+{
+ "rule": "test4_2026_11",
+ "run_dir": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4",
+ "runner_commit": "409a9595f22b8d726b71a3ab6f848559773fc9a3",
+ "manifest_sha256": "7f4150ffe9ed8092872836bed2fec1508f9a1fa72506678d1d4e4e20b9b748b6",
+ "threshold_m": 200.0,
+ "clips": [
+  {
+   "clip": "overlay_tK7bHJXAJX8",
+   "name": "Bucharest (tK7bHJXAJX8)",
+   "frozen_city": "Bucharest, Romania",
+   "runner_city": "Bucharest, Romania",
+   "vo_segment": "5:595",
+   "assisted_m": 318.7626467442963,
+   "baseline_track_m": 318.7626467442963,
+   "city_centre_m": 992.0245775071937,
+   "selected_stage": "baseline",
+   "selection_reason": "no_admissible_assistance",
+   "stages": {
+    "baseline": {
+     "status": "process_complete",
+     "end_s": 2620.8
+    },
+    "cues": {
+     "status": "process_complete",
+     "end_s": 4082.6
+    },
+    "expanded": {
+     "status": "process_complete",
+     "end_s": 10199.8
+    }
+   },
+   "wall_s": 10227.0,
+   "result_sha256": "78879082ca67683d78c2ace31c181ed79bf7b3fe8c360e27a7194c6d0e8e04f2",
+   "baseline_child_sha256": "be8d057da863152cc1ccaaa494a7621d3286ec88ffef089f8bb53cc49d307733",
+   "centre_source": "snapshot:benchmarks/geocode_snapshot.json",
+   "pass1_radius_m": 8000.0,
+   "title_seeded": false,
+   "pass1_share": 1.0,
+   "fine_share": 0.7,
+   "declined_expanded_candidate_m_posthoc": 318.7626467442963,
+   "mode": "C",
+   "assisted_within": false,
+   "baseline_within": false,
+   "beats_centre": true
+  },
+  {
+   "clip": "overlay_yd5g7jsWiEM",
+   "name": "Bucharest (yd5g7jsWiEM)",
+   "frozen_city": "Bucharest, Romania",
+   "runner_city": "Bucuresti, Romania",
+   "vo_segment": "440:595",
+   "assisted_m": 5009.78650999375,
+   "baseline_track_m": 5009.78650999375,
+   "city_centre_m": 4201.528565821933,
+   "selected_stage": "baseline",
+   "selection_reason": "no_admissible_assistance",
+   "stages": {
+    "baseline": {
+     "status": "process_complete",
+     "end_s": 1464.8
+    },
+    "cues": {
+     "status": "process_complete",
+     "end_s": 1814.7
+    },
+    "expanded": {
+     "status": "process_complete",
+     "end_s": 9092.8
+    }
+   },
+   "wall_s": 9115.0,
+   "result_sha256": "670463639b402c9b8369ce64d81c4fe75f73076a04024c1b31e808743e18b9de",
+   "baseline_child_sha256": "bb673ed331acdd265e6c14a17e1ff7af9bdbdbfc8eeb00ba09184e09b1b3b7fe",
+   "centre_source": "snapshot:benchmarks/geocode_snapshot.json",
+   "pass1_radius_m": 8000.0,
+   "title_seeded": false,
+   "pass1_share": 1.0,
+   "fine_share": 0.0,
+   "declined_expanded_candidate_m_posthoc": 10666.685430023412,
+   "mode": "B",
+   "assisted_within": false,
+   "baseline_within": false,
+   "beats_centre": false
+  },
+  {
+   "clip": "overlay_jkkl1QgsPSo",
+   "name": "Sofia (jkkl1QgsPSo)",
+   "frozen_city": "Sofia, Bulgaria",
+   "runner_city": "Sofia, Bulgaria",
+   "vo_segment": "0:595",
+   "assisted_m": 945.4116110475129,
+   "baseline_track_m": 945.4116110475129,
+   "city_centre_m": 1935.6918836799061,
+   "selected_stage": "baseline",
+   "selection_reason": "no_admissible_assistance",
+   "stages": {
+    "baseline": {
+     "status": "process_complete",
+     "end_s": 2475.7
+    },
+    "cues": {
+     "status": "process_complete",
+     "end_s": 3489.1
+    },
+    "expanded": {
+     "status": "timed_out",
+     "end_s": 14259.0,
+     "reason": "child_work_deadline_expired"
+    }
+   },
+   "wall_s": 14274.3,
+   "result_sha256": "7628cf1d7c447223150c64fd1a678bca05f4e202046762651b6dc4d154f19827",
+   "baseline_child_sha256": "de8c6ecdbb801b624dd2fd8714ac695831ab5353949c7cd73c90556834d1e610",
+   "centre_source": "snapshot:benchmarks/geocode_snapshot.json",
+   "pass1_radius_m": 8000.0,
+   "title_seeded": false,
+   "pass1_share": 1.0,
+   "fine_share": 0.55,
+   "declined_expanded_candidate_m_posthoc": null,
+   "mode": "C",
+   "assisted_within": false,
+   "baseline_within": false,
+   "beats_centre": true
+  },
+  {
+   "clip": "overlay_ZLmQWroXthY",
+   "name": "Kansas City (ZLmQWroXthY)",
+   "frozen_city": "Kansas City, Missouri, USA",
+   "runner_city": "Kansas City, Missouri, USA",
+   "vo_segment": "5:595",
+   "assisted_m": 511.320313114957,
+   "baseline_track_m": 511.320313114957,
+   "city_centre_m": 8981.490060143755,
+   "selected_stage": "baseline",
+   "selection_reason": "no_admissible_assistance",
+   "stages": {
+    "baseline": {
+     "status": "process_complete",
+     "end_s": 2500.5
+    },
+    "cues": {
+     "status": "process_complete",
+     "end_s": 6016.2
+    },
+    "expanded": {
+     "status": "timed_out",
+     "end_s": 14251.2,
+     "reason": "child_work_deadline_expired"
+    }
+   },
+   "wall_s": 14276.5,
+   "result_sha256": "b5c04df87a96030c545c16944277966572296ca35533e7d9feed2804bedb744e",
+   "baseline_child_sha256": "c04f478821ab986114831cf4b686b6676de460aa4138159e886aca2e413666a6",
+   "centre_source": "snapshot:benchmarks/geocode_snapshot.json",
+   "pass1_radius_m": 8000.0,
+   "title_seeded": false,
+   "pass1_share": 0.1,
+   "fine_share": 0.4,
+   "declined_expanded_candidate_m_posthoc": null,
+   "mode": "A",
+   "assisted_within": false,
+   "baseline_within": false,
+   "beats_centre": true
+  },
+  {
+   "clip": "overlay_jz6o-_Y6r2E",
+   "name": "Albuquerque (jz6o-_Y6r2E)",
+   "frozen_city": "Albuquerque, New Mexico, USA",
+   "runner_city": "Albuquerque, New Mexico, USA",
+   "vo_segment": "155:285",
+   "assisted_m": 9671.279664793175,
+   "baseline_track_m": 9671.279664793175,
+   "city_centre_m": 6950.489585432288,
+   "selected_stage": "baseline",
+   "selection_reason": "no_admissible_assistance",
+   "stages": {
+    "baseline": {
+     "status": "process_complete",
+     "end_s": 2371.3
+    },
+    "cues": {
+     "status": "process_complete",
+     "end_s": 2830.6
+    },
+    "expanded": {
+     "status": "process_complete",
+     "end_s": 13819.6
+    }
+   },
+   "wall_s": 13841.8,
+   "result_sha256": "a7f9f6c2238f2915f36e93887b4208d3bd3b2d86b8769019f32ebeb76ac14e16",
+   "baseline_child_sha256": "07f1643b8669e41264353476911ecd7c94da43deb01ec5f5a1ae3a91aee5b5e3",
+   "centre_source": "snapshot:benchmarks/geocode_snapshot.json",
+   "pass1_radius_m": 8000.0,
+   "title_seeded": false,
+   "pass1_share": 1.0,
+   "fine_share": 0.0,
+   "declined_expanded_candidate_m_posthoc": 2426.659080980322,
+   "mode": "B",
+   "assisted_within": false,
+   "baseline_within": false,
+   "beats_centre": false
+  },
+  {
+   "clip": "overlay_pFbUvfr8k-Q",
+   "name": "Trondheim (pFbUvfr8k-Q)",
+   "frozen_city": "Trondheim, Norway",
+   "runner_city": "Trondheim, Norway",
+   "vo_segment": "154:413",
+   "assisted_m": 187.45129891664072,
+   "baseline_track_m": 187.45129891664072,
+   "city_centre_m": 441.3065185815275,
+   "selected_stage": "baseline",
+   "selection_reason": "no_admissible_assistance",
+   "stages": {
+    "baseline": {
+     "status": "process_complete",
+     "end_s": 2507.3
+    },
+    "cues": {
+     "status": "process_complete",
+     "end_s": 3396.9
+    },
+    "expanded": {
+     "status": "process_complete",
+     "end_s": 13818.8
+    }
+   },
+   "wall_s": 13832.2,
+   "result_sha256": "0159a3935258bc775b53d232dd845dba07a9a4855b106a57c79d4c547f850520",
+   "baseline_child_sha256": "35698c313a5a7563b2a54c57c131194a477406814125aac10316c5bcb575a171",
+   "centre_source": "snapshot:benchmarks/geocode_snapshot.json",
+   "pass1_radius_m": 8000.0,
+   "title_seeded": false,
+   "pass1_share": 1.0,
+   "fine_share": 1.0,
+   "declined_expanded_candidate_m_posthoc": 100.39359493443439,
+   "mode": "ok",
+   "assisted_within": true,
+   "baseline_within": true,
+   "beats_centre": true
+  }
+ ],
+ "V1": {
+  "within": 1,
+  "n": 6,
+  "share": 0.16666666666666666,
+  "wilson95": [
+   0.030053369748306635,
+   0.5635028221864703
+  ],
+  "in_sample": {
+   "within": 14,
+   "n": 15,
+   "wilson95": [
+    0.7018347012621997,
+    0.9881331045067314
+   ]
+  }
+ },
+ "V2": {
+  "holds": true,
+  "baseline_within": 1,
+  "harmed": []
+ },
+ "V3": {
+  "holds": true,
+  "beats_centre": 4,
+  "n": 6
+ },
+ "goal_check": {
+  "within": 1,
+  "n": 6,
+  "holds": false
+ },
+ "median_m": {
+  "assisted_m": 728.365962081235,
+  "baseline_track_m": 728.365962081235,
+  "city_centre_m": 3068.6102247509193
+ }
+}

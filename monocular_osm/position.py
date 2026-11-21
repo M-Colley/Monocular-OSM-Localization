@@ -1,4 +1,4 @@
-"""Turn the winning route match into a WGS84 position answer.
+"""Build WGS84 route reports and present the selected method answer.
 
 The matcher works entirely in a projected metric CRS (UTM for the
 city), which is right for geometry but useless as a final answer: the
@@ -271,7 +271,7 @@ def build_position_report(
 
 
 def format_position_summary(position: dict) -> str:
-    """Human-readable block printed at the end of a pipeline run."""
+    """Legacy fit summary; primary output uses :func:`format_answer_summary`."""
     conf = position.get("confidence", {})
     streets = ", ".join(position.get("street_names", [])[:5]) or "(unnamed roads)"
     center = position.get("center", {})
@@ -293,3 +293,126 @@ def format_position_summary(position: dict) -> str:
         "=" * 64,
     ]
     return "\n".join(lines)
+
+
+def build_answer_report(route_latlon, *, mode: str, method: str, source: str,
+                        disagreement_m: float | None = None) -> dict:
+    """The selected route and its map links, independent of a matcher/CRS.
+
+    ``position`` remains the trajectory-fit diagnostic. Coordinates and links
+    shown to the user must instead be derived from this selected route.
+    """
+    route = np.asarray(route_latlon, dtype=np.float64)
+    if (route.ndim != 2 or route.shape[1] != 2 or not len(route)
+            or not np.isfinite(route).all()
+            or np.any(np.abs(route[:, 0]) > 90)
+            or np.any(np.abs(route[:, 1]) > 180)):
+        raise ValueError("selected answer must be a non-empty finite WGS84 route")
+    lat, lon = map(float, route[0])
+    return {
+        "mode": mode, "method": method, "source": source,
+        "latitude": lat, "longitude": lon,
+        "route_latlon": route.tolist(),
+        "start": _point_dict(lat, lon),
+        "end": _point_dict(*route[-1]),
+        "center": _point_dict(*route.mean(axis=0)),
+        "google_maps_url": google_maps_url(lat, lon),
+        "openstreetmap_url": openstreetmap_url(lat, lon),
+        "disagreement_m": disagreement_m,
+    }
+
+
+def format_answer_summary(answer: dict) -> str:
+    """Primary console position, always describing ``result['answer']``."""
+    start, end, center = answer["start"], answer["end"], answer["center"]
+    lines = [
+        "=" * 64,
+        f"ESTIMATED POSITION  (answer={answer['mode']}, method={answer['method']})",
+        "=" * 64,
+        f"  Video starts at:  {start['latitude']:.6f}, {start['longitude']:.6f}",
+        f"  Video ends at:    {end['latitude']:.6f}, {end['longitude']:.6f}",
+        f"  Route center:     {center['latitude']:.6f}, {center['longitude']:.6f}",
+        f"  Google Maps:      {answer['google_maps_url']}",
+        f"  OpenStreetMap:    {answer['openstreetmap_url']}",
+    ]
+    if answer.get("map_artifact"):
+        lines.append(f"  Route map:        {answer['map_artifact']}")
+    lines.append("=" * 64)
+    return "\n".join(lines)
+
+
+def plot_answer(answer: dict, out_path, *, road: RoadGraph | None = None) -> None:
+    """Plot the selected route, with cached OSM roads when available.
+
+    The selected WGS84 route supplies the extent and projection; a missing or
+    unusable graph never prevents a retrieval-only route from being drawn.
+    This uses no basemap downloads and works without a GUI.
+    """
+    from pathlib import Path
+
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.collections import LineCollection
+    from matplotlib.figure import Figure
+    from pyproj import Transformer
+
+    from .geo import LocalFrame
+
+    route = np.asarray(answer["route_latlon"], dtype=np.float64)
+    frame = LocalFrame(*route[0])
+    xy = np.column_stack(frame.to_xy(route[:, 0], route[:, 1]))
+    low, high = xy.min(axis=0), xy.max(axis=0)
+    pad = max(float(np.max(high - low)) * 0.12, 100.0)
+    low, high = low - pad, high + pad
+    # Straight routes still need a useful map-sized viewport.
+    middle = (low + high) / 2.0
+    half_span = float(np.max(high - low)) / 2.0
+    low, high = middle - half_span, middle + half_span
+
+    fig = Figure(figsize=(8, 7))
+    FigureCanvasAgg(fig)
+    ax = fig.subplots()
+    has_roads = False
+    if road is not None and _usable_crs(road.crs):
+        try:
+            # Transform all vertices once, rather than constructing a PROJ
+            # transformer for every street in a city-sized graph.
+            polys = [np.asarray(p, dtype=float) for p in road.polylines if len(p) >= 2]
+            if polys:
+                vertices = np.concatenate(polys)
+                tf = Transformer.from_crs(road.crs, frame.crs, always_xy=True)
+                x, y = tf.transform(vertices[:, 0], vertices[:, 1])
+                streets = np.split(np.column_stack([x, y]),
+                                   np.cumsum([len(p) for p in polys])[:-1])
+                visible = [p for p in streets if np.isfinite(p).all()
+                           and np.all(p.max(axis=0) >= low)
+                           and np.all(p.min(axis=0) <= high)]
+                if visible:
+                    ax.add_collection(LineCollection(visible, colors="0.8", linewidths=0.9))
+                    has_roads = True
+        except Exception:
+            # The graph is optional context. The selected route is already in
+            # WGS84 and remains useful when its road CRS cannot be read.
+            pass
+
+    ax.plot(xy[:, 0], xy[:, 1], color="#1565c0", linewidth=2.0,
+            label=f"Selected answer ({answer['method']})", zorder=3)
+    ax.scatter(*xy[0], color="#2e7d32", s=60, label="Start", zorder=4)
+    ax.scatter(*xy[-1], color="#c62828", marker="s", s=40, label="End", zorder=4)
+    ax.set(xlim=(low[0], high[0]), ylim=(low[1], high[1]),
+           xlabel="East of start (m)", ylabel="North of start (m)",
+           title=(f"Selected answer: {answer['mode']} / {answer['method']}\n"
+                  f"Start {route[0, 0]:.6f}, {route[0, 1]:.6f}"))
+    ax.set_aspect("equal")
+    ax.grid(alpha=0.2)
+    ax.legend(loc="best")
+    fig.text(0.02, 0.015, "Roads © OpenStreetMap contributors" if has_roads
+             else "Route coordinates in WGS84; road context unavailable", fontsize=8)
+    fig.tight_layout(rect=(0, 0.025, 1, 1))
+    path = Path(out_path)
+    temp = path.with_name(f"{path.stem}.tmp{path.suffix}")
+    try:
+        fig.savefig(temp, dpi=140)
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+        fig.clear()

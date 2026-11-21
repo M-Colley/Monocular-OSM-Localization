@@ -108,6 +108,35 @@ def test_report_derived_baselines() -> None:
     assert v.meta["origin"] == "vpr"
 
 
+def test_vpr_track_only_is_the_time_ordered_track_with_outliers_damped() -> None:
+    track = [[float(t), 48.40 + 0.001 * t, 9.98, 0.2] for t in range(9)]
+    track[4][1] = 49.0                                  # one wrong retrieval
+    track = track[5:] + track[:5]                       # stored out of order
+    v = B.vpr_track_only(_result(vpr_prior={"lat": 48.4, "lon": 9.98, "track": track}))
+    assert v.kind == "route" and len(v.route_latlon) == 9
+    lats = [p[0] for p in v.route_latlon]
+    assert max(lats) < 48.41                            # the spike is gone
+    assert lats[0] < 48.402 and lats[-1] > 48.406       # time order, not storage order
+    assert B.vpr_track_only(_result()) is None          # older runs: no track saved
+
+
+def test_track_checked_keeps_an_agreeing_fit_and_replaces_a_far_one() -> None:
+    near = [[48.4000 + 0.0005 * t, 9.9800, 0.2] for t in range(9)]
+    track = [[float(t), *p] for t, p in enumerate(near)]
+    fit_near = [[48.4000, 9.9801], [48.4040, 9.9801]]       # ~7 m off the track
+    fit_far = [[48.4000, 9.9900], [48.4040, 9.9900]]        # ~740 m east
+    kept = B.track_checked(_result(position={"route_latlon": fit_near},
+                                   vpr_prior={"lat": 48.4, "lon": 9.98, "track": track}))
+    assert kept.meta["chose"] == "pipeline" and kept.meta["disagreement_m"] < 20
+    swapped = B.track_checked(_result(position={"route_latlon": fit_far},
+                                      vpr_prior={"lat": 48.4, "lon": 9.98, "track": track}))
+    assert swapped.meta["chose"] == "vpr_track_only" and swapped.meta["disagreement_m"] > 700
+    assert swapped.route_latlon == B.vpr_track_only(
+        _result(vpr_prior={"lat": 48.4, "lon": 9.98, "track": track})).route_latlon
+    no_track = B.track_checked(_result())                 # older run: the fit, unchecked
+    assert no_track.meta["chose"] == "pipeline" and no_track.meta["disagreement_m"] is None
+
+
 def test_missing_channels_are_none_not_zero() -> None:
     r = _result()
     del r["pinned_position"], r["vpr_prior"]
@@ -171,3 +200,10 @@ def test_the_committed_rule_is_loadable() -> None:
     rule = B.load_preregistered_rule()
     assert rule is not None and 0.0 < rule["tau"] < 1.0
     assert rule["fallback"] == "city_centroid"
+
+
+def test_answer_reads_the_recorded_answer() -> None:
+    r = _result(answer={"mode": "track", "method": "vpr_track_only", "route_latlon": ROUTE_B})
+    a = B.answer(r)
+    assert a.route_latlon == ROUTE_B and a.meta == {"mode": "track", "method": "vpr_track_only"}
+    assert B.answer(_result()) is None                  # runs before --answer existed

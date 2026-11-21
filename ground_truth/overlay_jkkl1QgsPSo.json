@@ -1,0 +1,110 @@
+{
+  "video_id": "jkkl1QgsPSo",
+  "video_url": "https://www.youtube.com/watch?v=jkkl1QgsPSo",
+  "city": "Sofia, Bulgaria",
+  "vo_segment": "0:595",
+  "description": "Unused fixed-screen pass; titled Viofo A119S / (03) Driving in Sofia, BG. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 120 OCR fixes over 0-595 s (7.88 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 42.700732,
+      "lon": 23.329504
+    },
+    {
+      "t_sec": 30.0,
+      "lat": 42.698836,
+      "lon": 23.330005
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 42.698055,
+      "lon": 23.332324
+    },
+    {
+      "t_sec": 95.0,
+      "lat": 42.696615,
+      "lon": 23.332564
+    },
+    {
+      "t_sec": 125.0,
+      "lat": 42.695459,
+      "lon": 23.333085
+    },
+    {
+      "t_sec": 155.0,
+      "lat": 42.694214,
+      "lon": 23.332133
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 42.693514,
+      "lon": 23.33372
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 42.692985,
+      "lon": 23.334542
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 42.690991,
+      "lon": 23.336837
+    },
+    {
+      "t_sec": 280.0,
+      "lat": 42.688241,
+      "lon": 23.34078
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 42.68383,
+      "lon": 23.347095
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 42.679728,
+      "lon": 23.352861
+    },
+    {
+      "t_sec": 375.0,
+      "lat": 42.675545,
+      "lon": 23.358708
+    },
+    {
+      "t_sec": 405.0,
+      "lat": 42.671476,
+      "lon": 23.364433
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 42.666536,
+      "lon": 23.371248
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 42.662435,
+      "lon": 23.376949
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 42.658512,
+      "lon": 23.38245
+    },
+    {
+      "t_sec": 530.0,
+      "lat": 42.656144,
+      "lon": 23.385099
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 42.657682,
+      "lon": 23.386035
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 42.660669,
+      "lon": 23.389742
+    }
+  ]
+}

@@ -62,7 +62,8 @@ def test_extract_video_frames_passes_the_analysed_window_through(tmp_path, monke
     acquire.extract_video_frames(ctx)
     assert len(ctx.frames.frames) == 4
     assert seen["path"] == ctx.video_path
-    assert seen["kw"] == dict(stride=3, max_frames=50, start_sec=5.0, end_sec=20.0)
+    assert seen["kw"] == dict(stride=3, max_frames=50, start_sec=5.0, end_sec=20.0,
+                              memory_mb=512.0, max_width=None)
 
 
 # ---------------------------------------------------------------------------

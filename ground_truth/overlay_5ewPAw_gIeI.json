@@ -1,0 +1,110 @@
+{
+  "video_id": "5ewPAw_gIeI",
+  "video_url": "https://www.youtube.com/watch?v=5ewPAw_gIeI",
+  "city": "Katowice, Poland",
+  "vo_segment": "95:595",
+  "description": "Titled 'Katowice - Balice [DK79]' (screen round 3); replaces a failed Belfast clip. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 85 OCR fixes over 95-595 s (9.70 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 95.0,
+      "lat": 50.27408,
+      "lon": 18.975071
+    },
+    {
+      "t_sec": 165.0,
+      "lat": 50.269923,
+      "lon": 18.981116
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 50.269166,
+      "lon": 18.988857
+    },
+    {
+      "t_sec": 210.0,
+      "lat": 50.271005,
+      "lon": 18.994191
+    },
+    {
+      "t_sec": 235.0,
+      "lat": 50.269443,
+      "lon": 19.001796
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 50.268165,
+      "lon": 19.007208
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 50.26622,
+      "lon": 19.015387
+    },
+    {
+      "t_sec": 305.0,
+      "lat": 50.264918,
+      "lon": 19.020846
+    },
+    {
+      "t_sec": 350.0,
+      "lat": 50.262265,
+      "lon": 19.034235
+    },
+    {
+      "t_sec": 375.0,
+      "lat": 50.261891,
+      "lon": 19.0416
+    },
+    {
+      "t_sec": 395.0,
+      "lat": 50.262346,
+      "lon": 19.046836
+    },
+    {
+      "t_sec": 420.0,
+      "lat": 50.263095,
+      "lon": 19.054533
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 50.262403,
+      "lon": 19.0612
+    },
+    {
+      "t_sec": 460.0,
+      "lat": 50.259726,
+      "lon": 19.066528
+    },
+    {
+      "t_sec": 485.0,
+      "lat": 50.258766,
+      "lon": 19.073718
+    },
+    {
+      "t_sec": 505.0,
+      "lat": 50.258171,
+      "lon": 19.077254
+    },
+    {
+      "t_sec": 530.0,
+      "lat": 50.25652,
+      "lon": 19.081191
+    },
+    {
+      "t_sec": 550.0,
+      "lat": 50.254859,
+      "lon": 19.086279
+    },
+    {
+      "t_sec": 575.0,
+      "lat": 50.252394,
+      "lon": 19.093604
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 50.252377,
+      "lon": 19.099182
+    }
+  ]
+}

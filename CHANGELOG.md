@@ -6,6 +6,281 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Held-out worldwide `test6` certification & Metro-Dense v2 all-38 evaluation (November 2026)
+
+- **Metro-Dense v2 across all 38 `test1`–`test5` clips (`metro_dense_v2_all38_dev_2026_11`, commit `31a6f57` / `aec5008`):**
+  - Added low-cosine (`< 0.155`) corroborated-seed corridor recovery for night drives (`Melbourne` `49,603 -> 828 m`), span-adaptive corridor disc scaling (up to 8 discs on `> 7.5 km` highway drives), and open Panoramax/KartaView augmentation.
+  - Across all 38 clips (`37` paired): **31/38 (`81.6 %`, Wilson 95 % `66.6–90.8 %`) `<= 200 m`** (all 31 `<= 99.1 m`; `34/38 = 89.5 % <= 500 m`; `36/38 = 94.7 % <= 900 m`; median **`41.2 m`** vs `260.3 m` `dense_24k` and `511.3 m` `ordinary`; **0 losses**; `+12` paired gains vs `dense_24k`, `McNemar p = 0.000244`; `+18` paired gains vs `ordinary`, `McNemar p = 4.0e-6`; `test` `7/7 = 100 %`, `test3` `10/10 = 100 %`). See `docs/metro_dense_v2_all38_2026-11.md`.
+- **Blind held-out worldwide `test6` evaluation (`test6_worldwide_2026_11`, commit `29273ac`, tree `75f8e90c`):**
+  - Screened 24 global cities across 6 continents and froze all `8` QC-passed clips across `7` countries and `4` continents (`Kuala Lumpur`, `Bangkok`, `Bengaluru`, `Santiago` ×2, `Mexico City / CDMX`, `Toronto`, `Athens`) before any localization (`benchmarks/test6_screen/selection_outcome.json`).
+  - Both pre-registered hypotheses hold (`W1` zero losses across 200 m; `W2` **3/8 = 37.5 %** `<= 200 m` in `metro_dense` vs **0/8 = 0.0 %** in `ordinary`, with `4/8 = 50.0 % <= 500 m` and median halved `10,532.8 -> 5,184.1 m`): `Kuala Lumpur` `3,959 -> 15.5 m`, `Athens` `18,272 -> 16.2 m`, `Santiago` `1,954 -> 150.1 m`, and `Mexico City` `GT->pred 127.1 -> 35.5 m`.
+  - Pooled across all `46` benchmark clips (`test1`–`test6`): **34/46 (`73.9 %`, Wilson 95 % `59.7–84.4 %`) `<= 200 m`** (`38/46 = 82.6 % <= 500 m`) vs **12/45 (`26.7 %`)** in the ordinary baseline (`+22` net gains, `0` losses, `McNemar p = 2.38e-7`). See `docs/heldout_test6_2026-11.md`.
+- **Packaging, diagnostics & upstream OSS fixes:**
+  - Updated `pyproject.toml` and `requirements.txt` to `yt-dlp[default]>=2026.10.26` (installing `yt-dlp-ejs` automatically so YouTube EJS-protected streams do not fail with false unavailability), added `yt_dlp_ejs` checking to `monocular_osm/doctor.py`, gated `metro_vpr.py` open-provider Pass-1 replacement on `>= +0.005` similarity gain when Mapillary is already dense, migrated `scripts/probe_city_coverage.py` to `shapely.transform`, and closed Windows file-handle `ResourceWarning`s.
+
+### Unified metro-dense VPR, worldwide Unicode/exonym support & Stage 0 city inference (November 2026)
+
+- **Opt-in unified metro-dense VPR (`--vpr-metro-dense`, commit `d9daa83`):**
+  - Searches a full 20 km metropolitan Pass-1 disc (`--vpr-metro-radius`,
+    `--vpr-metro-cap 24000`) with C-vectorized 25 m micro-cell deduplication
+    (`--vpr-spatial-dedup-m`) so single-traverse suburban streets receive the
+    same per-road-km density as multi-traverse downtown corridors, shared across
+    clips in `_metro_shared`.
+  - Pools uploader-named suburbs (up to 60 km out) and frame seeds
+    **additively** into Pass 1 instead of clamping the search to 3 km, decodes
+    arbitrary pool sizes (`24k–60k+`) via tiled exact GPU/CPU Viterbi
+    (`kartaview_vpr._viterbi_decode_torch`), refines with up to 4 overlapping
+    2.5 km Corridor Pass-2 discs (8 m deduplication) unioned with local Pass-1
+    references, and automatically augments thin Mapillary regions with open
+    Panoramax and KartaView imagery (`--vpr-auto-fallback-sources`).
+- **Worldwide script & exonym fairness fixes (`d9daa83`):**
+  - Preserves Cyrillic, CJK, Hangul, Arabic, Greek, Hebrew, Devanagari, Thai,
+    and Extended-Latin ligatures (`Łódź`, `København`) across
+    `osm_gazetteer.py`, `text_anchor.py`, `location_prior.py`, and
+    `city_inference.py`, and indexes multilingual OSM name tags (`name:en`,
+    `int_name`, `alt_name`).
+  - Fixes Nominatim small-polygon extent sizing (`Glasgow` `<4 km` inner-ward
+    rank-1 polygon) and expands `benchmark.py:city_fairness_problem` with 50+
+    bidirectional exonym/endonym/script groups (`Bucharest` / `Bucuresti`,
+    `Belgrade` / `Београд`, `Tokyo` / `東京`, `Seoul` / `서울`, `Cologne` / `Köln`).
+- **Stage 0 planet-scale city inference (`--infer-city-from-video`):** optional
+  city-free front-end (`monocular_osm/global_geoloc.py`) combining multilingual
+  title parsing, StreetCLIP/CLIP zero-shot scoring over 115+ world metros across
+  all 6 inhabited continents, and optional Gemma 4 VLM voting.
+- **In-sample check (`metro_dense_dev_2026_11`, 14 clips across `test5` + `test4`):**
+  both decision hypotheses hold (`0` losses, `+5` paired gains + `+1` unlocked
+  exonym gain vs `dense_24k`, paired exact McNemar `p = 0.031`):
+  - Within 200 m (13 paired): **1/13** ordinary → **4/13** `dense_24k` → **9/13**
+    `metro_dense` (**10/14 = 71.4 %** across all 14 clips, all 10 `<= 56.5 m`;
+    median `1,346 m` → `678 m` → **`49.8 m`**; Glasgow `11,085 -> 422.9 m`).
+  - Gains across 200 m: Portland `3cT07o9aXyQ` (`9,750 -> 25.6 m`), Portland
+    `zsqxTSNLw5A` (`10,501 -> 18.3 m`), Belgrade (`678 -> 32.4 m`), Kansas City
+    (`393 -> 56.5 m`), Bucharest `tK7bHJXAJX8` (`351 -> 49.8 m`), plus unlocked
+    Bucharest `yd5g7jsWiEM` (`10.5 m`); Calgary tightened `171 -> 14.7 m`.
+  - Stays opt-in pending held-out certification on the 6-continent protocol
+    scaffolded in `benchmarks/test6_screen/`. See `docs/metro_dense_dev_2026-11.md`.
+
+### Held-out test5: dense pass 1 on new footage (November 2026)
+
+- Eight new clips were selected under a 40-city rule registered before any
+  search: Melbourne, Rotterdam, Glasgow, Houston, Calgary, Belgrade and two
+  from Portland. The target was 10. The ordinary and dense (24,000-reference)
+  pass 1 were then compared (rule `test5_2026_11`).
+- Both registered hypotheses hold, on a single clip:
+  - No loss across 200 m.
+  - Within 200 m: dense 2/8 vs ordinary 1/8. The gain is Calgary, 6,881 to
+    171 m.
+  - 1 better, 1 worse, 6 tied (sign test p = 0.75). Wilson 95 % intervals:
+    dense 7-59 %, ordinary 2-47 %.
+- The goal "all within 200 m" is not met on new footage (2/8).
+- Wrong-area misses (Houston, Portland, Glasgow) remain. The default is
+  unchanged.
+- The screen needed five recorded operational amendments for YouTube stream
+  access. They are in `benchmarks/test5_screen/`.
+- See `docs/heldout_test5_2026-11.md`.
+
+### Dense city-wide pass 1: development check (November 2026)
+
+- New opt-in `--vpr-pass1-cap N` (`4a671a9`, `b66b9ee`) sets the number of
+  references in the tokened city-wide pass 1 (default 1,200).
+  - Above 6,000 references, descriptors are streamed and no pixel store is
+    kept.
+  - The exact Viterbi decode then runs in torch on a CUDA GPU. Before, it
+    fell back to argmax.
+  - Default paths are unchanged.
+- Checked in-sample on the 29 runnable test-split clips at 24,000
+  references, paired with the default (rule `dense_pass1_dev_2026_11`).
+  Both decision hypotheses hold:
+  - No clip lost across 200 m.
+  - Five gained across 200 m: Sofia 945 to 27 m, Trondheim 207 to 22 m,
+    Warsaw 335 to 15 m, Katowice 2,687 to 89 m, Zagreb 272 to 12 m.
+  - Within 200 m: 11/29 to 16/29. 16 better, 3 worse, 10 tied (sign test
+    p = 0.002). Median 325 to 144 m.
+- It is now a candidate for a fresh held-out test (new data needed). It
+  stays opt-in.
+- See `docs/dense_pass1_dev_2026-11.md`; paired scoring with
+  `scripts/compare_paired_arms.py`.
+
+### Coarse-to-fine frontier extension: development check (November 2026)
+
+- Opt-in `--vpr-c2f-extend` (`8581acd`) follows a drive past the 2 km pass-2
+  disc. It was checked in-sample on the 19 used clips where its gate fires
+  (rule `c2f_extension_dev_2026_11`), paired against each run's own ordinary
+  track.
+- Both decision hypotheses fail: one clip crosses 200 m the wrong way
+  (Budapest 157 to 222 m) and only one crosses the right way (Düsseldorf
+  260 to 154 m). The count within 200 m stays 10/19.
+- 8 clips better, 3 worse, 8 tied (sign test p = 0.11). It helps when the
+  pass-1 area is right (Bern 168 to 20 m), but not on the far misses.
+- It stays opt-in and off by default, and is not a held-out candidate.
+- See `docs/c2f_extension_dev_2026-11.md`.
+- Two pass-1 reference diagnostics (`docs/reference_inputs_2026-11.md`) found
+  neither lead strong enough to pre-register:
+  - Coverage: misses have only 6-31 % of their route within 50 m of a served
+    reference, against 61-62 % for clips that localize. Spreading the 1,200
+    references evenly helps some routes and hurts others.
+  - Panoramas: they are 87 % of references only in Detroit, and 1-17 %
+    elsewhere.
+  - Scripts: `scripts/ref_route_coverage.py` and
+    `scripts/pass1_camera_types.py`.
+
+### Held-out test4: assisted v4 (November 2026)
+
+- Frozen assisted v4 (`409a959`, 14,400 s CPU, rule `test4_2026_11`) on the
+  six test4 clips (five new cities): **1/6** within 200 m (Trondheim
+  187.5 m; median 728 m), against 14/15 in-sample (Wilson 3-56 % vs
+  70-99 %).
+  - It kept the baseline track on all six, so V2 (no harm) holds trivially.
+  - It beats the city centre on 4/6 (V3 holds; sign test p = 0.34).
+  - The goal "all within 200 m" is not met on test4.
+- None of the expanded candidates the policy declined would have crossed
+  200 m (post hoc).
+- The pooled held-out retrieval-track share is now 13/30 (Wilson 27-61 %).
+- `scripts/score_heldout_assisted.py` scores such a run against its rule. It
+  checks digests and adds the coverage taxonomy.
+- See `docs/heldout_test4_2026-11.md`.
+
+### Metro-ring search and the third held-out set (November 2026)
+
+- `--vpr-metro-ring` (opt-in, off by default): when the retrieval track's
+  confidence is below 0.162 it searches a 20 km disc around the city geocode,
+  minus the disc already searched, in 4 km cells, and records the ordinary
+  track (`metro_ring_retrieval.baseline_track`).
+  `scripts/metro_ring_paired.py` scores both answers from one run.
+- Held-out `test3` (ten clips, nine new cities; `benchmarks/test3_screen/`,
+  rule `test3_2026_11`): the ring and the ordinary track are both within
+  200 m on 5/10 (city centre 0/10).
+  - The ring improves one clip and worsens two (T1 and T3 fail, T2 holds).
+  - It costs about 3 CPU hours per clip where it runs.
+  - It is not adopted. See `docs/heldout_test3_2026-11.md`.
+- Development check (`metro_ring_dev_2026_11`, in-sample, all 29 used
+  clips): ring 20/29 within 200 m against 16/29, no losses, four gains
+  (M1 and M2 hold). It no longer gates anything; the ring stays opt-in.
+- CI: install open3d's system libraries on Linux; skip torch-only tests when
+  torch is absent; make the escape-path test OS-independent.
+
+### Assisted policy: complete result, budget and CPU threads (November 2026)
+
+- The complete fifteen-clip assisted v3 run (`a8add7a`) is scored with its
+  reviewed comparison adapter (`5bdae79`): 12/15 dev clips within 200 m,
+  median 62 m; all three failures had an `expanded` stage cut off by the
+  7,200 s CPU budget. At 14,400 s Atlanta `kxEDNj5L_yQ` goes from 6,024 to
+  33 m (13/15, in-sample). See `docs/assisted_fleet_2026-11.md`.
+- The complete fifteen-clip assisted v4 run (`409a959`, 16 threads, 14,400 s)
+  is within 200 m on 14/15 dev clips (median 43 m; in-sample): the shop-sign
+  site check fixes Atlanta `y66ZkRpUh4k` (6,590 to 43 m), and Detroit
+  `g5lnpYCk1Ec` still fails (1,387 m). The strict artifact audit passes every
+  clip's evidence. See `docs/assisted_fleet_2026-11.md`.
+- `--assisted-cpu-threads N` (default 4, as every assisted result so far):
+  the torch/BLAS threads of each assisted visual child. MegaLoc descriptors
+  are unchanged by it (max abs difference 8.7e-7, identical top-5 neighbours
+  on 48 real references) and it is faster: 0.75 s/image at 4 threads, 0.42
+  at 16 on a 20-core CPU. The audit now checks the recorded value (4 for runs
+  that predate the option) instead of a fixed 4.
+- A second held-out split, `test2` (seven clips, six new cities, chosen by a
+  fixed YouTube screen recorded in `benchmarks/test2_screen/`), and the
+  pre-registered comparison `test2_2026_11`. Assisted v3 (`a8add7a`, 14,400 s)
+  is within 200 m on 2/7 test2 clips (dev 13/15). The frozen track
+  (`ccd0bbe`) is also 2/7: the policy returned the track's answer on six
+  clips and improved Paris from 24,364 to 832 m (H1-H3 hold; no gain within
+  200 m). See `docs/heldout_test2_2026-11.md`.
+- `scripts/failure_taxonomy.py` and `docs/failure_taxonomy_2026-11.md`: how
+  much of each ground-truth route lay inside the discs the track searched,
+  over the 29 scored dev/test1/test2 clips. Every clip with at least 75 % of
+  its route inside the 2 km fine disc is within 200 m (14/14); six of the
+  seven held-out misses are coverage misses (route outside the 8 km pass-1
+  disc, or longer than the fine disc), while four of six dev misses are
+  appearance misses inside the disc. Diagnostic only; no method changed.
+- Audit fix: descriptor receipts in the metadata-union research bundle are
+  compared with the declared `kartaview_vpr.py` hash under POSIX and Windows
+  path keys alike. Before, Windows runs with receipts failed the check, and runs
+  without receipts passed it without comparing anything.
+
+### Experimental all-branch POI component
+
+- Added opt-in `--answer poi` / `--poi-only`, using full-window native video
+  VO, 24 stamp-filtered OCR samples, a named-city retail inventory and every
+  literal-clue branch. Equal default neighborhoods are 1 km / 500 references,
+  with 80 shared query descriptors and fixed raw appearance/distance/bearing.
+- The selected POI route requires complete regional retrieval. Missing clues,
+  failed regions and exceeded budgets remain unanswered; ordinary VPR/matcher
+  outputs are not substituted. Default pipeline behavior is unchanged.
+- Dedicated whole-city map inputs and existing regional cache families retain
+  source/override provenance. Video/VO/OCR/inventory/map identities, all plans,
+  reference IDs and score matrices freeze before separate scoring. Native
+  bbox/time guards reject incompatible external or resized inputs.
+- POI OCR injects cached PP-OCRv6 small assets explicitly, disables downloads
+  and accelerators, and verifies actual CPU providers, ORT thread bounds 2/1
+  and recognition/classification batches of four. Warm caches retain verified
+  runtime identities; regional retrieval scopes Torch operator threads to four.
+  The fixed road grid matches 12.5 m per-segment endpoint-inclusive sampling.
+- Normal CLI source `b48a217` completed KITTI 0009 with fresh native OCR/VO,
+  an automatic whole-city map and verified copies of the five live-pilot pools.
+  An independent input audit preceded offline scoring: 13.32 m symmetric route
+  error, 41.07 m start error against the registered 12 waypoints, in 140.33 s.
+  Conservative process-tree native peaks sum to 2.551 GB resident /3.743 GB
+  private commit. Reference embeddings were cached; this is one development
+  clip, with no 15-clip or held-out accuracy claim.
+
+### Independent video-only road-graph filter
+
+- Added opt-in `--answer filter` / `--graph-filter-only`: selects the filter
+  route in the console, maps, checkpoint and benchmark while skipping
+  retrieval and shape matching. Existing default behavior is retained.
+- The profile uses an independent whole-city map, generic 70° intrinsics,
+  actual video PTS, road-plane height 1.5 m, 600,000 particles, seed 0,
+  two VO workers, approximately 10 Hz sampling and 256 MiB genealogy by
+  default. Explicit stride, particle count and other filter knobs are recorded.
+- `--graph-filter-map-path` accepts a trusted whole-city database. Provenance
+  records its configured/actual path, city/query, scope, cache source and SHA;
+  input and override audits remain strict. Hashes bind the file, not its
+  acquisition history. Predictions and source bytes freeze before scoring.
+- Strict MP4-derived KITTI 0033 filtering localized all five PF seeds on
+  one fixed VO estimate: symmetric smoothed-route error 5.02 ± 0.24 m,
+  with whole-run online error still 4.36 ± 0.63 km. The normal CLI computed
+  fresh VO and reproduced seed 0 bit-for-bit, with 4.83 m selected-route
+  error and peak private commit 1,432 MB. Historical calibrated-camera /
+  OXTS-time research is labeled separately; fleet accuracy remains unproven.
+
+### Retrieval output and benchmark reliability
+
+- Saved benchmark repeat scores retain full floating-point precision for
+  threshold and median decisions. The goal audit rejects a saved error that
+  contradicts its threshold flag, including a rounded 200.004 m false pass.
+  Display tables keep their existing rounding.
+- Assisted baseline and expanded children persist each returned retrieval
+  call before starting the next one. Atomic array/metadata publication and
+  verified array reuse preserve completed calls if a later call times out.
+  Incomplete pairs remain diagnostics; child completion and selection rules
+  retain their existing requirements.
+- The selected `result.answer` now drives the console position, map links and
+  `answer.png`; the fitted `position` stays available as a diagnostic.
+- Retrieval tracks are checkpointed atomically before geometry. The new
+  `--retrieval-only` path skips VO/Overpass when a track exists, and full runs
+  retain it if a later geometry stage fails.
+- Decoded frames use a bounded resident cache and lossless temporary storage;
+  optional resizing preserves aspect ratio. VO cache validation now includes
+  source identity, exact extraction settings, sampled pixels and timestamps.
+- Warm Mapillary metadata retains listing losses and a reference snapshot
+  fingerprint; legacy listing completeness is explicitly unknown.
+- Benchmark comparisons count failed predictions as losses, preserve planned
+  but interrupted/missing repeats, and check configuration/environment/model
+  consistency. Explicit ablation comparisons use `--allow-config-changes`.
+- Added `osm-localize-doctor`, recommended/VPR dependency profiles, a tested
+  Windows/Python 3.12 CPU environment lock and fresh-install CI. Python 3.12 is
+  now the declared minimum, matching the NumPy requirement.
+- Added experimental dense multi-region retrieval and query preprocessing
+  variants (`crops`, `aspect`), both opt-in pending measurement. The strict
+  `scripts/check_dev_goal.py` audit requires all 15 registered available dev
+  clips to meet the 200 m symmetric route-error target; it does not declare
+  success from missing, failed, leaked or stale results.
+- Added an opt-in municipal retrieval hierarchy (`--vpr-city-cover`): all
+  cells get a coarse search, supported cells get a denser search, and the
+  baseline remains a candidate. Plans record their boundary fingerprint and
+  refuse coverage beyond the 64-cell limit. Accuracy is not yet benchmarked.
+- Regional searches share query descriptors within the stage. Road-plane
+  grayscale conversion and static-overlay estimation now use bounded storage.
+
 ### Reproducible, leak-free evaluation
 
 Every published number should be traceable to a commit, a configuration and a
@@ -156,6 +431,22 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
 
 ### Added
 
+- **`--answer {track,fit,checked}` and `result["answer"]`**: the route the
+  method answers with. `result["position"]` stays the trajectory fit;
+  `result["vpr_prior"]["track"]` now keeps the retrieval track
+  (`[t, lat, lon, sim]` per query frame). New benchmark rows: `vpr_track_only`
+  (the track as a route, running median of 5), `track_checked` (the fit
+  unless it lies over 250 m from the track) and `answer`.
+- **`--vpr-seed-ring`** (off): pass 1 also searches a sparse ring out to a
+  coarse seed's own radius. Not adopted by its pre-registered rule (v7: one
+  dev clip better, one worse, none crosses to within 200 m).
+- `scripts/pass1_coverage.py`: how much of each route a run's archived
+  retrieval references cover, per pass.
+- `monocular_osm/mvt.py`: point features of a Mapbox Vector Tile, on
+  `protobuf` (see Fixed: Mapillary listing).
+- Pre-registered rules `seed_ring`, `answer_selection` and
+  `test_split_2026_10`, each with its recorded outcome.
+
 - `monocular_osm/fusion.py`: the consensus rule and its weights as one explicit
   module; `--fusion-weights JSON` for ablations; each run writes
   `fusion_features.json` (every candidate's per-channel ranks, penalties and
@@ -192,6 +483,13 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
   `--camera-height-m`. Details: `docs/graph_filter_kitti.md`.
 
 ### Changed
+
+- **The answer is the retrieval track by default (`--answer track`).**
+  Chosen by the pre-registered `answer_selection` rule on run v6 (15 dev
+  clips): within 200 m on 9 clips against 6 for the trajectory fit and 8 for
+  the fit checked against the track; median 135 m against 395 m. The fit
+  turns a good track into a bad route on some clips (Berlin: 135 m track,
+  695 m fit) and refines it on others (London: 22 m fit, 62 m track).
 
 - **`result["matcher_position"]` is now the raw matcher pick.** On any run where
   the scale-locked OCR anchor pin succeeded it used to carry the pinned route
@@ -239,6 +537,24 @@ Reproduce with `scripts/benchmark.py run --run-name v2 --fleet core --repeats 3
 
 ### Fixed
 
+- **The Mapillary reference pool was incomplete everywhere, and empty over
+  dense centres.** The pool was listed with the Graph API's bbox search, which
+  answers HTTP 500 "Please reduce the amount of data" when a box takes too
+  long to scan and silently truncates answers it does give (the same Berlin
+  100 m box returned 339, 34 or 22 images by page size; failures down to
+  16 m boxes). The fetcher dropped failed boxes without a word: Detroit's 8 km
+  disc listed 195,428 images and none within 250 m of the drive, with the
+  whole centre empty; even Karlsruhe, with no error at all, listed 498,876 of
+  its 836,869. The pool is now read from Mapillary's zoom-14 coverage tiles
+  (`mly1_public`, layer `image`; decoded by the new `monocular_osm/mvt.py` on
+  `protobuf`, since GDAL's MVT driver refuses tiles over 10 MiB), which list
+  every image per ~1.5 km tile: Detroit's disc gives 7,126,059 images in 38 s
+  (the Graph search took 22 min for 2.1 M even with box splitting), with an
+  image within 50 m of the whole route. Thumbnail URLs are looked up by id
+  only for the images kept. The Graph search remains as a fallback (rejected
+  boxes now split, other failures retried); lost tiles and URL lookups are
+  printed and recorded per pass in `result["vpr_listing"]`. Warm caches keep
+  their earlier (incomplete) sample until re-listed.
 - **Image retrieval silently never loaded on a fresh machine.** `torch.hub`
   asks on stdin whether to trust the MegaLoc/EigenPlaces repos; an unattended
   run read EOF as "no", so the retrieval channel — the main accuracy lever —

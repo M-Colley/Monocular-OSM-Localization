@@ -1,0 +1,29 @@
+{
+  "status": "FIXED_ORDER_SCREEN_PASSED_REPLACEMENT_PENDING_PREFIX_AND_GT_QC",
+  "recorded_utc": "2026-11-10T22:14:39.621979+00:00",
+  "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+  "candidate": {
+    "city": "Trondheim, Norway",
+    "id": "pFbUvfr8k-Q",
+    "title": "Trondheim By Night from a Garmin Dashcam.",
+    "duration_s": 426,
+    "query": "Trondheim dashcam GPS",
+    "rank": 4,
+    "eligible": true,
+    "ok": true,
+    "thumbnail_stamp": true,
+    "n_sections_read": 3,
+    "n_near": 3,
+    "region": "bottom",
+    "status": "PASS",
+    "screen_evidence_sha256": "2f73d324ac8d9eb21d114a7f25e14daec0f166ac9fa8aaef32ab8bc84a4167f9"
+  },
+  "known_prior_localization_check": {
+    "manifest_hit": false,
+    "already_scored_summaries_checked": 27,
+    "summary_modified_before_registration_only": true,
+    "hits": []
+  },
+  "method_binding_pending": true,
+  "new_coordinates_not_in_this_record": true
+}

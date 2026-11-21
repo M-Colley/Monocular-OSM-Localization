@@ -13,13 +13,16 @@ whether they were set is stored.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import dataclasses
 import datetime as _dt
+import hashlib
 import importlib.metadata as _md
 import os
 import platform
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -30,12 +33,53 @@ TRACKED_DISTRIBUTIONS = (
     "scikit-image", "shapely", "pyproj", "networkx", "osmnx", "geopandas",
     "torch", "torchvision", "transformers", "timm", "onnxruntime", "rapidocr",
     "easyocr", "yt-dlp", "pysolar", "rapidfuzz",
+    "fast-alpr", "fast-plate-ocr", "open-image-models", "filterpy",
+    "huggingface-hub", "safetensors", "pillow", "protobuf", "mercantile",
+    "timezonefinder",
 )
 
 # Environment variables holding credentials: recorded as set/unset only.
 SECRET_ENV_VARS = ("MLY_TOKEN",)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def file_sha256(path: Path | str) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def snapshot_sources(paths, output_dir: Path, *, root: Path = _REPO_ROOT) -> dict[str, str]:
+    """Preserve the exact bytes whose hashes identify a prediction's source."""
+    hashes = {}
+    for path in paths:
+        path = Path(path).resolve()
+        relative = str(path.relative_to(root.resolve()))
+        data = path.read_bytes()
+        destination = Path(output_dir) / "source_snapshot" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        hashes[relative] = hashlib.sha256(data).hexdigest()
+    return hashes
+
+
+def snapshot_prediction_sources(output_dir: Path, modules: Iterable[str] | None = None) -> dict[str, str]:
+    """Freeze installed package sources and the CLI shim when run from a checkout."""
+    package = _REPO_ROOT / "monocular_osm"
+    sources = sorted(package.rglob("*.py")) if modules is None else [package / name for name in modules]
+    shim = _REPO_ROOT / "main.py"
+    if shim.is_file():
+        try:
+            with (_REPO_ROOT / "pyproject.toml").open("rb") as handle:
+                project = tomllib.load(handle).get("project")
+        except (OSError, ValueError):
+            project = None
+        if isinstance(project, dict) and project.get("name") == "monocular-osm-localization":
+            sources.insert(0, shim)
+    return snapshot_sources(sources, output_dir, root=_REPO_ROOT)
 
 
 def _git(*args: str) -> str | None:

@@ -1,0 +1,258 @@
+{
+  "rule": "test6_worldwide_2026_11",
+  "commit": "29273ac8ec",
+  "monocular_osm_tree": "75f8e90cdc63fdc328069264a72fcd02e5a2ace5",
+  "n": 8,
+  "within_200m": {
+    "ordinary": 0,
+    "ordinary_wilson_95_pct": [
+      0.0,
+      32.4
+    ],
+    "metro_dense": 3,
+    "metro_dense_wilson_95_pct": [
+      13.7,
+      69.4
+    ]
+  },
+  "within_500m": {
+    "ordinary": 1,
+    "metro_dense": 4
+  },
+  "crossings_200m": {
+    "gains": [
+      "overlay_URC3D7Xzpq0",
+      "overlay_bQI9M_lpBEM",
+      "overlay_h1wnOrVzgKg"
+    ],
+    "losses": [],
+    "mcnemar_one_sided_p": 0.125
+  },
+  "vs_ordinary_10pct_band": {
+    "better": 3,
+    "worse": 1,
+    "tie": 4,
+    "sign_test_one_sided_p": 0.3125
+  },
+  "medians_symmetric_m": {
+    "ordinary": 10532.8,
+    "metro_dense": 5184.1
+  },
+  "per_continent": {
+    "asia": {
+      "n": 3,
+      "within_200_ordinary": 0,
+      "within_200_metro_dense": 1,
+      "within_500_metro_dense": 1
+    },
+    "north_america": {
+      "n": 2,
+      "within_200_ordinary": 0,
+      "within_200_metro_dense": 0,
+      "within_500_metro_dense": 1
+    },
+    "europe": {
+      "n": 1,
+      "within_200_ordinary": 0,
+      "within_200_metro_dense": 1,
+      "within_500_metro_dense": 1
+    },
+    "latin_america": {
+      "n": 2,
+      "within_200_ordinary": 0,
+      "within_200_metro_dense": 1,
+      "within_500_metro_dense": 1
+    }
+  },
+  "hypotheses": {
+    "W1_no_harm": true,
+    "W2_worldwide_benefit": true,
+    "goal_all_within_200m": false
+  },
+  "clips": [
+    {
+      "clip": "overlay_MR4dqJcW4Ao",
+      "name": "Bengaluru (MR4dqJcW4Ao)",
+      "continent_region": "asia",
+      "city_centroid_m": 18337.9,
+      "ordinary_symmetric_m": 12469.1,
+      "metro_dense_symmetric_m": 11896.1,
+      "ordinary_gt_to_pred_m": 12411.9,
+      "metro_dense_gt_to_pred_m": 11683.6,
+      "ordinary_start_m": 11355.1,
+      "metro_dense_start_m": 10623.5,
+      "within_200_ordinary": false,
+      "within_200_metro_dense": false,
+      "vs_ordinary_10pct": "tie",
+      "pass1_refs": 25757,
+      "pass2_refs": 4376,
+      "corridor_discs": 1,
+      "kept": "pass-2-corridor",
+      "wall_s": {
+        "ordinary": 327.4,
+        "metro_dense": 1158.4
+      }
+    },
+    {
+      "clip": "overlay_URC3D7Xzpq0",
+      "name": "Kuala Lumpur (URC3D7Xzpq0)",
+      "continent_region": "asia",
+      "city_centroid_m": 7027.1,
+      "ordinary_symmetric_m": 3959.1,
+      "metro_dense_symmetric_m": 15.5,
+      "ordinary_gt_to_pred_m": 5224.5,
+      "metro_dense_gt_to_pred_m": 20.3,
+      "ordinary_start_m": 8078.0,
+      "metro_dense_start_m": 283.4,
+      "within_200_ordinary": false,
+      "within_200_metro_dense": true,
+      "vs_ordinary_10pct": "better",
+      "pass1_refs": 24889,
+      "pass2_refs": 6659,
+      "corridor_discs": 2,
+      "kept": "pass-2-corridor",
+      "wall_s": {
+        "ordinary": 359.2,
+        "metro_dense": 1149.5
+      }
+    },
+    {
+      "clip": "overlay_XZrRUsdupM8",
+      "name": "Toronto (XZrRUsdupM8)",
+      "continent_region": "north_america",
+      "city_centroid_m": 28431.8,
+      "ordinary_symmetric_m": 26754.8,
+      "metro_dense_symmetric_m": 28017.8,
+      "ordinary_gt_to_pred_m": 26650.6,
+      "metro_dense_gt_to_pred_m": 27914.7,
+      "ordinary_start_m": 27257.7,
+      "metro_dense_start_m": 28270.6,
+      "within_200_ordinary": false,
+      "within_200_metro_dense": false,
+      "vs_ordinary_10pct": "tie",
+      "pass1_refs": 24000,
+      "pass2_refs": 3084,
+      "corridor_discs": 1,
+      "kept": "pass-2-corridor",
+      "wall_s": {
+        "ordinary": 308.0,
+        "metro_dense": 814.5
+      }
+    },
+    {
+      "clip": "overlay_bQI9M_lpBEM",
+      "name": "Athens (bQI9M_lpBEM)",
+      "continent_region": "europe",
+      "city_centroid_m": 18816.2,
+      "ordinary_symmetric_m": 18272.3,
+      "metro_dense_symmetric_m": 16.2,
+      "ordinary_gt_to_pred_m": 18436.9,
+      "metro_dense_gt_to_pred_m": 20.0,
+      "ordinary_start_m": 19064.2,
+      "metro_dense_start_m": 81.6,
+      "within_200_ordinary": false,
+      "within_200_metro_dense": true,
+      "vs_ordinary_10pct": "better",
+      "pass1_refs": 25592,
+      "pass2_refs": 3192,
+      "corridor_discs": 1,
+      "kept": "pass-2-corridor",
+      "wall_s": {
+        "ordinary": 222.4,
+        "metro_dense": 821.6
+      }
+    },
+    {
+      "clip": "overlay_h1wnOrVzgKg",
+      "name": "Santiago (h1wnOrVzgKg)",
+      "continent_region": "latin_america",
+      "city_centroid_m": 4647.5,
+      "ordinary_symmetric_m": 1954.4,
+      "metro_dense_symmetric_m": 150.1,
+      "ordinary_gt_to_pred_m": 2001.2,
+      "metro_dense_gt_to_pred_m": 293.8,
+      "ordinary_start_m": 1925.8,
+      "metro_dense_start_m": 178.6,
+      "within_200_ordinary": false,
+      "within_200_metro_dense": true,
+      "vs_ordinary_10pct": "better",
+      "pass1_refs": 25474,
+      "pass2_refs": 3561,
+      "corridor_discs": 1,
+      "kept": "pass-2-corridor",
+      "wall_s": {
+        "ordinary": 442.2,
+        "metro_dense": 1457.9
+      }
+    },
+    {
+      "clip": "overlay_hjkt-LEF4UU",
+      "name": "Santiago (hjkt-LEF4UU)",
+      "continent_region": "latin_america",
+      "city_centroid_m": 8580.7,
+      "ordinary_symmetric_m": 10814.4,
+      "metro_dense_symmetric_m": 11304.7,
+      "ordinary_gt_to_pred_m": 10752.9,
+      "metro_dense_gt_to_pred_m": 11327.7,
+      "ordinary_start_m": 11045.9,
+      "metro_dense_start_m": 11245.9,
+      "within_200_ordinary": false,
+      "within_200_metro_dense": false,
+      "vs_ordinary_10pct": "tie",
+      "pass1_refs": 25474,
+      "pass2_refs": 2747,
+      "corridor_discs": 1,
+      "kept": "pass-2-corridor",
+      "wall_s": {
+        "ordinary": 216.4,
+        "metro_dense": 266.5
+      }
+    },
+    {
+      "clip": "overlay_lc2YfKXCUv8",
+      "name": "Bangkok (lc2YfKXCUv8)",
+      "continent_region": "asia",
+      "city_centroid_m": 9180.7,
+      "ordinary_symmetric_m": 10251.1,
+      "metro_dense_symmetric_m": 9986.3,
+      "ordinary_gt_to_pred_m": 10385.3,
+      "metro_dense_gt_to_pred_m": 10046.6,
+      "ordinary_start_m": 10747.7,
+      "metro_dense_start_m": 10318.0,
+      "within_200_ordinary": false,
+      "within_200_metro_dense": false,
+      "vs_ordinary_10pct": "tie",
+      "pass1_refs": 24925,
+      "pass2_refs": 2666,
+      "corridor_discs": 1,
+      "kept": "pass-2-corridor",
+      "wall_s": {
+        "ordinary": 195.0,
+        "metro_dense": 1080.2
+      }
+    },
+    {
+      "clip": "overlay_nlQdg-FiNns",
+      "name": "Mexico City (nlQdg-FiNns)",
+      "continent_region": "north_america",
+      "city_centroid_m": 1529.3,
+      "ordinary_symmetric_m": 247.6,
+      "metro_dense_symmetric_m": 382.0,
+      "ordinary_gt_to_pred_m": 127.1,
+      "metro_dense_gt_to_pred_m": 35.5,
+      "ordinary_start_m": 65.9,
+      "metro_dense_start_m": 47.7,
+      "within_200_ordinary": false,
+      "within_200_metro_dense": false,
+      "vs_ordinary_10pct": "worse",
+      "pass1_refs": 26578,
+      "pass2_refs": 7648,
+      "corridor_discs": 3,
+      "kept": "pass-2-corridor",
+      "wall_s": {
+        "ordinary": 412.7,
+        "metro_dense": 1392.2
+      }
+    }
+  ]
+}

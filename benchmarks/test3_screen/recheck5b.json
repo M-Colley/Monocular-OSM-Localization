@@ -1,0 +1,541 @@
+[
+ {
+  "city": "Geneva, Switzerland",
+  "id": "r5J6dEmFytU",
+  "title": "Dashcam Recording - Drive from Täsch to Geneva",
+  "duration_s": 5418,
+  "query": "Geneva dashcam drive",
+  "rank": 9,
+  "section_fixes": [
+   {
+    "t": 1354,
+    "region": "bottom",
+    "lat": 46.304085,
+    "lon": 7.79726
+   },
+   {
+    "t": 2709,
+    "region": "bottom",
+    "lat": 46.166032,
+    "lon": 7.029538
+   },
+   {
+    "t": 4063,
+    "region": "bottom",
+    "lat": 46.525594,
+    "lon": 6.525689
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Toulouse, France",
+  "id": "Rc3c2wCTMN4",
+  "title": "Dashcam: Lille to Toulouse in One Day - 9 Hours of French Motorway, Real Time, No Cuts",
+  "duration_s": 32121,
+  "query": "Toulouse dashcam GPS",
+  "rank": 1,
+  "section_fixes": [
+   {
+    "t": 8030,
+    "region": "bottom",
+    "lat": 48.865952,
+    "lon": 2.416107
+   },
+   {
+    "t": 16060,
+    "region": "bottom",
+    "lat": 47.089809,
+    "lon": 1.846853
+   },
+   {
+    "t": 24090,
+    "region": "bottom",
+    "lat": 45.045784,
+    "lon": 1.517765
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Nottingham, UK",
+  "id": "gdTXryZBuGk",
+  "title": "Bad Drivers & Observations of Nottingham & Beyond UK Vol 350",
+  "duration_s": 753,
+  "query": "Nottingham dashcam drive",
+  "rank": 9,
+  "section_fixes": [],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Aarhus, Denmark",
+  "id": "Gw-mFsRIHEA",
+  "title": "Sunset to Night Drive | Garmin Dash Cam X310 | Grenaa to Billund via Aarhus & E45 🚗🌙",
+  "duration_s": 1453,
+  "query": "Aarhus dashcam drive",
+  "rank": 0,
+  "section_fixes": [
+   {
+    "t": 363,
+    "region": "bottom",
+    "lat": 56.31786,
+    "lon": 10.4718293
+   },
+   {
+    "t": 726,
+    "region": "bottom",
+    "lat": 56.08496,
+    "lon": 10.0135085
+   },
+   {
+    "t": 1089,
+    "region": "bottom",
+    "lat": 55.84306,
+    "lon": 9.5706593
+   }
+  ],
+  "n_near": 2,
+  "ok": true,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Tallinn, Estonia",
+  "id": "TumUQ_PrVQk",
+  "title": "Road Trip 2023 Day 1: Tallinn, Estonia - Lomza, Poland (4K)",
+  "duration_s": 1728,
+  "query": "Tallinn dashcam VIOFO",
+  "rank": 2,
+  "section_fixes": [
+   {
+    "t": 432,
+    "region": "bottom",
+    "lat": 56.5927,
+    "lon": 24.1906
+   },
+   {
+    "t": 864,
+    "region": "bottom",
+    "lat": 54.8875,
+    "lon": 23.8194
+   },
+   {
+    "t": 1296,
+    "region": "bottom",
+    "lat": 53.7589,
+    "lon": 22.3382
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Bratislava, Slovakia",
+  "id": "u1FSO1oaCL8",
+  "title": "Łomsa - Bratislava Part 1 (4K)",
+  "duration_s": 2113,
+  "query": "Bratislava dashcam VIOFO",
+  "rank": 1,
+  "section_fixes": [
+   {
+    "t": 528,
+    "region": "bottom",
+    "lat": 53.1262,
+    "lon": 22.0487
+   },
+   {
+    "t": 1056,
+    "region": "bottom",
+    "lat": 53.0335,
+    "lon": 21.9469
+   },
+   {
+    "t": 1584,
+    "region": "bottom",
+    "lat": 52.8868,
+    "lon": 21.8666
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Bratislava, Slovakia",
+  "id": "5koGsNdaVvE",
+  "title": "Bratislava - Slovakia (4k)",
+  "duration_s": 553,
+  "query": "Bratislava dashcam VIOFO",
+  "rank": 3,
+  "section_fixes": [
+   {
+    "t": 138,
+    "region": "bottom",
+    "lat": 48.1574,
+    "lon": 17.1049
+   },
+   {
+    "t": 276,
+    "region": "bottom",
+    "lat": 48.1564,
+    "lon": 17.1125
+   },
+   {
+    "t": 414,
+    "region": "bottom",
+    "lat": 48.1581,
+    "lon": 17.1284
+   }
+  ],
+  "n_near": 3,
+  "ok": true,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Bratislava, Slovakia",
+  "id": "4fgjdbfzjBY",
+  "title": "Łomsa - Bratislava Part 7 (4K)",
+  "duration_s": 4391,
+  "query": "Bratislava dashcam VIOFO",
+  "rank": 4,
+  "section_fixes": [
+   {
+    "t": 1097,
+    "region": "bottom",
+    "lat": 49.9503,
+    "lon": 18.4386
+   },
+   {
+    "t": 2195,
+    "region": "bottom",
+    "lat": 49.7705,
+    "lon": 18.0959
+   },
+   {
+    "t": 3293,
+    "region": "bottom",
+    "lat": 49.5759,
+    "lon": 17.7124
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Bratislava, Slovakia",
+  "id": "vXmNNOZ4mNg",
+  "title": "Łomsa - Bratislava Part 3 (4K)",
+  "duration_s": 2526,
+  "query": "Bratislava dashcam VIOFO",
+  "rank": 7,
+  "section_fixes": [
+   {
+    "t": 631,
+    "region": "bottom",
+    "lat": 52.1871,
+    "lon": 20.8679
+   },
+   {
+    "t": 1263,
+    "region": "bottom",
+    "lat": 52.1404,
+    "lon": 20.8828
+   },
+   {
+    "t": 1894,
+    "region": "bottom",
+    "lat": 52.0255,
+    "lon": 20.66
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Bratislava, Slovakia",
+  "id": "wrdCjp_DSuE",
+  "title": "Road Trip 2023 Day 2: Lomza, Poland - Bratislava, Slovakia (4K)",
+  "duration_s": 1711,
+  "query": "Bratislava dashcam VIOFO",
+  "rank": 10,
+  "section_fixes": [
+   {
+    "t": 427,
+    "region": "bottom",
+    "lat": 53.0801,
+    "lon": 22.1466
+   },
+   {
+    "t": 855,
+    "region": "bottom",
+    "lat": 49.5514,
+    "lon": 17.5337
+   },
+   {
+    "t": 1283,
+    "region": "bottom",
+    "lat": 48.1583,
+    "lon": 17.1046
+   }
+  ],
+  "n_near": 1,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Bratislava, Slovakia",
+  "id": "8O68bg3fsVY",
+  "title": "Łomsa - Bratislava Part 9 (4K)",
+  "duration_s": 2063,
+  "query": "Bratislava dashcam VIOFO",
+  "rank": 11,
+  "section_fixes": [
+   {
+    "t": 515,
+    "region": "bottom",
+    "lat": 48.987,
+    "lon": 16.6924
+   },
+   {
+    "t": 1031,
+    "region": "bottom",
+    "lat": 48.905,
+    "lon": 16.7861
+   },
+   {
+    "t": 1547,
+    "region": "bottom",
+    "lat": 48.7732,
+    "lon": 16.9351
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Lodz, Poland",
+  "id": "yxCz1drWRis",
+  "title": "Prostějov Czechy  - Łódź Polska - Prościejów - Łódź - Kamera samochodowa - 70mai pro plus A500S",
+  "duration_s": 4567,
+  "query": "Lodz dashcam GPS",
+  "rank": 0,
+  "section_fixes": [
+   {
+    "t": 1141,
+    "region": "bottom",
+    "lat": 49.816,
+    "lon": 18.2091
+   },
+   {
+    "t": 2283,
+    "region": "bottom",
+    "lat": 50.3687,
+    "lon": 18.9238
+   },
+   {
+    "t": 3425,
+    "region": "bottom",
+    "lat": 51.1453,
+    "lon": 19.4314
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Lodz, Poland",
+  "id": "F3MZxkVC6qY",
+  "title": "Autostrada A1 Grudziądz - Łódź Północ 20 08 2022 - 70mai pro plus A500S",
+  "duration_s": 2787,
+  "query": "Lodz dashcam GPS",
+  "rank": 2,
+  "section_fixes": [
+   {
+    "t": 696,
+    "region": "bottom",
+    "lat": 53.0112,
+    "lon": 18.7347
+   },
+   {
+    "t": 1393,
+    "region": "bottom",
+    "lat": 52.4999,
+    "lon": 19.1209
+   },
+   {
+    "t": 2090,
+    "region": "bottom",
+    "lat": 52.0763,
+    "lon": 19.5323
+   }
+  ],
+  "n_near": 1,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Katowice, Poland",
+  "id": "MMKAehhi-tA",
+  "title": "Podzamcze - Katowice",
+  "duration_s": 2895,
+  "query": "Katowice dashcam drive",
+  "rank": 9,
+  "section_fixes": [
+   {
+    "t": 723,
+    "region": "bottom",
+    "lat": 50.4015955,
+    "lon": 19.436426
+   },
+   {
+    "t": 1447,
+    "region": "bottom",
+    "lat": 50.3490155,
+    "lon": 19.322744
+   },
+   {
+    "t": 2171,
+    "region": "bottom",
+    "lat": 50.2999928,
+    "lon": 19.166451
+   }
+  ],
+  "n_near": 3,
+  "ok": true,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Katowice, Poland",
+  "id": "5ewPAw_gIeI",
+  "title": "Katowice - Balice [DK79]",
+  "duration_s": 4901,
+  "query": "Katowice dashcam drive",
+  "rank": 10,
+  "section_fixes": [
+   {
+    "t": 1225,
+    "region": "bottom",
+    "lat": 50.2223968,
+    "lon": 19.193549
+   },
+   {
+    "t": 2450,
+    "region": "bottom",
+    "lat": 50.1491949,
+    "lon": 19.422845
+   },
+   {
+    "t": 3675,
+    "region": "bottom",
+    "lat": 50.1300866,
+    "lon": 19.652462
+   }
+  ],
+  "n_near": 2,
+  "ok": true,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Zagreb, Croatia",
+  "id": "7n4XQUBEH5Y",
+  "title": "Zagreb at night ~ 4K Dashcam ~ relaxing music",
+  "duration_s": 611,
+  "query": "Zagreb dashcam GPS",
+  "rank": 7,
+  "section_fixes": [
+   {
+    "t": 152,
+    "region": "bottom",
+    "lat": 45.81333,
+    "lon": 16.00447
+   },
+   {
+    "t": 305,
+    "region": "bottom",
+    "lat": 45.81008,
+    "lon": 15.98894
+   },
+   {
+    "t": 458,
+    "region": "bottom",
+    "lat": 45.80897,
+    "lon": 15.97231
+   }
+  ],
+  "n_near": 3,
+  "ok": true,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Sofia, Bulgaria",
+  "id": "_kViBLeqYIw",
+  "title": "Driving Day 5: From Başiskele to Sofia, Turkiye Part 1 (4K)",
+  "duration_s": 4499,
+  "query": "Sofia dashcam VIOFO",
+  "rank": 5,
+  "section_fixes": [
+   {
+    "t": 1124,
+    "region": "bottom",
+    "lat": 40.7912,
+    "lon": 29.9809
+   },
+   {
+    "t": 2249,
+    "region": "bottom",
+    "lat": 40.8868,
+    "lon": 29.7421
+   },
+   {
+    "t": 3374,
+    "region": "bottom",
+    "lat": 40.9653,
+    "lon": 29.3276
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ },
+ {
+  "city": "Gold Coast, Australia",
+  "id": "IBsssFp3i8Y",
+  "title": "Sydney to Gold Coast | Australia Ultra Long Drive  - A Complete Real Time Road Trip",
+  "duration_s": 34375,
+  "query": "Gold Coast dashcam drive",
+  "rank": 5,
+  "section_fixes": [
+   {
+    "t": 8593,
+    "region": "bottom",
+    "lat": -32.70053,
+    "lon": -151.80312
+   },
+   {
+    "t": 17187,
+    "region": "bottom",
+    "lat": -31.08175,
+    "lon": -152.87627
+   },
+   {
+    "t": 25781,
+    "region": "bottom",
+    "lat": -29.52357,
+    "lon": -153.19732
+   }
+  ],
+  "n_near": 0,
+  "ok": false,
+  "round": "downloaded 1 s sections"
+ }
+]

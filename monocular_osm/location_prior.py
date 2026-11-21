@@ -20,9 +20,11 @@ import re
 
 from .geo import geodesic_distance_m
 
-__all__ = ["resolve_coarse_prior", "extract_place_candidates"]
+__all__ = ["resolve_coarse_prior", "resolve_retrieval_regions", "extract_place_candidates"]
 
-_PLACE = r"[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*"
+_CASED_PLACE = r"[A-ZÀ-ÖØ-ÞĀ-ŽͰ-ϿЀ-Я][A-Za-zÀ-ÖØ-öø-ÿĀ-žͰ-ϿЀ-я'’.-]*"
+_CJK_PLACE = r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]{2,12}"
+_PLACE = rf"(?:{_CASED_PLACE}|{_CJK_PLACE})"
 _PHRASE = rf"{_PLACE}(?:[ \-]{_PLACE}){{0,3}}"
 # split the text into route segments before scanning for place phrases
 _SEP = re.compile(r"[,\|/·—–>\n\t;:]+|→|➜|»|\bto\b|\bvia\b|\bthen\b", re.IGNORECASE)
@@ -30,17 +32,23 @@ _SEP = re.compile(r"[,\|/·—–>\n\t;:]+|→|➜|»|\bto\b|\bvia\b|\bthen\b", 
 # Generic words that are NOT place names on their own; a phrase made only of
 # these is dropped. Real names survive because they carry a proper token.
 _GENERIC = {
-    "best", "dashcam", "dash", "cam", "drive", "driving", "driver", "ride",
-    "street", "streets", "road", "roads", "avenue", "boulevard", "walk",
-    "walking", "trip", "travel", "tour", "touring", "night", "day", "morning",
-    "evening", "sunset", "rain", "rainy", "snow", "winter", "summer", "autumn",
-    "spring", "traffic", "highway", "motorway", "autobahn", "freeway", "city",
-    "downtown", "center", "centre", "central", "old", "town", "pov", "hd",
-    "hdr", "uhd", "4k", "8k", "60fps", "asmr", "relaxing", "scenic", "route",
-    "part", "episode", "vol", "full", "video", "footage", "germany", "france",
-    "spain", "italy", "usa", "canada", "uk", "england", "japan", "the", "and",
-    "a", "an", "of", "in", "on", "at", "west", "east", "north", "south",
-    "gmbh", "official", "channel", "subscribe", "like", "https", "http", "www",
+    "best", "dashcam", "dashcams", "dash", "cam", "camera", "cameras", "lens",
+    "viofo", "garmin", "nextbase", "blackvue", "vantrue", "70mai", "ddpai",
+    "thinkware", "gopro", "insta360", "sony", "starvis", "drive", "driving",
+    "driver", "ride", "virtual", "street", "streets", "road", "roads",
+    "avenue", "boulevard", "walk", "walking", "trip", "travel", "tour",
+    "touring", "night", "day", "morning", "evening", "sunset", "rain", "rainy",
+    "snow", "winter", "summer", "autumn", "spring", "traffic", "highway",
+    "motorway", "autobahn", "freeway", "city", "downtown", "center", "centre",
+    "central", "old", "town", "pov", "hd", "hdr", "uhd", "4k", "8k", "60fps",
+    "1080p", "1440p", "2160p", "4k60", "fps", "gps", "asmr", "relaxing",
+    "no", "music", "talking", "silent", "ambient", "sound", "sounds",
+    "scenic", "route", "part", "episode", "vol", "full", "video", "footage",
+    "germany", "france", "spain", "italy", "usa", "canada", "uk", "england",
+    "scotland", "japan", "china", "korea", "india", "australia", "brazil",
+    "the", "and", "a", "an", "of", "in", "on", "at", "west", "east", "north",
+    "south", "gmbh", "official", "channel", "subscribe", "like", "https",
+    "http", "www",
 }
 
 
@@ -59,11 +67,13 @@ def extract_place_candidates(title: str | None, description: str | None,
         for m in re.finditer(_PHRASE, part):
             phrase = m.group().strip(" -–—.'’")
             toks = [t for t in phrase.split() if t]
-            if len(phrase) < 3 or not toks:
+            has_cjk = any("\u3040" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af" for ch in phrase)
+            if (len(phrase) < 2 if has_cjk else len(phrase) < 3) or not toks:
                 continue
             # keep only phrases with a SUBSTANTIVE token (non-generic, >=3
-            # chars) — drops "K Driving Tour" (from "4K"), "Night Drive", etc.
-            if not any(t.lower().strip(".'’-") not in _GENERIC and len(t) >= 3
+            # chars, or >=2 CJK/Hangul chars) — drops "K Driving Tour", "Night Drive", etc.
+            if not any(t.lower().strip(".'’-") not in _GENERIC
+                       and (len(t) >= 2 if has_cjk else len(t) >= 3)
                        for t in toks):
                 continue
             key = phrase.lower()
@@ -172,6 +182,7 @@ def resolve_coarse_prior(
     max_radius_m: float = 6000.0,
     min_places: int = 1,
     route_length_m: float | None = None,
+    max_candidates: int = 14,
 ) -> tuple[float, float, float, list[str]] | None:
     """Coarse prior ``(lat, lon, radius_m, matched_places)`` from named places
     in the video's title + description, or ``None`` if none resolve usefully.
@@ -195,7 +206,7 @@ def resolve_coarse_prior(
     # itself or coarser: never a refinement ("Michigan" geocoded to a station
     # and became an 800 m gate on a Detroit clip).
     city_parts = {p.strip().casefold() for p in city.split(",") if p.strip()}
-    cands = extract_place_candidates(title, description)
+    cands = extract_place_candidates(title, description, max_candidates=max_candidates)
     hits: list[tuple[str, tuple[float, float]]] = []
     for c in cands:
         if c.strip().casefold() in city_parts:
@@ -215,3 +226,86 @@ def resolve_coarse_prior(
               + max(margin_m, float(route_length_m or 0.0)))
     radius = min(max(radius, min_radius_m), max_radius_m)
     return (centre[0], centre[1], radius, [h[0] for h in hits])
+
+
+def resolve_retrieval_regions(
+    city: str,
+    title: str | None,
+    description: str | None,
+    *,
+    center: tuple[float, float] | None = None,
+    radius_m: float = 3000.0,
+    max_regions: int = 6,
+    geocode_fn=None,
+    max_km_from_city: float = 100.0,
+) -> list[dict]:
+    """Independent dense retrieval discs from video-named places.
+
+    Unlike the single coarse prior, this does not average several municipalities
+    into a centre between them. Keep the existing seed and the named city, then
+    distinct verified places in title/description order. Each disc keeps its own
+    reference budget. The opt-in caller compares visual evidence across them;
+    one uncorroborated title word never becomes a hard geographic gate.
+
+    Country/state-scoped fallbacks let neighbouring municipalities resolve even
+    when appending the primary city's name makes Nominatim miss them. The same
+    name/type checks as the coarse prior and a 100 km city-distance bound reject
+    businesses and far-away namesakes. No labels or ground truth are accepted.
+    """
+    if max_regions < 1:
+        raise ValueError("max_regions must be at least one")
+    if radius_m <= 0:
+        raise ValueError("radius_m must be positive")
+    geocode_fn = geocode_fn or _default_geocode
+
+    def lookup(query):
+        try:
+            return geocode_fn(query)
+        except Exception:
+            return None
+
+    city_ll = _latlon(lookup(city))
+    seed = center if center is not None else city_ll
+    if seed is None:
+        return []
+    city_ll = city_ll or seed
+    regions: list[dict] = []
+    separation_m = max(250.0, 0.5 * radius_m)
+
+    def add(name, ll, origin):
+        if len(regions) >= max_regions or any(
+                _geodesic_m(tuple(r["center"]), ll) < separation_m for r in regions):
+            return
+        regions.append({"name": name, "center": [float(ll[0]), float(ll[1])],
+                        "radius_m": float(radius_m), "origin": origin})
+
+    add("search seed", seed, "seed")
+    add(city, city_ll, "city")
+    city_parts = {p.strip().casefold() for p in city.split(",") if p.strip()}
+    suffix = ", ".join(p.strip() for p in city.split(",")[1:] if p.strip())
+
+    def route_text(text):
+        # Route words can otherwise join capitalised city names to generic
+        # words ("Driving From Oakville"). Preserve the old parser unchanged.
+        return re.sub(r"\b(?:from|through|around|towards?)\b", " | ", text or "",
+                      flags=re.IGNORECASE)
+
+    candidates = extract_place_candidates(route_text(title), route_text(description),
+                                           max_candidates=24)
+    for candidate in candidates:
+        if len(regions) >= max_regions:
+            break
+        if candidate.casefold() in city_parts:
+            continue
+        queries = [f"{candidate}, {city}"]
+        if suffix:
+            queries.append(f"{candidate}, {suffix}")
+        queries.append(candidate)
+        for query in dict.fromkeys(queries):
+            hit = lookup(query)
+            ll = _latlon(hit)
+            if (ll is not None and _is_place_match(candidate, hit, city)
+                    and _geodesic_m(city_ll, ll) <= max_km_from_city * 1000.0):
+                add(candidate, ll, "video_named")
+                break
+    return regions

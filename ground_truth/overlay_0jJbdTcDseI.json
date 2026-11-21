@@ -1,0 +1,110 @@
+{
+  "video_id": "0jJbdTcDseI",
+  "video_url": "https://www.youtube.com/watch?v=0jJbdTcDseI",
+  "city": "Montreal, Canada",
+  "vo_segment": "5:595",
+  "description": "Titled Montreal; the stamps put the drive on the A440 in Laval, a separate municipality north of the island (like Phoenix). Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 119 OCR fixes over 5-595 s (4.89 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 5.0,
+      "lat": 45.582406,
+      "lon": -73.638053
+    },
+    {
+      "t_sec": 35.0,
+      "lat": 45.584294,
+      "lon": -73.640047
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 45.585124,
+      "lon": -73.640959
+    },
+    {
+      "t_sec": 100.0,
+      "lat": 45.586825,
+      "lon": -73.642765
+    },
+    {
+      "t_sec": 130.0,
+      "lat": 45.588761,
+      "lon": -73.644808
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 45.590479,
+      "lon": -73.646623
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 45.590462,
+      "lon": -73.646598
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 45.592651,
+      "lon": -73.645109
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 45.594027,
+      "lon": -73.64401
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 45.59506,
+      "lon": -73.643188
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 45.59506,
+      "lon": -73.643188
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 45.59506,
+      "lon": -73.643188
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 45.595597,
+      "lon": -73.642733
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 45.595597,
+      "lon": -73.642733
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 45.595597,
+      "lon": -73.642733
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 45.595646,
+      "lon": -73.642692
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 45.599797,
+      "lon": -73.647738
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 45.605941,
+      "lon": -73.655493
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 45.611808,
+      "lon": -73.662158
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 45.617122,
+      "lon": -73.667896
+    }
+  ]
+}

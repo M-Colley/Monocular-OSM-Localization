@@ -1,0 +1,170 @@
+{
+  "schema": "test6-worldwide-data-selection-v1",
+  "split": "test6",
+  "target": 12,
+  "continent_quotas": {
+    "asia": 3,
+    "latin_america": 2,
+    "middle_east_africa": 2,
+    "europe": 2,
+    "north_america": 2,
+    "oceania": 1
+  },
+  "purpose": "Globally stratified held-out evaluation split across all six inhabited continents for certifying worldwide localization accuracy (symmetric_mean_m <= 200 m). Selection never reads any localization result, descriptor, predicted route, or error.",
+  "city_order": [
+    {
+      "city": "Tokyo, Japan",
+      "region": "asia",
+      "title_keys": [["tokyo", "Tokyo"], ["東京", "Tokyo"]],
+      "local_queries": ["東京 ドラレコ GPS", "Tokyo dashcam GPS", "Tokyo dashcam VIOFO"]
+    },
+    {
+      "city": "São Paulo, Brazil",
+      "region": "latin_america",
+      "title_keys": [["são paulo", "São Paulo"], ["sao paulo", "Sao Paulo"]],
+      "local_queries": ["São Paulo dashcam GPS", "Sao Paulo dashcam VIOFO", "São Paulo câmera veicular GPS"]
+    },
+    {
+      "city": "Dubai, UAE",
+      "region": "middle_east_africa",
+      "title_keys": [["dubai", "Dubai"], ["دبي", "Dubai"]],
+      "local_queries": ["Dubai dashcam GPS", "Dubai dashcam VIOFO", "Dubai dashcam 4K GPS"]
+    },
+    {
+      "city": "Taipei, Taiwan",
+      "region": "asia",
+      "title_keys": [["taipei", "Taipei"], ["台北", "Taipei"], ["臺北", "Taipei"]],
+      "local_queries": ["Taipei dashcam GPS", "台北 行車記錄器 GPS", "Taipei VIOFO GPS"]
+    },
+    {
+      "city": "Santiago, Chile",
+      "region": "latin_america",
+      "title_keys": [["santiago", "Santiago"]],
+      "local_queries": ["Santiago Chile dashcam GPS", "Santiago dashcam VIOFO", "Conduciendo Santiago dashcam GPS"]
+    },
+    {
+      "city": "Johannesburg, South Africa",
+      "region": "middle_east_africa",
+      "title_keys": [["johannesburg", "Johannesburg"], ["sandton", "Johannesburg"]],
+      "local_queries": ["Johannesburg dashcam GPS", "Johannesburg dashcam VIOFO", "South Africa dashcam GPS Johannesburg"]
+    },
+    {
+      "city": "Seoul, South Korea",
+      "region": "asia",
+      "title_keys": [["seoul", "Seoul"], ["서울", "Seoul"]],
+      "local_queries": ["Seoul dashcam GPS", "서울 블랙박스 GPS", "Seoul dashcam VIOFO"]
+    },
+    {
+      "city": "Singapore",
+      "region": "asia",
+      "title_keys": [["singapore", "Singapore"]],
+      "local_queries": ["Singapore dashcam GPS", "Singapore dashcam VIOFO", "Singapore driving dashcam GPS"]
+    },
+    {
+      "city": "Buenos Aires, Argentina",
+      "region": "latin_america",
+      "title_keys": [["buenos aires", "Buenos Aires"]],
+      "local_queries": ["Buenos Aires dashcam GPS", "Buenos Aires dashcam VIOFO", "Manejando Buenos Aires dashcam GPS"]
+    },
+    {
+      "city": "Tel Aviv, Israel",
+      "region": "middle_east_africa",
+      "title_keys": [["tel aviv", "Tel Aviv"], ["תל אביב", "Tel Aviv"]],
+      "local_queries": ["Tel Aviv dashcam GPS", "Tel Aviv dashcam VIOFO", "Tel Aviv driving dashcam GPS"]
+    },
+    {
+      "city": "Bangkok, Thailand",
+      "region": "asia",
+      "title_keys": [["bangkok", "Bangkok"], ["กรุงเทพ", "Bangkok"]],
+      "local_queries": ["Bangkok dashcam GPS", "Bangkok dashcam VIOFO", "Bangkok driving dashcam GPS"]
+    },
+    {
+      "city": "Mexico City, Mexico",
+      "region": "north_america",
+      "title_keys": [["mexico city", "Mexico City"], ["cdmx", "Mexico City"], ["ciudad de méxico", "Ciudad de México"], ["ciudad de mexico", "Ciudad de Mexico"]],
+      "local_queries": ["Mexico City dashcam GPS", "CDMX dashcam GPS", "CDMX dashcam VIOFO"]
+    },
+    {
+      "city": "Brisbane, Australia",
+      "region": "oceania",
+      "title_keys": [["brisbane", "Brisbane"]],
+      "local_queries": ["Brisbane dashcam GPS", "Brisbane dashcam VIOFO", "Brisbane dashcam drive"]
+    },
+    {
+      "city": "Lisbon, Portugal",
+      "region": "europe",
+      "title_keys": [["lisbon", "Lisbon"], ["lisboa", "Lisboa"]],
+      "local_queries": ["Lisbon dashcam GPS", "Lisboa dashcam GPS", "Lisbon dashcam VIOFO"]
+    },
+    {
+      "city": "Bogotá, Colombia",
+      "region": "latin_america",
+      "title_keys": [["bogotá", "Bogotá"], ["bogota", "Bogota"]],
+      "local_queries": ["Bogota dashcam GPS", "Bogotá dashcam VIOFO", "Bogota camara vehicular GPS"]
+    },
+    {
+      "city": "Kuala Lumpur, Malaysia",
+      "region": "asia",
+      "title_keys": [["kuala lumpur", "Kuala Lumpur"]],
+      "local_queries": ["Kuala Lumpur dashcam GPS", "Kuala Lumpur dashcam VIOFO", "KL dashcam 70mai GPS"]
+    },
+    {
+      "city": "Cape Town, South Africa",
+      "region": "middle_east_africa",
+      "title_keys": [["cape town", "Cape Town"]],
+      "local_queries": ["Cape Town dashcam GPS", "Cape Town dashcam VIOFO", "Cape Town driving dashcam GPS"]
+    },
+    {
+      "city": "Osaka, Japan",
+      "region": "asia",
+      "title_keys": [["osaka", "Osaka"], ["大阪", "Osaka"]],
+      "local_queries": ["大阪 ドラレコ GPS", "Osaka dashcam GPS", "Osaka dashcam VIOFO"]
+    },
+    {
+      "city": "Toronto, Ontario, Canada",
+      "region": "north_america",
+      "title_keys": [["toronto", "Toronto"]],
+      "local_queries": ["Toronto dashcam GPS", "Toronto dashcam VIOFO", "Toronto dashcam drive"]
+    },
+    {
+      "city": "Athens, Greece",
+      "region": "europe",
+      "title_keys": [["athens", "Athens"], ["αθήνα", "Athens"], ["athina", "Athina"]],
+      "local_queries": ["Athens dashcam GPS", "Athens dashcam VIOFO", "Athens Greece dashcam drive"]
+    },
+    {
+      "city": "Bengaluru, India",
+      "region": "asia",
+      "title_keys": [["bengaluru", "Bengaluru"], ["bangalore", "Bangalore"]],
+      "local_queries": ["Bangalore dashcam GPS", "Bengaluru dashcam 70mai GPS", "Bangalore dashcam VIOFO"]
+    },
+    {
+      "city": "Nairobi, Kenya",
+      "region": "middle_east_africa",
+      "title_keys": [["nairobi", "Nairobi"]],
+      "local_queries": ["Nairobi dashcam GPS", "Nairobi dashcam VIOFO", "Nairobi driving dashcam"]
+    },
+    {
+      "city": "Perth, Australia",
+      "region": "oceania",
+      "title_keys": [["perth", "Perth"]],
+      "local_queries": ["Perth dashcam GPS", "Perth dashcam VIOFO", "Perth dashcam drive"]
+    },
+    {
+      "city": "Madrid, Spain",
+      "region": "europe",
+      "title_keys": [["madrid", "Madrid"]],
+      "local_queries": ["Madrid dashcam GPS", "Madrid dashcam VIOFO", "Conduciendo Madrid dashcam GPS"]
+    }
+  ],
+  "results_per_query": 12,
+  "multilingual_road_terms": [
+    "dashcam", "dash cam", "drive", "driving", "viofo", "70mai", "garmin", "blackvue", "nextbase",
+    "ドラレコ", "ドライブレコーダー", "車載", "行車記錄器", "行车记录仪", "블랙박스", "주행",
+    "conduciendo", "manejando", "cámara vehicular", "dirigindo", "câmera veicular"
+  ],
+  "eligibility": "Multilingual road-video title eligibility (no timelapse/sped-up/flight/train/walking), duration >= 300 s, title contains one of the city's title_keys (including native script/endonym), video ID not in benchmarks/manifest.json.",
+  "screen": "Coordinate stamp in YouTube thumbnail + three full-resolution frames at 25/50/75 %; >= 2 fixes must parse within 40 km of the registered city's geocode. No localization output is consulted.",
+  "build": "First 0-600 s at <= 1080p with build_overlay_fleet.py CPU OCR (interval 5 s, min fixes 12, max 160 km/h, 20 waypoints, longest continuous run) and check_overlay_gt.py plausibility (>= 500 m route). Data dir E:/claude-scoring/test6/data.",
+  "order_and_stop": "Screen in fixed city_order, skipping a region once its continent_quota is filled until all quotas are met (total target 12 clips across 6 continents)."
+}

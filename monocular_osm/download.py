@@ -212,7 +212,7 @@ def _existing_download(out_dir: Path, filename_stem: str) -> Path | None:
     marker = _marker_path(out_dir, filename_stem)
     if marker.exists():
         try:
-            recorded = out_dir / json.load(open(marker, encoding="utf-8"))["file"]
+            recorded = out_dir / json.loads(marker.read_text(encoding="utf-8"))["file"]
             if recorded.exists():
                 return recorded
         except (OSError, ValueError, KeyError):
@@ -325,8 +325,9 @@ def download_video(
                         f"yt-dlp finished but no completed file for "
                         f"{filename_stem}.* in {out_dir}")
             # Persist the resolved name so later runs resume deterministically.
-            json.dump({"file": path.name, "url": url},
-                      open(_marker_path(out_dir, filename_stem), "w", encoding="utf-8"))
+            _marker_path(out_dir, filename_stem).write_text(
+                json.dumps({"file": path.name, "url": url}), encoding="utf-8"
+            )
             return path
     except yt_dlp.utils.DownloadError as e:  # network / unavailable
         raise DownloadError(str(e)) from e

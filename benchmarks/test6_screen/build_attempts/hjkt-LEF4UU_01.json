@@ -1,0 +1,21 @@
+{
+  "id": "hjkt-LEF4UU",
+  "pool_city": "Santiago, Chile",
+  "city": "Santiago, Chile",
+  "continent_region": "latin_america",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-20T14:37:39.287025+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/hjkt-lef4uu-bad-drivers-in-dash-cam-nov-2021-santiago-chile/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_hjkt-LEF4UU.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 534.7,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-20T14:48:41.822984+00:00",
+  "qc_log_sha256": "5cdf4409b5084561d5de319c756e21567f9cc7b5bf57b1cae4d537097bb67f3b"
+}

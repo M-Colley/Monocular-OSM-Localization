@@ -177,6 +177,26 @@ def _edge_coords(G: nx.MultiDiGraph, u, v, data) -> np.ndarray:
     return c
 
 
+def _construction_trace_row(G, u, v, key, data, oriented, keep, compact, synthetic, index):
+    """Copy exact construction witnesses; never participates in network math."""
+    geometry = data.get("geometry")
+    if geometry is None:
+        raw = np.array([[float(G.nodes[u]["x"]), float(G.nodes[u]["y"])],
+                        [float(G.nodes[v]["x"]), float(G.nodes[v]["y"])]], dtype=np.float64)
+    else:
+        raw = np.asarray(geometry.coords, dtype=np.float64)[:, :2]
+    fallback = geometry is not None and len(raw) < 2
+    reversed_geometry = (not fallback and not np.array_equal(oriented, raw)
+                         and np.array_equal(oriented, raw[::-1]))
+    return {"schema": "road-network-construction-trace-v1", "edge_index": index,
+            "edge_key": (u, v, key), "raw_vertices": raw.copy(),
+            "oriented_vertices": oriented.copy(),
+            "keep_indices": np.flatnonzero(keep).astype(np.int64),
+            "compact_vertices": compact.copy(), "geometry_present": geometry is not None,
+            "geometry_reversed": bool(reversed_geometry), "geometry_fallback": bool(fallback),
+            "synthetic": bool(synthetic)}
+
+
 def _turn_logprior(succ_table, succ_head, head_end, kappa: float,
                    normalise: bool = False) -> np.ndarray:
     """Log transition weight of each successor; -inf on padding.
@@ -249,6 +269,7 @@ class RoadNetwork:
         uturn_at_dead_ends: bool = True,
         turn_prior_kappa: float = 0.0,
         normalise_turn_prior: bool = False,
+        construction_trace: list | None = None,
     ) -> "RoadNetwork":
         """Build the arrays from an osmnx-style MultiDiGraph.
 
@@ -264,7 +285,17 @@ class RoadNetwork:
         ``normalise_turn_prior`` set the transition weight
         (:func:`_turn_logprior`); the default (0, unnormalised) weighs every
         feasible branch equally, so junction topology is not evidence.
+
+        An optional empty built-in ``construction_trace`` list receives copied
+        per-edge witnesses only after successful construction. It is not a
+        callback and does not affect network arrays or particle state.
         """
+        if construction_trace is not None and (type(construction_trace) is not list or construction_trace):
+            raise ValueError("construction_trace requires an empty built-in list")
+        trace_rows = [] if construction_trace is not None else None
+        if trace_rows is not None and G.number_of_edges() > 100_000:
+            raise ValueError("construction trace exceeds compact edge cap")
+        trace_vertices = trace_segments = 0
         crs = G.graph.get("crs")
         projected = True
         try:
@@ -280,13 +311,26 @@ class RoadNetwork:
         keys: list = []
         polys: list[np.ndarray] = []
         for u, v, k, data in G.edges(keys=True, data=True):
+            if trace_rows is not None:
+                geometry = data.get("geometry")
+                trace_vertices += max(2, len(geometry.coords)) if geometry is not None else 2
+                if trace_vertices > 1_100_000:
+                    raise ValueError("construction trace exceeds vertex/member cap")
             c = _edge_coords(G, u, v, data)
+            oriented = c if trace_rows is not None else None
             # drop repeated vertices (zero-length segments)
             d = np.hypot(*np.diff(c, axis=0).T)
             keep = np.concatenate([[True], d > 1e-6])
             c = c[keep]
-            if len(c) < 2:  # degenerate edge: give it a tiny length
+            synthetic = len(c) < 2
+            if synthetic:  # degenerate edge: give it a tiny length
                 c = np.vstack([c[:1], c[:1] + [0.05, 0.0]])
+            if trace_rows is not None:
+                trace_segments += len(c) - 1
+                if trace_segments > 500_000:
+                    raise ValueError("construction trace exceeds segment cap")
+                trace_rows.append(_construction_trace_row(
+                    G, u, v, k, data, oriented, keep, c, synthetic, len(keys)))
             keys.append((u, v, k))
             polys.append(c)
         if not keys:
@@ -360,7 +404,7 @@ class RoadNetwork:
         succ_logprior = _turn_logprior(succ_table, succ_head, head_end, turn_prior_kappa,
                                        normalise_turn_prior)
 
-        return cls(
+        network = cls(
             crs=str(crs), origin=origin, edge_keys=keys, edge_len=edge_len,
             edge_base=edge_base, seg_lo=seg_lo, seg_hi=seg_hi,
             seg_gstart=seg_gstart, seg_xy0=xy0, seg_dir=sdir, seg_heading=shead,
@@ -371,6 +415,9 @@ class RoadNetwork:
             normalise_turn_prior=normalise_turn_prior,
             xy_max=allxy.max(axis=0) - origin,
         )
+        if construction_trace is not None:
+            construction_trace.extend(trace_rows)
+        return network
 
     def with_turn_prior(self, kappa: float, normalise: bool = False) -> "RoadNetwork":
         """A copy sharing all arrays but with a different transition weight."""
@@ -1089,6 +1136,10 @@ class GraphParticleFilter:
         corr = np.where(dead, -np.inf, corr)
         return np.where(dead, e, new_e), corr, dead
 
+    def _epsilon_transition(self, mean0: np.ndarray, innovation: np.ndarray, a: float) -> np.ndarray:
+        """Combine retained innovation after genuine K draw; default parent math."""
+        return mean0 + innovation
+
     def predict(self, step: float, heading: float, dt: float,
                 heading_ahead: float = float("nan"), heading_var: float = 0.0) -> None:
         """Propagate every particle by one odometry step.
@@ -1105,8 +1156,10 @@ class GraphParticleFilter:
             self.logk = np.clip(self.logk + self.rng.normal(0.0, c.logk_rw * sq, n),
                                 lo - m, hi + m)
             a = math.exp(-dt / c.speed_dev_tau_s)
-            self.eps = a * self.eps + self.rng.normal(
+            _eps_mean0 = a * self.eps
+            _eps_innovation = self.rng.normal(
                 0.0, self._dev_sigma * math.sqrt(1.0 - a * a), n)
+            self.eps = self._epsilon_transition(_eps_mean0, _eps_innovation, a)
         if step <= 0.0:
             return
         if self.delta_ready and dt > 0:
@@ -1254,47 +1307,65 @@ class GraphParticleFilter:
     _OFFS = np.array([(a, b) for a in (-1, 0, 1) for b in (-1, 0, 1)], np.int64)
 
     def _block_stats(self, w: np.ndarray, K: int = 64):
-        """Bin particles on a ``mode_grid_m`` grid; for the K heaviest cells
-        return the (K, 9) masses and weighted x/y sums of their 3x3 blocks."""
+        """Return the K heaviest COMPLETE 3x3 blocks and weighted x/y sums.
+
+        Candidate centres include empty neighbours of occupied cells. Shared
+        occupied-cell binning gives the same result for dense/sparse map hints,
+        including negative coordinates, without allocating the 20M-cell grid.
+        Only candidate coordinates/inverse indices scale as 9*occupied cells;
+        the neighbour-value matrices are constructed for the final K only.
+        Equal computed masses use lexical (cell x, cell y) order.
+        Empty/zero posterior mass and invalid summary inputs are refused.
+        """
+        w = np.asarray(w)
+        x, y = np.asarray(self.x), np.asarray(self.y)
         g = self.cfg.mode_grid_m
-        if self._dense_grid is not None:
-            nx_, ny_ = self._dense_grid
-            ix = (self.x / g).astype(np.int64) + 1      # +1: a one-cell border
-            iy = (self.y / g).astype(np.int64) + 1
-            flat = ix * ny_ + iy
-            size = nx_ * ny_
-            cm = np.bincount(flat, w, minlength=size)
-            K = min(K, int(np.count_nonzero(cm)) or 1)
-            top = np.argpartition(-cm, K - 1)[:K]
-            nb = top[:, None] + self._OFFS[None, :, 0] * ny_ + self._OFFS[None, :, 1]
-            nb = np.clip(nb, 0, size - 1)
-            sx = np.bincount(flat, w * self.x, minlength=size)
-            sy = np.bincount(flat, w * self.y, minlength=size)
-            return cm[nb], sx[nb], sy[nb]
-        cx = np.floor(self.x / g).astype(np.int64)
-        cy = np.floor(self.y / g).astype(np.int64)
-        key = (cx << 32) + (cy + (1 << 31))
-        uk, inv = np.unique(key, return_inverse=True)
-        cm = np.bincount(inv, w, minlength=len(uk))
-        sx = np.bincount(inv, w * self.x, minlength=len(uk))
-        sy = np.bincount(inv, w * self.y, minlength=len(uk))
-        ucx = uk >> 32
-        ucy = (uk & 0xFFFFFFFF) - (1 << 31)
-        K = min(K, len(uk))
-        top = np.argpartition(-cm, K - 1)[:K]
-        offs = self._OFFS
-        nk = ((ucx[top, None] + offs[None, :, 0]) << 32) + (ucy[top, None] + offs[None, :, 1] + (1 << 31))
-        pos = np.minimum(np.searchsorted(uk, nk), len(uk) - 1)
-        hit = uk[pos] == nk
-        return (np.where(hit, cm[pos], 0.0), np.where(hit, sx[pos], 0.0),
-                np.where(hit, sy[pos], 0.0))
+        if (type(K) is not int or K <= 0 or w.ndim != 1 or x.shape != w.shape
+                or y.shape != w.shape or not len(w) or not np.isfinite(w).all()
+                or np.any(w < 0) or not np.any(w > 0) or not np.isfinite(x).all()
+                or not np.isfinite(y).all() or not np.isfinite(g) or g <= 0):
+            raise ValueError("finite positions, positive posterior mass and positive summary grid/K required")
+        keep = w > 0
+        px, py, pw = x[keep], y[keep], w[keep]
+        cells = np.column_stack([np.floor(px / g), np.floor(py / g)])
+        # Leave ample integer margin for all +/-1 neighbour operations.
+        if not np.isfinite(cells).all() or np.any(np.abs(cells) >= 2**62):
+            raise ValueError("summary cell coordinates exceed signed integer range")
+        occupied, inverse = np.unique(cells.astype(np.int64), axis=0, return_inverse=True)
+        count = len(occupied)
+        cm = np.bincount(inverse, pw, minlength=count)
+        sx = np.bincount(inverse, pw * px, minlength=count)
+        sy = np.bincount(inverse, pw * py, minlength=count)
+        del cells, inverse, px, py, pw, keep
+
+        centres = np.empty((9 * count, 2), np.int64)
+        for j, offset in enumerate(self._OFFS):
+            centres[j * count:(j + 1) * count] = occupied - offset
+        candidates, inverse = np.unique(centres, axis=0, return_inverse=True)
+        del centres
+        # Each occupied cell contributes once to every block containing it.
+        masses = np.bincount(inverse, np.tile(cm, 9), minlength=len(candidates))
+        del inverse
+        top = np.argsort(-masses, kind="stable")[:min(K, len(candidates))]
+        centres = candidates[top]
+        del candidates, masses, top
+
+        neighbours = np.ascontiguousarray(centres[:, None, :] + self._OFFS[None, :, :])
+        pair = np.dtype([("x", np.int64), ("y", np.int64)])
+        keys = occupied.view(pair).reshape(-1)
+        wanted = neighbours.view(pair).reshape(-1)
+        pos = np.searchsorted(keys, wanted)
+        safe = np.minimum(pos, count - 1)
+        hit = (pos < count) & (keys[safe] == wanted)
+        shape = (len(centres), 9)
+        return tuple(np.where(hit, values[safe], 0.).reshape(shape) for values in (cm, sx, sy))
 
     def summary(self, w: np.ndarray) -> dict:
         """Weighted posterior mode, its mass, and the number of separated modes."""
         c = self.cfg
         bm, bx, by = self._block_stats(w)
         block_mass = bm.sum(axis=1)
-        order = np.argsort(-block_mass)
+        order = np.argsort(-block_mass, kind="stable")
         best = order[0]
         mx = bx[best].sum() / max(block_mass[best], 1e-300)
         my = by[best].sum() / max(block_mass[best], 1e-300)

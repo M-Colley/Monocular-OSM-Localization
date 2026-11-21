@@ -1,0 +1,21 @@
+{
+  "id": "XZrRUsdupM8",
+  "pool_city": "Toronto, Ontario, Canada",
+  "city": "Toronto, Ontario, Canada",
+  "continent_region": "north_america",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-20T12:27:03.458780+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/xzrrusdupm8-rove-dashcam-footage-compilation-greater-toronto-area-mississauga/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_XZrRUsdupM8.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0327666666667,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-20T12:38:35.721223+00:00",
+  "qc_log_sha256": "1fbf3f81a381328d6b4bc6aa1a62f659bc2221dc1aa45724eea3eb50a9040099"
+}

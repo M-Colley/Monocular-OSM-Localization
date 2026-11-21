@@ -1,0 +1,110 @@
+{
+  "video_id": "2sS6glBBm8g",
+  "video_url": "https://www.youtube.com/watch?v=2sS6glBBm8g",
+  "city": "Amsterdam, Netherlands",
+  "vo_segment": "20:595",
+  "description": "Amsterdam canal ring, November 2025; titled as a traffic-moments video, so it may be cut (the GT window is the longest continuous run). Overlay: 14KM/H N52.365137 E4.891943   (VIOFO A119 Mini 2, bottom left). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 116 OCR fixes over 20-595 s (2.62 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 20.0,
+      "lat": 52.380282,
+      "lon": 4.887927
+    },
+    {
+      "t_sec": 50.0,
+      "lat": 52.378996,
+      "lon": 4.886683
+    },
+    {
+      "t_sec": 80.0,
+      "lat": 52.377889,
+      "lon": 4.885697
+    },
+    {
+      "t_sec": 110.0,
+      "lat": 52.376554,
+      "lon": 4.88449
+    },
+    {
+      "t_sec": 140.0,
+      "lat": 52.375773,
+      "lon": 4.884612
+    },
+    {
+      "t_sec": 170.0,
+      "lat": 52.374398,
+      "lon": 4.884753
+    },
+    {
+      "t_sec": 200.0,
+      "lat": 52.373551,
+      "lon": 4.88629
+    },
+    {
+      "t_sec": 230.0,
+      "lat": 52.372119,
+      "lon": 4.886778
+    },
+    {
+      "t_sec": 260.0,
+      "lat": 52.370443,
+      "lon": 4.886632
+    },
+    {
+      "t_sec": 290.0,
+      "lat": 52.369572,
+      "lon": 4.886535
+    },
+    {
+      "t_sec": 325.0,
+      "lat": 52.367676,
+      "lon": 4.886354
+    },
+    {
+      "t_sec": 355.0,
+      "lat": 52.366797,
+      "lon": 4.887829
+    },
+    {
+      "t_sec": 385.0,
+      "lat": 52.366187,
+      "lon": 4.88891
+    },
+    {
+      "t_sec": 415.0,
+      "lat": 52.365202,
+      "lon": 4.891468
+    },
+    {
+      "t_sec": 445.0,
+      "lat": 52.365055,
+      "lon": 4.892478
+    },
+    {
+      "t_sec": 475.0,
+      "lat": 52.365023,
+      "lon": 4.892767
+    },
+    {
+      "t_sec": 505.0,
+      "lat": 52.364836,
+      "lon": 4.894118
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 52.364714,
+      "lon": 4.895007
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 52.364925,
+      "lon": 4.897713
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 52.365202,
+      "lon": 4.899193
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "video_id": "qgaSRWY8Aio",
+  "video_url": "https://www.youtube.com/watch?v=qgaSRWY8Aio",
+  "city": "Belgrade, Serbia",
+  "vo_segment": "230:595",
+  "description": "test5 screen pass: Belgrade, Serbia query 'Belgrade dashcam drive' rank 7. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 74 OCR fixes over 230-595 s (6.89 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 230.0,
+      "lat": 44.7187,
+      "lon": 20.4963
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 44.7161,
+      "lon": 20.4948
+    },
+    {
+      "t_sec": 270.0,
+      "lat": 44.7176,
+      "lon": 20.5012
+    },
+    {
+      "t_sec": 290.0,
+      "lat": 44.7169,
+      "lon": 20.5037
+    },
+    {
+      "t_sec": 305.0,
+      "lat": 44.7195,
+      "lon": 20.504
+    },
+    {
+      "t_sec": 325.0,
+      "lat": 44.721,
+      "lon": 20.5006
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 44.7221,
+      "lon": 20.4969
+    },
+    {
+      "t_sec": 365.0,
+      "lat": 44.7234,
+      "lon": 20.4959
+    },
+    {
+      "t_sec": 385.0,
+      "lat": 44.7262,
+      "lon": 20.4975
+    },
+    {
+      "t_sec": 405.0,
+      "lat": 44.7259,
+      "lon": 20.4921
+    },
+    {
+      "t_sec": 420.0,
+      "lat": 44.7264,
+      "lon": 20.4878
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 44.7298,
+      "lon": 20.484
+    },
+    {
+      "t_sec": 460.0,
+      "lat": 44.7335,
+      "lon": 20.4832
+    },
+    {
+      "t_sec": 480.0,
+      "lat": 44.7372,
+      "lon": 20.4856
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 44.7401,
+      "lon": 20.4863
+    },
+    {
+      "t_sec": 520.0,
+      "lat": 44.7432,
+      "lon": 20.4815
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 44.7454,
+      "lon": 20.4781
+    },
+    {
+      "t_sec": 555.0,
+      "lat": 44.7462,
+      "lon": 20.4772
+    },
+    {
+      "t_sec": 575.0,
+      "lat": 44.7486,
+      "lon": 20.4766
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 44.7494,
+      "lon": 20.4767
+    }
+  ]
+}

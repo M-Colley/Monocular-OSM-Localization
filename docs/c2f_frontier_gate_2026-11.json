@@ -1,0 +1,449 @@
+[
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "berlin_0-420",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\berlin_0-420\\rep0\\result.json",
+  "applicable": true,
+  "lead": 32,
+  "trail": 0,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "kitti_0009",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\kitti_0009\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "kitti_0033",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\kitti_0033\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "london",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\london\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_1nF_7l07i-E",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_1nF_7l07i-E\\rep0\\result.json",
+  "applicable": true,
+  "lead": 1,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_g5lnpYCk1Ec",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_g5lnpYCk1Ec\\rep0\\result.json",
+  "applicable": true,
+  "lead": 9,
+  "trail": 36,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_kxEDNj5L_yQ",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_kxEDNj5L_yQ\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_LmIHvLMLqFk",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_LmIHvLMLqFk\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 14,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_vCSEG6KaFng",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_vCSEG6KaFng\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_wJsEQTCAg1c",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_wJsEQTCAg1c\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_Wrn4_uCxRCQ",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_Wrn4_uCxRCQ\\rep0\\result.json",
+  "applicable": true,
+  "lead": 8,
+  "trail": 1,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_y66ZkRpUh4k",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_y66ZkRpUh4k\\rep0\\result.json",
+  "applicable": true,
+  "lead": 17,
+  "trail": 0,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "overlay_ZhGb8q1kliY",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\overlay_ZhGb8q1kliY\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "ulm2",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\ulm2\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary",
+  "clip": "ulm4k_0-300",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_dev_ordinary\\ulm4k_0-300\\rep0\\result.json",
+  "applicable": false,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary",
+  "clip": "overlay_-1xwoetuoOg",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary\\overlay_-1xwoetuoOg\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary",
+  "clip": "overlay_4LvkBo69jZo",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary\\overlay_4LvkBo69jZo\\rep0\\result.json",
+  "applicable": true,
+  "lead": 14,
+  "trail": 18,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary",
+  "clip": "overlay_5b-tgjtwb2U",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary\\overlay_5b-tgjtwb2U\\rep0\\result.json",
+  "applicable": true,
+  "lead": 20,
+  "trail": 0,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary",
+  "clip": "overlay_bF5IfC2ZHjQ",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary\\overlay_bF5IfC2ZHjQ\\rep0\\result.json",
+  "applicable": true,
+  "lead": 15,
+  "trail": 42,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary",
+  "clip": "overlay_iJ2JvNk4Rmk",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary\\overlay_iJ2JvNk4Rmk\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary",
+  "clip": "overlay_nsONSyk9wtc",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary\\overlay_nsONSyk9wtc\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary",
+  "clip": "overlay_zt8rHvHKBUU",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test_ordinary\\overlay_zt8rHvHKBUU\\rep0\\result.json",
+  "applicable": true,
+  "lead": 3,
+  "trail": 11,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary",
+  "clip": "overlay_0jJbdTcDseI",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary\\overlay_0jJbdTcDseI\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary",
+  "clip": "overlay_1bGf8OD9Fqo",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary\\overlay_1bGf8OD9Fqo\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 52,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary",
+  "clip": "overlay_2sS6glBBm8g",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary\\overlay_2sS6glBBm8g\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary",
+  "clip": "overlay_GnXsgpVPvww",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary\\overlay_GnXsgpVPvww\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary",
+  "clip": "overlay_HpBfjRA60ws",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary\\overlay_HpBfjRA60ws\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary",
+  "clip": "overlay_lCm2a3kOEmE",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary\\overlay_lCm2a3kOEmE\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary",
+  "clip": "overlay_XO6H3mGMKYg",
+  "result": "C:\\Users\\markc\\metro-eval\\wt-f582928\\output\\benchmark_runs\\metro_test2_ordinary\\overlay_XO6H3mGMKYg\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_5ewPAw_gIeI",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_5ewPAw_gIeI\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_5koGsNdaVvE",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_5koGsNdaVvE\\rep0\\result.json",
+  "applicable": true,
+  "lead": 6,
+  "trail": 13,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_6GciDYJ1FUc",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_6GciDYJ1FUc\\rep0\\result.json",
+  "applicable": true,
+  "lead": 12,
+  "trail": 4,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_7n4XQUBEH5Y",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_7n4XQUBEH5Y\\rep0\\result.json",
+  "applicable": true,
+  "lead": 20,
+  "trail": 0,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_8BUtb7TKUFA",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_8BUtb7TKUFA\\rep0\\result.json",
+  "applicable": true,
+  "lead": 36,
+  "trail": 0,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_G6bUX4GvSbE",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_G6bUX4GvSbE\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_HfK2LuXQtfA",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_HfK2LuXQtfA\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_K_54XHyzRn8",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_K_54XHyzRn8\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 8,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_MMKAehhi-tA",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_MMKAehhi-tA\\rep0\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary",
+  "clip": "overlay_vp_D8mxgEkA",
+  "result": "E:\\claude-scoring\\wt-test3\\output\\benchmark_runs\\metro_test3_ordinary\\overlay_vp_D8mxgEkA\\rep0\\result.json",
+  "applicable": true,
+  "lead": 46,
+  "trail": 0,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4",
+  "clip": "overlay_jkkl1QgsPSo",
+  "result": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4\\overlay_jkkl1QgsPSo\\rep0\\pipeline_out\\jkkl1qgspso-viofo-a119s-03-driving-in-sofia-bg-sofia-bulgaria\\children\\727334db6a2947c09cc1535e2c1174c0\\baseline\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 34,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4",
+  "clip": "overlay_jz6o-_Y6r2E",
+  "result": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4\\overlay_jz6o-_Y6r2E\\rep0\\pipeline_out\\jz6o-y6r2e-dashcam-albuquerque-dashcam-rove-viofo-albuquerque-new-mexico-usa\\children\\d0b9c1ed0fa64017938a2a7e496a42fc\\baseline\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4",
+  "clip": "overlay_pFbUvfr8k-Q",
+  "result": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4\\overlay_pFbUvfr8k-Q\\rep0\\pipeline_out\\pfbuvfr8k-q-trondheim-by-night-from-a-garmin-dashcam-trondheim-norway\\children\\6e5d633735504a7fb3d10d2a9a5460d5\\baseline\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4",
+  "clip": "overlay_tK7bHJXAJX8",
+  "result": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4\\overlay_tK7bHJXAJX8\\rep0\\pipeline_out\\tk7bhjxajx8-garmin-driveassist-at-night-bucharest-buzau-bucharest-romania\\children\\0137acb76c9646709c62144f509bc845\\baseline\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 23,
+  "min_run": 8,
+  "fires": true
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4",
+  "clip": "overlay_yd5g7jsWiEM",
+  "result": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4\\overlay_yd5g7jsWiEM\\rep0\\pipeline_out\\yd5g7jswiem-garmin-driveassist-51-lmt-s-buzau-bucuresti-bucuresti-romania\\children\\14951e82c42d4a01839544b0e5fc509c\\baseline\\result.json",
+  "applicable": true,
+  "lead": 0,
+  "trail": 0,
+  "min_run": 8,
+  "fires": false
+ },
+ {
+  "run": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4",
+  "clip": "overlay_ZLmQWroXthY",
+  "result": "E:\\claude-scoring\\wt-test4-v4\\output\\benchmark_runs\\assisted_v4_test4\\overlay_ZLmQWroXthY\\rep0\\pipeline_out\\zlmqwroxthy-missouri-i-435-s-to-i-70-e-in-kansas-city-detour-7-1-20-kansas-city\\children\\c98d3eda2936465ea94779b331e06f3d\\baseline\\result.json",
+  "applicable": true,
+  "lead": 8,
+  "trail": 0,
+  "min_run": 8,
+  "fires": true
+ }
+]

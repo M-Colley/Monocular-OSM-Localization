@@ -70,6 +70,7 @@ class RunContext:
     vpr_center: tuple | None = None
     vpr_track: Any = None                # (frame_idx, latlon, sims) or None
     c2f_info: dict | None = None         # coarse-to-fine record
+    vpr_listing: dict | None = None      # per-pass Mapillary tile split/loss counts
     anchor_origin: str | None = None     # which channel produced vpr_center: vpr|vlm
     vpr_source_used: str | None = None   # effective reference source after fallbacks
     result_plate_anchor: dict | None = None
@@ -129,6 +130,15 @@ class RunContext:
     anchored_cand: "MatchCandidate | None" = None
     waypoint_evals: Any = None
     anchored_eval: Any = None
+
+    capture_retrieval_audit: bool = False
+    require_retrieval_track: bool = False
+    retrieval_audits: list[dict] = field(default_factory=list)
+    assisted_city_admission: Any = None
+    assisted_child_root: Path | None = None
+    assisted_evidence: dict = field(default_factory=dict)
+    require_metric_filter: bool = False
+    validated_metric_speed: Any = None
 
     @classmethod
     def create(cls, cfg: "PipelineConfig") -> "RunContext":

@@ -1,0 +1,28 @@
+{
+  "id": "oPbnvEIRm3A",
+  "city": "Kansas City, Missouri, USA",
+  "split": "test4",
+  "attempt": 1,
+  "started_utc": "2026-11-10T22:37:53.647974+00:00",
+  "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+  "source_sha256": {
+    "scripts/build_overlay_fleet.py": "a3dbdaa18d770d1f61eea5103806c17f0080c7cf9fa02d4a697aa6675c423287",
+    "scripts/check_overlay_gt.py": "e94c82f5edda02c85515ea58ad1755f8eed4005e8446a648ec1ba0e04c3d57e1",
+    "scripts/overlay_clips.py": "726989224e465e375cd07bbf3854a1eed56173888bf05ddf71435ef3988abba9",
+    "monocular_osm/gps_overlay.py": "54de6afc8b6b77a197a6a2ff6869686b969d0393d1aa997f8aef11ef9c33cd0b",
+    "monocular_osm/scene_text.py": "2a53a01081e1a9e7558a6ca4e839369d919b9b4d0de73d18b5709945313eb42e",
+    "monocular_osm/download.py": "102ae0be6968114d5daf18714de2115a1fe5afc80d18721efac40ee53512fa70",
+    "benchmarks/test4_screen/build_one_parallel.py": "3e954871aed8250d604aaedb4dacf7220e0d92bb075ffaa0ef666bd2289ba3a4"
+  },
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "OCR_operational_settings": {
+    "ORT_intra": 2,
+    "ORT_inter": 1,
+    "weights_preprocessing_thresholds_unchanged": true
+  },
+  "status": "GT_BUILD_DECLINED",
+  "available": false,
+  "completed_utc": "2026-11-10T22:45:38.880165+00:00",
+  "qc_log_sha256": "723a8e7a1d2d75f8a4a258532812eac5e6d02586d093dfd3739bb43c8b093303"
+}

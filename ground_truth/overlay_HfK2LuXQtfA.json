@@ -1,0 +1,110 @@
+{
+  "video_id": "HfK2LuXQtfA",
+  "video_url": "https://www.youtube.com/watch?v=HfK2LuXQtfA",
+  "city": "Düsseldorf, Germany",
+  "vo_segment": "0:595",
+  "description": "Düsseldorf, a slow car convoy through the city (1 h 45 min upload). Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 111 OCR fixes over 0-595 s (2.26 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 51.238079,
+      "lon": 6.823559
+    },
+    {
+      "t_sec": 30.0,
+      "lat": 51.238737,
+      "lon": 6.822935
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 51.239844,
+      "lon": 6.824288
+    },
+    {
+      "t_sec": 95.0,
+      "lat": 51.240666,
+      "lon": 6.8255
+    },
+    {
+      "t_sec": 135.0,
+      "lat": 51.241554,
+      "lon": 6.82705
+    },
+    {
+      "t_sec": 170.0,
+      "lat": 51.241789,
+      "lon": 6.827987
+    },
+    {
+      "t_sec": 205.0,
+      "lat": 51.241667,
+      "lon": 6.829685
+    },
+    {
+      "t_sec": 235.0,
+      "lat": 51.242008,
+      "lon": 6.828825
+    },
+    {
+      "t_sec": 260.0,
+      "lat": 51.241895,
+      "lon": 6.827367
+    },
+    {
+      "t_sec": 290.0,
+      "lat": 51.241968,
+      "lon": 6.825823
+    },
+    {
+      "t_sec": 320.0,
+      "lat": 51.242106,
+      "lon": 6.824329
+    },
+    {
+      "t_sec": 350.0,
+      "lat": 51.242253,
+      "lon": 6.822462
+    },
+    {
+      "t_sec": 375.0,
+      "lat": 51.242358,
+      "lon": 6.820915
+    },
+    {
+      "t_sec": 405.0,
+      "lat": 51.242489,
+      "lon": 6.819073
+    },
+    {
+      "t_sec": 435.0,
+      "lat": 51.242643,
+      "lon": 6.81735
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 51.242944,
+      "lon": 6.815153
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 51.242921,
+      "lon": 6.813765
+    },
+    {
+      "t_sec": 525.0,
+      "lat": 51.242612,
+      "lon": 6.812707
+    },
+    {
+      "t_sec": 555.0,
+      "lat": 51.242065,
+      "lon": 6.811174
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 51.241415,
+      "lon": 6.809621
+    }
+  ]
+}

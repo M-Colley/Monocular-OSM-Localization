@@ -205,3 +205,27 @@ def test_burned_in_gps_and_speed_stamps_never_leave_the_extractor(tmp_path: Path
     again = extract_scene_text(tmp_path / "v.mp4", ocr_reader=_FakeReader([[]]),
                                cache_path=cache, frame_reader=_fake_frames([0.0]))
     assert [s.text for s in again] == places        # the cached path filters too
+
+
+def test_compact_dms_fragments_are_filtered_fresh_and_cached_without_losing_road_context(tmp_path: Path) -> None:
+    """Fabricated compact stamps; no coordinate data or actual OCR is read."""
+    from monocular_osm.scene_text import is_position_stamp
+
+    stamps = ["4025'32\"N7400'11\"W", "4025'32\"N", "7400'11\"W",
+              "N4025'32\"", "W7400'11\"", "4025’32″n7400’11″w",
+              "4025'32.4\"S 12300'11.2\"E", "GPS 4025'32N7400'11W",
+              "25'32\"N", "N25'32\"", "07'11\"W", "W07'11\""]
+    context = ["I-94 EAST", "INTERSTATE 94", "US 23", "SR 4025", "EXIT 186B",
+               "EAST", "WEST", "E", "SE", "1960's Diner", "25' Clearance", "4025 NORTH"]
+    assert all(is_position_stamp(text) for text in stamps)
+    assert not any(is_position_stamp(text) for text in context)
+    cache = tmp_path / "compact_stamps.json"
+    out = extract_scene_text(tmp_path / "synthetic.mp4",
+        ocr_reader=_FakeReader([[([], text, .99) for text in stamps + context]]),
+        frame_reader=_fake_frames([0.]), min_len=1, cache_path=cache)
+    assert [row.text for row in out] == context
+    original_cache_bytes = cache.read_bytes()
+    again = extract_scene_text(tmp_path / "synthetic.mp4", ocr_reader=_FakeReader([[]]),
+        frame_reader=_fake_frames([0.]), min_len=1, cache_path=cache)
+    assert [row.text for row in again] == context
+    assert cache.read_bytes() == original_cache_bytes  # no retroactive cache rewrite

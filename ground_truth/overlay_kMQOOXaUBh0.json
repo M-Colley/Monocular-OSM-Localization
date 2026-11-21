@@ -1,0 +1,110 @@
+{
+  "video_id": "kMQOOXaUBh0",
+  "video_url": "https://www.youtube.com/watch?v=kMQOOXaUBh0",
+  "city": "Houston, Texas, USA",
+  "vo_segment": "0:595",
+  "description": "test5 screen pass: Houston, Texas, USA query 'Houston dashcam VIOFO' rank 0. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 120 OCR fixes over 0-595 s (5.08 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": 29.737174,
+      "lon": -95.52985
+    },
+    {
+      "t_sec": 30.0,
+      "lat": 29.737231,
+      "lon": -95.525114
+    },
+    {
+      "t_sec": 65.0,
+      "lat": 29.737264,
+      "lon": -95.521875
+    },
+    {
+      "t_sec": 95.0,
+      "lat": 29.734867,
+      "lon": -95.520785
+    },
+    {
+      "t_sec": 125.0,
+      "lat": 29.730754,
+      "lon": -95.520524
+    },
+    {
+      "t_sec": 155.0,
+      "lat": 29.729297,
+      "lon": -95.52054
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 29.729297,
+      "lon": -95.52054
+    },
+    {
+      "t_sec": 220.0,
+      "lat": 29.727633,
+      "lon": -95.520654
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 29.723145,
+      "lon": -95.520557
+    },
+    {
+      "t_sec": 280.0,
+      "lat": 29.722115,
+      "lon": -95.520475
+    },
+    {
+      "t_sec": 315.0,
+      "lat": 29.721623,
+      "lon": -95.520345
+    },
+    {
+      "t_sec": 345.0,
+      "lat": 29.721627,
+      "lon": -95.520345
+    },
+    {
+      "t_sec": 375.0,
+      "lat": 29.721627,
+      "lon": -95.520345
+    },
+    {
+      "t_sec": 405.0,
+      "lat": 29.721419,
+      "lon": -95.51971
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 29.721781,
+      "lon": -95.513167
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 29.722058,
+      "lon": -95.509326
+    },
+    {
+      "t_sec": 500.0,
+      "lat": 29.722404,
+      "lon": -95.505127
+    },
+    {
+      "t_sec": 530.0,
+      "lat": 29.722689,
+      "lon": -95.501709
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 29.722888,
+      "lon": -95.499056
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 29.722624,
+      "lon": -95.494775
+    }
+  ]
+}

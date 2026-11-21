@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import hashlib
+from copy import deepcopy
+import json
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +34,8 @@ _PASS1_COVER_CAP = 3000
 # find the right district (the FINE pass still uses full density on its tight
 # disc). Cap the tokened coarse pass here so un-seeded/mega-city runs finish.
 _PASS1_TOKEN_CAP = 1200
-# Pass-2 is kept as the placement prior only if its median top-1 VPR similarity
+# Pass-2 is kept as the placement prior only if its median decoded-reference
+# VPR similarity (raw cosine at the selected reference, not necessarily argmax)
 # is within this margin of pass-1's (else pass 1 already localized better;
 # audit deepdive C2F-1 — London pass-1 0.10 km was silently overwritten).
 _C2F_SIM_MARGIN = 0.02
@@ -131,7 +135,8 @@ def _frame_coarse_seed(video_path, frames, city: str, *, want_vlm: bool = False,
                                    max_km_from_city=reach_m / 1000.0,
                                    min_places=_OCR_SEED_MIN_PLACES,
                                    route_length_m=(_auto_estimated_length_m(seg_s)
-                                                   if seg_s else None))
+                                                   if seg_s else None),
+                                   max_candidates=60)
               if reach_m is not None else None)
         if pr is not None:
             return (pr[0], pr[1], pr[2],
@@ -203,6 +208,529 @@ def select_retrieval_device(min_free_gb: float = VPR_MIN_FREE_VRAM_GB) -> str:
     return "cpu"
 
 
+def _regional_cache_directories(cfg, source):
+    """Existing extra-region caches under the selected storage root."""
+    external = getattr(cfg, "vpr_region_cache_dir", None)
+    if external is not None:
+        return (Path(external) / cfg.data_dir.name).glob(f"{source}_region_*")
+    return (cfg.data_dir / f"{source}_regions").glob("*")
+
+
+def _terminal_sparse_search(center, request, stats, reason):
+    """Distinguish a proven completed sparse listing from an ambiguous None."""
+    from ..kartaview_vpr import _fetch_signature, _sig_tag, _reference_snapshot
+    source = request.get("source")
+    snapshot = stats.get("snapshot") or {}
+    count, lost = snapshot.get("n_refs"), stats.get("lost")
+    radius = request.get("radius_m", 3000.)
+    if (source != "mapillary" or stats.get("listing_stats_known") is not True
+            or stats.get("listing") != "tiles" or stats.get("truncated", False) is not False
+            or isinstance(count, bool) or not isinstance(count, int) or not 0 <= count < 30
+            or isinstance(lost, bool) or not isinstance(lost, int) or lost != 0
+            or reason != f"only {count} {source} reference images within {radius:.0f} m (need 30)"):
+        return None
+    signature = _fetch_signature(center, radius, request.get("cap", 1500))
+    refs, metadata = [], None
+    if count:
+        directory = Path(request["cache_dir"])
+        for path in (directory / f"mly_ref_meta_{_sig_tag(signature)}.json", directory / "mly_ref_meta.json"):
+            if not path.is_file():
+                continue
+            blob = json.loads(path.read_text(encoding="utf-8"))
+            if blob.get("signature") == signature and len(blob.get("refs") or []) == count:
+                refs, metadata = blob["refs"], str(path)
+                break
+        if metadata is None:
+            return None
+    if _reference_snapshot(refs)["refs_sha256"] != snapshot.get("refs_sha256"):
+        return None
+    return {"status": "complete_empty" if count == 0 else "complete_sparse", "count": count,
+            "source": source, "fetch_signature": signature, "snapshot": deepcopy(snapshot),
+            "listing": deepcopy(stats), "reference_inventory": refs, "metadata_source": metadata,
+            "reason": "completed public listing below the existing 30-reference decoder minimum"}
+
+
+def _multi_region_vpr(cfg, frames, center, radius_m, cap, source, token, device,
+                      query_dt_s, track_fn, *, query_cache=None):
+    """Fetch independent dense regional tracks and select with temporal evidence."""
+    from .. import kartaview_vpr as kv
+    from ..location_prior import resolve_retrieval_regions
+    from ..regional_retrieval import fill_region_corridors, merge_region_tracks
+
+    regions = resolve_retrieval_regions(
+        cfg.city, getattr(cfg, "video_title", None), getattr(cfg, "video_description", None),
+        center=center, radius_m=cfg.vpr_search_radius_m,
+        max_regions=getattr(cfg, "vpr_region_cap", 6))
+    if not regions:
+        regions = [{"name": "search seed", "center": list(center),
+                    "radius_m": radius_m, "origin": "seed"}]
+    # Keep the ordinary first-pass region and its cache exactly intact. Other
+    # named regions use dense discs with their own full budget, never a sparse
+    # outer ring that dilutes the original reference set.
+    regions[0] = {**regions[0], "radius_m": radius_m}
+    regions = fill_region_corridors(
+        regions, max_regions=getattr(cfg, "vpr_region_cap", 6),
+        radius_m=cfg.vpr_search_radius_m)
+    tracks, usable_indices, records, listing = [], [], [], {}
+    for index, region in enumerate(regions):
+        region_cap = cap if index == 0 else cfg.vpr_ref_cap
+        if index == 0:
+            directory = cfg.data_dir / source
+        else:
+            identity = f"{region['name']}:{region['center']}"
+            tag = hashlib.sha256(identity.encode()).hexdigest()[:12]
+            external = getattr(cfg, "vpr_region_cache_dir", None)
+            if external is not None:
+                directory = Path(external) / cfg.data_dir.name / f"{source}_region_{tag}"
+            else:
+                directory = cfg.data_dir / f"{source}_regions" / tag
+        record = {**region, "ref_cap": region_cap, "cache": str(directory)}
+        print(f"      -> region {index + 1}/{len(regions)}: {region['name']}, "
+              f"r={region['radius_m']:.0f} m, cap={region_cap}")
+        try:
+            kv.LAST_TRACK_STATS = {}
+            track = track_fn(
+                frames.frames, tuple(region["center"]), radius_m=region["radius_m"],
+                cache_dir=str(directory), device=device, source=source, token=token,
+                cap=region_cap, sequence_decode=cfg.vpr_viterbi, query_dt_s=query_dt_s,
+                query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+                query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                query_cache=query_cache)
+            record["track_decoding"] = dict(kv.LAST_TRACK_STATS)
+            if source == "mapillary" and kv.LAST_FETCH_STATS:
+                listing[f"region_{index}"] = dict(kv.LAST_FETCH_STATS)
+            if track is None:
+                record.update(status="unavailable", reason=kv.LAST_FAILURE)
+            else:
+                record.update(status="ok", median_similarity=float(np.median(track[2])))
+                tracks.append(track)
+                usable_indices.append(index)
+        except Exception as exc:
+            record.update(status="failed", error=f"{type(exc).__name__}: {exc}")
+        records.append(record)
+    merged, evidence = merge_region_tracks(tracks, frames.timestamps)
+    if merged is not None:
+        evidence["selected_regions"] = [usable_indices[i] for i in evidence["selected_regions"]]
+        counts = [0] * len(regions)
+        for index, count in zip(usable_indices, evidence["region_frame_counts"]):
+            counts[index] = count
+        evidence["region_frame_counts"] = counts
+    diagnostics = {"experimental": True, "regions": records,
+                   "n_usable_regions": len(tracks), **evidence}
+    return merged, diagnostics, listing
+
+
+def _city_cache_directories(cfg, source):
+    """Existing city-cell reference caches under the configured storage root."""
+    external = getattr(cfg, "vpr_region_cache_dir", None)
+    if external is not None:
+        return (Path(external) / cfg.data_dir.name).glob(f"{source}_city_*")
+    return (cfg.data_dir / f"{source}_city").glob("*")
+
+
+def _city_cover_vpr(cfg, frames, baseline_track, baseline_region, source, token, device,
+                    query_dt_s, track_fn, *, query_cache=None, plan=None, kind="city",
+                    coarse_cap=None):
+    """Optional full-city hierarchy; a failed experiment retains ordinary VPR.
+
+    ``plan`` (a callable returning ``(regions, audit)``) replaces the
+    municipality cell plan, ``kind`` names the cache directories and
+    ``coarse_cap`` overrides ``cfg.vpr_city_coarse_cap``; the metro-ring search
+    uses all three. The defaults keep the municipality search unchanged.
+    """
+    from .. import kartaview_vpr as kv
+    from ..city_retrieval import (CityBoundaryTypeError, CityCoverageLimitError,
+                                  plan_city_regions, select_city_tracks)
+
+    external = getattr(cfg, "vpr_region_cache_dir", None)
+    shared_root = Path(external) if external is not None else cfg.data_dir.parent
+    listing = {}
+    baseline_backbone = kv.backbone_info()
+    expected_backbone = ((baseline_backbone.get("name"), baseline_backbone.get("hub"))
+                         if baseline_track is not None and baseline_backbone.get("name") else None)
+    diagnostics = {"experimental": True, "confidence_calibrated": False,
+                   "baseline": {**baseline_region, "track_present": baseline_track is not None,
+                                "backbone": baseline_backbone,
+                                "track_decoding": baseline_region.get("track_decoding", dict(kv.LAST_TRACK_STATS))},
+                   "selected_city_frames": 0}
+    cell_selector = getattr(cfg, "vpr_city_cell_selector", "decoded")
+    diagnostics["cell_selector"] = cell_selector
+    try:
+        if plan is None:
+            regions, plan_audit = plan_city_regions(
+                cfg.city, shared_root / "_city_boundaries", radius_m=cfg.vpr_search_radius_m)
+        else:
+            regions, plan_audit = plan()
+        diagnostics["plan"] = plan_audit
+    except Exception as exc:
+        diagnostics.update(status="failed", reason="city_plan_refused",
+                           error=f"{type(exc).__name__}: {exc}")
+        if isinstance(exc, CityCoverageLimitError):
+            diagnostics["cell_limit"] = {"required_cells": exc.required_cells,
+                                         "max_cells": exc.max_cells,
+                                         "required_cells_is_lower_bound": exc.lower_bound}
+        if isinstance(exc, CityBoundaryTypeError):
+            diagnostics.update(boundary_validation=exc.validation, boundary_source=exc.source)
+        print(f"      -> city coverage plan unavailable ({exc}); keeping ordinary retrieval")
+        return baseline_track, diagnostics, listing
+
+    def retrieve(region, *, cap, phase, index):
+        nonlocal expected_backbone
+        identity = f"{cfg.city}:{region['center']}:{region['radius_m']}"
+        tag = hashlib.sha256(identity.encode()).hexdigest()[:12]
+        if external is not None:
+            directory = Path(external) / cfg.data_dir.name / f"{source}_{kind}_{phase}_{tag}"
+        else:
+            directory = cfg.data_dir / f"{source}_{kind}" / f"{phase}_{tag}"
+        print(f"      -> {kind} {phase} cell {index + 1}/{len(regions)} "
+              f"r={region['radius_m']:.0f} m, cap={cap}")
+        kv.LAST_FETCH_STATS = {}
+        kv.LAST_FAILURE = None
+        kv.LAST_TRACK_STATS = {}
+        record = {"cache": str(directory), "source": source, "backbone": kv.backbone_info()}
+        audit = {} if cell_selector == "raw-votes" else None
+        audit_options = ({"audit": audit, "query_timestamps": np.asarray(frames.timestamps, float)}
+                         if audit is not None else {})
+        try:
+            track = track_fn(
+                frames.frames, tuple(region["center"]), radius_m=region["radius_m"],
+                cache_dir=str(directory), device=device, source=source, token=token,
+                cap=cap, sequence_decode=cfg.vpr_viterbi, query_dt_s=query_dt_s,
+                query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+                query_batch_size=getattr(cfg, "vpr_query_batch_size", 4), query_cache=query_cache,
+                **audit_options)
+        except Exception as exc:
+            record.update(error=f"{type(exc).__name__}: {exc}")
+            return None, record
+        record["backbone"] = kv.backbone_info()
+        record["track_decoding"] = dict(kv.LAST_TRACK_STATS)
+        if source == "mapillary" and kv.LAST_FETCH_STATS:
+            stats = dict(kv.LAST_FETCH_STATS)
+            listing[f"city_{phase}_{index}"] = stats
+            record["listing"] = stats
+        model = record["backbone"]
+        if track is not None and model.get("name"):
+            fingerprint = (model.get("name"), model.get("hub"))
+            if expected_backbone is not None and fingerprint != expected_backbone:
+                record["error"] = "retrieval backbone changed; cosine scores are not comparable"
+                return None, record
+            expected_backbone = fingerprint
+        if track is None:
+            record["reason"] = kv.LAST_FAILURE or "no reference track"
+        return (track, record, audit) if audit is not None else (track, record)
+
+    try:
+        merged, selection = select_city_tracks(
+            regions, baseline_track, frames.timestamps, retrieve,
+            coarse_cap=(coarse_cap if coarse_cap is not None
+                        else getattr(cfg, "vpr_city_coarse_cap", 250)),
+            fine_regions=getattr(cfg, "vpr_city_fine_regions", 3), fine_cap=cfg.vpr_ref_cap,
+            cell_selector=cell_selector)
+        diagnostics.update(selection)
+        multiplier = 3 if source == "union" else 1
+        diagnostics["reference_budget"].update(
+            cap_is_per_source=source == "union", source_multiplier_upper_bound=multiplier,
+            coarse_reference_upper_bound=selection["reference_budget"]["coarse_max"] * multiplier,
+            fine_reference_upper_bound=selection["reference_budget"]["fine_max"] * multiplier)
+        return merged, diagnostics, listing
+    except Exception as exc:
+        diagnostics.update(status="failed", reason="city_selection_failed",
+                           error=f"{type(exc).__name__}: {exc}")
+        print(f"      -> city retrieval failed ({exc}); keeping ordinary retrieval")
+        return baseline_track, diagnostics, listing
+
+
+# Metro-ring search (opt-in --vpr-metro-ring). Gate: the pre-registered
+# selective rule's threshold (benchmarks/preregistered_rules.json,
+# pipeline_selective.tau), reused unchanged: a track below it is the one the
+# rule already treats as unreliable. Cells: hex discs of this radius, each with
+# the pass-1 city disc's reference density (so 300 refs with a token).
+_METRO_RING_GATE = 0.162
+_METRO_CELL_M = 4000.0
+
+
+def metro_ring_confidence(c2f_info, vpr_track):
+    """The selective rule's confidence signal, read at runtime: the coarse-to-fine
+    pass-2 median cosine when pass 2 ran, else the kept track's median cosine."""
+    sim = (c2f_info or {}).get("pass2_sim")
+    if sim is not None and np.isfinite(float(sim)):
+        return float(sim), "vpr_coarse_to_fine.pass2_sim"
+    if vpr_track is not None and len(vpr_track[2]):
+        return float(np.median(vpr_track[2])), "vpr_prior.track_sim_median"
+    return None, None
+
+
+def metro_ring_coarse_cap(token_present: bool) -> int:
+    """References per ring cell at the pass-1 city disc's density."""
+    city_cap = _PASS1_TOKEN_CAP if token_present else _PASS1_COVER_CAP
+    return max(1, round(city_cap * (_METRO_CELL_M / _PASS1_COVER_MAX_M) ** 2))
+
+
+def _metro_ring_vpr(ctx, *, center, searched_radius_m, estimated_length_m, source, token,
+                    device, query_dt_s, track_fn, query_cache):
+    """When the ordinary track is weak, search the city's surroundings.
+
+    The drive may lie outside the disc pass 1 searched (failure mode A in
+    docs/failure_taxonomy_2026-11.md). Below the gate this covers the disc of
+    ``cfg.vpr_metro_radius_m`` around the city's geocode, minus the searched
+    disc, with the municipality search's cell hierarchy (coarse cells, densify
+    the supported ones, final continuity merge in which the ordinary track
+    stays a candidate). If ring evidence is selected, the centre moves there
+    and a coarse-to-fine pass refines it under the ordinary pass-2 rule.
+    """
+    from .. import kartaview_vpr as kv
+    from ..city_retrieval import metro_ring_regions
+    from ..kartaview_vpr import _robust_center
+
+    cfg = ctx.cfg
+    conf, signal = metro_ring_confidence(ctx.c2f_info, ctx.vpr_track)
+    record = {"experimental": True,
+              "gate": {"confidence": conf, "signal": signal, "tau": _METRO_RING_GATE}}
+    ctx.result["metro_ring_retrieval"] = record
+    if conf is not None and conf >= _METRO_RING_GATE:
+        record.update(status="not_triggered", kept="baseline")
+        print(f"      -> metro ring not needed (confidence {conf:.3f} >= {_METRO_RING_GATE})")
+        return
+    if ctx.vpr_track is not None and len(ctx.vpr_track[0]):
+        # The ordinary track in result["vpr_prior"]["track"]'s format, so the
+        # same run can be scored with and without the ring (paired comparison).
+        times = np.asarray(ctx.frames.timestamps, float)
+        record["baseline_track"] = [
+            [round(float(times[int(i)]), 2), round(float(ll[0]), 6), round(float(ll[1]), 6),
+             round(float(s), 4)] for i, ll, s in zip(*ctx.vpr_track)]
+    try:
+        import osmnx as ox
+        city_centre = tuple(map(float, ox.geocode(cfg.city)))
+    except Exception as exc:
+        record.update(status="failed", reason="city_geocode_failed", kept="baseline",
+                      error=f"{type(exc).__name__}: {exc}")
+        print(f"      -> metro ring: geocode failed ({exc}); keeping the ordinary track")
+        return
+    coarse_cap = metro_ring_coarse_cap(bool(token))
+    outer = float(cfg.vpr_metro_radius_m)
+    print(f"      -> metro ring: confidence {conf if conf is None else round(conf, 3)} < "
+          f"{_METRO_RING_GATE}; searching {searched_radius_m:.0f}-{outer:.0f} m around the city "
+          f"({_METRO_CELL_M:.0f} m cells, cap {coarse_cap})")
+
+    def plan():
+        return metro_ring_regions(cfg.city, city_centre, outer_radius_m=outer,
+                                  searched_centre=center, searched_radius_m=searched_radius_m,
+                                  cell_radius_m=_METRO_CELL_M)
+
+    baseline_region = {"center": list(map(float, center)), "radius_m": float(searched_radius_m),
+                       "source": source, "coarse_to_fine": ctx.c2f_info}
+    track, diagnostics, listing = _city_cover_vpr(
+        cfg, ctx.frames, ctx.vpr_track, baseline_region, source, token, device, query_dt_s,
+        track_fn, query_cache=query_cache, plan=plan, kind="metro", coarse_cap=coarse_cap)
+    record.update(diagnostics)
+    record["coarse_cap"] = coarse_cap
+    ctx.vpr_listing = {**(ctx.vpr_listing or {}), **listing} or None
+    if track is None or not diagnostics.get("selected_city_frames", 0):
+        record["kept"] = "baseline"
+        print("      -> metro ring: no ring evidence selected; keeping the ordinary track")
+        return
+    ring_sim = float(np.median(track[2]))
+    centre = _robust_center(track[1], track[2])
+    tight = max(float(cfg.vpr_c2f_radius_m), 0.6 * float(estimated_length_m))
+    grid = 0.0001
+    slat = round(float(centre[0]) / grid) * grid
+    slon = round(float(centre[1]) / grid) * grid
+    refine = {"center": [slat, slon], "radius_m": tight, "ring_sim": ring_sim}
+    kept = "ring"
+    try:
+        kv.LAST_TRACK_STATS = {}
+        refined = track_fn(
+            ctx.frames.frames, (slat, slon), radius_m=tight,
+            cache_dir=str(cfg.data_dir / f"{source}_metro_c2f"), device=device, source=source,
+            token=token, cap=cfg.vpr_ref_cap,
+            query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+            query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+            query_cache=query_cache, sequence_decode=cfg.vpr_viterbi, query_dt_s=query_dt_s)
+        refine["track_decoding"] = dict(kv.LAST_TRACK_STATS)
+    except Exception as exc:
+        refined = None
+        refine["error"] = f"{type(exc).__name__}: {exc}"
+    if refined is not None:
+        refine["refined_sim"] = float(np.median(refined[2]))
+        # The ordinary pass-2 rule: keep the refinement unless it loses match quality.
+        if refine["refined_sim"] >= ring_sim - _C2F_SIM_MARGIN:
+            track, centre, kept = refined, _robust_center(refined[1], refined[2]), "ring+refine"
+    ctx.vpr_track, ctx.vpr_center = track, centre
+    ctx.anchor_origin, ctx.vpr_source_used = "vpr", source
+    ctx.channel_status.pop("vpr", None)       # Recover an empty ordinary search.
+    distances = geodesic_distance_m(centre[0], centre[1], track[1][:, 0], track[1][:, 1])
+    required = max(tight, float(np.max(distances))) + _C2F_SNAP_TOL_M
+    radius = min(required, _PASS1_COVER_MAX_M)
+    ctx.osm_around = (float(centre[0]), float(centre[1]), radius)
+    record.update(kept=kept, refine=refine, selected_center=[float(centre[0]), float(centre[1])],
+                  selected_sim=float(np.median(track[2])), graph_radius_m=radius,
+                  graph_radius_capped=required > radius)
+    print(f"      -> metro ring: kept {kept} (sim {record['selected_sim']:.3f}); "
+          f"centre {centre[0]:.5f}, {centre[1]:.5f}")
+
+
+# Frontier extension of the coarse-to-fine disc (opt-in --vpr-c2f-extend).
+# A drive longer than the pass-2 disc leaves its frames at the start or end
+# decoded onto the disc's rim (failure mode C, docs/heldout_test4_2026-11.md):
+# there the track is accurate inside the disc and kilometres off outside it.
+_EXT_BAND = 0.75          # a decoded point in the outer quarter of the disc radius
+_EXT_MIN_RUN_FRAC = 0.10  # ... for a leading or trailing run of >= 10 % of the frames
+_EXT_STEP = 1.6           # next disc centre 1.6 R further out (discs overlap by 0.4 R)
+
+
+def frontier_end_runs(latlon, centre, radius_m, band=_EXT_BAND):
+    """Leading and trailing counts of track points in the outer band of a disc."""
+    ll = np.asarray(latlon, dtype=float).reshape(-1, 2)
+    if not len(ll):
+        return 0, 0
+    edge = geodesic_distance_m(float(centre[0]), float(centre[1]), ll[:, 0], ll[:, 1]) \
+        >= band * float(radius_m)
+    if edge.all():
+        return len(edge), len(edge)
+    return int(np.argmin(edge)), int(np.argmin(edge[::-1]))
+
+
+def extension_centre(points, centre, radius_m, step=_EXT_STEP):
+    """The next disc's centre: ``step`` radii from ``centre`` towards the mean of
+    ``points`` (the frontier run), or ``None`` when they sit on the centre."""
+    from ..geo import LocalFrame
+    pts = np.asarray(points, dtype=float).reshape(-1, 2)
+    if not len(pts):
+        return None
+    frame = LocalFrame(float(centre[0]), float(centre[1]))
+    x, y = frame.to_xy(pts[:, 0], pts[:, 1])
+    v = np.array([float(np.mean(x)), float(np.mean(y))])
+    norm = float(np.hypot(*v))
+    if norm < 1e-6:
+        return None
+    lat, lon = frame.to_latlon(*(v / norm * step * float(radius_m)))
+    return float(lat), float(lon)
+
+
+def _c2f_frontier_extend(ctx, *, source, token, device, query_dt_s, track_fn, query_cache,
+                         max_discs):
+    """Follow a drive past the pass-2 disc: when the start or end of the decoded
+    track runs along the disc's rim, retrieve an overlapping disc beyond it and
+    merge the regional tracks by cosine and continuity (the multi-region merge);
+    repeat at the new frontier up to ``max_discs`` extra discs. GT-free; the
+    ordinary track is recorded for paired scoring and kept when the merged
+    track loses match quality (the ordinary pass-2 rule)."""
+    from .. import kartaview_vpr as kv
+    from ..kartaview_vpr import _robust_center
+    from ..regional_retrieval import merge_region_tracks
+
+    cfg = ctx.cfg
+    info = ctx.c2f_info or {}
+    record = {"experimental": True, "band": _EXT_BAND, "step": _EXT_STEP,
+              "min_run_fraction": _EXT_MIN_RUN_FRAC, "max_discs": int(max_discs)}
+    ctx.result["c2f_extension"] = record
+    if info.get("kept") != "pass-2" or ctx.vpr_track is None or not len(ctx.vpr_track[0]):
+        record.update(status="not_applicable", kept="baseline")
+        return
+    base = ctx.vpr_track
+    n = len(base[0])
+    radius = float(info["tight_radius_m"])
+    centre0 = tuple(map(float, info.get("pass2_disc_center") or info["pass1_center"]))
+    min_run = max(3, int(np.ceil(_EXT_MIN_RUN_FRAC * n)))
+    lead, trail = frontier_end_runs(base[1], centre0, radius)
+    record["gate"] = {"lead": lead, "trail": trail, "min_run": min_run}
+    if max(lead, trail) < min_run:
+        record.update(status="not_triggered", kept="baseline")
+        print(f"      -> c2f extension not needed (rim runs {lead}/{trail} < {min_run})")
+        return
+    times = np.asarray(ctx.frames.timestamps, float)
+    record["baseline_track"] = [
+        [round(float(times[int(i)]), 2), round(float(ll[0]), 6), round(float(ll[1]), 6),
+         round(float(s), 4)] for i, ll, s in zip(*base)]
+    discs = [{"center": list(centre0), "radius_m": radius, "origin": "pass2", "status": "ok"}]
+    tracks, merged, diagnostics = [base], base, None
+    at = {"lead": 0, "trail": 0}               # the disc each end currently sits in
+    print(f"      -> c2f extension: rim runs lead {lead} / trail {trail} (>= {min_run}); "
+          f"following the drive in {radius:.0f} m discs (max {max_discs})")
+    while len(discs) - 1 < max_discs:
+        added = False
+        for end in ("lead", "trail"):
+            if len(discs) - 1 >= max_discs:
+                break
+            disc = discs[at[end]]
+            runs = frontier_end_runs(merged[1], disc["center"], radius)
+            run = runs[0] if end == "lead" else runs[1]
+            if run < min_run:
+                continue
+            points = merged[1][:run] if end == "lead" else merged[1][n - run:]
+            new = extension_centre(points, disc["center"], radius)
+            if new is None or any(geodesic_distance_m(*new, *d["center"]) < 0.5 * radius
+                                  for d in discs):
+                continue
+            entry = {"center": [new[0], new[1]], "radius_m": radius, "origin": end,
+                     "from_disc": at[end]}
+            discs.append(entry)
+            try:
+                kv.LAST_TRACK_STATS, kv.LAST_FETCH_STATS = {}, {}
+                track = track_fn(
+                    ctx.frames.frames, new, radius_m=radius,
+                    cache_dir=str(cfg.data_dir / f"{source}_c2f_ext"), device=device,
+                    source=source, token=token, cap=cfg.vpr_ref_cap,
+                    query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+                    query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                    query_cache=query_cache, sequence_decode=cfg.vpr_viterbi,
+                    query_dt_s=query_dt_s)
+                entry["track_decoding"] = dict(kv.LAST_TRACK_STATS or {})
+                if source == "mapillary" and kv.LAST_FETCH_STATS:
+                    entry["listing"] = dict(kv.LAST_FETCH_STATS)
+            except Exception as exc:
+                track = None
+                entry["error"] = f"{type(exc).__name__}: {exc}"
+            if track is None:
+                entry.setdefault("status", "unavailable")
+                continue
+            entry["status"] = "ok"
+            entry["median_similarity"] = float(np.median(track[2]))
+            tracks.append(track)
+            entry["track_index"] = len(tracks) - 1
+            at[end] = len(discs) - 1
+            candidate, diagnostics = merge_region_tracks(tracks, times)
+            if candidate is not None:
+                merged = candidate
+            added = True
+        if not added:
+            break
+    record["discs"] = discs
+    record["merge"] = diagnostics
+    base_sim, merged_sim = float(np.median(base[2])), float(np.median(merged[2]))
+    used = sum((diagnostics or {}).get("region_frame_counts", [0])[1:])
+    record.update(baseline_sim=base_sim, extended_sim=merged_sim, extension_frames=int(used))
+    if merged is base or not used or merged_sim < base_sim - _C2F_SIM_MARGIN:
+        record.update(status="ok", kept="baseline")
+        print(f"      -> c2f extension: kept the ordinary track ({len(discs) - 1} discs, "
+              f"{used} frames moved, sim {base_sim:.3f} -> {merged_sim:.3f})")
+        return
+    centre = _robust_center(merged[1], merged[2])
+    ctx.vpr_track, ctx.vpr_center = merged, centre
+    distances = geodesic_distance_m(centre[0], centre[1], merged[1][:, 0], merged[1][:, 1])
+    required = max(radius, float(np.max(distances))) + _C2F_SNAP_TOL_M
+    graph_radius = min(required, _PASS1_COVER_MAX_M)
+    ctx.osm_around = (float(centre[0]), float(centre[1]), graph_radius)
+    record.update(status="ok", kept="extended", selected_center=[float(centre[0]), float(centre[1])],
+                  graph_radius_m=graph_radius, graph_radius_capped=required > graph_radius)
+    print(f"      -> c2f extension: kept the extended track ({len(discs) - 1} discs, "
+          f"{used} frames moved, sim {base_sim:.3f} -> {merged_sim:.3f})")
+
+
+def _append_retrieval_audit(ctx, audit):
+    ordinal = len(ctx.retrieval_audits)
+    ctx.retrieval_audits.append(audit)
+    sink = getattr(ctx, "retrieval_audit_sink", None)
+    if callable(sink):
+        try:
+            sink(ordinal, audit)
+        except Exception as error:
+            # Optional evidence I/O must not turn a completed retrieval into a
+            # failed prior or change the ordinary candidate-selection rules.
+            ctx.result.setdefault("retrieval_audit_persistence_errors", []).append({
+                "ordinal": ordinal, "error": f"{type(error).__name__}: {error}"})
+
+
 def vpr_coarse_prior(ctx: RunContext) -> None:
     """Blind VPR coarse prior (street-photo retrieval) + optional coarse-to-fine.
 
@@ -224,8 +752,10 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
     ctx.vpr_center = None
     ctx.vpr_track = None
     ctx.c2f_info = None      # coarse-to-fine record, attached to result later
+    ctx.vpr_listing = None   # Mapillary listing tile counts per pass
     ctx.anchor_origin = None   # which channel produced vpr_center: vpr|vlm
     ctx.vpr_source_used = None  # effective reference source after fallbacks
+    _query_cache = {}           # descriptors live only for this video/stage
     # VPR runs whenever enabled — it re-ranks + drives anchor-primary, so it is
     # NOT conditioned on osm_around (mega-cities pass --osm-around AND want VPR).
     if cfg.use_vpr_prior:
@@ -236,6 +766,48 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
 
             import osmnx as ox
             from ..kartaview_vpr import kartaview_vpr_track, _robust_center
+            from .. import kartaview_vpr as _kv
+            if getattr(ctx, "capture_retrieval_audit", False):
+                _ordinary_track = kartaview_vpr_track
+                ctx.retrieval_audits = []
+                def kartaview_vpr_track(*args, **kwargs):
+                    # A city raw-votes caller owns this dictionary. Pass that
+                    # SAME sink through the real cache/encoder call, which can
+                    # clear it before populating actual consumed evidence.
+                    audit = kwargs.get("audit")
+                    if audit is None:
+                        audit = {}
+                    elif not isinstance(audit, dict):
+                        raise ValueError("retrieval audit sink must be a dictionary")
+                    audit.clear()
+                    request = {key: value for key, value in kwargs.items()
+                               if key not in {"token", "query_cache", "audit", "query_timestamps"}}
+                    request["center"] = list(args[1])
+                    audit.update(call_index=len(ctx.retrieval_audits), request=request)
+                    if kwargs.get("source") != "union" and not kwargs.get("outer_radius_m"):
+                        kwargs.update(audit=audit, query_timestamps=np.asarray(frames.timestamps, float))
+                    else:
+                        audit["unsupported_comparison"] = "union or outer-ring evidence"
+                    try:
+                        track = _ordinary_track(*args, **kwargs)
+                    except Exception as error:
+                        audit["provider_error"] = f"{type(error).__name__}: {error}"
+                        _append_retrieval_audit(ctx, audit)
+                        raise
+                    if track is not None:
+                        audit["returned_track"] = {"indices": np.asarray(track[0]),
+                            "latlon": np.asarray(track[1]), "cosines": np.asarray(track[2])}
+                    else:
+                        try:
+                            terminal = _terminal_sparse_search(args[1], request,
+                                deepcopy(_kv.LAST_FETCH_STATS), _kv.LAST_FAILURE)
+                            if terminal is not None:
+                                audit["terminal_search"] = terminal
+                                _kv.LAST_TRACK_STATS["terminal_search"] = deepcopy(terminal)
+                        except (OSError, ValueError, KeyError, TypeError) as error:
+                            audit["terminal_proof_error"] = f"{type(error).__name__}: {error}"
+                    _append_retrieval_audit(ctx, audit)
+                    return track
             # Prefer an explicit --osm-around centre (robust to Nominatim
             # geocode failures / ambiguous small-town names); else geocode.
             center = ((ctx.osm_around[0], ctx.osm_around[1]) if ctx.osm_around
@@ -256,7 +828,21 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                 # when there is no cache either — offline regression sweeps
                 # (cached refs + cached VO) must not silently switch source.
                 from ..kartaview_vpr import has_mapillary_cache
-                if has_mapillary_cache(str(cfg.data_dir / _vpr_src)):
+                _regional_cache = (getattr(cfg, "vpr_multi_region", False)
+                                   and any(has_mapillary_cache(str(p)) for p in
+                                           _regional_cache_directories(cfg, _vpr_src)))
+                _city_cache = (getattr(cfg, "vpr_city_cover", False)
+                               and any(has_mapillary_cache(str(p)) for p in
+                                       _city_cache_directories(cfg, _vpr_src)))
+                _metro_root = (Path(cfg.vpr_region_cache_dir) / "_metro_shared"
+                               if getattr(cfg, "vpr_region_cache_dir", None) is not None
+                               else cfg.data_dir.parent / "_metro_shared")
+                _metro_cache = (getattr(cfg, "vpr_metro_dense", False)
+                                and _metro_root.is_dir()
+                                and any(has_mapillary_cache(str(p)) for p in
+                                        _metro_root.glob("metro_mapillary_*")))
+                if (has_mapillary_cache(str(cfg.data_dir / _vpr_src))
+                        or _regional_cache or _city_cache or _metro_cache):
                     # Existence-only check: the fetch itself still verifies
                     # the cache SIGNATURE (centre/radius/cap) — if the query
                     # moved since the cache was written, refs come back empty
@@ -267,6 +853,112 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     print("      -> mapillary source needs MLY_TOKEN env var; "
                           "falling back to kartaview")
                     _vpr_src = "kartaview"
+            if getattr(cfg, "vpr_metro_dense", False):
+                from ..metro_vpr import run_metro_dense_vpr
+                if cfg.osm_around is not None and cfg.osm_around_source == "user":
+                    _metro_center = (float(cfg.osm_around[0]), float(cfg.osm_around[1]))
+                else:
+                    _metro_center = _city_centre(cfg.city, cfg.data_dir / "geocode_cache.json")
+                    if _metro_center is None:
+                        _metro_center = (
+                            (float(ctx.osm_around[0]), float(ctx.osm_around[1]))
+                            if ctx.osm_around is not None
+                            else tuple(map(float, ox.geocode(cfg.city)))
+                        )
+                _ts = np.asarray(frames.timestamps, dtype=np.float64)
+                _qn = max(min(80, len(frames.frames)) - 1, 1)
+                _qdt = float((_ts[-1] - _ts[0]) / _qn) if len(_ts) >= 2 else 4.0
+                _metro_cap = (int(cfg.vpr_pass1_cap)
+                              if getattr(cfg, "vpr_pass1_cap", None) is not None
+                              else int(getattr(cfg, "vpr_metro_cap", 24000)))
+                _shared_root = (Path(cfg.vpr_region_cache_dir) / "_metro_shared"
+                                if getattr(cfg, "vpr_region_cache_dir", None) is not None
+                                else cfg.data_dir.parent / "_metro_shared")
+                tr, _metro_diag = run_metro_dense_vpr(
+                    frames.frames,
+                    frames.timestamps,
+                    city=cfg.city,
+                    city_center=_metro_center,
+                    seed_around=ctx.osm_around,
+                    video_title=getattr(cfg, "video_title", None),
+                    video_description=getattr(cfg, "video_description", None),
+                    data_dir=cfg.data_dir,
+                    shared_cache_root=_shared_root,
+                    metro_radius_m=float(getattr(cfg, "vpr_metro_radius_m", 20000.0)),
+                    metro_cap=_metro_cap,
+                    spatial_dedup_m=float(getattr(cfg, "vpr_spatial_dedup_m", 25.0)),
+                    corridor_radius_m=float(getattr(cfg, "vpr_corridor_radius_m", 2500.0)),
+                    corridor_max_discs=int(getattr(cfg, "vpr_corridor_max_discs", 4)),
+                    corridor_disc_cap=int(getattr(cfg, "vpr_corridor_cap", 2500)),
+                    source=_vpr_src,
+                    token=_vpr_token,
+                    device=_vpr_device,
+                    query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+                    query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                    query_cache=_query_cache,
+                    sequence_decode=cfg.vpr_viterbi,
+                    query_dt_s=_qdt,
+                    auto_fallback_sources=bool(getattr(cfg, "vpr_auto_fallback_sources", True)),
+                )
+                ctx.result["metro_dense_retrieval"] = _metro_diag
+                _dec = {k: _metro_diag[k] for k in ("pass1", "pass2") if k in _metro_diag}
+                if _dec:
+                    ctx.result["vpr_decoding"] = _dec
+                _listings = {}
+                for _i, _reg in enumerate(_metro_diag.get("pass1_regions") or ()):
+                    _mly_l = (_reg.get("listings") or {}).get("mapillary")
+                    if _mly_l:
+                        _listings[f"pass1_{_i}_{_reg.get('role', 'region')}"] = _mly_l
+                for _i, _reg in enumerate(_metro_diag.get("corridor_discs") or ()):
+                    _mly_l = (_reg.get("listings") or {}).get("mapillary")
+                    if _mly_l:
+                        _listings[f"corridor_{_i}"] = _mly_l
+                if _listings:
+                    ctx.vpr_listing = _listings
+                if tr is not None:
+                    ctx.vpr_track = tr
+                    v_idx, v_ll, v_sims = tr
+                    ctx.vpr_center = _robust_center(v_ll, v_sims)
+                    ctx.anchor_origin = "vpr"
+                    _p1_info = _metro_diag.get("pass1") or {}
+                    _p2_info = _metro_diag.get("pass2") or {}
+                    ctx.c2f_info = {
+                        "pass1_center": _p1_info.get("center"),
+                        "pass2_center": _p2_info.get("center"),
+                        "kept": _metro_diag.get("kept"),
+                        "pass1_sim": _p1_info.get("median_sim"),
+                        "pass2_sim": _p2_info.get("median_sim"),
+                        "n_corridor_discs": _p2_info.get("n_corridor_discs"),
+                    }
+                    _all_regs = list(_metro_diag.get("pass1_regions") or ()) + list(
+                        _metro_diag.get("corridor_discs") or ()
+                    )
+                    _used_open = any(
+                        (_r.get("provider_counts") or {}).get("panoramax", 0) > 0
+                        or (_r.get("provider_counts") or {}).get("kartaview", 0) > 0
+                        for _r in _all_regs
+                    )
+                    ctx.vpr_source_used = (
+                        "union" if (_vpr_src == "mapillary" and _used_open) else _vpr_src
+                    )
+                    distances = geodesic_distance_m(
+                        ctx.vpr_center[0], ctx.vpr_center[1], v_ll[:, 0], v_ll[:, 1]
+                    )
+                    _tight = max(float(cfg.vpr_c2f_radius_m), 0.6 * float(estimated_length_m))
+                    _req = max(_tight, float(np.max(distances))) + _C2F_SNAP_TOL_M
+                    _g = 0.0001
+                    _slat = round(float(ctx.vpr_center[0]) / _g) * _g
+                    _slon = round(float(ctx.vpr_center[1]) / _g) * _g
+                    ctx.osm_around = (_slat, _slon, min(_req, _PASS1_COVER_MAX_M))
+                    print(f"      -> [metro-dense] VPR prior {ctx.vpr_center[0]:.5f}, "
+                          f"{ctx.vpr_center[1]:.5f} ({len(v_idx)}-frame track); "
+                          f"graph re-centred ({_slat:.4f}, {_slon:.4f}, "
+                          f"{ctx.osm_around[2]:.0f} m)")
+                else:
+                    _why = _metro_diag.get("reason") or "no reference track"
+                    print(f"      -> VPR unavailable ({_why}); keeping full-city graph")
+                    _record_channel(channel_status, "vpr", "inactive", reason=_why)
+                return
             # Never search VPR wider than the OSM graph disc: on SPARSE-coverage
             # areas (e.g. KITTI Karlsruhe) a 3 km disc dilutes the few on-route
             # refs under the ref cap and the robust-centre drifts off-route
@@ -275,8 +967,19 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
             # (London/comma) are unaffected. Floor 800 m to keep enough refs.
             _vpr_radius = cfg.vpr_search_radius_m
             _vpr_cap_eff = cfg.vpr_ref_cap
+            _vpr_outer = _vpr_outer_cap = None
             if ctx.osm_around is not None:
                 _vpr_radius = min(_vpr_radius, max(800.0, float(ctx.osm_around[2])))
+                _seed_r = float(ctx.osm_around[2])
+                if (cfg.vpr_seed_ring and cfg.vpr_coarse_to_fine
+                        and _seed_r > _vpr_radius + 1.0):
+                    # Cover the seed's own uncertainty disc, at the city-extent
+                    # mode's radius cap and token ref cap (no new constants).
+                    _vpr_outer = min(_seed_r, _PASS1_COVER_MAX_M)
+                    _vpr_outer_cap = _PASS1_TOKEN_CAP if _vpr_token else _PASS1_COVER_CAP
+                    print(f"      -> seed ring: pass 1 also searches out to "
+                          f"{_vpr_outer:.0f} m (cap {_vpr_outer_cap}) around the "
+                          f"{_seed_r:.0f} m seed disc")
             elif cfg.vpr_coarse_to_fine:
                 # City-name-only + coarse-to-fine (the deployable mode): size
                 # the COARSE pass to cover the whole municipality so a drive in
@@ -312,6 +1015,8 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                         _vpr_cap_eff = max(cfg.vpr_ref_cap, _PASS1_COVER_CAP)
                         if _vpr_token:      # dense downloads: keep it bounded
                             _vpr_cap_eff = min(_vpr_cap_eff, _PASS1_TOKEN_CAP)
+                            if getattr(cfg, "vpr_pass1_cap", None) is not None:   # opt-in dense pass 1
+                                _vpr_cap_eff = int(cfg.vpr_pass1_cap)
                         print(f"      -> coarse-to-fine: sizing pass-1 disc to "
                               f"the city extent ({_vpr_radius:.0f} m, "
                               f"cap {_vpr_cap_eff})")
@@ -330,14 +1035,35 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
             _ts = np.asarray(frames.timestamps, dtype=np.float64)
             _qn = max(min(80, len(frames.frames)) - 1, 1)
             _qdt = float((_ts[-1] - _ts[0]) / _qn) if len(_ts) >= 2 else 4.0
-            tr = kartaview_vpr_track(frames.frames, center,
-                                     radius_m=_vpr_radius,
-                                     cache_dir=str(cfg.data_dir / _vpr_src),
-                                     device=_vpr_device,
-                                     source=_vpr_src, token=_vpr_token,
-                                     cap=_vpr_cap_eff,
-                                     sequence_decode=cfg.vpr_viterbi,
-                                     query_dt_s=_qdt)
+            _multi_used = False
+            _kv.LAST_TRACK_STATS = {}
+            if getattr(cfg, "vpr_multi_region", False):
+                tr, _regional, _listing = _multi_region_vpr(
+                    cfg, frames, center, _vpr_radius, _vpr_cap_eff, _vpr_src,
+                    _vpr_token, _vpr_device, _qdt, kartaview_vpr_track,
+                    query_cache=_query_cache)
+                ctx.result["multi_region_retrieval"] = _regional
+                ctx.vpr_listing = _listing or None
+                _multi_used = _regional["n_usable_regions"] > 1
+            else:
+                tr = kartaview_vpr_track(
+                    frames.frames, center, radius_m=_vpr_radius,
+                    cache_dir=str(cfg.data_dir / _vpr_src), device=_vpr_device,
+                    source=_vpr_src, token=_vpr_token, cap=_vpr_cap_eff,
+                    sequence_decode=cfg.vpr_viterbi,
+                    query_mode=getattr(cfg, "vpr_query_mode", "warp"), query_dt_s=_qdt,
+                    query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                    query_cache=_query_cache,
+                    outer_radius_m=_vpr_outer, outer_cap=_vpr_outer_cap)
+            from .. import kartaview_vpr as _kv
+            if not getattr(cfg, "vpr_multi_region", False) and _kv.LAST_TRACK_STATS:
+                ctx.result["vpr_decoding"] = {"pass1": dict(_kv.LAST_TRACK_STATS)}
+            if (not getattr(cfg, "vpr_multi_region", False)
+                    and _vpr_src == "mapillary" and _kv.LAST_FETCH_STATS):
+                ctx.vpr_listing = {"pass1": dict(_kv.LAST_FETCH_STATS)}
+            if not getattr(cfg, "vpr_multi_region", False) and _kv.LAST_RING is not None:
+                ctx.vpr_listing = {**(ctx.vpr_listing or {}),
+                                   "pass1_ring": dict(_kv.LAST_RING)}
             if tr is not None:
                 ctx.vpr_track = tr
                 v_idx, v_ll, v_sims = tr
@@ -367,13 +1093,28 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                 # span the clip (long/fast clips would silently degrade).
                 _tight = max(float(cfg.vpr_c2f_radius_m),
                              0.6 * float(estimated_length_m))
-                if cfg.vpr_coarse_to_fine and _vpr_radius <= 1.2 * _tight:
+                if _multi_used:
+                    # Re-fetching just the median-centred disc would discard
+                    # the regional coverage this experiment is testing.
+                    distances = geodesic_distance_m(ctx.vpr_center[0], ctx.vpr_center[1],
+                                                    v_ll[:, 0], v_ll[:, 1])
+                    _regional_radius = max(_tight, float(np.max(distances))) + _C2F_SNAP_TOL_M
+                    _graph_radius = min(_regional_radius, _PASS1_COVER_MAX_M)
+                    ctx.osm_around = (float(ctx.vpr_center[0]), float(ctx.vpr_center[1]),
+                                      _graph_radius)
+                    _regional_diagnostics = ctx.result["multi_region_retrieval"]
+                    _regional_diagnostics["graph_radius_m"] = _graph_radius
+                    _regional_diagnostics["graph_radius_capped"] = (
+                        _regional_radius > _graph_radius)
+                    print("      -> regional track kept; single-centre coarse-to-fine skipped")
+                if (cfg.vpr_coarse_to_fine and not _multi_used
+                        and _vpr_radius <= 1.2 * _tight):
                     # Enabled but not fired — say why (a long route can floor
                     # _tight above the pass-1 disc, silently skipping pass 2).
                     print(f"      -> coarse-to-fine skipped: pass-1 disc "
                           f"({_vpr_radius:.0f} m) <= 1.2x tight "
                           f"({_tight:.0f} m)")
-                if (cfg.vpr_coarse_to_fine
+                if (cfg.vpr_coarse_to_fine and not _multi_used
                         and _vpr_radius > 1.2 * _tight):
                     # Snap the pass-2 centre to the 4-decimal (~11 m) grid the
                     # fetch signature + graphml filename already key on — so
@@ -394,13 +1135,22 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     _p1_center, _p1_track = ctx.vpr_center, tr
                     _p1_sim = float(np.median(v_sims)) if len(v_sims) else 0.0
                     try:
+                        _kv.LAST_TRACK_STATS = {}
                         tr2 = kartaview_vpr_track(
                             frames.frames, (_slat, _slon),
                             radius_m=_tight,
                             cache_dir=str(cfg.data_dir / f"{_vpr_src}_c2f"),
                             device=_vpr_device, source=_vpr_src,
                             token=_vpr_token, cap=cfg.vpr_ref_cap,
+                            query_mode=getattr(cfg, "vpr_query_mode", "warp"),
+                            query_batch_size=getattr(cfg, "vpr_query_batch_size", 4),
+                            query_cache=_query_cache,
                             sequence_decode=cfg.vpr_viterbi, query_dt_s=_qdt)
+                        if _kv.LAST_TRACK_STATS:
+                            ctx.result.setdefault("vpr_decoding", {})["pass2"] = dict(_kv.LAST_TRACK_STATS)
+                        if _vpr_src == "mapillary" and _kv.LAST_FETCH_STATS:
+                            ctx.vpr_listing = {**(ctx.vpr_listing or {}),
+                                               "pass2": dict(_kv.LAST_FETCH_STATS)}
                     except Exception as e:
                         tr2 = None
                         print(f"      -> coarse-to-fine fetch failed ({e})")
@@ -411,7 +1161,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                         # disc that CLIPS the true refs (route past the radius, or
                         # a slightly-off pass-1 centre) or re-fetches a sparser
                         # cold set drifts its robust centre OUTWARD and scores a
-                        # LOWER median top-1 similarity — same MegaLoc space both
+                        # LOWER median decoded-reference cosine — same MegaLoc space both
                         # passes, so it is a fair, GT-free arbiter. Keep pass 2's
                         # centre/track for placement only when it does not lose
                         # match quality (London pass-1 0.10 km -> pass-2 0.32 km
@@ -435,6 +1185,7 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                         ctx.c2f_info = {
                             "pass1_center": [float(_p1_center[0]), float(_p1_center[1])],
                             "pass2_center": [float(_p2_center[0]), float(_p2_center[1])],
+                            "pass2_disc_center": [float(_slat), float(_slon)],
                             "tight_radius_m": _tight,
                             "kept": _accepted,
                             "pass1_sim": _p1_sim, "pass2_sim": _p2_sim,
@@ -465,11 +1216,62 @@ def vpr_coarse_prior(ctx: RunContext) -> None:
                     print(f"      -> coarse-to-fine: graph tightened onto the "
                           f"pass-1 centre ({_slat:.4f}, {_slon:.4f}, "
                           f"{ctx.osm_around[2]:.0f} m)")
+                if getattr(cfg, "vpr_c2f_extend", False):
+                    _c2f_frontier_extend(
+                        ctx, source=_vpr_src, token=_vpr_token, device=_vpr_device,
+                        query_dt_s=_qdt, track_fn=kartaview_vpr_track,
+                        query_cache=_query_cache,
+                        max_discs=int(getattr(cfg, "vpr_c2f_extend_max", 6)))
             else:
                 from .. import kartaview_vpr as _kv
                 _why = _kv.LAST_FAILURE or "no reference track"
                 print(f"      -> VPR unavailable ({_why}); keeping full-city graph")
                 _record_channel(channel_status, "vpr", "inactive", reason=_why)
+            # Compare city candidates with the completed ordinary baseline,
+            # including pass 2, rather than suppressing its normal refinement.
+            _city_admitted = (getattr(cfg, "vpr_city_cover", False)
+                              and callable(getattr(ctx, "assisted_city_admission", None))
+                              and ctx.assisted_city_admission())
+            if getattr(cfg, "vpr_city_cover", False) and not _city_admitted:
+                _baseline_pass = "pass2" if (ctx.c2f_info or {}).get("kept") == "pass-2" else "pass1"
+                _baseline_decoding = (ctx.result.get("vpr_decoding") or {}).get(_baseline_pass, {})
+                if getattr(cfg, "vpr_multi_region", False):
+                    _baseline_decoding = {"kind": "regional", "details": "multi_region_retrieval.regions"}
+                _city_track, _city, _city_listing = _city_cover_vpr(
+                    cfg, frames, ctx.vpr_track,
+                    {"center": list(center), "radius_m": _vpr_radius, "ref_cap": _vpr_cap_eff,
+                     "cache": str(cfg.data_dir / _vpr_src), "source": _vpr_src,
+                     "includes_metadata_regions": getattr(cfg, "vpr_multi_region", False),
+                     "coarse_to_fine": ctx.c2f_info, "track_decoding": _baseline_decoding},
+                    _vpr_src, _vpr_token, _vpr_device, _qdt, kartaview_vpr_track,
+                    query_cache=_query_cache)
+                ctx.result["city_cover_retrieval"] = _city
+                ctx.vpr_listing = {**(ctx.vpr_listing or {}), **_city_listing} or None
+                _record_channel(channel_status, "city_cover",
+                                "failed" if _city.get("status") == "failed" else
+                                "ok" if _city.get("status") == "ok" else "inactive",
+                                reason=_city.get("reason"),
+                                selected_city_frames=_city.get("selected_city_frames", 0))
+                if _city_track is not None and _city.get("selected_city_frames", 0):
+                    ctx.vpr_track = _city_track
+                    _idx, _ll, _similarities = _city_track
+                    ctx.vpr_center = _robust_center(_ll, _similarities)
+                    ctx.anchor_origin, ctx.vpr_source_used = "vpr", _vpr_src
+                    channel_status.pop("vpr", None)       # Recover an empty ordinary region.
+                    distances = geodesic_distance_m(ctx.vpr_center[0], ctx.vpr_center[1],
+                                                    _ll[:, 0], _ll[:, 1])
+                    required = max(float(cfg.vpr_c2f_radius_m), 0.6 * float(estimated_length_m),
+                                   float(np.max(distances))) + _C2F_SNAP_TOL_M
+                    radius = min(required, _PASS1_COVER_MAX_M)
+                    ctx.osm_around = (*map(float, ctx.vpr_center), radius)
+                    _city.update(graph_radius_m=radius, graph_radius_capped=required > radius)
+                    print("      -> city track selected against the completed ordinary baseline")
+            if getattr(cfg, "vpr_metro_ring", False):
+                _metro_ring_vpr(
+                    ctx, center=center, searched_radius_m=max(float(_vpr_radius), float(_vpr_outer or 0.0)),
+                    estimated_length_m=estimated_length_m, source=_vpr_src, token=_vpr_token,
+                    device=_vpr_device, query_dt_s=_qdt, track_fn=kartaview_vpr_track,
+                    query_cache=_query_cache)
         except Exception as e:
             print(f"      -> VPR prior failed ({e}); keeping full-city graph")
             _record_channel(channel_status, 'vpr', "failed", error=e)

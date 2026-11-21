@@ -1,0 +1,110 @@
+{
+  "video_id": "MR4dqJcW4Ao",
+  "video_url": "https://www.youtube.com/watch?v=MR4dqJcW4Ao",
+  "city": "Bengaluru, India",
+  "vo_segment": "10:595",
+  "description": "test6 worldwide screen pass (asia): Bengaluru, India query '\"Bengaluru\" dashcam' rank 6. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 118 OCR fixes over 10-595 s (3.67 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 10.0,
+      "lat": 12.96432,
+      "lon": 77.75378
+    },
+    {
+      "t_sec": 40.0,
+      "lat": 12.96472,
+      "lon": 77.75542
+    },
+    {
+      "t_sec": 70.0,
+      "lat": 12.96503,
+      "lon": 77.75692
+    },
+    {
+      "t_sec": 100.0,
+      "lat": 12.96476,
+      "lon": 77.75874
+    },
+    {
+      "t_sec": 135.0,
+      "lat": 12.96484,
+      "lon": 77.76075
+    },
+    {
+      "t_sec": 165.0,
+      "lat": 12.96487,
+      "lon": 77.76241
+    },
+    {
+      "t_sec": 195.0,
+      "lat": 12.96589,
+      "lon": 77.76326
+    },
+    {
+      "t_sec": 225.0,
+      "lat": 12.96677,
+      "lon": 77.76347
+    },
+    {
+      "t_sec": 255.0,
+      "lat": 12.96764,
+      "lon": 77.76478
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 12.96938,
+      "lon": 77.76601
+    },
+    {
+      "t_sec": 320.0,
+      "lat": 12.97094,
+      "lon": 77.76769
+    },
+    {
+      "t_sec": 350.0,
+      "lat": 12.97211,
+      "lon": 77.76893
+    },
+    {
+      "t_sec": 380.0,
+      "lat": 12.97351,
+      "lon": 77.77037
+    },
+    {
+      "t_sec": 410.0,
+      "lat": 12.97443,
+      "lon": 77.77084
+    },
+    {
+      "t_sec": 440.0,
+      "lat": 12.97476,
+      "lon": 77.76995
+    },
+    {
+      "t_sec": 470.0,
+      "lat": 12.97482,
+      "lon": 77.76883
+    },
+    {
+      "t_sec": 505.0,
+      "lat": 12.97497,
+      "lon": 77.76633
+    },
+    {
+      "t_sec": 535.0,
+      "lat": 12.97515,
+      "lon": 77.76406
+    },
+    {
+      "t_sec": 565.0,
+      "lat": 12.97545,
+      "lon": 77.76203
+    },
+    {
+      "t_sec": 595.0,
+      "lat": 12.97605,
+      "lon": 77.75993
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "MR4dqJcW4Ao",
+  "pool_city": "Bengaluru, India",
+  "city": "Bengaluru, India",
+  "continent_region": "asia",
+  "split": "test6",
+  "attempt": 1,
+  "started_utc": "2026-11-20T17:42:17.585691+00:00",
+  "selection_sha256": "4c3b816e566f02cb651258dcc5b0b4243c386c1a14392957565af00fa74f3073",
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "video_path": "E:/claude-scoring/test6/data/mr4dqjcw4ao-bengaluru-rainy-evening-drive-relaxing-monsoon-drive-through-bangalo/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_MR4dqJcW4Ao.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-20T17:55:29.581339+00:00",
+  "qc_log_sha256": "24c1bd438485580606d4e26c0f017b34b6e09778a197292c8f22c5d601d4f857"
+}

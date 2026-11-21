@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -90,10 +94,12 @@ def _vo_cache_candidates(cfg: "PipelineConfig"):
     Key: ``trajectory_v2_<s>-<e>_s<stride>_f<max_frames>_vo<N>.npz`` with
     N = :data:`visual_odometry.VO_ALGO_VERSION`. Only files carrying the
     current version are loadable; a sibling with another ``max_frames``
-    suffix still qualifies when its frame count matches (checked by
-    :func:`_find_vo_cache`). Nothing outside ``cfg.data_dir`` is considered.
+    suffix is considered, but only a matching input signature may be loaded.
+    Nothing outside ``cfg.data_dir`` is considered.
     """
-    seg_key = (f"trajectory_v2_{cfg.vo_start_sec:.0f}-{cfg.vo_end_sec or 'end'}"
+    start = format(float(cfg.vo_start_sec), ".17g")
+    end = cfg.vo_end_sec if cfg.vo_end_sec is not None else "end"
+    seg_key = (f"trajectory_v2_{start}-{end}"
                f"_s{cfg.frame_stride}")
     suffix = f"_vo{VO_ALGO_VERSION}"
     canonical = cfg.data_dir / f"{seg_key}_f{cfg.max_frames or 'auto'}{suffix}.npz"
@@ -104,14 +110,59 @@ def _vo_cache_candidates(cfg: "PipelineConfig"):
     return canonical, siblings, stale
 
 
-def _find_vo_cache(candidates: list, n_frames: int):
-    """First VO cache file whose frame count matches, or ``None``.
+def _vo_input_signature(cfg: "PipelineConfig", video_path: Path, frames) -> str:
+    """Exact identity of the decoded inputs and the parameters that selected them.
 
-    Every candidate — including the canonical key — must PASS the shape
-    check; a stale canonical cache from a different stream (fps change on
-    re-download) must be recomputed, not loaded. Probes are opened with a
-    context manager so no npz handle stays open (an open handle blocks
-    deleting/renaming the file on Windows).
+    File metadata catches replaced/re-downloaded sources cheaply. Hashing every
+    sampled frame also catches same-size replacements with preserved mtimes and
+    decoder changes. No second video read or giant concatenated buffer is needed.
+    Numerical-library versions and worker settings also identify the actual
+    estimator. Unsigned legacy caches cannot establish this identity.
+    """
+    import cv2
+
+    video = Path(video_path).resolve()
+    source = {"path": os.path.normcase(str(video))}
+    try:
+        stat = video.stat()
+        source.update(size=stat.st_size, mtime_ns=stat.st_mtime_ns)
+    except OSError:
+        source.update(size=None, mtime_ns=None)
+    digest = hashlib.sha256()
+    for frame in frames.frames:
+        array = np.ascontiguousarray(frame)
+        digest.update(json.dumps([array.shape, array.dtype.str]).encode("ascii"))
+        digest.update(memoryview(array).cast("B"))
+    timestamps = np.asarray(frames.timestamps, dtype="<f8")
+    signature = {
+        "schema": 2,
+        "vo_algo_version": VO_ALGO_VERSION,
+        "odometry_runtime": {"numpy": np.__version__, "opencv": cv2.__version__,
+                             "workers": getattr(cfg, "vo_workers", None)},
+        "video": source,
+        "extraction": {
+            "start_sec": float(cfg.vo_start_sec),
+            "end_sec": float(cfg.vo_end_sec) if cfg.vo_end_sec is not None else None,
+            "stride": cfg.frame_stride,
+            "max_frames": cfg.max_frames,
+            "frame_max_width": getattr(cfg, "frame_max_width", None),
+            "frame_memory_mb": getattr(cfg, "frame_memory_mb", 512),
+            "fps": float(frames.fps),
+            "total_frames": frames.total_frames,
+            "n_frames": len(frames.frames),
+            "timestamps_sha256": hashlib.sha256(timestamps.tobytes()).hexdigest(),
+        },
+        "frames_sha256": digest.hexdigest(),
+    }
+    return json.dumps(signature, sort_keys=True, separators=(",", ":"))
+
+
+def _find_vo_cache(candidates: list, n_frames: int, *, signature: str | None = None):
+    """First valid matching cache, or ``None``.
+
+    The pipeline always supplies a signature: legacy, mismatched, malformed or
+    truncated caches are misses. The optional shape-only form is retained for
+    callers that inspect old cache inventories; it is never used to load VO.
     """
     for candidate in candidates:
         if not candidate.exists():
@@ -119,11 +170,39 @@ def _find_vo_cache(candidates: list, n_frames: int):
         try:
             with np.load(candidate) as z_probe:
                 shape_ok = z_probe["valid"].shape[0] == n_frames
+                if signature is not None:
+                    if (str(z_probe["cache_signature"].item()) != signature
+                            or int(z_probe["vo_algo_version"]) != VO_ALGO_VERSION):
+                        continue
+                    shapes = {"centers": (n_frames, 3), "xz": (n_frames, 2),
+                              "valid": (n_frames,), "n_inliers": (n_frames,),
+                              "rotations": (n_frames, 3, 3),
+                              "translations": (n_frames, 3)}
+                    shape_ok = all(z_probe[key].shape == shape
+                                   and np.isfinite(z_probe[key]).all()
+                                   for key, shape in shapes.items())
         except Exception:
             continue
         if shape_ok:
             return candidate
     return None
+
+
+def _save_vo_cache(path: Path, traj: Trajectory, signature: str) -> None:
+    """Replace a cache only after the complete archive has been written."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".",
+                                     suffix=".npz", delete=False) as handle:
+        temporary = Path(handle.name)
+    try:
+        np.savez(temporary, centers=traj.centers, xz=traj.xz, valid=traj.valid,
+                 n_inliers=np.asarray(traj.n_inliers), rotations=traj.rotations,
+                 translations=traj.translations,
+                 vo_algo_version=np.int64(VO_ALGO_VERSION),
+                 cache_signature=np.array(signature))
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def run_visual_odometry(ctx: RunContext) -> None:
@@ -152,12 +231,11 @@ def run_visual_odometry(ctx: RunContext) -> None:
               f"(current VO_ALGO_VERSION={VO_ALGO_VERSION}): "
               f"{', '.join(q.name for q in stale[:3])}")
 
-    # Every candidate — including the canonical key — must PASS the
-    # frame-count shape check before it may be loaded. A stale canonical
-    # cache (same key, different stream fps after a re-download) used to
-    # slip through and misassociate poses with frames downstream.
+    # A matching frame count alone says nothing about the video's pixels,
+    # calibration or precise sampling window. Verify all decoded inputs.
+    signature = _vo_input_signature(cfg, video_path, frames)
     ctx.vo_cache = _find_vo_cache([vo_cache_canonical, *sibling_caches],
-                                  len(frames.frames))
+                                  len(frames.frames), signature=signature)
 
     if ctx.vo_cache is not None:
         print(f"[3/5] Loading cached trajectory: {ctx.vo_cache}")
@@ -181,17 +259,7 @@ def run_visual_odometry(ctx: RunContext) -> None:
         ctx.n_valid = int(ctx.traj.valid.sum())
         print(f"      -> {ctx.n_valid}/{len(ctx.traj.valid)} valid relative poses, "
               f"trajectory shape {ctx.traj.xz.shape}")
-        ctx.vo_cache.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(
-            ctx.vo_cache,
-            centers=ctx.traj.centers,
-            xz=ctx.traj.xz,
-            valid=ctx.traj.valid,
-            n_inliers=np.asarray(ctx.traj.n_inliers),
-            rotations=ctx.traj.rotations,
-            translations=ctx.traj.translations,
-            vo_algo_version=np.int64(VO_ALGO_VERSION),
-        )
+        _save_vo_cache(ctx.vo_cache, ctx.traj, signature)
     if cfg.use_ground_flow_scale:
         ctx.traj = _apply_ground_flow_scale(ctx.traj, video_path, frames, cfg)
     _plot_trajectory(ctx.traj, cfg.output_dir / "trajectory.png")

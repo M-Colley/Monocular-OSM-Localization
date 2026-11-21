@@ -1,0 +1,7 @@
+{
+  "amendment": "test6 screen operational amendment 02",
+  "recorded_utc": "2026-11-20T06:14:00+00:00",
+  "before": "zero localization or scoring has been executed on any test6 clip (1 clip URC3D7Xzpq0 in Kuala Lumpur, Malaysia passed QC so far)",
+  "problem": "1) Single non-seekable streams caused 3 process-level UNVERIFIED_FRAMES retries on top of section_fixes's internal 3-open retry, tripping drive.py's MAX_INFRA_STREAK=4 after two consecutive non-seekable videos in Santiago. 2) Generic '{city} dashcam' YouTube queries predominantly return GoPro/mirrorless driving tours without burned-in GPS overlays, whereas hardware GPS-overlay models (VIOFO, 70mai, Garmin, Nextbase, Rove) burn coordinates by default.",
+  "change": "1) Since section_fixes already retries opening each stream 3 times with --js-runtimes node, mark non-seekable streams FRAMES_UNREADABLE directly and reserve exit 75 for genuine bot-check / network / geocode errors (raising drive.py MAX_INFRA_STREAK to 20). 2) After completing all initial queries and the 92 Amendment-01 1080p rechecks, for any continent still below its continent_quota, run a fixed supplementary pass of hardware GPS-dashcam queries ('{word} VIOFO dashcam', '{word} 70mai dashcam', '{word} Garmin dashcam', '{word} Nextbase dashcam', '{word} Rove dashcam') in the exact registered city_order (thumbnail-first screen + 1080p verification, unchanged >=2-of-3 within 40 km and GT QC rules)."
+}

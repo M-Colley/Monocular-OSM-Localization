@@ -1,0 +1,33 @@
+{
+  "id": "yd5g7jsWiEM",
+  "city": "Bucharest, Romania",
+  "split": "test4",
+  "attempt": 1,
+  "started_utc": "2026-11-10T22:22:12.237733+00:00",
+  "selection_sha256": "22de6f10bdde625f7c3306910650f7b2b54ca80d4d8c911a2052b6e813c6d195",
+  "source_sha256": {
+    "scripts/build_overlay_fleet.py": "a3dbdaa18d770d1f61eea5103806c17f0080c7cf9fa02d4a697aa6675c423287",
+    "scripts/check_overlay_gt.py": "e94c82f5edda02c85515ea58ad1755f8eed4005e8446a648ec1ba0e04c3d57e1",
+    "scripts/overlay_clips.py": "726989224e465e375cd07bbf3854a1eed56173888bf05ddf71435ef3988abba9",
+    "monocular_osm/gps_overlay.py": "54de6afc8b6b77a197a6a2ff6869686b969d0393d1aa997f8aef11ef9c33cd0b",
+    "monocular_osm/scene_text.py": "2a53a01081e1a9e7558a6ca4e839369d919b9b4d0de73d18b5709945313eb42e",
+    "monocular_osm/download.py": "102ae0be6968114d5daf18714de2115a1fe5afc80d18721efac40ee53512fa70",
+    "benchmarks/test4_screen/build_one_parallel.py": "3e954871aed8250d604aaedb4dacf7220e0d92bb075ffaa0ef666bd2289ba3a4"
+  },
+  "localization_executed": false,
+  "new_labels_restricted_to_data_qc": true,
+  "OCR_operational_settings": {
+    "ORT_intra": 2,
+    "ORT_inter": 1,
+    "weights_preprocessing_thresholds_unchanged": true
+  },
+  "video_path": "data/test4/yd5g7jswiem-garmin-driveassist-51-lmt-s-buzau-bucuresti/input_0-600.mp4",
+  "gt_path": "ground_truth/overlay_yd5g7jsWiEM.json",
+  "plausibility_passed": true,
+  "route_at_least_500m": true,
+  "download_duration_s": 600.0,
+  "status": "AVAILABLE_GT_QC_PASSED",
+  "available": true,
+  "completed_utc": "2026-11-10T22:35:26.252214+00:00",
+  "qc_log_sha256": "ad2997d60c7735190f48e43e9fecd34b2f697ae70d582bb1dbf197b0dc7af74c"
+}

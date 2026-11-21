@@ -1,10 +1,10 @@
 # October 2026 experiments: where the failures come from, and three new methods
 
-Four questions, each answered on the exact data benchmark run v2 used (its
+The first experiments answer questions on the exact data benchmark run v2 used (its
 cold-run archives: the Mapillary metadata and pixels each rep downloaded, read
-only), with ground truth used for scoring only. Nothing below was tuned on the
-clips it is reported on, and the one test with a decision rule was registered
-before its test data were scored (`benchmarks/preregistered_rules.json`).
+only), with ground truth used for scoring only. Later sections identify their
+own data pools and distinguish registered tests from post-hoc development
+experiments. Registered decision rules are in `benchmarks/preregistered_rules.json`.
 
 ## 1. Most core failures happen before retrieval: the search disc misses the route
 
@@ -206,3 +206,776 @@ the retrieval-free path fails at the odometry, as it did on KITTI before the
 road-plane speed; making it work on dashcams needs a VO that keeps its poses
 and a scale estimate robust to unknown mounting, not a better map matcher.
 
+## 7. Denser first-pass references (pilot): coverage is not enough on KITTI
+
+`scripts/dense_retrieval_pilot.py`: the same 8 km first-pass disc as v2 for
+KITTI 0009, searched with one reference per 75 m (the pipeline's own fetcher
+listed 498,575 images; sha1-ordered thinning kept 8,610; no ground truth),
+embedded exactly as the pipeline does, against v2's 1,200-image set on the
+same 80 query frames:
+
+| | v2 set (1,200) | Dense (8,610) |
+|---|---|---|
+| Queries with a reference within 50 m | 3 % | **76 %** |
+| Top-1 within 50 m / within 100 m | 0 % / 0 % | 0 % / 0 % |
+| Top-5 within 50 m | 0 % | 1.3 % |
+| Retrieval-centre error | 4,457 m | 2,649 m |
+
+Density fixes coverage but not retrieval: for the 59 queries with a correct
+reference nearby, the best correct one ranks at a median of **3,203 of 8,610**
+(10th percentile 333; only 7 % within the top 100). MegaLoc does not recognise
+2011 KITTI frames in present-day Mapillary photos at all, so no re-ranking or
+sequence decoding over this list can find them. On KITTI the binding problem
+is appearance, and only the retrieval-free particle filter has localized it
+(drive 0033, section 4 and docs/graph_filter_kitti.md). A second pilot on a
+daytime dashcam clip (Detroit `1nF_7l07i-E`) tests whether density helps where
+the footage is modern.
+
+
+## 8. The Detroit pilot found that the reference pool was incomplete everywhere
+
+The Detroit pilot never tested density: the pipeline's fetcher listed 195,428
+images in the 8 km disc, and **none within 250 m of the route**, although direct
+small queries find 45-50 images near every route point. The pool was listed
+with Mapillary's Graph API bbox search, which answers HTTP 500 "Please reduce
+the amount of data you're asking for" for a box it cannot scan in time (probed
+downtown: 130 m and 270 m boxes answer, 530 m and 1 km do not). For an 8 km disc
+the fetcher coarsens its boxes to ~540 m and dropped every rejected box
+silently; only 356 of 900 returned anything, and the empty ones were the dense
+centre:
+
+```
+old Detroit listing, 533 m cells over the 16 km box ('#' > 500 images, '+' some, '.' none)
+..#..##+##+##++#+####.##++...#
+......+#########+##.#+#..#+...
+......+#+...###+......+.......
+............+##+......#++.+..+     <- the city centre (disc centre) is empty
+............##+.........##++.#
+```
+
+**First fix (commit `0a1c771`): split rejected boxes.** Up to four levels of
+quarters, one retry for other failures, lost boxes counted. Detroit's disc
+then listed 2,148,149 images (22 min). Benchmark run v5 used it and was
+stopped after five clips, because the Graph search turned out to be unreliable
+beyond the rejections:
+
+* In Berlin it rejects boxes down to **16 m** (532 rejections in one 2 km
+  listing; 87 boxes still lost after splitting), so splitting cannot finish.
+* Answers it does give are **silently truncated**: the same 100 m Berlin box
+  returned 339, 34 or 22 images depending only on the page size requested.
+* Karlsruhe, with no error at all, listed 498,876 images of the 836,869 its
+  coverage tiles hold.
+
+**Second fix (commit `bf2b83c`): list from the coverage tiles.** Mapillary's
+zoom-14 vector tiles (`mly1_public`, layer `image`) list every image of a
+~1.5 km tile, with id and position, in one response. They are decoded by
+`monocular_osm/mvt.py` (on `protobuf`; GDAL's MVT driver via pyogrio decodes
+the same 135,313 points of an 8 MB tile identically but refuses tiles over
+10 MiB, which dense downtown tiles exceed), and thumbnail URLs are looked up by
+id for the kept sample only. Pass 1 on Detroit now takes 69 s at 2.1 GB peak
+memory.
+
+| Detroit `1nF_7l07i-E`, 8 km disc | Original listing | Split boxes (v5) | Coverage tiles (v6) |
+|---|---|---|---|
+| Images listed | 195,428 | 2,148,149 | **7,126,059** |
+| Time | minutes | 22 min | **38 s** |
+| Route within 50 m of any listed image | 0 % | 80 % | **100 %** |
+| Route within 50 m / 250 m of the 1,200 kept | 0 % / 0 % | 25 % / 95 % | 15 % / 85 % |
+| ... of 3,000 kept | 0 % / 0 % | 40 % / 100 % | 15 % / 100 % |
+
+The last two rows are a caveat, not a regression: the kept sample (lowest
+sha1 of the id, i.e. uniform over images) follows image density, and the
+complete pool includes the heavily re-photographed spots that the time-outs
+had happened to flatten. Spreading the sample over space instead does not
+help, as section 1 found at 3 km. Over the complete pools of ten dev discs at
+the same cap, one image per grid cell (sha1-lowest in each cell, cells grown
+until at most `cap` are occupied: 107-448 m) covers the route within 250 m
+better on 1 disc, worse on 5, equally on 4, and within 50 m worse on 7: drives
+go where the photos are, so the density-following sample stays.
+
+**v5, the five clips it ran (split-box listing):** Ulm 4K 27 m (v3: 24),
+Ulm #2 79 m (142), Berlin 692 m (789), London 19 m (18), KITTI 0009 5,346 m
+(5,346, identical: its listing had no rejected box and the same sample). The
+changes on Ulm #2 and Ulm 4K, whose listings had no rejected box either, come
+from Mapillary's data changing between the runs, not from the fix. v6
+re-measures every dev clip with the coverage-tile listing and nothing else
+changed (the particle filter is opt-in; the new speed options default to the
+old behaviour).
+
+A second, separate failure shows in the archived references
+(`scripts/pass1_coverage.py`): when the title or a plate gives a seed, pass 1
+searches only 3 km around it, although the seed is trusted to 6 km (title) or
+20 km (plate). The route lies inside that 3 km core for 0 % of Atlanta
+`kxEDNj5L_yQ` (100 % inside 8 km), 0 % of KITTI 0033 (plate seed) and 38 % of
+Berlin. Widening the disc would thin the ~1,500 references 4-5 times on the
+seeded clips that work (London 18 m, Ulm #2 142 m). `--vpr-seed-ring` (commit
+`c02334c`, off by default) instead adds a sparse ring out to the seed radius
+at the city-extent mode's caps and keeps the core set unchanged; its adoption
+rule (`seed_ring` in `benchmarks/preregistered_rules.json`) was fixed before
+any ring run: adopt only if no seeded clip within 200 m without the ring gets
+worse than 200 m with it, and at least one gets better than 200 m or more
+improve than worsen. (Amended 2026-10-25, before any ring run, to compare v7
+with v6 rather than v6 with v5, so both share the coverage-tile listing.)
+
+Phoenix (`wJsEQTCAg1c`) is out of reach of both: its title names five
+municipalities of the metro area (Tempe, Scottsdale, Chandler, Gilbert,
+Queen Creek), the analysis window drives in Scottsdale/Tempe 15 km from the
+Phoenix centroid, outside the 8 km city disc, and no single seed disc built
+from the five names contains it (their median lies ~19 km from the route).
+Only searching each named place separately could reach it; not attempted.
+
+## 9. v6: the complete reference pool, end to end
+
+Benchmark run v6 (commit `d87fb20`, all 15 dev clips, one cold rep each, CPU
+retrieval) changes only the listing (section 8). Chicago `vCSEG6KaFng` failed
+three times on an overloaded Overpass server (an infrastructure failure: "all
+query workers are busy") and was rerun once it recovered. Symmetric route
+error in metres; P is the pipeline's route (`result.position`), T the
+retrieval track as a route (`baselines.vpr_track_only`, saved by runs since
+`f4f914b`), C the route checked against the track (`baselines.track_checked`);
+P, T and C are the candidates of the pre-registered `answer_selection` rule,
+registered after the first five v6 clips (disclosed in the rule).
+
+| Clip | v3/v4 | P | T | C | City centre |
+|---|---|---|---|---|---|
+| Ulm 4K | 24 | 36 | **15** | 36 | 445 |
+| Ulm #2 | 142 | 106 | **46** | 106 | 350 |
+| London | 18 | **22** | 62 | 22 | 1,501 |
+| Berlin | 789 | 695 | **135** | 135 | 909 |
+| KITTI 0009 | 5,346 | 3,608 | 3,735 | 3,608 | **2,563** |
+| KITTI 0033 | 6,830 | 7,110 | 7,004 | 7,110 | **6,709** |
+| Chicago `vCSEG6KaFng` | 41 | **49** | 169 | 49 | 1,924 |
+| Chicago `LmIHvLMLqFk` | 254 | 177 | **133** | 177 | 1,230 |
+| Phoenix `wJsEQTCAg1c` | 13,772 | 18,507 | 18,644 | 18,644 | **14,802** |
+| Detroit `ZhGb8q1kliY` | 7,442 | 77 | **55** | 77 | 403 |
+| Detroit `1nF_7l07i-E` | 6,471 | 395 | **77** | 77 | 491 |
+| Detroit `g5lnpYCk1Ec` | 8,803 | 2,045 | **1,573** | 1,573 | 8,206 |
+| Atlanta `y66ZkRpUh4k` | 6,748 | 6,870 | 6,590 | 6,870 | **2,958** |
+| Atlanta `kxEDNj5L_yQ` | 6,829 | **5,485** | 6,024 | 5,485 | 7,280 |
+| Newcastle `Wrn4_uCxRCQ` | 362 | 342 | **35** | 342 | 887 |
+| **Within 200 m** | 4 / 15 | 6 / 15 | **9 / 15** | 8 / 15 | 0 / 15 |
+| **Median** | 5,346 | 395 | **135** | 177 | 1,501 |
+
+* **The complete pool is the largest single change in this project's
+  history on the dev clips:** two Detroit clips go from 7.4 and 6.5 km to
+  77 m and 395 m (77 m as a track), Chicago `LmIHvLMLqFk` from 254 to 177 m.
+  Clips whose earlier pools were complete move within run-to-run noise.
+* **The retrieval track is a better answer than the trajectory fit on most
+  clips that retrieval locates.** Berlin's track has the same per-frame
+  accuracy as London's (median 102 vs 103 m, 76 % vs 91 % of frames within
+  250 m), but the fit turns it into a 695 m route; the track itself scores
+  135 m. Newcastle: 342 m fit, 35 m track. The fit wins where it is precise
+  (London 22 m, Chicago `vCSEG6KaFng` 49 m, a clip with only 42 % of VO
+  poses valid where the track is 169 m).
+* **What remains is three kinds of failure, none of them retrieval
+  ranking among good references:** the route lies outside the searched disc
+  (Phoenix: Scottsdale/Tempe, 15 km from the Phoenix centroid; Detroit
+  `g5lnpYCk1Ec`, "Detroit to Roseville", 80 % of the window outside the
+  8 km disc); a seed's 3 km core misses the route (Atlanta `kxEDNj5L_yQ`,
+  KITTI 0033: the seed-ring test, v7); or footage the street imagery does not
+  resemble (KITTI's 2011 drives; Atlanta `y66ZkRpUh4k` is filmed at night,
+  and its pass-1 sample has a reference within 250 m of the whole route).
+  Every failing clip's track is kilometres off rather than near-misses, and
+  the retrieval similarity separates them only weakly (median top-1 cosine
+  0.105-0.154 on failures against 0.159-0.268 on successes).
+
+## 10. Two pre-registered decisions, and the frozen method
+
+**Seed ring (rule `seed_ring`, run v7 = v6 + `--vpr-seed-ring`, the six
+seeded dev clips).** Symmetric error of the pipeline's route:
+
+| Clip | v6 | v7 (ring) | Ring |
+|---|---|---|---|
+| Berlin | 695 | 695 | to 6 km, +886 refs |
+| London | 22 | 22 | to 6 km, +403 |
+| Ulm #2 | 106 | 106 | to 8 km, +808 |
+| Newcastle | 342 | 342 | to 5.9 km, +1,070 |
+| Atlanta `kxEDNj5L_yQ` | 5,485 | **1,969** (track 6,024 -> 1,153) | to 6 km, +906 |
+| KITTI 0033 | 7,110 | 13,103 | to 8 km, +1,055 |
+
+S1 (no clip within 200 m breaks) holds; S2 fails (none crosses to within
+200 m; one better, one worse, four unchanged). **Not adopted.** On the four
+clips whose route lies in the core, the ring's extra references never won a
+retrieval, which is the cheap half of the result; on Atlanta it found the
+right part of the city for a quarter of the frames (24 % of the track within
+250 m, from 0 %), not enough for a route.
+
+**Answer (rule `answer_selection`, v6, all 15 dev clips).** Within 200 m:
+the fit 6, the track 9, the checked fit 8 (medians 395 / 135 / 177 m). **The
+retrieval track is selected:** from commit `ccd0bbe` the pipeline writes it
+to `result["answer"]` by default (`--answer track`; the fit when retrieval
+found nothing), and `result["position"]` stays the trajectory fit.
+
+**Frozen method for the held-out clips:** commit `ccd0bbe` defaults, run once
+as `test1` on the seven `split=test` clips under rule `test_split_2026_10`.
+
+## 11. Reliability fixes and the full development target
+
+The development target is all 15 registered, locally available dev clips within
+200 m symmetric mean route error. Run v6's retrieval track remains the measured
+baseline: 9/15, median 135 m. No new accuracy result is claimed by the code fixes.
+
+Selected-answer console/maps now agree with `result.answer`; atomic retrieval
+checkpoints survive later geometry failures; `--retrieval-only` skips geometry;
+frame memory is bounded; VO caches identify their actual video/extraction;
+reference metadata retains listing completeness on warm use. The evaluator now
+counts failures and interrupted planned repeats, checks effective configuration
+and environment, and reports the 200 m threshold explicitly.
+
+Two opt-in development experiments are available. `--vpr-multi-region` searches
+verified names from uploader metadata as separate dense discs, with independent
+reference budgets and continuity-based evidence selection. `--vpr-query-mode`
+compares the original `warp` preprocessing with `crops` and `aspect`. The query
+pilot in `scripts/pilot_query_preprocessing.py` fixes its modes and reference
+sets before inference; its inference phase never reads ground truth, and offline
+scoring is separate. A cached pilot is not an end-to-end benchmark result.
+
+`scripts/check_dev_goal.py` audits all registered dev IDs, selected-answer scores,
+finite completed repeats, code/environment provenance and the GT-input audit.
+It exits nonzero until the complete target is proved. Frozen test1 predictions
+remain separate: existing retry processes may still be active, so any interim
+reanalysis is a provisional snapshot rather than a final held-out result.
+
+### Query preprocessing pilot (fixed cached pools)
+
+`scripts/pilot_query_preprocessing.py` compared all three fixed query variants,
+then scored saved predictions in a separate process. Symmetric route error:
+
+| Fixed pool | Warp | Three square crops | Native aspect |
+|---|---:|---:|---:|
+| KITTI 0009, dense 75 m pilot (8,610 refs) | 2,151 m | 2,095 m | 1,643 m |
+| Atlanta night, archived v2 local 3 km pool (1,500 refs) | 1,160 m | 178 m | 1,151 m |
+
+The KITTI pool covers 75.6% of query locations within 50 m, but all variants
+have zero R@1 within 50 m. Changing query proportions does not resolve its
+historical appearance mismatch. The Atlanta crop result is promising within
+this local pool, but the pool is not v6's city-wide search. It is not an
+end-to-end repair of that failure. Crops cost about 216 CPU seconds versus 74
+for warp on Atlanta (four threads, batches of two).
+
+A disclosed post-hoc saved-matrix experiment (`scripts/pilot_vpr_hubness.py`)
+subtracts each reference's mean similarity over queries. It improves Atlanta
+warp to 165 m without extra forwards; KITTI remains well outside 200 m. These
+are development diagnostics, not a new default or a full-fleet accuracy claim.
+
+### Regional coverage probe
+
+Metadata-only plans were saved and fingerprinted before offline GT scoring.
+The six-disc budget retains the original pass-1 disc and adds independently
+verified places from uploader metadata. A separate post-hoc plan fills spare
+budget along a minimum spanning tree connecting the same named places.
+
+| Dev clip | Original disc | Named places | Plus connecting corridors |
+|---|---:|---:|---:|
+| Phoenix | 0% | 100% | 100% |
+| Detroit to Roseville | 26.8% | 26.8% | 26.8% |
+| Atlanta (`kxEDNj5L_yQ`) | 0% | 40.8% | 83.8% |
+
+Coverage is the fraction of the registered route inside the search union,
+not retrieval accuracy. No images were downloaded or embedded. The planner
+uses no GT; the exploratory artifact discloses a prior view of the Phoenix GT
+header while inspecting its file format. Detroit remains outside the straight
+named-place corridor, so broad city coverage still needs work. The probe is
+reproducible with `scripts/probe_region_plans.py`; original and corridor plans
+are saved separately and never overwritten.
+
+A subsequent city-only grid (`scripts/probe_city_coverage.py`) covers Detroit's
+entire cached municipal polygon with 27 discs of radius 3 km. Frozen before
+offline scoring, it covers 100% of the registered route, versus 26.8% for the
+named-place plan. The route is inside Detroit but west of the original disc;
+the title's Roseville clue points northeast. No imagery was used in this probe.
+The opt-in `--vpr-city-cover` implementation searches every cell coarsely and
+densifies supported cells. Its geographic opportunity is measured; its image
+retrieval accuracy is not yet established.
+
+### Municipality coverage across registered dev cities
+
+`scripts/probe_municipality_fleet.py` froze plans for every distinct city string
+in all 18 registered dev clips, including the three clips whose videos are
+unavailable. Its separate scoring process used only those frozen plans. The
+radius stayed at 3 km and the management limit at 64 cells. Nine cached public
+geocodes were reused read-only; three bounded requests fetched Málaga, Toronto
+and the San Francisco Peninsula result. No imagery, embeddings or benchmark
+inference ran, and live baseline caches were untouched.
+
+| Peripheral dev clip | Named-region union | Plus corridors | Municipality union | City cells |
+|---|---:|---:|---:|---:|
+| Phoenix | 100% | 100% | refused | at least 65 |
+| Detroit to Roseville | 26.8% | 26.8% | 100% | 27 |
+| Atlanta (`kxEDNj5L_yQ`) | 40.8% | 83.8% | 100% | 29 |
+
+Thirteen of the 15 locally available clips have accepted city plans and 100%
+sampled route coverage. London and Phoenix exceed the limit, so their city
+plans remain explicit refusals with no truncated grid. London requires at
+least 69 cells. Other accepted city grids contain Berlin 59, Chicago 47,
+Karlsruhe 16, Newcastle 12 and Ulm 15 cells. Among the unavailable clips,
+Málaga has 100% geometric coverage and Toronto 94.6%.
+
+The peninsula query exposed a semantic geocoding failure: its first result was
+San Francisco Peninsula Watershed (OSM relation 3944756), a nature reserve
+polygon. The original planner accepted its geometry, but the resulting 14-cell
+plan covers 0% of the registered `comma_148` route. That original plan and score
+are preserved, not replaced after seeing GT. The planner now records Nominatim
+class/category, feature type, address type and place rank, and refuses known
+non-administrative polygons. Legacy snapshots with missing classification are
+refused by default, retaining ordinary VPR with explicit diagnostics. A helper
+research option can allow unknown classification while marking it unverified;
+it cannot override a known non-administrative result.
+
+Artifacts are under `output/municipality_fleet_probe`; the frozen plan hash is
+`5b6548585ab047b82574fa8de3f5e4d307e64147eb653284e19cbe90e3a904c4`.
+These results measure geographic opportunity using geodesic chords between
+registered GT waypoints. They establish neither imagery coverage nor selected
+answer accuracy. A visual pilot must still measure coarse-cell recall, dense
+cell selection, final route errors, failures, runtime and memory before this
+opt-in feature can support an accuracy claim or change a default.
+
+### Timed shop signs and joint VO alignment (post-hoc development)
+
+Native-resolution OCR on 24 frames per clip found literal retailer clues in
+KITTI 0009 and the Atlanta night video. A city-bbox OSM retail snapshot and
+generic name/time/separation rules produced five two-shop hypotheses for
+KITTI 0009 and one for Atlanta. No hypothesis was preselected, and GPS-like
+overlays were rejected before matching. KITTI 0033 produced no conjunction.
+The rules and all candidates were fingerprinted before offline diagnostics
+(`scripts/probe_poi_conjunctions.py`, `scripts/score_poi_conjunctions.py`).
+
+Fresh KITTI 0009 VO uses the MP4, generic 70-degree intrinsics and a whole-city
+road graph, without KITTI calibration or sensor files. Appearance plus road
+geometry alone selects incorrect areas (2,624–6,101 m symmetric route error).
+The timed POI extension scores all 1.417 million coarse transforms against
+every branch, gives each branch the same refinement budget, and selects by
+the fixed objective before a separate GPS-scoring process:
+
+| Appearance field | Distance cues | Distance and sign-bearing cues |
+|---|---:|---:|
+| Raw cosine | 43 m | 20 m |
+| Reference mean subtracted | 43 m | 13 m |
+
+Every variant selects the same shop branch without GPS input. Bearings use
+the sign bounding boxes, generic camera intrinsics and VO heading, with wide
+angular uncertainty. These are disclosed post-hoc dev experiments on the
+8,610-reference dense pilot, not the original v6 pool or a 15-clip result.
+All predictions and branch candidates are preserved under
+`output/joint_poi_alignment_pilot`; the two-phase runner is
+`scripts/pilot_joint_poi_alignment.py`. The reusable input-only core is now in
+`monocular_osm/poi_alignment.py`; its frozen replay exactly reproduces both
+distance-and-bearing transforms, objectives and selected branches. Sampling the
+full 149-frame VO path changes the rounded symmetric errors to 20.11 m and
+13.02 m. Broader validation is still required before changing the default answer.
+
+A second frozen experiment applies equal geographic budgets to every candidate
+shop branch, without selecting a branch by GPS. Reference IDs are sampled by
+the same deterministic hash rule, then deduplicated across overlapping discs.
+All six raw/centered predictions were frozen before separate scoring:
+
+| Reference plan | Actual union | Raw error | Centered error |
+|---|---:|---:|---:|
+| Full dense control | 8,610 | 20.11 m | 13.02 m |
+| 1 km, cap 500 per branch | 647 | 20.11 m | 13.02 m |
+| 1.5 km, cap 750 per branch | 1,409 | 20.11 m | 13.02 m |
+
+Every configuration searches all five hypotheses from the same 1,416,960
+whole-city coarse poses and recovers exactly the full-control transform.
+These references are subsets of an existing dense archive; the counts do not
+establish what a live Mapillary fetch will supply. The inference/scoring runner
+is `scripts/pilot_poi_reference_neighborhoods.py`, with frozen plans, source
+snapshots and outputs in `output/poi_reference_neighborhood_pilot_v2`.
+Fresh acquisition and normal-pipeline POI integration require separate checks.
+
+`monocular_osm/poi_localization.py` provides the orchestration over acquired
+inputs and an injected retrieval callback. It validates common video query
+times, backbone/preprocessing identity and duplicate photo evidence, retains
+every branch, and leaves failed or incomplete retrieval inactive. Its output
+is diagnostic; it does not choose the pipeline's answer.
+
+The subsequent live-acquisition pilot used the same five frozen literal-shop
+hypotheses and VO, with equal 1 km / 500-image requests. All five requests
+supplied 500 newly acquired, embedded references: 2,500 unique photos in the
+union. Eighty native-video queries were freshly embedded on CPU. Both the raw
+and reference-mean predictions were frozen before separate scoring; each
+selected branch 4 with **13.02 m symmetric route error**, 41.07 m start error,
+21.83 m end error and 39.48 m mean time-aligned error. Neither prediction used
+the previously selected branch or dense-pool embeddings as an inference input.
+
+The runner is `scripts/pilot_live_poi_alignment.py`, with immutable library
+source at commit `8aa9f05f80bd1e432546cc2575199117371d6612`. Artifacts are in
+`output/live_poi_alignment_pilot_v2`; the prediction-freeze SHA256 is
+`16e5a067b1734dffeb81c20412eb518a750f453666ad39bcd967d85de8608d37`.
+Peak resident memory was 2.13 GiB and peak private commit 3.15 GiB. This checks
+fresh public-reference acquisition for one disclosed development experiment.
+The subsequent normal `main.py --poi-only` check ran from a clean detached
+checkout at `b48a2177cf4a579d259625815b737aafb745449c`. Its complete registered
+0–46 s MP4 window produced 149 native frames at automatic stride 3, fresh
+generic-70-degree VO (134 valid poses), and all 24 fresh native OCR samples.
+The VO coordinates and timestamps exactly match the earlier MP4-derived pilot
+artifacts. The map was rebuilt automatically from copies of public named-city
+HTTP responses, with no explicit GraphML override. All five reference pools
+and model assets were hash-verified copies from the live pilot, isolated on
+E:; no saved OCR, VO, branch winner or prediction was reused. Cached reference
+embeddings and fresh query embeddings supplied 2,500 unique references and
+80 queries, with every branch scored before selecting branch 4.
+
+The prediction/source freeze is
+`d322c7eb4235829c6cf6ce3e1f5ff7054c530ccd4b0f500c2bf7f13329cd1d0d`.
+An independent strict-input audit and 78 direct artifact/source/identity checks
+passed before label access. Separate official benchmark scoring gives
+**13.32 m symmetric route error**, 41.07 m start error and 21.97 m end error.
+It uses the registered **12-waypoint** labels; the standalone live pilot above
+used an **11-waypoint** label set. Its 13.02 m value is therefore a different
+scoring reference, rather than an exact normal-CLI replay target.
+
+The normal run took 140.33 s. Telemetry includes the Windows venv launcher and
+all descendant processes: the conservative sums of their native peaks were
+2.551 GB resident memory and 3.743 GB private commit; sampled simultaneous
+aggregate peaks were 1.971 GB resident and 2.351 GB private. Original caches
+remained unchanged, and the source checkout stayed clean. The deployment,
+copy lineage, frozen output and separate score are under
+`E:/monocular-osm-normal-poi-proof/normal_cli_b48a217_run1`.
+This checks one normal development-clip invocation with verified warm reference
+caches. It establishes neither 15-clip success nor held-out accuracy.
+
+### Provisional assisted policy
+
+`monocular_osm/assisted_policy.py` declares a single input-only decision policy
+introduced at commit `5b724af`. Its initial 83 synthetic tests check stage
+ordering, missing and partial evidence, fixed thresholds and preservation of a
+valid baseline. Commit `300a82f` integrates this fixed policy through
+`--answer assisted` / `--assisted-only`, with isolated workers and strict
+benchmark evidence replay. The default remains the ordinary retrieval track.
+No complete assisted fleet result has been measured. Its constants are disclosed
+post-hoc dev heuristics, fixed before a complete assisted run.
+
+The ordinary track's similarity is the raw cosine at the decoded reference;
+Viterbi can select a reference below that frame's argmax. An adapter must bind
+the exact query pixels/descriptors, indices, times, model and preprocessing
+before comparing baseline and expanded medians. It must record the statistic,
+actual decoder, continuity settings and any argmax fallback. Crops-max or
+reference-mean scores cannot stand in for the raw warp score. Searching more
+reference pools can raise a median through selection alone; this remains an
+unvalidated heuristic, rather than a calibrated probability of correctness.
+
+The first normal assisted CLI proof used a clean detached `300a82f` checkout
+and an isolated copy of the ordinary Ulm 4K reference pool, freshly encoded on
+CPU with the verified model state. It encoded 80 fresh native-video queries
+against 1,499 servable references. The decoded-reference raw cosine median was
+`0.2678050845861435`, above the fixed `0.162` cutoff, so the only child was
+`baseline`. The ordinary answer, frozen child candidate and parent-selected
+answer have exactly equal routes and timestamps. The input audit passed before
+label access; separate standard scoring gives **16.37 m symmetric error**,
+55.32 m start error and 33.76 m end error against all eight registered waypoints.
+The deployment took 86.30 s with cached reference embeddings. This verifies the
+strong-retrieval branch on one clip; the full goal correctly reports one of 15
+present and 14 missing.
+
+The parent prediction freeze is
+`6d26b048b37e757fce1f1af0749305fcf65fc6bfc930260f8402aca444f9cdbe`,
+under `E:/monocular-osm-runs/assisted-strong-300a82f/output/benchmark_runs/assisted_strong_ulm_300a82f`.
+Verifier-only commit `5308460` fixes auditing relative configured paths from a
+different working directory. It proves the original output root and execution
+directory from all matching frozen child roles, while rejecting changed hashes,
+execution identities, path traversal and mismatched absolute outputs. The same
+immutable proof passes from C: with zero issues and unchanged prediction bytes;
+the fix does not rerun inference or change policy thresholds.
+
+Two weak-retrieval branches subsequently completed through the same clean
+`300a82f` normal assisted CLI. KITTI 0009 naturally selected
+`baseline → cues → poi_joint`: its raw decoded-reference median was
+`0.11663347482681274`, fresh automatic VO supplied 134/149 valid poses, and
+fresh OCR/inventory matching retained five literal branches. Independent input
+audit passed before separate official scoring: **13.32 m symmetric error**,
+41.07/21.97 m start/end against all 12 registered waypoints. Its freeze is
+`e4bde9d2119d089c743f4c8a89a4ab211288c2bebc24c947aff1e72449c56c1f`.
+
+Atlanta (`kxEDNj5L_yQ`) naturally selected `baseline → cues → expanded`,
+after fresh native VO supplied 3,880/4,463 valid poses. The fixed policy admitted
+the six metadata regions and skipped the municipality hierarchy. The strict
+input audit passed with zero issues before separate standard scoring:
+**32.76 m symmetric error**, 146.03/118.25 m start/end against all 20 waypoints,
+with no benchmark warnings. Its freeze is
+`f73a9e492dccd65eba90730a26f36bf6404cb87f3497157dde72ee954d582a10`.
+Deployment took 2,058.78 s including the ordinary baseline's fresh fine-pool
+reference encoding; sampled process-tree peaks were 3.53 GB resident and
+4.14 GB private memory. These validate individual fixed-policy branches,
+not a complete 15-clip result.
+
+KITTI 0033 subsequently completed the same clean `300a82f` normal CLI with
+the natural `baseline → cues → metric_pf` sequence. The baseline median was
+`0.10499950870871544`; fresh automatic VO had 532/532 valid poses, without a
+literal POI branch. The policy's subsequent native preflight supplied
+1,589/1,594 valid poses, measured plane coverage `0.5182619647355163` and
+spread `0.09737614682216433`, satisfying the fixed eligibility conditions.
+The particle filter used 600,000 particles, seed 0 and the automatic whole-city
+map, with signed native inputs and no GT or retrieval observation. Independent
+strict input audit passed before separate official scoring: **4.83 m symmetric
+error**, 30.56/3.74 m start/end against all 14 registered waypoints. The parent
+freeze is `ab195180a379d238f37261d0292b681ce73a529d7622ab8a5450b3feb478171c`.
+The deployment took 2,535.5 s. This adds one branch proof, not a complete fleet.
+
+The subsequent paper survey and controlled encoder, geometry and sequence
+tests, including their negative results, are recorded in
+[Recent methods](recent_methods_2026-10.md). They do not change policy v1.
+
+### Completed reliability baseline and coverage candidates
+
+The clean `2b95f12` checkout completed `reliable_cold_dev`: one cold,
+retrieval-only CPU repetition of every available registered development clip.
+All 15 processes exited successfully. The selected `result.answer` passes
+**9/15 at 200 m symmetric mean route error**, with median **135.10 m**. The
+strict goal audit rejects the result with all clips present. This reproduces
+the earlier pass count and does not establish the 15/15 target.
+
+| Clip | Symmetric error (m) |
+|---|---:|
+| Ulm 4K | 16.37 |
+| Ulm 2 | 45.49 |
+| Berlin | 135.10 |
+| London | 62.52 |
+| KITTI 0009 | 3,734.60 |
+| KITTI 0033 | 7,003.79 |
+| Chicago (`vCSEG6KaFng`) | 169.25 |
+| Chicago (`LmIHvLMLqFk`) | 132.57 |
+| Phoenix | 18,644.08 |
+| Detroit (`ZhGb8q1kliY`) | 55.34 |
+| Detroit (`1nF_7l07i-E`) | 73.30 |
+| Detroit (`g5lnpYCk1Ec`) | 1,384.62 |
+| Atlanta night | 6,589.58 |
+| Atlanta (`kxEDNj5L_yQ`) | 6,024.41 |
+| Newcastle | 34.62 |
+
+Three independent cold acquisition candidates at `5dcca38` used the same
+registered windows and GT fingerprints. Phoenix's six metadata regions
+reduced its error to **25.57 m**, choosing Scottsdale for all 80 queries.
+Detroit's complete municipal hierarchy fetched all 27 coarse and three fine
+cells, but scored **1,552.23 m**, worse than its baseline by 167.61 m. Geographic
+coverage and successful execution did not establish accurate retrieval. Every
+later candidate retains explicit decoder telemetry; the older baseline source
+records requested Viterbi, without proving whether each call used a fallback.
+
+Atlanta (`kxEDNj5L_yQ`) completed the same generic six-region configuration as
+Phoenix in 5,986 s, with all six inner calls using Viterbi and 8,995 servable
+reference occurrences across the pools. The region selector used Vinings for
+three queries, the search-seed/Vinings corridor for 60, and the
+search-seed/Midtown corridor for 17. An independent 272-check public-input audit
+froze the complete reference files, source and prediction before scoring.
+The original pinned benchmark gives **32.76 m symmetric error**, versus
+6,024.41 m for its cold baseline; start/end errors are 146.03/118.25 m against
+all 20 registered waypoints. Original and bounded-diagnostic aggregations agree
+exactly on every saved score, with no warnings. The older source does not emit
+full query-descriptor or similarity matrices; the subsequent normal assisted
+proof above validates its fixed-policy use. Audit and separate component scoring
+are in `output/atlanta_kx_regions_input_audit_5dcca38`.
+
+Original summaries and separate bounded scoring replays are preserved under
+`output/completed_runs_20261028_0855`. The bounded discrete Fréchet diagnostic
+uses the same 1,500-vertex cap and a two-row dynamic program. Full baseline
+aggregation took 2.875 s; every primary metric, Hausdorff value and success
+flag exactly matched the original scoring. One legacy GEOS Fréchet diagnostic
+was corrected from 881.55 to 722.20 m, independently checked by grid
+reachability. No primary accuracy number changed.
+
+The fixed image-only night pilot acquired 1,498 servable references from its
+single native-OCR shop branch, with all 80 query rows. Its first decode refused
+the pool because the new helper incorrectly enforced a circle; the provider's
+documented request returns the geodesic disc's bounding box. A hash-verified
+decoder-only recovery corrected that contract, retained every reference and
+left all inference constants unchanged. The original failed forward inputs
+remain immutable. A 295-check input audit preceded separate scoring against
+all 20 registered waypoints: **124.12 m symmetric error**, with start/end
+errors 298.79/756.38 m and mean time-aligned error 538.59 m. Predicted length
+was 2,472.12 m versus 1,121.25 m for the GT curve. This meets the spatial curve
+threshold on one development clip; endpoint and time localization remain weak.
+Forwards used clean `8651070`; recovery used clean `2d72ed4`, with no new
+forwards, downloads, reference filtering or GT input. The recovered freeze is
+`03ae8b4565f02be4f8a7a785128f2b5a20a41f7590cfef7b1f03996615be8c93`
+under `E:/monocular-osm-image-poi-pilot/run2`. Normal assisted CLI validation is
+still required; these component successes cannot be pooled into a 15-clip claim.
+
+The first normal assisted night invocation at clean `300a82f` ended at the
+standard **3,600 s timeout**, with no parent selected answer or prediction
+freeze. Its fresh automatic native VO had 1,432/2,950 valid poses and OCR
+retained two literal branches. Policy v1 therefore correctly followed
+`baseline → cues → expanded`; it did not force the earlier single-branch
+image-only experiment. The cold baseline completed, but the isolated expanded
+worker repeated the same public 8 km/cap-1,200 pool and fine-pool acquisition
+and encoding, exhausting the remaining budget. The benchmark driver's exit
+code zero indicates that it recorded the timeout, not successful localization.
+
+All 317 partial-run artifacts are preserved, without promoting partial caches
+or opening labels. Their freeze SHA256 is
+`d2f82949868d822fee3d868dae37fbcbfdef015a0a2c3620f0708f64deaf506e`.
+An independent failure/input audit passed with unchanged bytes and no surviving
+owned process births. The run has no accuracy score. It exposes a performance
+problem: isolated stages should share verified copies of completed public
+reference inputs while preserving separate query, OCR, VO and prediction
+state. Existing legacy descriptor files do not attest their historical encoder
+identity; any reuse must retain that uncertainty or bind a fresh-encoding
+receipt, rather than silently upgrading provenance.
+
+### Versioned all-region image policy and reference-input reuse
+
+Clean source `9f7e4a4` adds explicit `--assisted-profile v2`. Strong-baseline,
+joint-VO and measured metric-PF admission retain v1's thresholds. Weak VO and
+one to six literal OCR branches request one common-query image union: equal
+3 km/cap-1,500 regional budgets, the same 80 native three-crop queries, global
+ID/coordinate/descriptor consistency checks and one exact reference-mean
+full-sequence decode. An incomplete branch declines the whole union; no branch
+winner or retrospective per-clip choice is substituted. V1 remains the default.
+
+The optional appearance-evidence audit binds actual query pixels, descriptor
+rows, active model tensors, indices and timestamps. Capped public listings
+must account for every served or unserved member. Only known zero-loss tile
+listings can prove completeness: the legacy graph fallback does not exhaust
+pagination, so its zero-loss statistic cannot establish a completed search.
+This also applies to strict empty/sparse terminal proofs.
+
+Within one parent execution, a successfully completed baseline may provide
+byte-verified copies of its complete public reference inputs to the expanded
+worker. Reuse checks the full request, active model, preprocessing, source,
+served row order and tensor hash. It retains historical encoding uncertainty,
+creates no query/OCR/VO/prediction cache reuse, and declines conflicts into a
+fresh isolated cache. The copied snapshot fixes the consumed reference rows;
+an expanded child cannot silently add retried photos to that same pool.
+
+The normal night v2 proof completed under
+`E:/monocular-osm-assisted-v2-proof/night_run1`, benchmark
+`assisted_v2_night_9f7e4a4`, with fresh VO/OCR/query inference and a generic
+7,200 s pipeline budget. The public seed contains 118 assets (5,086,624,543
+bytes), including prior complete reference assets whose historical encoder
+identity remains UNVERIFIED; it contains no saved query evidence or route.
+Both this run and the separate heading diagnostic used external 8 GiB
+physical-memory and actual-system-commit guards.
+
+The normal policy naturally selected `baseline → cues → poi_image_union`.
+Fresh VO remained 1,432/2,950 valid; both equal-budget literal regions completed
+with 1,498 and 1,500 disjoint references, producing a 2,998-reference union on
+the same 80 native crop queries. Independent inference-only audit passed before
+GT scoring: exact full-union replay, zero strict-input issues, 986 protected
+files unchanged. The parent freeze is
+`7e83606482b06c5ffc1f51a8270a18f5f32d5f301530d65ba35e3543011b0e98`, audit
+`0fedffbe45fe6fba877108360e5c7b14a9880f8344ef5731118693ee57c53602`.
+
+Accuracy failed: the policy chose the wrong region, with **11,090.49 m**
+symmetric mean error, 11,387.42/11,708.80 m start/end error and 3,239.49 m
+predicted length versus 1,121.25 m GT. The normal run took 2,646.7 s; all
+declared inputs were valid, so this is an algorithmic failure. V2 is not adopted.
+The benchmark summary SHA256 is
+`78266adfa7c4900158ee5d5fc7c7b94b8851819e82b1d721627f72addf7c8670`.
+The separate single-region component's earlier success does not establish that
+an image-only decoder can select between all ambiguous literal regions.
+
+Read-only cache diagnosis also found a performance bug: JSON identity hashing
+distinguished integer `3000` from float `3000.0`, placing the seeded reference
+assets in a different directory from the actual request. The centers were
+bit-identical; the newly downloaded 1.178 GB raw store was byte-identical to
+the seed. The two missing photos did not invalidate the cached 1,498-row
+embedding fingerprint. Source `f3dfa71` canonicalizes exact numeric request
+types before hashing and acquisition, preserving all coordinate precision,
+other identity fields and legacy encoding uncertainty. Its 39 new cases and
+229 focused compatibility tests pass. Existing proofs and caches were untouched;
+this fixes reuse, not the wrong-region accuracy result.
+
+The full regression suite for source `9f7e4a4` passed **3,241 tests**, with six
+optional/capability skips and four warnings in 468.55 s. JUnit and complete
+output are saved as `output/tests-heading-union.xml` and
+`output/tests-heading-union.log`. Numerical accuracy still requires the separate
+frozen inference/audit/scoring steps above.
+
+### Completed timed-POI and SelaVPR++ follow-ups
+
+The standalone timed-POI experiment at clean `f589e88` completed all eight
+declared outputs on the full 2,998-reference night union. Independent audit
+passed before scoring. Both literal branches produce the same route as null;
+both joint models select null. All four raw outputs score **711.00 m** and all
+four reference-mean outputs **681.34 m**, failing 200 m. Capture-time text
+factors did not supply a measurable gain. Its score SHA256 is
+`8c71fc4330c40bbdfe667ba207c2b3d3be775c76fbbab08d8d5a9920950c0a69`.
+
+The official SelaVPR++ standard base model also completed all 9,735 Detroit
+reference images and 240 native query crops, CPU2 in 5,133.56 s. Eight new
+routes and sixteen historical controls were frozen before independent input,
+tensor, descriptor-algebra and decoder checks, then separate all-24 scoring.
+All eight new routes fail 200 m; the lowest error is **860.31 m**, versus
+**208.53 m** for the revised MegaLoc temporal control. The full table and proof
+limits are in [the research report](recent_methods_2026-10.md). Sela score
+SHA256 is `3987f2caaf5bd2d92f3d40a2d8e73badb28ff2868eea831a8c9bc5bdcbf3b0b2`.
+No optional Sela hashing or learned reranking was tested.
+
+The full current suite at clean `f589e88` passed **3,386 tests**, six skips and
+four warnings in 393.62 s; all 416 tracked source/test/doc files were unchanged.
+Artifacts are `output/tests-current-20261028.{xml,log,review.json}`. No default
+or fixed policy was changed. The complete fleet result remains **9/15**;
+individual component results cannot be pooled into a 15/15 claim.
+
+### Road-flow support correction and ongoing fixed-profile checks
+
+Two full-window night input probes exposed a coverage inconsistency: the
+legacy road-feature band excluded the estimator's entire required 10–20 m
+depth interval at an allowed pitch. Clean `a25445e` adds an explicit optional
+geometry-derived band, preserving the default and all quality thresholds.
+The paired probe restores 1,450/1,474 finite estimates but still fails both
+sharpness and consistency checks, with zero confidence. Negative/clipped
+estimates are not validated stops. No metric localization or accuracy gain
+is claimed. The [research report](recent_methods_2026-10.md#road-flow-coverage-and-quality-paired-input-experiment)
+records the same-native-frame proof and independent cached audits.
+
+Clean `d1db35e` also adds a fixed equal-three-encoder rank-fusion replay with
+single-encoder rank controls: sixteen new predictions plus twenty-four old
+cosine controls, all frozen before new scoring. The actual guarded replay and
+normal Phoenix assisted-v1 validation are running as of 28 October 2026,
+19:08 UTC. Neither is an accuracy result yet; Phoenix uses fresh query/OCR/VO,
+all public metadata regions and no forced stage or selected region.
+
+The full regression at clean `a25445e` passes **3,490 tests**, six skips and four
+warnings in 453.21 s, with tracked source bytes unchanged. See
+`output/tests-rank-flow-20261028.{xml,log,source.json,review.json}`. The complete
+fixed-profile baseline remains **9/15** and the 15/15 goal remains active.
+
+### Rank/Phoenix results and paired learned-feature motion
+
+The rank replay at clean `d1db35e` completed all forty outputs before independent
+audit and separate scoring. All sixteen new outputs fail 200 m. The equal-three
+ensemble's best diagnostic error is 1,335.47 m, while the original MegaLoc
+temporal control remains 208.53 m. All twenty-four original official scores
+reproduce exactly. The [research report](recent_methods_2026-10.md#rank-fusion-completed-negative-comparison)
+contains the full sixteen-row-equivalent table and proof limits. No default
+or policy changed.
+
+Normal Phoenix assisted-v1 also completed, with a pre-scoring inference audit.
+All six metadata regions completed, but coordinate dominance 29/80 exceeds
+the fixed gate and municipality fallback exceeds its cell budget. The unchanged
+policy selects baseline: **18,644.08 m**, failing the target. The summary SHA256
+is `68e9bbf9335f6e03709857ff486b6d3e18bea0b0516ec61a6b0c69d14a1e5c3d`.
+The earlier successful metadata component remains a separate diagnostic.
+
+Clean `87282b2` adds a full-native ORB/XFeat consecutive-motion comparison with
+unchanged geometry gates and explicit unknown-motion semantics. The fixed
+four-frame CPU runtime smoke and independent input/matching audit pass; all
+six smoke pairs are low-parallax unknown, so no pose-quality claim follows.
+The full 2,950-frame paired input experiment is running without localization,
+GT or policy changes. New focused tests pass; the latest full regression
+remains the separately recorded 3,490-pass suite at `a25445e`.
+
+### 31 October: completed-call persistence and pending fleet comparison
+
+The terminal retrieval catalog exposed a missing integration step: completed
+retrieval calls could remain in RAM until a later batch export. A timeout in
+the next call could therefore discard those observations. Assisted baseline
+and expanded children now checkpoint each returned call, publishing its NPZ
+before its metadata. Final export verifies and reuses the committed array
+bytes while adding later metadata. Failed persistence is recorded separately
+from retrieval outcomes, and the existing child deadlines remain in force.
+
+A real subprocess regression completes the first fake retrieval, blocks the
+second, and exercises owned-process timeout cleanup. The first pair survives
+into the parent freeze with the original Answer preserved. Cache-hit tests
+also cover request/reuse receipts and writer ordinals. The focused Root
+regression passes **255 tests**, with one capability skip, in 68.72 seconds;
+this is assisted-pipeline coverage, not a new full-suite or accuracy result.
+
+Both terminal-persisted occurrence variants have completed on 13 of the 15
+development clips. Their physical routes differ on all 13 clips while using
+the same query clocks. Two original clips remain pending before the fixed
+all-15 comparison and selected-Answer scoring. These candidate checks do not
+measure localization accuracy. The last scored baseline remains **9/15**
+within 200 m, with **135.10 m** median symmetric route error.

@@ -1,0 +1,110 @@
+{
+  "video_id": "jz6o-_Y6r2E",
+  "video_url": "https://www.youtube.com/watch?v=jz6o-_Y6r2E",
+  "city": "Albuquerque, New Mexico, USA",
+  "vo_segment": "155:285",
+  "description": "Unused fixed-screen pass; titled Dashcam #albuquerque #dashcam #ROVE #viofo. Overlay: decimal lat/lon (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 27 OCR fixes over 155-285 s (2.48 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 155.0,
+      "lat": 35.08257,
+      "lon": -106.72474
+    },
+    {
+      "t_sec": 160.0,
+      "lat": 35.08335,
+      "lon": -106.7252
+    },
+    {
+      "t_sec": 170.0,
+      "lat": 35.08476,
+      "lon": -106.72614
+    },
+    {
+      "t_sec": 175.0,
+      "lat": 35.08532,
+      "lon": -106.72655
+    },
+    {
+      "t_sec": 180.0,
+      "lat": 35.08573,
+      "lon": -106.72684
+    },
+    {
+      "t_sec": 190.0,
+      "lat": 35.08678,
+      "lon": -106.72759
+    },
+    {
+      "t_sec": 195.0,
+      "lat": 35.08743,
+      "lon": -106.72804
+    },
+    {
+      "t_sec": 205.0,
+      "lat": 35.08903,
+      "lon": -106.72894
+    },
+    {
+      "t_sec": 210.0,
+      "lat": 35.08992,
+      "lon": -106.72931
+    },
+    {
+      "t_sec": 215.0,
+      "lat": 35.09082,
+      "lon": -106.72961
+    },
+    {
+      "t_sec": 225.0,
+      "lat": 35.09268,
+      "lon": -106.72988
+    },
+    {
+      "t_sec": 230.0,
+      "lat": 35.09365,
+      "lon": -106.72988
+    },
+    {
+      "t_sec": 235.0,
+      "lat": 35.09462,
+      "lon": -106.72988
+    },
+    {
+      "t_sec": 245.0,
+      "lat": 35.09657,
+      "lon": -106.72987
+    },
+    {
+      "t_sec": 250.0,
+      "lat": 35.09755,
+      "lon": -106.72985
+    },
+    {
+      "t_sec": 260.0,
+      "lat": 35.09963,
+      "lon": -106.72982
+    },
+    {
+      "t_sec": 265.0,
+      "lat": 35.10063,
+      "lon": -106.72982
+    },
+    {
+      "t_sec": 270.0,
+      "lat": 35.10151,
+      "lon": -106.72982
+    },
+    {
+      "t_sec": 280.0,
+      "lat": 35.10335,
+      "lon": -106.72979
+    },
+    {
+      "t_sec": 285.0,
+      "lat": 35.10392,
+      "lon": -106.72979
+    }
+  ]
+}

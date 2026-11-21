@@ -1,0 +1,110 @@
+{
+  "video_id": "YJmgh_0SoGs",
+  "video_url": "https://www.youtube.com/watch?v=YJmgh_0SoGs",
+  "city": "Melbourne, Australia",
+  "vo_segment": "0:595",
+  "description": "test5 screen pass: Melbourne, Australia query 'Melbourne dashcam VIOFO' rank 9. No localization used. Overlay: GPS coordinate stamp (bottom). Auto-extracted from the burned-in GPS stamp by scripts/build_overlay_fleet.py: 120 OCR fixes over 0-595 s (13.02 km of route) subsampled to 20 waypoints. NOT hand-verified — the stamp's own precision bounds it.",
+  "source": "gps_overlay_ocr",
+  "waypoints": [
+    {
+      "t_sec": 0.0,
+      "lat": -37.985347,
+      "lon": 145.277344
+    },
+    {
+      "t_sec": 30.0,
+      "lat": -37.990397,
+      "lon": 145.276481
+    },
+    {
+      "t_sec": 65.0,
+      "lat": -37.996468,
+      "lon": 145.27557
+    },
+    {
+      "t_sec": 95.0,
+      "lat": -37.998348,
+      "lon": 145.280062
+    },
+    {
+      "t_sec": 125.0,
+      "lat": -37.999447,
+      "lon": 145.287842
+    },
+    {
+      "t_sec": 155.0,
+      "lat": -38.001538,
+      "lon": 145.294727
+    },
+    {
+      "t_sec": 190.0,
+      "lat": -38.006771,
+      "lon": 145.299756
+    },
+    {
+      "t_sec": 220.0,
+      "lat": -38.012069,
+      "lon": 145.302799
+    },
+    {
+      "t_sec": 250.0,
+      "lat": -38.016536,
+      "lon": 145.307406
+    },
+    {
+      "t_sec": 280.0,
+      "lat": -38.020732,
+      "lon": 145.3125
+    },
+    {
+      "t_sec": 315.0,
+      "lat": -38.025867,
+      "lon": 145.318685
+    },
+    {
+      "t_sec": 345.0,
+      "lat": -38.03066,
+      "lon": 145.323421
+    },
+    {
+      "t_sec": 375.0,
+      "lat": -38.035295,
+      "lon": 145.327734
+    },
+    {
+      "t_sec": 405.0,
+      "lat": -38.039958,
+      "lon": 145.33234
+    },
+    {
+      "t_sec": 440.0,
+      "lat": -38.043872,
+      "lon": 145.339144
+    },
+    {
+      "t_sec": 470.0,
+      "lat": -38.046757,
+      "lon": 145.34528
+    },
+    {
+      "t_sec": 500.0,
+      "lat": -38.049475,
+      "lon": 145.353027
+    },
+    {
+      "t_sec": 530.0,
+      "lat": -38.053113,
+      "lon": 145.360628
+    },
+    {
+      "t_sec": 565.0,
+      "lat": -38.059534,
+      "lon": 145.367562
+    },
+    {
+      "t_sec": 595.0,
+      "lat": -38.0637,
+      "lon": 145.372673
+    }
+  ]
+}

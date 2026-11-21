@@ -1,0 +1,50 @@
+[
+ {
+  "clip": "overlay_ZLmQWroXthY",
+  "n_areas": 55,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 305.0,
+  "second_to_first_score": 0.56,
+  "true_to_first_score": 1.0
+ },
+ {
+  "clip": "overlay_jkkl1QgsPSo",
+  "n_areas": 50,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 107.3,
+  "second_to_first_score": 0.689,
+  "true_to_first_score": 1.0
+ },
+ {
+  "clip": "overlay_jz6o-_Y6r2E",
+  "n_areas": 36,
+  "true_area_rank": 6,
+  "top1_area_to_route_m": 11152.9,
+  "second_to_first_score": 0.978,
+  "true_to_first_score": 0.386
+ },
+ {
+  "clip": "overlay_pFbUvfr8k-Q",
+  "n_areas": 33,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 162.0,
+  "second_to_first_score": 0.711,
+  "true_to_first_score": 1.0
+ },
+ {
+  "clip": "overlay_tK7bHJXAJX8",
+  "n_areas": 46,
+  "true_area_rank": 1,
+  "top1_area_to_route_m": 642.9,
+  "second_to_first_score": 0.775,
+  "true_to_first_score": 1.0
+ },
+ {
+  "clip": "overlay_yd5g7jsWiEM",
+  "n_areas": 39,
+  "true_area_rank": 21,
+  "top1_area_to_route_m": 3097.9,
+  "second_to_first_score": 0.899,
+  "true_to_first_score": 0.192
+ }
+]

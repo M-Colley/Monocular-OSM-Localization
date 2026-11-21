@@ -9,7 +9,6 @@ from ..hypotheses import distinct_hypotheses, hypothesis_confidence
 from ..position import (
     build_position_report,
     candidate_center_latlon,
-    format_position_summary,
     google_maps_url,
 )
 from .context import _record_channel, RunContext
@@ -764,11 +763,12 @@ def _pin_route_to_anchors(ctx: RunContext) -> tuple:
 
 
 def final_position(ctx: RunContext) -> None:
-    """Final position reports (headline / matcher / pinned), hypotheses, OrienterNet refinement.
+    """Trajectory-fit reports, hypotheses and optional OrienterNet refinement.
 
     Output contract (see ``_final_position_reports``): ``result['position']`` is the
-    HEADLINE - the anchored route when anchor-primary fired, else the anchor-pinned
-    route, else the matcher pick.
+    fit diagnostic: the anchored route when anchor-primary fired, else the
+    anchor-pinned route, else the matcher pick. ``finalize_result`` applies
+    ``--answer`` and presents ``result['answer']`` as the primary position.
     """
     cfg = ctx.cfg
     result = ctx.result
@@ -906,21 +906,24 @@ def final_position(ctx: RunContext) -> None:
                 road, position, result, vpr_track=vpr_track)
 
         result["position"] = position
-        print()
-        print(format_position_summary(position))
+        # The selected answer is formatted only after --answer has been
+        # applied in finalize_result. This fit remains a separate diagnostic.
+        print(f"      -> trajectory fit (diagnostic): "
+              f"{position['latitude']:.6f}, {position['longitude']:.6f} "
+              f"(result.position)")
         if (matcher_position is not None
                 and position is not matcher_position):
-            print(f"  Matcher pick (non-headline): "
+            print(f"  Matcher pick (diagnostic): "
                   f"{matcher_position['latitude']:.6f}, "
                   f"{matcher_position['longitude']:.6f}  "
                   f"({matcher_position['google_maps_url']})")
         if hyps and len(hyps) > 1:
             sc = position.get("spatial_confidence", {})
-            print(f"  Spatial confidence: {sc.get('level', '?')} "
+            print(f"  Trajectory fit agreement (diagnostic): {sc.get('level', '?')} "
                   f"(candidates {'agree on' if sc.get('level') == 'high' else 'are spread across'} "
                   f"{len(hyps)} place(s); concentration {sc.get('concentration')}, "
                   f"spread {sc.get('spread_m')} m)")
-            print("  Top location hypotheses (the true route is most likely one of these):")
+            print("  Trajectory-fit location hypotheses (diagnostic):")
             for h in hyps:
                 print(f"    {h.rank}. {h.lat:.5f}, {h.lon:.5f}  "
                       f"[support {h.support}]  "

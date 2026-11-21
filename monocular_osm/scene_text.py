@@ -23,7 +23,10 @@ anchors. A true-4K source additionally exposes street-name plates.
 from __future__ import annotations
 
 import json
+import math
+import operator
 import re
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Protocol
@@ -77,6 +80,7 @@ def _cache_signature(
     super_res: bool = False,
     video_path: Path | None = None,
     engine: str = "rapidocr",
+    sample_count: int | None = None,
 ) -> dict:
     sig = {
         "sample_interval_sec": sample_interval_sec,
@@ -95,6 +99,8 @@ def _cache_signature(
         # built with one must not be served to the other.
         "engine": engine,
     }
+    if sample_count is not None:
+        sig["sample_count"] = sample_count
     # Video identity: re-downloading the same submission at a different
     # resolution/format into the same slug must invalidate the cache instead
     # of silently serving detections OCR'd from the old file.
@@ -266,6 +272,14 @@ def _default_reader(languages: tuple[str, ...], use_gpu: bool,
 _COORD_FRAGMENT = re.compile(r"\d{1,3}[.,]\d{3,}")
 # degrees-minutes with the degree sign kept, or lost to a space by OCR
 _DMS_FRAGMENT = re.compile(r"\d{1,3}\s*(?:[°º*]|\s)\s*\d{1,2}\s*['’′]")
+# OCR can join degrees+minutes and concatenate the next coordinate directly
+# after the hemisphere: 4025'32"N7400'11"W. Require a minute mark, seconds
+# and an explicit hemisphere so road refs, EAST/WEST and names like "1960's"
+# stay available. This rejects fragments; it does not parse a geographic fix.
+_COMPACT_DMS_BODY = r"\d{2,5}\s*['’′]\s*\d{1,2}(?:[.,]\d+)?\s*[\"”″]?"
+_COMPACT_DMS_FRAGMENT = re.compile(
+    r"(?<![A-Z0-9])(?:" + _COMPACT_DMS_BODY + r"\s*[NSEW](?![A-Z])|"
+    r"[NSEW]\s*[:=]?\s*" + _COMPACT_DMS_BODY + r"(?![A-Z0-9]))", re.IGNORECASE)
 _HEMI_FRAGMENT = re.compile(r"\b[NSEW]\s*[:=]\s*\d", re.IGNORECASE)
 _SPEED_STAMP = re.compile(r"\d{1,3}\s*(?:MPH|KPH|KM\s*/?\s*H)\b", re.IGNORECASE)
 
@@ -276,6 +290,7 @@ def is_position_stamp(text: str) -> bool:
 
     t = normalize_overlay_text(str(text or ""))
     return bool(parse_latlon(t) or _COORD_FRAGMENT.search(t) or _DMS_FRAGMENT.search(t)
+                or _COMPACT_DMS_FRAGMENT.search(t)
                 or _HEMI_FRAGMENT.search(t) or _SPEED_STAMP.search(t))
 
 
@@ -296,8 +311,9 @@ def extract_scene_text(
     ocr_reader: OcrReader | None = None,
     use_gpu: bool = True,
     super_res: bool = False,
-    frame_reader: Callable[[Path, float, float | None, float], list] | None = None,
+    frame_reader: Callable[[Path, float, float | None, float], Iterable] | None = None,
     engine: str = "rapidocr",
+    sample_count: int | None = None,
 ) -> list[SceneText]:
     """OCR text off frames of ``video_path`` every ``sample_interval_sec``.
 
@@ -307,43 +323,62 @@ def extract_scene_text(
     to ``cache_path`` keyed by the sampling parameters; a matching cache
     short-circuits the (slow) OCR entirely.
 
+    ``sample_count`` optionally selects a fixed linspace frame grid instead
+    of interval sampling. Native frames are consumed one at a time.
     ``ocr_reader`` / ``frame_reader`` are injection points for tests so
     no real easyocr model or video decode is needed.
     """
     video_path = Path(video_path)
+    if sample_count is not None:
+        sample_count = _sample_count(sample_count)
     sig = _cache_signature(
         sample_interval_sec, start_sec, end_sec, tuple(languages),
         min_confidence, min_len, super_res, video_path=video_path,
-        engine=engine,
+        engine=engine, sample_count=sample_count,
     )
     if cache_path is not None:
         cached = _load_cache(Path(cache_path), sig)
         if cached is not None:
             return _without_stamps(cached)
 
-    frames = (frame_reader or _sample_frames)(
-        video_path, start_sec, end_sec, sample_interval_sec
-    )
+    frames = (frame_reader(video_path, start_sec, end_sec, sample_interval_sec)
+              if frame_reader is not None else _sample_frames(
+                  video_path, start_sec, end_sec, sample_interval_sec, sample_count=sample_count))
     reader = ocr_reader or _default_reader(tuple(languages), use_gpu, engine)
 
     detections: list[SceneText] = []
-    for t_sec, image in frames:
-        if super_res:
-            image = _upscale_sharpen(image)
-        for item in reader.readtext(image):
-            # easyocr returns (bbox, text, confidence); bbox is a 4-point
-            # polygon [[x,y], ...]. Keep an axis-aligned box so the sign
-            # can be cropped back out later.
-            _bbox, text, conf = item
-            text = str(text).strip()
-            if float(conf) >= min_confidence and len(text) >= min_len:
-                detections.append(SceneText(
-                    text=text, confidence=float(conf), t_sec=float(t_sec),
-                    bbox=_polygon_to_bbox(_bbox)))
+    try:
+        for t_sec, image in frames:
+            if super_res:
+                image = _upscale_sharpen(image)
+            for item in reader.readtext(image):
+                # easyocr returns (bbox, text, confidence); bbox is a 4-point
+                # polygon [[x,y], ...]. Keep an axis-aligned box so the sign
+                # can be cropped back out later.
+                _bbox, text, conf = item
+                text = str(text).strip()
+                if float(conf) >= min_confidence and len(text) >= min_len:
+                    detections.append(SceneText(
+                        text=text, confidence=float(conf), t_sec=float(t_sec),
+                        bbox=_polygon_to_bbox(_bbox)))
+    finally:
+        close = getattr(frames, "close", None)
+        if callable(close):
+            close()
 
     if cache_path is not None:
         _save_cache(Path(cache_path), sig, detections)
     return _without_stamps(detections)
+
+
+def _sample_count(value):
+    try:
+        count = operator.index(value)
+    except TypeError as exc:
+        raise ValueError("OCR sample count must be a positive integer") from exc
+    if isinstance(value, bool) or count < 1:
+        raise ValueError("OCR sample count must be a positive integer")
+    return count
 
 
 def _sample_frames(
@@ -351,34 +386,65 @@ def _sample_frames(
     start_sec: float,
     end_sec: float | None,
     interval_sec: float,
-) -> list[tuple[float, "object"]]:
+    *,
+    sample_count: int | None = None,
+) -> Iterator[tuple[float, object]]:
     """Yield ``(t_sec, frame_bgr)`` sampled every ``interval_sec``.
 
-    Native resolution (no downscale) — text legibility is the whole
-    point, and frames are read sparsely so memory isn't a concern.
+    Native resolution is retained for text legibility. Yielding each image
+    directly to OCR bounds memory independently of recording length.
     """
     import cv2
+    import numpy as np
+
+    if not math.isfinite(interval_sec) or interval_sec <= 0:
+        raise ValueError("OCR sample interval must be finite and positive")
+    if sample_count is not None:
+        sample_count = _sample_count(sample_count)
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
+        cap.release()
         raise RuntimeError(f"cv2 failed to open {video_path}")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    # Fragmented containers report 0 frames; fall back to reading until the
-    # decoder fails instead of silently sampling nothing.
-    end = (int(end_sec * fps) if end_sec is not None
-           else (total if total > 0 else float("inf")))
-    step = max(1, int(interval_sec * fps))
-    out: list[tuple[float, object]] = []
     try:
-        idx = int(start_sec * fps)
-        while idx < end:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        # Fragmented containers report zero frames: interval mode retains
+        # its EOF fallback; fixed-count mode needs a finite requested window.
+        end = (int(end_sec * fps) if end_sec is not None
+               else (total if total > 0 else float("inf")))
+        start = int(start_sec * fps)
+        if sample_count is not None:
+            if not math.isfinite(end):
+                raise ValueError("fixed OCR sampling needs a known duration or end time")
+            # Fixed-count callers pass a VO frame time (index / fps); flooring
+            # its float product can land one frame before it (118.99999 -> 118).
+            start = int(math.floor(start_sec * fps + 1e-6))
+            stop = min(int(end), total) if total > 0 else int(end)
+            indices = np.linspace(start, stop - 1, min(sample_count, max(0, stop - start))).astype(int)
+        else:
+            indices = None
+        idx, selected = start, 0
+        step = max(1, int(interval_sec * fps))
+        while True:
+            if indices is not None:
+                if selected >= len(indices):
+                    break
+                idx = int(indices[selected])
+            elif idx >= end:
+                break
             cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
             ok, frame = cap.read()
             if not ok:
+                if sample_count is not None:
+                    raise RuntimeError(f"cannot decode fixed OCR frame {idx}")
                 break
-            out.append((idx / fps, frame))
+            timestamp = idx / fps
+            if sample_count is not None:
+                pos_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
+                timestamp = pos_ms / 1000 if pos_ms > 0 else timestamp
+            yield float(timestamp), frame
             idx += step
+            selected += 1
     finally:
         cap.release()
-    return out
