@@ -1163,7 +1163,13 @@
         "W3": "Descriptive: within-200 m share per arm with Wilson 95 % intervals, per-continent breakdown across all 6 continents, medians, and 10 % better/worse/tie sign test.",
         "goal_check": "whether all test6 clips achieve symmetric_mean_m <= 200 m."
       },
-      "decision": "If W1 and W2 hold on blind 6-continent held-out data, --vpr-metro-dense is certified as generalizing worldwide on new footage and may be promoted as the recommended worldwide GPU configuration."
+      "decision": "If W1 and W2 hold on blind 6-continent held-out data, --vpr-metro-dense is certified as generalizing worldwide on new footage and may be promoted as the recommended worldwide GPU configuration.",
+      "infra_check": {
+        "recorded": "2026-11-21, after all 16 runs ended (14:30 UTC) and before any score or aggregate was computed",
+        "run": "worktree E:/claude-scoring/wt-test6 at 29273ac (monocular_osm tree 75f8e90cdc63fdc328069264a72fcd02e5a2ace5, clean dirty=False); script E:/claude-scoring/test6/run_test6.py; run names t6_ord / t6_metro_dense",
+        "runs": "16/16 runs exit 0 (0 timeouts, 0 refusals, 0 degraded channels, 0 leak warnings); all 16 answer.method vpr_track_only; all 8 t6_metro_dense runs served 24,000-26,578 Pass-1 references decoded via viterbi_tiled_cuda and 2,666-7,648 Pass-2 corridor references (1-3 discs, kept=pass-2-corridor on 8/8 clips)",
+        "decision": "no infrastructure failure; zero reruns"
+      }
     }
   }
 }
