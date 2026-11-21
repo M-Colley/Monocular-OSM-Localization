@@ -918,6 +918,39 @@ def test_reference_snapshot_changes_with_reference_identity_and_coordinates():
     assert kv._reference_snapshot(refs)["refs_sha256"] != original["refs_sha256"]
 
 
+@pytest.mark.parametrize("n_core,serve_core,n_outer", [(10, True, 25), (40, False, 32), (0, False, 32)])
+def test_outer_ring_can_recover_an_insufficient_core(tmp_path, monkeypatch, n_core, serve_core, n_outer):
+    torch = pytest.importorskip("torch")
+    core = _refs([ULM] * n_core)
+    outer_point = (ULM[0] + 0.045, ULM[1])
+    wide = core[:2] + [{**r, "id": f"o{r['id']}"} for r in _refs([outer_point] * n_outer)]
+    monkeypatch.setattr(kv, "_resolve_backbone", lambda *a: "megaloc")
+    monkeypatch.setattr(kv, "_fetch_refs_for", lambda source, center, radius, *a:
+                        core if radius == 3000.0 else wide)
+
+    def embed(refs, device, cache_dir, **kwargs):
+        if refs is core and not serve_core:
+            return None, None
+        return torch.ones((len(refs), 4)), np.array([[r["lat"], r["lon"]] for r in refs])
+
+    def query(frames, indices, refs, *args, **kwargs):
+        similarities = np.zeros((len(indices), len(refs)))
+        similarities[:, -1] = 1.0
+        return similarities
+
+    monkeypatch.setattr(kv, "_embed_refs", embed)
+    monkeypatch.setattr(kv, "_query_similarities", query)
+    frames = [np.zeros((8, 8, 3), np.uint8)] * 3
+    options = {"device": "cpu", "cache_dir": str(tmp_path), "sequence_decode": False}
+
+    assert kv.kartaview_vpr_track(frames, ULM, **options) is None
+    track = kv.kartaview_vpr_track(frames, ULM, outer_radius_m=8000.0, **options)
+    assert track is not None
+    np.testing.assert_array_equal(track[1], [outer_point] * len(frames))
+    assert kv.LAST_TRACK_STATS["n_references"] == n_outer + (n_core if serve_core else 0)
+    assert kv.LAST_RING["n_outer_added"] == n_outer
+
+
 def test_outer_ring_adds_only_new_references_and_keeps_the_core(tmp_path, monkeypatch) -> None:
     """The ring is a second, wider listing in its own cache dir; ids already in
     the core set are not added twice and the core set is untouched."""
