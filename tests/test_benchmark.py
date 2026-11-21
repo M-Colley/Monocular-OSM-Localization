@@ -632,6 +632,7 @@ def test_repeat_scores_keep_full_precision_but_display_rounding_and_raw_flags_ar
 def test_aggregate_scores_methods_and_baselines(tmp_path: Path) -> None:
     run_dir, manifest, root = _make_run(tmp_path)
     s = M.aggregate(run_dir, manifest, root=root, allow_network=False, n_resamples=999)
+    assert s["repeat_score_precision"] == "unrounded"
 
     a = s["clips"]["clipA"]["methods"]
     assert a["pipeline"]["symmetric_mean_m"]["median"] == pytest.approx(30.0, abs=0.5)
