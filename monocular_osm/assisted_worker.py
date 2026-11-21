@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import numpy as np
-from .provenance import config_snapshot, file_sha256, snapshot_sources
+from .provenance import config_snapshot, file_sha256, snapshot_prediction_sources
 from .stages.poi_only import _safe
 from .stages.report import _write_result_json
 
@@ -312,8 +312,7 @@ def run_child(kind, parent):
 
 
 def _sources(output):
-    root = Path(__file__).resolve().parents[1]
-    return snapshot_sources([root / "main.py", *sorted((root / "monocular_osm").rglob("*.py"))], output)
+    return snapshot_prediction_sources(output)
 
 
 def _cues(cfg, video):

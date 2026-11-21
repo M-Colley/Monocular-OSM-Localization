@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 
 from ..poi_localization import POILocalizationConfig, _array_sha, _json_sha, localize_with_poi
-from ..provenance import config_snapshot, file_sha256, snapshot_sources
+from ..provenance import config_snapshot, file_sha256, snapshot_prediction_sources
 from ..visual_odometry import VO_ALGO_VERSION, default_intrinsics
 from .context import _record_channel
 from .report import _write_result_json
@@ -293,13 +293,12 @@ def _write_inputs(ctx):
 
 
 def _begin_inputs(ctx, K, shape):
-    root = Path(__file__).resolve().parents[2]
-    sources = [root / "main.py", *[root / "monocular_osm" / relative for relative in (
+    sources = (
         "cli.py", "pipeline.py", "visual_odometry.py", "frame_extraction.py", "osm_data.py",
         "graph_filter.py", "provenance.py", "position.py", "baselines.py", "scene_text.py",
         "kartaview_vpr.py", "poi_alignment.py", "poi_clues.py", "poi_localization.py", "geo.py",
         "net.py", "osm_gazetteer.py", "stages/context.py", "stages/acquire.py",
-        "stages/trajectory.py", "stages/poi_only.py", "stages/poi_runtime.py", "stages/report.py")]]
+        "stages/trajectory.py", "stages/poi_only.py", "stages/poi_runtime.py", "stages/report.py")
     times = np.asarray(ctx.frames.timestamps, float)
     if len(times) < 2 or not np.isfinite(times).all() or np.any(np.diff(times) <= 0):
         raise ValueError("POI component requires finite increasing video presentation times")
@@ -318,7 +317,7 @@ def _begin_inputs(ctx, K, shape):
                        "registered_window": [ctx.cfg.vo_start_sec, ctx.cfg.vo_end_sec]},
         "camera": {"intrinsics": "generic_70_degree_hfov", "K": K.tolist(),
                    "shape_hw": list(shape), "vo_rng_seed": 0},
-        "source_sha256": snapshot_sources(sources, ctx.cfg.output_dir), "evidence_artifacts": [],
+        "source_sha256": snapshot_prediction_sources(ctx.cfg.output_dir, sources), "evidence_artifacts": [],
         "retrieval": {"requested_model": "megaloc", "device": "cpu", "n_query": QUERY_SAMPLES,
                       "cpu_threads": 4,
                       "query_mode": ctx.cfg.vpr_query_mode, "batch_size": ctx.cfg.vpr_query_batch_size,

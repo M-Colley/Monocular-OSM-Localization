@@ -3,12 +3,13 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from monocular_osm import assisted_worker as worker, kartaview_vpr as kv
+from monocular_osm import assisted_worker as worker, kartaview_vpr as kv, provenance
 from monocular_osm.pipeline import PipelineConfig
 from monocular_osm.provenance import config_snapshot, file_sha256
 from monocular_osm.stages import assisted as stage
@@ -129,8 +130,19 @@ def reasons(report):
     return " ".join(report["reasons"] + [r for c in report["clips"] for r in c["reasons"]])
 
 
-def test_real_controller_freezes_and_full_matrix_adapter_pass_without_future_stages(tmp_path, monkeypatch):
+@pytest.mark.parametrize("installed", [False, True])
+def test_real_controller_freezes_and_full_matrix_adapter_pass_without_future_stages(tmp_path, monkeypatch, installed):
+    if installed:
+        package = Path(provenance.__file__).parent
+        install = tmp_path / "site-packages"
+        shutil.copytree(package, install / package.name, ignore=shutil.ignore_patterns("__pycache__"))
+        (install / "main.py").write_text('"""Unrelated project entry point."""', encoding="utf-8")
+        (install / "pyproject.toml").write_text('[project]\nname = "unrelated-project"\n', encoding="utf-8")
+        monkeypatch.setattr(provenance, "_REPO_ROOT", install)
     case = fixture(tmp_path, monkeypatch)
+    declared = audit.posix_sources(case.ctx.result["assisted_inputs"]["source_sha256"])
+    assert "monocular_osm/cli.py" in declared
+    assert ("main.py" in declared) is not installed
     report = check(case)
     assert report["goal_met"], reasons(report)
     assert [x["kind"] for x in case.ctx.result["assisted_audit"]["reached_stages"]] == ["baseline"]
@@ -204,7 +216,7 @@ def test_malformed_or_external_assisted_contract_cannot_pass(tmp_path, monkeypat
     inputs, transcript = case.ctx.result["assisted_inputs"], case.ctx.result["assisted_audit"]
     if change == "gt": inputs["input_policy"]["ground_truth"] = True
     elif change == "manual": inputs["input_policy"]["manual_region_coordinates"] = True
-    elif change == "source_omitted": inputs["source_sha256"].pop("main.py")
+    elif change == "source_omitted": inputs["source_sha256"].pop(str(Path("monocular_osm/cli.py")))
     elif change == "window": inputs["registered_window"] = [0., 5.]
     elif change == "runtime": transcript["reached_stages"][0]["comparison"]["inner_decoder"]["actual"] = "argmax"
     elif change == "child_rc": transcript["reached_stages"][0]["worker_returncode"] = 1
